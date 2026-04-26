@@ -13,7 +13,7 @@
 - **单一事实源**：每类信息有唯一的权威位置，避免重复维护和冲突
 - **决策可追溯**：通过 ADR（Architecture Decision Record）记录重要决策的完整推理过程
 
-## 目录���构
+## 目录结构
 
 ```
 template/
@@ -43,7 +43,7 @@ template/
 ## 使用方法
 
 1. 将 `template/` 目录复制到你的项目中（建议放在 `docs/ai/` 下）
-2. 在项目根目录放置 `AGENTS.md`（或 `CLAUDE.md`），指向上下文目录
+2. 在项目根目录放置 `AGENTS.md`，指向上下文目录
 3. 根据项目需要填充模板中的占位符
 4. AI 进入项目时，从 `AGENTS.md` 开始读取
 
@@ -58,7 +58,7 @@ template/
 | 5 | worklog/ | 按需 | 工作历史 |
 | 6 | archive/ | 仅明确要求时 | 归档内容 |
 
-## 事实��优先级
+## 事实源优先级
 
 冲突时按以下顺序判断：
 
@@ -69,3 +69,34 @@ template/
 5. ADR 文件
 6. worklog
 7. archive
+
+## 命令行工具
+
+本仓库提供一个无第三方依赖的辅助 CLI：
+
+```bash
+python acf.py init docs/ai
+python acf.py init docs/ai-min --profile minimal
+python acf.py simplify docs/ai docs/ai-min
+python acf.py check docs/ai
+python acf.py check docs/ai --strict
+```
+
+命令说明：
+
+- `init`：从 `template/` 生成标准或简化上下文目录。
+- `simplify`：从已有上下文生成只包含核心文件的简化版本。
+- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性和占位符残留。
+
+`check` 默认关注结构完整度；`--strict` 适合检查已投入使用的项目上下文，会把占位符残留视为错误。
+
+## 维护与验证
+
+修改模板或 CLI 后运行：
+
+```bash
+python acf.py check template
+python -m unittest
+```
+
+自动化边界和后续路线见 `docs/Automation.md`。

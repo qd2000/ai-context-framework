@@ -16,14 +16,14 @@
 
 其中：
 
-- `Context.md`：当前阶段事实源，记录当前阶段目标、范围、约束、有效事实和开放问题。
-- `Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源。
+- `active/Context.md`：当前阶段事实源，记录当前阶段目标、范围、约束、有效事实和开放问题。
+- `active/Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源。
 
 使用规则：
 
-1. 默认优先读取 `Context.md`。
-2. 如果 `Current_Task.md` 状态为 Active，则读取它。
-3. 如果用户当前消息提出了新的任务，并且与 `Current_Task.md` 冲突，以用户当前消息为准。
+1. 默认优先读取 `active/Context.md`。
+2. 如果 `active/Current_Task.md` 状态为 Active，则读取它。
+3. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
 4. `active/` 中的信息应保持短、准、当前有效。
 5. 不要把历史过程、旧方案、原始日志写入 `active/`。
 
@@ -91,8 +91,8 @@
 - **Project_Brief.md**：项目长期背景、目标、愿景、边界和非目标。不记录当前阶段目标。
 - **Decisions_Index.md**：重要决策索引，只记录摘要和 ADR 路径。
 - **Architecture.md**：项目架构说明，仅在涉及系统设计时读取。
-- **Tech_Context.md**��技术环境和约束，仅在涉及技术栈、兼容性时读取。
-- **Sources_Index.md**：外部资料索引，只保存摘���和路径，不保存大段原文。
+- **Tech_Context.md**：技术环境和约束，仅在涉及技术栈、兼容性时读取。
+- **Sources_Index.md**：外部资料索引，只保存摘要和路径，不保存大段原文。
 - **System_Manual.md**：本文件，系统详细使用手册。
 
 ---
@@ -204,3 +204,17 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 1. 不要默认读取这些文件。
 2. 只有当用户明确要求时，才读取对应文件。
 3. 不要把这些文件中的内容自动视为项目事实。
+
+---
+
+## 14. CLI 辅助工具
+
+如果本仓库附带 `acf.py`，可以用它降低维护成本：
+
+- `python acf.py init <target>`：生成标准上下文模板。
+- `python acf.py init <target> --profile minimal`：生成简化模板。
+- `python acf.py simplify <source> <target>`：从已有上下文导出简化版本。
+- `python acf.py check <target>`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举和索引一致性。
+- `python acf.py check <target> --strict`：把占位符残留作为错误，适合正式项目上下文。
+
+CLI 的检查结果不能替代人工判断，但可以自动发现维护成本高、容易遗忘的结构性问题。

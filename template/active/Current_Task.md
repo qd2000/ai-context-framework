@@ -12,7 +12,7 @@
 
 ## 当前任务状态
 
-【Active / Paused / Done / Empty】
+Empty
 
 说明：
 
@@ -20,6 +20,7 @@
 - Paused：当前任务暂停
 - Done：当前任务已完成
 - Empty：暂无需要写入文件的当前任务
+- 新项目复制模板后，如果确实有正在执行的任务，再把本值改为 Active。
 
 ---
 
@@ -124,6 +125,6 @@
 任务完成后，请整理以下内容，供人审核后写回项目系统：
 
 1. 应写入 `Context.md` 的新增当前事实。
-2. 应写入 `Decisions_Index.md` 或 ADR 的重要决策。
+2. 应写入 `reference/Decisions_Index.md` 或 ADR 的重要决策。
 3. 应写入 rules 的新增规则。
 4. 应归档到 `archive/` 的历史内容。
