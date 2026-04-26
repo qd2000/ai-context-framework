@@ -81,6 +81,27 @@ class CliTests(unittest.TestCase):
             result = acf.check_context(target, "minimal", strict=False)
             self.assertTrue(any("does not match date" in error for error in result.errors))
 
+    def test_strict_ignores_explicit_template_placeholder_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            replacements = {
+                "AGENTS.md": "入口\n",
+                "active/Context.md": "当前事实\n",
+                "active/Current_Task.md": "## 当前任务状态\n\nEmpty\n",
+                "rules/Always_Active.md": "规则\n",
+                "rules/Project_Rules.md": "规则\n",
+                "reference/Project_Brief.md": "项目背景\n",
+                "reference/Decisions_Index.md": "| ID | 标题 | 状态 | 摘要 | 详情 |\n|---|---|---|---|---|\n| 暂无 | | | | |\n",
+                "reference/Sources_Index.md": "| 资料 | 状态 | 摘要 |\n|---|---|---|\n| 暂无 | | |\n",
+                "worklog/Worklog_Index.md": "| 日期 | 摘要 | 关键结论 | 详情 |\n|---|---|---|---|\n| 暂无 | | | |\n",
+            }
+            for rel_path, content in replacements.items():
+                (target / rel_path).write_text(content, encoding="utf-8")
+
+            result = acf.check_context(target, "minimal", strict=True)
+            self.assertFalse(result.errors)
+
 
 if __name__ == "__main__":
     unittest.main()

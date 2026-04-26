@@ -43,9 +43,11 @@ Dogfooding MVP / 框架稳定化。
 1. 本仓库的核心产物是 `template/` 标准 AI 上下文模板。
 2. `docs/ai/` 是本仓库真实使用中的 dogfooding 上下文实例。
 3. `acf.py` 是无第三方依赖的辅助 CLI，已支持 `init`、`simplify` 和 `check`。
-4. 当前已有测试覆盖 CLI 的生成、检查、状态校验和索引一致性基础场景。
-5. `../Automation.md` 记录自动化边界、后续 CLI 命令和 subagent 草案路线。
-6. `template/` 中的占位符是产品模板内容，不是本仓库事实。
+4. `acf.py check --strict` 会把非模板文件中的占位符视为错误，并忽略明确模板文件中的占位符。
+5. `docs/ai/` 当前应通过 `python acf.py check docs/ai --profile minimal --strict`。
+6. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性和 strict 模板文件忽略场景。
+7. `../Automation.md` 记录自动化边界、后续 CLI 命令和 subagent 草案路线。
+8. `template/` 中的占位符是产品模板内容，不是本仓库事实。
 
 ---
 
@@ -61,9 +63,8 @@ Dogfooding MVP / 框架稳定化。
 
 ## 当前开放问题
 
-1. `acf.py check --strict` 如何区分真实项目上下文与仍应保留的模板文件。
-2. `new worklog`、`new adr`、`new task`、`new source` 的最小接口如何设计。
-3. `writeback draft` 应接收什么输入格式，以及如何避免越权写入事实源。
+1. `new worklog`、`new adr`、`new task`、`new source` 的最小接口如何设计。
+2. `writeback draft` 应接收什么输入格式，以及如何避免越权写入事实源。
 
 ---
 
@@ -97,4 +98,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-26
-- 更新原因：初始化本仓库的 `docs/ai` dogfooding 上下文。
+- 更新原因：完成 strict dogfooding 检查语义，`docs/ai` 可作为真实上下文严格检查。

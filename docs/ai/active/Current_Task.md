@@ -23,86 +23,79 @@ Done
 
 ## 任务名称
 
-初始化 `docs/ai` dogfooding 上下文
+让 `docs/ai` dogfooding 上下文通过 strict 检查
 
 ---
 
 ## 本次任务目标
 
-1. 使用 `acf.py init docs/ai --profile minimal` 初始化真实上下文实例。
-2. 填充当前项目的最小真实事实，避免保留纯占位上下文。
-3. 将根目录 `AGENTS.md` 调整为薄入口，并转发到 `AGENTS.md`。
-4. 记录 dogfooding 决策和工作日志。
-5. 运行检查与测试，确认初始化结果可用。
+1. 改进 `acf.py check --strict`，使其区分真实项目文件和明确模板文件。
+2. 清理 `reference/Sources_Index.md` 中的占位符，使资料索引成为真实空索引。
+3. 更新 dogfooding 规则，使 CLI 修改时验证 `docs/ai` strict 检查。
+4. 补充测试覆盖 strict 忽略明确模板文件的行为。
 
 ---
 
 ## 任务背景
 
-本仓库此前主要维护 `template/` 产品模板和轻量 CLI，还没有一个真实使用中的上下文实例。为了验证框架自身的使用体验，需要在 `docs/ai/` 下创建 dogfooding 实例，并让后续协作优先读取它。
+`docs/ai` 初始化后，minimal 实例仍包含 `decisions/ADR-0001-template.md`、`worklog/daily/YYYY-MM-DD.md` 和未填的 `reference/Sources_Index.md`。这导致真实 dogfooding 上下文无法通过 `--strict`。其中前两者是明确模板文件，应允许保留占位符；资料索引是项目事实文件，应替换为真实空索引。
 
 ---
 
 ## 输入材料
 
-- 已批准的初始化计划。
-- `acf.py` 的 `init`、`simplify`、`check` 命令。
-- `template/` 下的 minimal 模板文件。
-- `../Automation.md` 中的自动化路线。
+- `python acf.py check docs/ai --profile minimal --strict` 的失败输出。
+- `active/Context.md` 中记录的 strict dogfooding 开放问题。
+- `acf.py` 当前的 placeholder 检查逻辑。
 
 ---
 
 ## 输出要求
 
-- `docs/ai/` minimal 上下文实例。
-- 已填充的 `active/Context.md`、`active/Current_Task.md`、`reference/Project_Brief.md`、`reference/Decisions_Index.md` 和 worklog。
-- 一个实际 ADR：`decisions/ADR-0001.md`。
-- 根目录 `AGENTS.md` 薄入口转发。
-- 验证结果。
+- `acf.py check --strict` 只把非模板文件占位符作为错误。
+- `reference/Sources_Index.md` 不再保留占位符。
+- `docs/ai` strict 检查通过。
+- 相关文档和测试同步更新。
 
 ---
 
 ## 成功标准
 
-1. `docs/ai/` 存在并包含 minimal 上下文结构。
-2. 核心事实文件不再是纯空模板。
-3. `reference/Decisions_Index.md` 只登记真实决策，不登记模板示例。
-4. `worklog/Worklog_Index.md` 的日期和 daily 文件路径一致。
-5. `python acf.py check docs/ai --profile minimal` 通过。
-6. `python acf.py check template` 和 `python -m unittest` 通过。
+1. `python acf.py check docs/ai --profile minimal --strict` 通过。
+2. `python acf.py check template` 通过。
+3. `python -m unittest` 通过。
+4. `python -m py_compile acf.py tests\test_cli.py` 通过。
+5. `reference/Sources_Index.md` 不含占位符。
 
 ---
 
 ## 失败信号
 
-1. `docs/ai` 仍然主要由未替换占位符构成。
-2. 根 `AGENTS.md` 和 `docs/ai` 重复维护完整事实。
-3. 决策索引登记了模板示例或断开的 ADR 链接。
-4. worklog 索引引用不存在的 daily 文件。
+1. `--strict` 对真实项目上下文仍因明确模板文件失败。
+2. `--strict` 对普通项目文件中的占位符不再报错。
+3. 模板自身检查或单元测试回归失败。
 
 ---
 
 ## 约束条件
 
-1. 本轮不修改 CLI 行为来支持 strict dogfooding。
-2. 本轮不引入新依赖。
-3. 本轮不删除 generated `decisions/ADR-0001-template.md`，因为它仍是当前 minimal 模板输出的一部分。
-4. 自动化路线只记录为计划，不在本任务中实现新命令。
+1. 不删除当前 generated 模板文件。
+2. 不引入新依赖。
+3. 不改变 `template/` 作为产品模板的占位符语义。
 
 ---
 
 ## 不允许做的事
 
-- 不实现 agent runtime。
-- 不引入向量库或数据库。
-- 不让 subagent 自动写入权威上下文。
-- 不把 `template/` 的占位内容当作本仓库事实。
+- 不把所有占位符都静默忽略。
+- 不让 strict 对真实项目文件失去约束力。
+- 不实现下一批 `new ...` 命令。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-本任务已完成。后续需要判断的问题请查看 `active/Context.md` 的“当前开放问题”。
+本任务已完成。后续优先判断 `new worklog`、`new adr`、`new task`、`new source` 的最小接口。
 
 ---
 
@@ -110,6 +103,6 @@ Done
 
 已写入：
 
-1. `active/Context.md`：当前阶段事实。
-2. `reference/Decisions_Index.md` 和 `decisions/ADR-0001.md`：dogfooding 决策。
-3. `worklog/Worklog_Index.md` 和 `worklog/daily/2026-04-26.md`：工作记录。
+1. `active/Context.md`：更新 strict dogfooding 当前事实和开放问题。
+2. `worklog/daily/2026-04-26.md`：追加本次工作记录。
+3. `../Automation.md` 和根 `AGENTS.md`：更新 dogfooding 验证规则。

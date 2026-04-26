@@ -78,6 +78,10 @@ VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Re
 PLACEHOLDER_RE = re.compile(r"【[^】]+】")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+PLACEHOLDER_TEMPLATE_FILES = {
+    "decisions/ADR-0001-template.md",
+    "worklog/daily/YYYY-MM-DD.md",
+}
 
 MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本项目。
 
@@ -285,6 +289,10 @@ def strip_code_ticks(value: str) -> str:
     return value
 
 
+def is_placeholder_template_file(rel_path: str) -> bool:
+    return rel_path in PLACEHOLDER_TEMPLATE_FILES
+
+
 def check_decisions(root: Path, errors: list[str]) -> None:
     index_path = root / "reference" / "Decisions_Index.md"
     if not index_path.exists():
@@ -413,9 +421,9 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
         placeholders = PLACEHOLDER_RE.findall(text)
         if placeholders:
             message = f"{rel_file}: contains {len(placeholders)} placeholder(s)"
-            if strict:
+            if strict and not is_placeholder_template_file(rel_file):
                 errors.append(message)
-            else:
+            elif not strict:
                 warnings.append(message)
 
         for ref in MARKDOWN_REF_RE.findall(text):

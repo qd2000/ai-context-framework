@@ -8,7 +8,7 @@
 
 - `init`：生成标准或简化上下文模板。
 - `simplify`：从已有上下文导出简化版本。
-- `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径。
+- `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径；`--strict` 会将非模板文件中的占位符视为错误。
 
 这些检查不需要模型判断，适合作为每次模板修改后的基础验证。
 
@@ -52,6 +52,6 @@ subagent 适合处理需要语义判断、但不应静默修改权威文件的�
 修改本项目时，应把本仓库当成第一个使用者：
 
 1. 模板结构变化后运行 `python acf.py check template`。
-2. CLI 行为变化后运行 `python -m unittest`。
+2. CLI 行为变化后运行 `python acf.py check docs/ai --profile minimal --strict` 和 `python -m unittest`。
 3. 如果发现跨文件同步问题，优先考虑补充 `acf.py check` 规则，而不是只补文档说明。
 4. 如果某项维护动作重复出现两次以上，评估是否应新增 CLI 子命令或 subagent 草案流程。

@@ -20,6 +20,6 @@
 ## 修改规则
 
 - 修改 `template/` 时，同步检查 `README.md`、`template/AGENTS.md` 和 `template/reference/System_Manual.md` 是否一致。
-- 修改 CLI 时，运行 `python acf.py check template`、`python acf.py check docs/ai --profile minimal` 和 `python -m unittest`。
+- 修改 CLI 时，运行 `python acf.py check template`、`python acf.py check docs/ai --profile minimal --strict` 和 `python -m unittest`。
 - 修改维护流程或 subagent 边界时，同步更新 `docs/Automation.md`。
 - 不要把 `template/active/` 中的占位内容当作本仓库当前任务事实。
