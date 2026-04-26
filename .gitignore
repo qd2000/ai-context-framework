@@ -1,0 +1,6 @@
+.omx/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+.coverage
