@@ -248,6 +248,12 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf edit table upsert <file> --key-column "列名" --key "键值" --cell "列名=内容"`：按 key column 更新或追加表格行。
 - `acf check [target]`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举和索引一致性。
 - `acf check [target] --strict`：把占位符残留作为错误，适合正式项目上下文。
+- `acf log enable [target]`：启用用户级全局使用状态日志，并按项目子目录隔离。
+- `acf log disable [target]`：关闭该项目的用户级全局使用状态日志，不删除已有日志。
+- `acf log status [target] --json`：查看日志启用状态、路径、事件数量和最近事件时间。
+- `acf log tail [target] --limit 20 --json`：读取最近 usage event。
+- `acf log summarize [target] --json`：统计命令次数、成功率、错误类型、dry-run 次数和 changed files 数量。
+- `acf log prune [target] --days 30`：删除旧 usage event。
 
 `target` 省略时，CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录；显式传入 `target` 时，以显式路径为准。CLI 的检查结果不能替代人工判断，但可以自动发现维护成本高、容易遗忘的结构性问题。
 
@@ -262,6 +268,8 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。当检查失败时，`error_code` 为 `check_failed`，`next_actions` 给出后续处理建议。
 
 `edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它只提供 section/table 级确定性编辑，不做事实判断，也不是通用 Markdown 编辑器。
+
+`log` 命令默认关闭，启用后写入用户级全局目录：Windows 为 `%USERPROFILE%\.acf\projects\<project-id>\`，macOS/Linux 为 `~/.acf/projects/<project-id>/`；也可通过 `ACF_HOME` 指定根目录。它只记录命令形态、结果、错误分类、耗时、dry-run 状态和 changed files 等元数据，不记录 `--text` 正文、stdin 内容、Markdown diff、模型对话或完整 stdout/stderr。usage event log 是评测和排障资料，不是权威上下文，也不应直接写入 `worklog/`。
 
 退出码约定：
 

@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import shutil
 import sys
 import sysconfig
+import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -107,6 +110,9 @@ EXIT_CHECK_FAILED = 1
 EXIT_INPUT_ERROR = 2
 EXIT_SAFETY_REFUSED = 3
 EXIT_RUNTIME_ERROR = 70
+ACF_HOME_ENV = "ACF_HOME"
+USAGE_LOG_CONFIG_NAME = "config.json"
+USAGE_LOG_FILE_REL = "logs/usage.jsonl"
 
 MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本项目。
 
@@ -232,6 +238,15 @@ def check_after_enabled(args: argparse.Namespace) -> bool:
 
 def path_values(paths: Sequence[Path]) -> list[str]:
     return [str(path) for path in paths]
+
+
+def set_result_payload(args: argparse.Namespace, payload: dict[str, object]) -> None:
+    setattr(args, "_acf_result_payload", payload)
+
+
+def get_result_payload(args: argparse.Namespace) -> dict[str, object]:
+    payload = getattr(args, "_acf_result_payload", None)
+    return payload if isinstance(payload, dict) else {}
 
 
 def check_payload(result: CheckResult) -> dict[str, object]:
@@ -366,6 +381,7 @@ def emit_write_result(
     }
     if check_result is not None:
         payload["check"] = check_payload(check_result)
+    set_result_payload(args, payload)
 
     if json_enabled(args):
         print_json(payload)
@@ -510,6 +526,267 @@ def relative_display_path(path: Path, base: Path) -> str:
         return display_path(path.relative_to(base))
     except ValueError:
         return display_path(path)
+
+
+def slugify_project_name(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-")
+    return slug or "project"
+
+
+def acf_home() -> Path:
+    override = os_environ_value(ACF_HOME_ENV)
+    if override:
+        return Path(override).expanduser().resolve()
+    return (Path.home() / ".acf").resolve()
+
+
+def os_environ_value(name: str) -> str:
+    return os.environ.get(name, "").strip()
+
+
+def usage_project_dir(project_root: Path) -> Path:
+    resolved = project_root.resolve()
+    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
+    return acf_home() / "projects" / f"{slugify_project_name(resolved.name)}-{digest}"
+
+
+def usage_config_path(project_root: Path) -> Path:
+    return usage_project_dir(project_root) / USAGE_LOG_CONFIG_NAME
+
+
+def usage_log_path(project_root: Path) -> Path:
+    return usage_project_dir(project_root) / USAGE_LOG_FILE_REL
+
+
+def read_usage_config(project_root: Path) -> dict[str, object]:
+    config_path = usage_config_path(project_root)
+    if not config_path.exists():
+        return {"enabled": False}
+    try:
+        data = json.loads(read_text(config_path))
+    except (OSError, json.JSONDecodeError):
+        return {"enabled": False}
+    return data if isinstance(data, dict) else {"enabled": False}
+
+
+def write_usage_config(project_root: Path, enabled: bool) -> None:
+    config_path = usage_config_path(project_root)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": JSON_SCHEMA_VERSION,
+                "usage_log_enabled": enabled,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def usage_log_enabled(project_root: Path) -> bool:
+    return bool(read_usage_config(project_root).get("usage_log_enabled", False))
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def parse_usage_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def read_usage_events(project_root: Path) -> list[dict[str, object]]:
+    log_path = usage_log_path(project_root)
+    if not log_path.exists():
+        return []
+    events: list[dict[str, object]] = []
+    for line in read_text(log_path).splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def write_usage_events(project_root: Path, events: Sequence[dict[str, object]]) -> None:
+    log_path = usage_log_path(project_root)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    text = "".join(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n" for event in events)
+    log_path.write_text(text, encoding="utf-8")
+
+
+def append_usage_event(project_root: Path, event: dict[str, object]) -> None:
+    log_path = usage_log_path(project_root)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def usage_log_status_payload(project_root: Path) -> dict[str, object]:
+    events = read_usage_events(project_root)
+    latest = events[-1].get("timestamp") if events else None
+    return {
+        "command": "log status",
+        "ok": True,
+        "enabled": usage_log_enabled(project_root),
+        "project_root": str(project_root),
+        "config_path": str(usage_config_path(project_root)),
+        "log_path": str(usage_log_path(project_root)),
+        "event_count": len(events),
+        "latest_event_at": latest,
+    }
+
+
+def summarize_usage_events(events: Sequence[dict[str, object]]) -> dict[str, object]:
+    command_counts: dict[str, int] = {}
+    error_counts: dict[str, int] = {}
+    dry_run_count = 0
+    changed_files_count = 0
+    ok_count = 0
+    for event in events:
+        command = str(event.get("command") or "unknown")
+        command_counts[command] = command_counts.get(command, 0) + 1
+        if event.get("ok") is True:
+            ok_count += 1
+        error_code = event.get("error_code")
+        if error_code:
+            key = str(error_code)
+            error_counts[key] = error_counts.get(key, 0) + 1
+        if event.get("dry_run") is True:
+            dry_run_count += 1
+        changed_files = event.get("changed_files")
+        if isinstance(changed_files, list):
+            changed_files_count += len(changed_files)
+    return {
+        "event_count": len(events),
+        "ok_count": ok_count,
+        "failed_count": len(events) - ok_count,
+        "command_counts": command_counts,
+        "error_counts": error_counts,
+        "dry_run_count": dry_run_count,
+        "changed_files_count": changed_files_count,
+    }
+
+
+def command_label(args: argparse.Namespace) -> str:
+    command = getattr(args, "command", "") or ""
+    if command == "new":
+        return f"new {getattr(args, 'entry_type', '')}".strip()
+    if command == "writeback":
+        return f"writeback {getattr(args, 'writeback_command', '')}".strip()
+    if command == "edit":
+        edit_target = getattr(args, "edit_target", "")
+        if edit_target == "section":
+            return f"edit section {getattr(args, 'section_command', '')}".strip()
+        if edit_target == "table":
+            return f"edit table {getattr(args, 'table_command', '')}".strip()
+    if command == "log":
+        return f"log {getattr(args, 'log_command', '')}".strip()
+    return command
+
+
+def usage_loggable(args: argparse.Namespace) -> bool:
+    return getattr(args, "command", None) != "log"
+
+
+def context_location_for_args(args: argparse.Namespace) -> ContextLocation:
+    command = getattr(args, "command", None)
+    if command == "status":
+        return resolve_status_location(getattr(args, "path", None))
+    if command == "check":
+        return make_context_location(resolve_context_root(getattr(args, "path", None)))
+    if command == "init":
+        return make_context_location(getattr(args, "target").resolve())
+    if command == "simplify":
+        return make_context_location(getattr(args, "target").resolve())
+    if command == "new":
+        return make_context_location(require_context_root(getattr(args, "path", None)))
+    if command == "writeback":
+        return make_context_location(require_context_root(getattr(args, "path", None)))
+    if command == "edit":
+        return make_context_location(require_context_root(getattr(args, "context", None)))
+    raise SystemExit("usage log is not available for this command")
+
+
+def relative_usage_paths(values: object, project_root: Path) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    paths: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        paths.append(relative_display_path(Path(value).resolve(), project_root))
+    return paths
+
+
+def check_counts(payload: dict[str, object]) -> tuple[int, int]:
+    check = payload.get("check")
+    if not isinstance(check, dict):
+        return 0, 0
+    errors = check.get("errors")
+    warnings = check.get("warnings")
+    return (
+        len(errors) if isinstance(errors, list) else 0,
+        len(warnings) if isinstance(warnings, list) else 0,
+    )
+
+
+def build_usage_event(
+    args: argparse.Namespace,
+    location: ContextLocation,
+    exit_code: int,
+    duration_ms: int,
+) -> dict[str, object]:
+    payload = get_result_payload(args)
+    error_count, warning_count = check_counts(payload)
+    return {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "timestamp": utc_now_iso(),
+        "command": command_label(args),
+        "cwd_rel": relative_display_path(Path.cwd().resolve(), location.project_root),
+        "context_rel": relative_display_path(location.context_root, location.project_root),
+        "profile": location.profile,
+        "ok": bool(payload.get("ok", exit_code == 0)),
+        "exit_code": exit_code,
+        "error_code": payload.get("error_code"),
+        "duration_ms": duration_ms,
+        "dry_run": dry_run_enabled(args),
+        "check_after": check_after_enabled(args),
+        "strict": bool(getattr(args, "strict", False)),
+        "json": json_enabled(args),
+        "changed_files": relative_usage_paths(payload.get("changed_files"), location.project_root),
+        "check_errors_count": error_count,
+        "check_warnings_count": warning_count,
+    }
+
+
+def record_usage_event(args: argparse.Namespace, exit_code: int, duration_ms: int) -> None:
+    if not usage_loggable(args):
+        return
+    try:
+        location = context_location_for_args(args)
+        if not usage_log_enabled(location.project_root):
+            return
+        append_usage_event(location.project_root, build_usage_event(args, location, exit_code, duration_ms))
+    except BaseException:
+        return
 
 
 def render_root_agents(project_name: str, context_rel: str) -> str:
@@ -1624,21 +1901,21 @@ def edit_section_get_command(args: argparse.Namespace) -> int:
     lines = read_text(target).splitlines()
     section = find_section(lines, args.heading)
     body = section_body(lines, section)
+    payload: dict[str, object] = {
+        "command": "edit section get",
+        "ok": True,
+        "context": str(root),
+        "file": str(target),
+        "heading": args.heading,
+        "body": body,
+        "heading_line": section.heading_index + 1,
+        "body_start_line": section.body_start + 1,
+        "body_end_line": section.body_end,
+    }
+    set_result_payload(args, payload)
 
     if json_enabled(args):
-        print_json(
-            {
-                "command": "edit section get",
-                "ok": True,
-                "context": str(root),
-                "file": str(target),
-                "heading": args.heading,
-                "body": body,
-                "heading_line": section.heading_index + 1,
-                "body_start_line": section.body_start + 1,
-                "body_end_line": section.body_end,
-            }
-        )
+        print_json(payload)
     else:
         print(body)
     return 0
@@ -2059,19 +2336,19 @@ def check_command(args: argparse.Namespace) -> int:
     root = resolve_context_root(args.path)
     profile = args.profile or infer_context_profile(root)
     result = check_context(root, profile, args.strict)
+    payload: dict[str, object] = {
+        "command": "check",
+        "context": str(root),
+        "profile": profile,
+        "strict": args.strict,
+        "check": check_payload(result),
+        "ok": result.ok,
+        "error_code": check_error_code(result),
+        "next_actions": check_next_actions(result, args.strict),
+    }
+    set_result_payload(args, payload)
     if json_enabled(args):
-        print_json(
-            {
-                "command": "check",
-                "context": str(root),
-                "profile": profile,
-                "strict": args.strict,
-                "check": check_payload(result),
-                "ok": result.ok,
-                "error_code": check_error_code(result),
-                "next_actions": check_next_actions(result, args.strict),
-            }
-        )
+        print_json(payload)
         return 0 if result.ok else 1
 
     for error in result.errors:
@@ -2091,21 +2368,21 @@ def status_command(args: argparse.Namespace) -> int:
     task_path = location.context_root / "active" / "Current_Task.md"
     task_status = extract_current_task_status(task_path) if task_path.exists() else None
     result = check_context(location.context_root, profile, args.strict)
+    payload: dict[str, object] = {
+        "command": "status",
+        "project_root": str(location.project_root),
+        "context": str(location.context_root),
+        "profile": profile,
+        "current_task": task_status or "Unknown",
+        "strict": args.strict,
+        "check": check_payload(result),
+        "ok": result.ok,
+        "error_code": check_error_code(result),
+        "next_actions": check_next_actions(result, args.strict),
+    }
+    set_result_payload(args, payload)
     if json_enabled(args):
-        print_json(
-            {
-                "command": "status",
-                "project_root": str(location.project_root),
-                "context": str(location.context_root),
-                "profile": profile,
-                "current_task": task_status or "Unknown",
-                "strict": args.strict,
-                "check": check_payload(result),
-                "ok": result.ok,
-                "error_code": check_error_code(result),
-                "next_actions": check_next_actions(result, args.strict),
-            }
-        )
+        print_json(payload)
         return 0 if result.ok else 1
 
     print(f"project root: {location.project_root}")
@@ -2123,6 +2400,144 @@ def status_command(args: argparse.Namespace) -> int:
             print(f"WARN: {warning}")
 
     return 0 if result.ok else 1
+
+
+def log_enable_command(args: argparse.Namespace) -> int:
+    location = resolve_status_location(args.path)
+    write_usage_config(location.project_root, True)
+    payload: dict[str, object] = {
+        "command": "log enable",
+        "ok": True,
+        "enabled": True,
+        "project_root": str(location.project_root),
+        "config_path": str(usage_config_path(location.project_root)),
+        "log_path": str(usage_log_path(location.project_root)),
+    }
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"usage log enabled: {usage_log_path(location.project_root)}")
+    return 0
+
+
+def log_disable_command(args: argparse.Namespace) -> int:
+    location = resolve_status_location(args.path)
+    write_usage_config(location.project_root, False)
+    payload: dict[str, object] = {
+        "command": "log disable",
+        "ok": True,
+        "enabled": False,
+        "project_root": str(location.project_root),
+        "config_path": str(usage_config_path(location.project_root)),
+        "log_path": str(usage_log_path(location.project_root)),
+    }
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"usage log disabled: {usage_log_path(location.project_root)}")
+    return 0
+
+
+def log_status_command(args: argparse.Namespace) -> int:
+    location = resolve_status_location(args.path)
+    payload = usage_log_status_payload(location.project_root)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        state = "enabled" if payload["enabled"] else "disabled"
+        print(f"usage log: {state}")
+        print(f"project root: {payload['project_root']}")
+        print(f"log path: {payload['log_path']}")
+        print(f"events: {payload['event_count']}")
+        if payload["latest_event_at"]:
+            print(f"latest event: {payload['latest_event_at']}")
+    return 0
+
+
+def log_tail_command(args: argparse.Namespace) -> int:
+    if args.limit < 0:
+        raise SystemExit("log tail limit cannot be negative")
+    location = resolve_status_location(args.path)
+    events = read_usage_events(location.project_root)
+    tail_events = events[-args.limit :] if args.limit else []
+    payload: dict[str, object] = {
+        "command": "log tail",
+        "ok": True,
+        "project_root": str(location.project_root),
+        "log_path": str(usage_log_path(location.project_root)),
+        "limit": args.limit,
+        "event_count": len(tail_events),
+        "events": tail_events,
+    }
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        for event in tail_events:
+            print(json.dumps(event, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+def log_summarize_command(args: argparse.Namespace) -> int:
+    location = resolve_status_location(args.path)
+    events = read_usage_events(location.project_root)
+    payload: dict[str, object] = {
+        "command": "log summarize",
+        "ok": True,
+        "project_root": str(location.project_root),
+        "log_path": str(usage_log_path(location.project_root)),
+        **summarize_usage_events(events),
+    }
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"events: {payload['event_count']}")
+        print(f"ok: {payload['ok_count']}")
+        print(f"failed: {payload['failed_count']}")
+        print(f"dry-run: {payload['dry_run_count']}")
+        print(f"changed files: {payload['changed_files_count']}")
+        print("commands:")
+        for command, count in sorted(payload["command_counts"].items()):
+            print(f"- {command}: {count}")
+        if payload["error_counts"]:
+            print("errors:")
+            for error_code, count in sorted(payload["error_counts"].items()):
+                print(f"- {error_code}: {count}")
+    return 0
+
+
+def log_prune_command(args: argparse.Namespace) -> int:
+    if args.days < 0:
+        raise SystemExit("log prune days cannot be negative")
+    location = resolve_status_location(args.path)
+    log_path = usage_log_path(location.project_root)
+    events = read_usage_events(location.project_root)
+    if args.days <= 0:
+        kept_events: list[dict[str, object]] = []
+    else:
+        threshold = datetime.now(timezone.utc) - timedelta(days=args.days)
+        kept_events = [
+            event
+            for event in events
+            if (parse_usage_timestamp(event.get("timestamp")) or threshold) >= threshold
+        ]
+    removed_count = len(events) - len(kept_events)
+    if events or log_path.exists():
+        write_usage_events(location.project_root, kept_events)
+    payload: dict[str, object] = {
+        "command": "log prune",
+        "ok": True,
+        "project_root": str(location.project_root),
+        "log_path": str(log_path),
+        "days": args.days,
+        "removed_count": removed_count,
+        "kept_count": len(kept_events),
+    }
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"removed events: {removed_count}")
+        print(f"kept events: {len(kept_events)}")
+    return 0
 
 
 def add_json_argument(parser: argparse.ArgumentParser) -> None:
@@ -2173,6 +2588,41 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("--strict", action="store_true", help="treat placeholders as errors")
     add_json_argument(check_parser)
     check_parser.set_defaults(func=check_command)
+
+    log_parser = subparsers.add_parser("log", help="manage global acf usage logs")
+    log_subparsers = log_parser.add_subparsers(dest="log_command", required=True)
+
+    log_enable_parser = log_subparsers.add_parser("enable", help="enable user-global usage logging for this project")
+    log_enable_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    add_json_argument(log_enable_parser)
+    log_enable_parser.set_defaults(func=log_enable_command)
+
+    log_disable_parser = log_subparsers.add_parser("disable", help="disable user-global usage logging for this project")
+    log_disable_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    add_json_argument(log_disable_parser)
+    log_disable_parser.set_defaults(func=log_disable_command)
+
+    log_status_parser = log_subparsers.add_parser("status", help="show usage log status")
+    log_status_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    add_json_argument(log_status_parser)
+    log_status_parser.set_defaults(func=log_status_command)
+
+    log_tail_parser = log_subparsers.add_parser("tail", help="show recent usage events")
+    log_tail_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    log_tail_parser.add_argument("--limit", type=int, default=20, help="number of recent events to show")
+    add_json_argument(log_tail_parser)
+    log_tail_parser.set_defaults(func=log_tail_command)
+
+    log_summarize_parser = log_subparsers.add_parser("summarize", help="summarize usage events")
+    log_summarize_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    add_json_argument(log_summarize_parser)
+    log_summarize_parser.set_defaults(func=log_summarize_command)
+
+    log_prune_parser = log_subparsers.add_parser("prune", help="remove old usage events")
+    log_prune_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    log_prune_parser.add_argument("--days", type=int, default=30, help="keep events from this many recent days")
+    add_json_argument(log_prune_parser)
+    log_prune_parser.set_defaults(func=log_prune_command)
 
     new_parser = subparsers.add_parser("new", help="create context entries")
     new_subparsers = new_parser.add_subparsers(dest="entry_type", required=True)
@@ -2290,17 +2740,50 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     argv_list = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
+    started = time.perf_counter()
+    args: argparse.Namespace | None = None
+    exit_code = 0
     try:
         args = parser.parse_args(argv_list)
-        return args.func(args)
+        exit_code = args.func(args)
     except SystemExit as exc:
         if isinstance(exc.code, int):
-            return exc.code
-        message = str(exc.code)
-        error_code, exit_code = classify_cli_error(message)
-        return emit_cli_error(argv_list, message, error_code, exit_code)
+            exit_code = exc.code
+        else:
+            message = str(exc.code)
+            error_code, exit_code = classify_cli_error(message)
+            if args is not None:
+                set_result_payload(
+                    args,
+                    {
+                        "command": command_label(args),
+                        "ok": False,
+                        "error_code": error_code,
+                        "message": message,
+                        "next_actions": error_next_actions(error_code),
+                    },
+                )
+            emit_cli_error(argv_list, message, error_code, exit_code)
     except Exception as exc:  # pragma: no cover - defensive CLI boundary
-        return emit_cli_error(argv_list, str(exc), "runtime_error", EXIT_RUNTIME_ERROR)
+        message = str(exc)
+        exit_code = EXIT_RUNTIME_ERROR
+        if args is not None:
+            set_result_payload(
+                args,
+                {
+                    "command": command_label(args),
+                    "ok": False,
+                    "error_code": "runtime_error",
+                    "message": message,
+                    "next_actions": error_next_actions("runtime_error"),
+                },
+            )
+        emit_cli_error(argv_list, message, "runtime_error", exit_code)
+
+    if args is not None:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        record_usage_event(args, exit_code, duration_ms)
+    return exit_code
 
 
 if __name__ == "__main__":

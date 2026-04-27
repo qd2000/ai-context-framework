@@ -16,6 +16,8 @@
 - 维护 `docs/ai/` 内已有 heading 或 table 的上下文文档时，优先先用 `uv run acf edit ... --dry-run --json` 预览，再执行正式写入。
 - `acf edit` 只做确定性结构化落盘，不裁决事实内容；写入前后仍需要由人或主代理审阅语义是否正确。
 - `acf edit` 当前只允许编辑上下文根目录内已有 `.md` 文件；`../Automation.md` 等 `docs/ai/` 外仓库级文档暂时使用常规补丁，直到项目级安全编辑边界完成设计。
+- 需要评估 CLI 实际使用效果时，可用 `uv run acf log enable` 启用用户级全局 usage event log；日志按项目子目录隔离，只记录状态元数据，不记录正文输入，不写入项目 `worklog/`。
+- usage event log 默认位于用户级 `.acf/projects/` 下；测试或隔离环境可用 `ACF_HOME` 指定日志根目录。
 - 修改当前任务时优先使用 `uv run acf new task ...`。
 - 添加资料索引时优先使用 `uv run acf new source ...`，并只记录摘要、可信度、相关性和后续动作，不保存大段原文。
 - 记录重要设计决策时优先使用 `uv run acf new adr ...`，并确保编号不与既有 ADR 冲突。

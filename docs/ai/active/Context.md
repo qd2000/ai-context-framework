@@ -76,6 +76,9 @@ Dogfooding MVP / 框架稳定化。
 30. 后续维护 `docs/ai/` 内上下文计划、规则、worklog 或索引时，应优先 dogfood `acf edit section` 或 `acf edit table upsert`，先用 `--dry-run --json` 预览高风险写入。
 31. `acf edit` 当前安全边界是 context-root 内已有 Markdown 文件；`../Automation.md` 等 `docs/ai/` 外仓库级文档暂时仍通过常规补丁维护，项目级安全编辑能力需单独设计。
 
+32. `acf log enable|disable|status|tail|summarize|prune` 已实现 opt-in 的用户级全局 usage event log，日志默认存放在 `%USERPROFILE%\.acf\projects\<project-id>\` 或 `~/.acf/projects/<project-id>/`，按项目子目录记录命令结果元数据用于 dogfooding 评测。
+33. usage event log 不写入项目目录或 `worklog/`，不记录正文输入、stdin 内容、Markdown diff 或完整 stdout/stderr；测试可用 `ACF_HOME` 指定隔离的日志根目录。
+
 ---
 
 ## 当前关键约束
@@ -93,6 +96,8 @@ Dogfooding MVP / 框架稳定化。
 
 11. 维护 `docs/ai/` 内已有 section 或 table 时，优先使用 `acf edit` 的结构化写入能力；CLI 只负责确定性落盘，不裁决事实内容。
 12. 不为 dogfooding 临时放宽 `acf edit` 的 context-root 限制；若需要编辑仓库级文档，应先设计安全的项目级编辑边界。
+
+13. usage event log 是用户级运行态观测数据，不是权威上下文；日志写入失败不应影响原命令退出码。
 
 ---
 
@@ -192,4 +197,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：写入后续文档维护优先 dogfood `acf edit` 的计划和安全边界。
+- 更新原因：实现 opt-in 的 acf 使用状态日志，用于记录 CLI 结果元数据并支撑跨项目 dogfooding 评测。

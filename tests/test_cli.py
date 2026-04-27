@@ -19,6 +19,19 @@ def pushd(path):
         os.chdir(previous)
 
 
+@contextmanager
+def isolated_acf_home(path):
+    previous = os.environ.get("ACF_HOME")
+    os.environ["ACF_HOME"] = str(path)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("ACF_HOME", None)
+        else:
+            os.environ["ACF_HOME"] = previous
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, args):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -281,6 +294,156 @@ class CliTests(unittest.TestCase):
             self.assertFalse(payload["ok"])
             self.assertEqual(payload["error_code"], "input_error")
             self.assertTrue(payload["next_actions"])
+
+    def test_usage_log_is_disabled_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acf_home = Path(tmp) / "acf-home"
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            with isolated_acf_home(acf_home):
+                exit_code, stdout, stderr = self.run_cli_output(["log", "status", str(project_root), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["enabled"])
+            self.assertEqual(payload["event_count"], 0)
+            self.assertIn(str(acf_home.resolve()), payload["log_path"])
+            self.assertFalse((project_root / ".acf").exists())
+            self.assertFalse(acf_home.exists())
+
+    def test_usage_log_enable_records_later_command_without_input_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acf_home = Path(tmp) / "acf-home"
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            nested = project_root / "src"
+            nested.mkdir(parents=True)
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            with isolated_acf_home(acf_home):
+                self.assertEqual(self.run_cli(["log", "enable", str(project_root)]), 0)
+                with pushd(nested):
+                    exit_code = self.run_cli(
+                        [
+                            "new",
+                            "task",
+                            "--title",
+                            "Logged task",
+                            "--goal",
+                            "Sensitive secret should not be logged.",
+                            "--dry-run",
+                            "--json",
+                        ]
+                    )
+
+            self.assertEqual(exit_code, 0)
+            with isolated_acf_home(acf_home):
+                log_path = acf.usage_log_path(project_root)
+            self.assertTrue(log_path.exists())
+            self.assertIn(str(acf_home.resolve()), str(log_path))
+            self.assertFalse((project_root / ".acf").exists())
+            raw_log = log_path.read_text(encoding="utf-8")
+            self.assertNotIn("Sensitive secret should not be logged.", raw_log)
+            event = json.loads(raw_log.splitlines()[-1])
+            self.assertEqual(event["command"], "new task")
+            self.assertTrue(event["dry_run"])
+            self.assertTrue(event["json"])
+            self.assertTrue(event["ok"])
+            self.assertEqual(event["exit_code"], 0)
+            self.assertEqual(event["context_rel"], "docs/ai")
+            self.assertEqual(event["profile"], "minimal")
+            self.assertEqual(event["changed_files"], ["docs/ai/active/Current_Task.md"])
+
+    def test_usage_log_records_failed_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acf_home = Path(tmp) / "acf-home"
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            with isolated_acf_home(acf_home):
+                self.run_cli(["log", "enable", str(project_root)])
+                self.run_cli(["new", "worklog", str(target), "--date", "2026-04-27", "--summary", "Initial."])
+
+                exit_code, stdout, _stderr = self.run_cli_output(
+                    [
+                        "new",
+                        "worklog",
+                        str(target),
+                        "--date",
+                        "2026-04-27",
+                        "--summary",
+                        "Duplicate.",
+                        "--json",
+                    ]
+                )
+
+            self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
+            self.assertEqual(json.loads(stdout)["error_code"], "safety_refused")
+            with isolated_acf_home(acf_home):
+                log_path = acf.usage_log_path(project_root)
+            events = [
+                json.loads(line)
+                for line in log_path.read_text(encoding="utf-8").splitlines()
+            ]
+            failed = events[-1]
+            self.assertEqual(failed["command"], "new worklog")
+            self.assertFalse(failed["ok"])
+            self.assertEqual(failed["exit_code"], acf.EXIT_SAFETY_REFUSED)
+            self.assertEqual(failed["error_code"], "safety_refused")
+
+    def test_usage_log_tail_and_summarize_do_not_record_themselves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acf_home = Path(tmp) / "acf-home"
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            with isolated_acf_home(acf_home):
+                self.run_cli(["log", "enable", str(project_root)])
+                self.run_cli(["status", str(project_root)])
+                self.run_cli(["check", str(target)])
+
+                exit_code, stdout, stderr = self.run_cli_output(["log", "tail", str(project_root), "--limit", "1", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            tail_payload = json.loads(stdout)
+            self.assertEqual(len(tail_payload["events"]), 1)
+            self.assertEqual(tail_payload["events"][0]["command"], "check")
+
+            with isolated_acf_home(acf_home):
+                exit_code, stdout, stderr = self.run_cli_output(["log", "summarize", str(project_root), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            summary_payload = json.loads(stdout)
+            self.assertEqual(summary_payload["event_count"], 2)
+            self.assertEqual(summary_payload["command_counts"], {"check": 1, "status": 1})
+            self.assertEqual(summary_payload["ok_count"], 2)
+
+            with isolated_acf_home(acf_home):
+                log_lines = acf.usage_log_path(project_root).read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(log_lines), 2)
+            self.assertFalse((project_root / ".acf").exists())
+
+    def test_usage_log_prune_removes_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acf_home = Path(tmp) / "acf-home"
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            with isolated_acf_home(acf_home):
+                self.run_cli(["log", "enable", str(project_root)])
+                self.run_cli(["status", str(project_root)])
+
+            with isolated_acf_home(acf_home):
+                log_path = acf.usage_log_path(project_root)
+            self.assertTrue(log_path.read_text(encoding="utf-8").splitlines())
+
+            with isolated_acf_home(acf_home):
+                exit_code, stdout, stderr = self.run_cli_output(["log", "prune", str(project_root), "--days", "0", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["removed_count"], 1)
+            self.assertEqual(log_path.read_text(encoding="utf-8"), "")
 
     def test_check_detects_missing_required_file(self):
         with tempfile.TemporaryDirectory() as tmp:

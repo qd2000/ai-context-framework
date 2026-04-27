@@ -20,6 +20,7 @@
 - `writeback draft`：把会话结束回写建议保存到 `worklog/writeback-drafts/`，生成可审阅草案，不直接修改权威上下文文件。
 - `edit section get|replace|append`：读取、替换或追加上下文根目录内 Markdown 文件的指定 section body。
 - `edit table upsert`：按 key column 更新或追加上下文根目录内 Markdown 表格行。
+- 使用状态日志：`log enable|disable|status|tail|summarize|prune` 管理 opt-in 的用户级全局 usage event log，按项目子目录记录命令结果元数据，支撑跨项目 dogfooding 评测。
 - CLI 渐进式披露入口：模板和 minimal init 产物会在 AGENTS.md 中提示 `acf status --json`、`acf --help` 和系统手册发现路径，但不在默认入口列完整命令手册。
 
 这些检查不需要模型判断，适合作为每次模板修改后的基础验证。
@@ -115,6 +116,7 @@
 目标：
 
 - 在其他真实项目中验证初始化、发现、检查、写入和回写流程。
+- 启用用户级全局 usage event log，按项目子目录记录命令成功率、错误类型、dry-run 使用和 changed files 规模。
 - 记录 AI 使用 CLI 与直接手改 Markdown 的错误率差异。
 - 只把重复出现的人工动作产品化成新命令。
 
@@ -123,6 +125,7 @@
 - 任意目录调用的成功率和错误信息可评估。
 - 常见维护动作中，大多数可以由 CLI 完成。
 - 新能力没有破坏“纯 Markdown、模型无关、人工可审阅”的边界。
+- usage event log 只记录状态元数据，不记录正文输入，不进入 `worklog/`。
 
 ## 适合继续程序化的工作
 
@@ -173,6 +176,7 @@ subagent 适合处理需要语义判断、但不应静默修改权威文件的�
 7. 会话结束回写建议需要暂存时，优先使用 `writeback draft`，再由人或主代理审阅后决定是否写入权威上下文。
 8. 维护 `docs/ai/` 内已有 section 或 table 时，优先使用 `edit section` 或 `edit table upsert`，高风险写入先用 `--dry-run --json`。
 9. 修改 `docs/Automation.md` 等 `docs/ai/` 外仓库级文档时，当前仍使用常规补丁；是否提供项目级安全编辑能力应作为独立设计处理。
-10. 修改 `template/` 前先确认该变更属于通用产品模板需求，而不是本仓库 dogfooding 特例。
-11. 如果发现跨文件同步问题，优先考虑补充 `acf.py check` 规则，而不是只补文档说明。
-12. 如果某项维护动作重复出现两次以上，评估是否应新增 CLI 子命令或 subagent 草案流程。
+10. 需要评估 CLI 实际使用效果时，可启用 `log enable` 记录 usage event；日志是运行态元数据，不是 worklog。
+11. 修改 `template/` 前先确认该变更属于通用产品模板需求，而不是本仓库 dogfooding 特例。
+12. 如果发现跨文件同步问题，优先考虑补充 `acf.py check` 规则，而不是只补文档说明。
+13. 如果某项维护动作重复出现两次以上，评估是否应新增 CLI 子命令或 subagent 草案流程。

@@ -124,6 +124,11 @@ acf edit section append active/Context.md --heading "## 当前开放问题" --te
 acf edit table upsert reference/Sources_Index.md --key-column "资料" --key "资料标题" --cell "状态=Useful"
 acf check
 acf check --strict
+acf log enable
+acf log status --json
+acf log tail --limit 20 --json
+acf log summarize --json
+acf log prune --days 30
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -144,12 +149,15 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性和占位符残留。
+- `log enable|disable|status|tail|summarize|prune`：管理本地使用状态日志，默认关闭，启用后记录命令结果元数据。
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 
 `status`、`check` 和 `edit section get` 支持 `--json` 输出。写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
 
 `edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它提供的是 section/table 级确定性编辑原语，不做语义判断，也不是通用 Markdown 编辑器。
+
+`log` 命令默认写入用户级全局目录 `%USERPROFILE%\.acf\projects\<project-id>\`（Windows）或 `~/.acf/projects/<project-id>/`（macOS/Linux），也可通过 `ACF_HOME` 指定根目录。它不写入项目 `worklog/`，也不记录 `--text` 正文、stdin 内容、Markdown diff 或完整 stdout/stderr。日志写入失败不会改变原命令退出码。
 
 JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。检查失败时 `error_code` 为 `check_failed`，`next_actions` 给出 AI 可直接读取的后续动作。
 
