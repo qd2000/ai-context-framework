@@ -73,6 +73,9 @@ Dogfooding MVP / 框架稳定化。
 28. 模板入口、minimal init 产物和当前 dogfooding 入口已补充 CLI 渐进式披露入口：默认只提示 `acf status --json`、`acf --help` 和按需读取系统手册，不在入口列完整命令手册。
 29. README 和产品手册已补充安装到 PATH 的说明：开发期可用 `uv tool install -e .` 安装可执行命令，并用 `uv tool update-shell`、`where acf` 或 `which acf` 验证。
 
+30. 后续维护 `docs/ai/` 内上下文计划、规则、worklog 或索引时，应优先 dogfood `acf edit section` 或 `acf edit table upsert`，先用 `--dry-run --json` 预览高风险写入。
+31. `acf edit` 当前安全边界是 context-root 内已有 Markdown 文件；`../Automation.md` 等 `docs/ai/` 外仓库级文档暂时仍通过常规补丁维护，项目级安全编辑能力需单独设计。
+
 ---
 
 ## 当前关键约束
@@ -88,12 +91,17 @@ Dogfooding MVP / 框架稳定化。
 9. 修改 `template/` 时，应同步检查 README、上下文入口说明和 System Manual 是否仍一致。
 10. 任意目录 CLI 的设计应优先服务 AI 的确定性上下文维护，不扩展为自由文本编辑器或常驻运行时。
 
+11. 维护 `docs/ai/` 内已有 section 或 table 时，优先使用 `acf edit` 的结构化写入能力；CLI 只负责确定性落盘，不裁决事实内容。
+12. 不为 dogfooding 临时放宽 `acf edit` 的 context-root 限制；若需要编辑仓库级文档，应先设计安全的项目级编辑边界。
+
 ---
 
 ## 当前开放问题
 
 1. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
 2. 是否需要 writeback-curator subagent 生成更高质量的回写分类草案。
+
+3. 是否需要为 `docs/ai/` 外的仓库级维护文档设计安全的 project-root scoped edit 能力，还是继续保持常规补丁维护。
 
 ---
 
@@ -184,4 +192,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：补充 acf 任意目录安装与验收说明。
+- 更新原因：写入后续文档维护优先 dogfood `acf edit` 的计划和安全边界。

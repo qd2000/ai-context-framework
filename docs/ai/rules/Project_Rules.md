@@ -13,6 +13,9 @@
 - 写入风险较高或需要先审阅变更范围时，优先使用 `--dry-run --json` 查看 changed files。
 - 修改模板文件时，同步确保 `uv run acf check template` 通过；该检查会校验模板打包 data-files 是否遗漏。
 - 修改上下文 Markdown 中已有 section 或索引表时，优先评估是否可用 `uv run acf edit section ...` 或 `uv run acf edit table upsert ...`，避免手工重写整文件。
+- 维护 `docs/ai/` 内已有 heading 或 table 的上下文文档时，优先先用 `uv run acf edit ... --dry-run --json` 预览，再执行正式写入。
+- `acf edit` 只做确定性结构化落盘，不裁决事实内容；写入前后仍需要由人或主代理审阅语义是否正确。
+- `acf edit` 当前只允许编辑上下文根目录内已有 `.md` 文件；`../Automation.md` 等 `docs/ai/` 外仓库级文档暂时使用常规补丁，直到项目级安全编辑边界完成设计。
 - 修改当前任务时优先使用 `uv run acf new task ...`。
 - 添加资料索引时优先使用 `uv run acf new source ...`，并只记录摘要、可信度、相关性和后续动作，不保存大段原文。
 - 记录重要设计决策时优先使用 `uv run acf new adr ...`，并确保编号不与既有 ADR 冲突。
