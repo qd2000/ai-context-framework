@@ -95,6 +95,7 @@ uv run python acf.py new task docs/ai --title "实现一个维护任务" --goal 
 uv run python acf.py new source docs/ai --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
 uv run python acf.py new worklog docs/ai --summary "完成一次上下文维护。"
 uv run python acf.py new adr docs/ai --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
+uv run python acf.py writeback draft docs/ai --name "session-note" --text "会话结束回写建议。"
 uv run python acf.py check docs/ai
 uv run python acf.py check docs/ai --strict
 ```
@@ -108,6 +109,7 @@ uv run python acf.py check docs/ai --strict
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
 - `new adr`：生成下一个 ADR 文件，并更新 `reference/Decisions_Index.md`。
+- `writeback draft`：把会话结束回写建议保存为可审阅草案，不直接修改权威上下文文件。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性和占位符残留。
 
 `check` 默认关注结构完整度；`--strict` 适合检查已投入使用的项目上下文，会把占位符残留视为错误。

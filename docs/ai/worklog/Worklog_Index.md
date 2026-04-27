@@ -12,7 +12,7 @@
 
 | 日期 | 摘要 | 关键结论 | 详情 |
 |---|---|---|---|
-| 2026-04-27 | 实现 acf.py new task、new source、new worklog、new adr，引入 uv dogfooding 环境，清理 minimal 模板残留，并修复 init 根薄入口生成。 | 当前任务、资料索引、worklog、ADR 和根薄入口生成已进入确定性 CLI 流程；template 修改需区分通用产品需求和 dogfooding 专属事实。 | `worklog/daily/2026-04-27.md` |
+| 2026-04-27 | 实现 acf.py new task、new source、new worklog、new adr、writeback draft，引入 uv dogfooding 环境，清理 minimal 模板残留，修复 init 根薄入口生成，并写入 AI-facing CLI 长期阶段计划。 | 当前任务、资料索引、worklog、ADR、根薄入口生成和会话回写草案已进入确定性 CLI 流程；acf 长期方向是可安装、任意目录可调用、主要面向 AI 的上下文维护 CLI。 | `worklog/daily/2026-04-27.md` |
 | 2026-04-26 | 初始化本仓库的 `docs/ai` dogfooding 上下文。 | 采用 minimal 实例和根薄入口，`template/` 继续作为产品模板。 | `worklog/daily/2026-04-26.md` |
 
 ---

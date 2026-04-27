@@ -10,6 +10,8 @@
 - 添加资料索引时优先使用 `uv run python acf.py new source ...`，并只记录摘要、可信度、相关性和后续动作，不保存大段原文。
 - 记录重要设计决策时优先使用 `uv run python acf.py new adr ...`，并确保编号不与既有 ADR 冲突。
 - 记录当天整理后工作记录时优先使用 `uv run python acf.py new worklog ...`；同日已有记录时，按当前 CLI 能力审慎使用 `--force` 或人工合并。
+- 暂存会话结束回写建议时优先使用 `uv run python acf.py writeback draft ...`，生成草案后再审阅是否写入权威上下文。
+- 规划或修改 acf 长期 CLI 能力时，以 `decisions/ADR-0004.md` 和 `../Automation.md` 的 AI-facing CLI 阶段计划为当前方向。
 - 修改 `template/` 前先判断该内容是否属于可复用产品模板；本仓库 dogfooding 专属要求应写入根入口、`docs/ai/` 或维护文档。
 - 修改 `template/` 后必须同步检查 README、template 入口说明、System Manual 和 `../Automation.md` 是否一致。
 - 对可确定的重复维护动作，优先补 CLI 或 check 规则，而不是只补说明文字。

@@ -23,44 +23,44 @@ Done
 
 ## 任务名称
 
-实现 acf.py new source
+写入 AI-facing CLI 长期阶段计划
 
 ---
 
 ## 本次任务目标
 
-1. 统一 Sources_Index 为可由 CLI 维护的表格格式。
-2. 新增 new source 命令，向 reference/Sources_Index.md 添加或更新资料条目。
-3. 扩展 check_sources，校验表格资料状态。
+1. 把任意目录可用、主要给 AI 使用的 acf 长期路线写入 dogfooding 上下文。
+2. 明确近期阶段、边界和评测标准。
+3. 记录该产品方向的长期决策。
 
 ---
 
 ## 任务背景
 
-该任务由当前维护流程创建，需要写入当前任务文件以便协作过程可追踪。
+该规划已写入 dogfooding 上下文和 ADR。
 
 ---
 
 ## 输入材料
 
-- 用户当前请求。
-- `active/Context.md`。
+- 用户关于任意目录 CLI 和 AI 使用场景的需求。
+- docs/Automation.md。
+- active/Context.md。
 
 ---
 
 ## 输出要求
 
-- acf.py 已新增 new source 子命令、source 索引更新逻辑和表格状态检查。
-- tests/test_cli.py 已覆盖 source 生成、重复保护、force 更新和状态校验。
-- README、System_Manual、Automation、template 与 docs/ai 上下文已同步。
+- docs/Automation.md 增加 AI-facing CLI 阶段路线。
+- active/Context.md 增加长期阶段计划和当前开放问题。
+- 新增 ADR-0004 记录产品方向。
 
 ---
 
 ## 成功标准
 
-1. new source 能写入 Sources_Index 表格并通过 check。
-2. 无效资料状态会被 check 检出。
-3. 约定的 uv 验证命令通过。
+1. dogfooding strict check 通过。
+2. 计划不把 CLI 扩展成通用 Markdown 编辑器或常驻 runtime。
 
 ---
 
@@ -73,22 +73,22 @@ Done
 
 ## 约束条件
 
-1. Python 命令使用 uv run python。
-2. 不引入第三方依赖。
-3. template 保持通用产品模板语义。
+1. 不改 CLI 代码。
+2. Python 命令使用 uv run python。
+3. 仍保持无第三方运行依赖。
 
 ---
 
 ## 不允许做的事
 
-- 本轮不实现 writeback draft。
-- 本轮不实现资料笔记全文生成。
+- 本轮不实现可安装 CLI。
+- 本轮不实现结构化编辑命令。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. 后续是否需要 source-curator 生成资料摘要草案。
+1. 无。
 
 ---
 

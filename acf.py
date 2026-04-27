@@ -78,6 +78,7 @@ PLACEHOLDER_RE = re.compile(r"【[^】]+】")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
+DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
 
 MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本项目。
@@ -475,6 +476,12 @@ def validate_adr_id(value: str) -> str:
     return value
 
 
+def validate_draft_name(value: str) -> str:
+    if not DRAFT_NAME_RE.match(value):
+        raise argparse.ArgumentTypeError("draft name may only contain letters, digits, dot, underscore, and hyphen")
+    return value
+
+
 def render_adr(
     adr_id: str,
     title: str,
@@ -703,6 +710,85 @@ def render_current_task(
 2. 应写入 `reference/Decisions_Index.md` 或 ADR 的重要决策。
 3. 应写入 rules 的新增规则。
 4. 应归档到 archive 的历史内容。
+"""
+
+
+def sanitize_draft_input(text: str) -> str:
+    return text.replace("`", "'").replace("【", "[").replace("】", "]").strip()
+
+
+def render_writeback_draft(draft_name: str, input_text: str) -> str:
+    sanitized_input = sanitize_draft_input(input_text) or "无。"
+    return f"""本文件是会话结束回写草案，不是当前事实源。
+
+请人工审阅后，再决定是否使用 CLI 或手工方式写入权威上下文。
+
+---
+
+## 草案名称
+
+{draft_name}
+
+---
+
+## 原始回写建议
+
+```text
+{sanitized_input}
+```
+
+---
+
+## active/Context.md 候选
+
+- 待人工判断是否存在应写入 `active/Context.md` 的当前阶段事实。
+- 不要把历史过程直接写入当前事实。
+
+---
+
+## active/Current_Task.md 候选
+
+- 待人工判断当前任务状态是否需要更新。
+- 如需更新，优先使用 `uv run python acf.py new task ...`。
+
+---
+
+## reference/Decisions_Index.md / ADR 候选
+
+- 待人工判断是否存在需要升格为 ADR 的重要决策。
+- 如需新增决策，优先使用 `uv run python acf.py new adr ...`。
+
+---
+
+## worklog 候选
+
+- 待人工判断是否需要写入当天整理后工作记录。
+- 如需新增或更新，优先使用 `uv run python acf.py new worklog ...`。
+
+---
+
+## source 候选
+
+- 待人工判断是否需要新增资料索引。
+- 如需新增或更新，优先使用 `uv run python acf.py new source ...`。
+
+---
+
+## archive 候选
+
+- 待人工判断是否有历史材料需要归档。
+- archive 只保存历史归档，不作为当前事实源。
+
+---
+
+## 审阅清单
+
+- [ ] 已确认哪些内容应写入当前事实。
+- [ ] 已确认哪些内容只是历史过程。
+- [ ] 已确认是否需要新增 ADR。
+- [ ] 已确认是否需要新增 worklog。
+- [ ] 已确认是否需要新增 source。
+- [ ] 已确认是否需要归档。
 """
 
 
@@ -970,6 +1056,42 @@ def new_source_command(args: argparse.Namespace) -> int:
         args.force,
     )
     print(f"created source entry {title}")
+    return 0
+
+
+def read_writeback_input(args: argparse.Namespace) -> str:
+    if args.text and args.input:
+        raise SystemExit("use either --text or --input, not both")
+    if args.text:
+        return args.text
+    if args.input:
+        input_path = args.input.resolve()
+        if not input_path.is_file():
+            raise SystemExit(f"writeback input file does not exist: {input_path}")
+        return input_path.read_text(encoding="utf-8")
+    if not sys.stdin.isatty():
+        return sys.stdin.read()
+    raise SystemExit("writeback draft requires --text, --input, or stdin")
+
+
+def writeback_draft_command(args: argparse.Namespace) -> int:
+    root = args.path.resolve()
+    if not root.exists() or not root.is_dir():
+        raise SystemExit(f"context directory does not exist: {root}")
+
+    draft_name = args.name or date.today().isoformat()
+    input_text = read_writeback_input(args).strip()
+    if not input_text:
+        raise SystemExit("writeback input cannot be empty")
+
+    draft_dir = root / "worklog" / "writeback-drafts"
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    draft_path = draft_dir / f"{draft_name}.md"
+    if draft_path.exists() and not args.force:
+        raise SystemExit(f"writeback draft already exists: {draft_path}")
+
+    draft_path.write_text(render_writeback_draft(draft_name, input_text), encoding="utf-8")
+    print(f"created writeback draft {draft_path}")
     return 0
 
 
@@ -1283,6 +1405,17 @@ def build_parser() -> argparse.ArgumentParser:
     source_parser.add_argument("--next-action", default="无。", help="next action for this source")
     source_parser.add_argument("--force", action="store_true", help="replace an existing source row")
     source_parser.set_defaults(func=new_source_command)
+
+    writeback_parser = subparsers.add_parser("writeback", help="create reviewable writeback drafts")
+    writeback_subparsers = writeback_parser.add_subparsers(dest="writeback_command", required=True)
+
+    draft_parser = writeback_subparsers.add_parser("draft", help="create a session writeback draft")
+    draft_parser.add_argument("path", type=Path)
+    draft_parser.add_argument("--name", type=validate_draft_name, default=None, help="draft file name without .md")
+    draft_parser.add_argument("--text", default="", help="writeback suggestion text")
+    draft_parser.add_argument("--input", type=Path, default=None, help="file containing writeback suggestion text")
+    draft_parser.add_argument("--force", action="store_true", help="replace an existing draft")
+    draft_parser.set_defaults(func=writeback_draft_command)
 
     return parser
 
