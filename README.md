@@ -122,6 +122,14 @@ uv run acf new task --title "预览任务" --goal "只预览。" --dry-run --jso
 
 JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。检查失败时 `error_code` 为 `check_failed`，`next_actions` 给出 AI 可直接读取的后续动作。
 
+退出码和错误分类：
+
+- `0`：成功。
+- `1`：检查失败，`error_code=check_failed`。
+- `2`：输入错误，`error_code=input_error`。
+- `3`：安全拒绝，例如重复写入或需要 `--force`，`error_code=safety_refused`。
+- `70`：非预期运行时错误，`error_code=runtime_error`。
+
 `check` 默认关注结构完整度；`--strict` 适合检查已投入使用的项目上下文，会把占位符残留视为错误。
 
 ## 维护与验证

@@ -23,44 +23,45 @@ Done
 
 ## 任务名称
 
-细化 acf JSON schema：schema_version、error_code 和 next_actions
+细化 acf exit code 和错误分类
 
 ---
 
 ## 本次任务目标
 
-1. 为 JSON 输出增加稳定 schema_version 字段。
-2. 为 check/status/write 输出增加统一 error_code 语义。
-3. 为 AI 增加 next_actions 字段，减少解析自然语言输出。
+1. 区分 input_error、safety_refused、check_failed 和 runtime_error。
+2. 为 JSON 错误响应返回稳定 error_code、message 和 next_actions。
+3. 让安全拒绝类场景使用单独退出码。
 
 ---
 
 ## 任务背景
 
-该任务已完成，承接 AI-facing CLI 阶段 2 第一版继续细化 JSON schema 和字段契约。
+该任务已完成，承接 AI-facing CLI 阶段 2 继续细化 exit code 和错误分类。
 
 ---
 
 ## 输入材料
 
-- docs/Automation.md 的适合继续程序化工作。
-- 现有 acf.py JSON 输出实现。
+- docs/Automation.md 的阶段 2 后续计划。
+- 现有 acf.py JSON schema 输出。
 
 ---
 
 ## 输出要求
 
-- acf.py JSON payload 包含 schema_version、error_code 和 next_actions。
-- tests/test_cli.py 覆盖成功、check 失败和 dry-run JSON 字段。
-- README、System Manual、Automation 和 dogfooding 上下文同步。
+- acf.py 统一 CLI 错误边界和错误分类。
+- tests/test_cli.py 覆盖 input_error 和 safety_refused JSON/exit code。
+- 相关文档和 dogfooding 上下文同步。
 
 ---
 
 ## 成功标准
 
-1. status/check/write JSON 输出字段稳定且测试可解析。
-2. check 失败时 JSON 返回 error_code 和 next_actions。
-3. 完整 uv 验证通过。
+1. 上下文无法发现时返回 input_error 和退出码 2。
+2. 重复写入或 Active 任务拒绝时返回 safety_refused 和退出码 3。
+3. check 失败仍返回 check_failed 和退出码 1。
+4. 完整 uv 验证通过。
 
 ---
 
@@ -75,7 +76,7 @@ Done
 
 1. 不新增第三方运行依赖。
 2. 不实现结构化 Markdown 编辑。
-3. 不改变非 JSON 人类输出语义。
+3. 不改变 check_failed 的退出码。
 
 ---
 

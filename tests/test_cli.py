@@ -253,8 +253,19 @@ class CliTests(unittest.TestCase):
     def test_status_fails_when_context_cannot_be_discovered(self):
         with tempfile.TemporaryDirectory() as tmp:
             with pushd(Path(tmp)):
-                with self.assertRaises(SystemExit):
-                    self.run_cli(["status"])
+                exit_code = self.run_cli(["status"])
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+
+    def test_status_json_reports_input_error_when_context_cannot_be_discovered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with pushd(Path(tmp)):
+                exit_code, stdout, _stderr = self.run_cli_output(["status", "--json"])
+
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["error_code"], "input_error")
+            self.assertTrue(payload["next_actions"])
 
     def test_check_detects_missing_required_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -446,8 +457,29 @@ class CliTests(unittest.TestCase):
                 "Initial worklog.",
             ]
             self.run_cli(args)
-            with self.assertRaises(SystemExit):
-                self.run_cli(args)
+            self.assertEqual(self.run_cli(args), acf.EXIT_SAFETY_REFUSED)
+
+    def test_duplicate_write_json_reports_safety_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            args = [
+                "new",
+                "worklog",
+                str(target),
+                "--date",
+                "2026-04-27",
+                "--summary",
+                "Initial worklog.",
+            ]
+            self.run_cli(args)
+            exit_code, stdout, _stderr = self.run_cli_output(args + ["--json"])
+
+            self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["error_code"], "safety_refused")
+            self.assertTrue(payload["next_actions"])
 
     def test_new_worklog_force_updates_existing_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -525,18 +557,18 @@ class CliTests(unittest.TestCase):
                 "Create the first task.",
             ]
             self.run_cli(args)
-            with self.assertRaises(SystemExit):
-                self.run_cli(
-                    [
-                        "new",
-                        "task",
-                        str(target),
-                        "--title",
-                        "Second task",
-                        "--goal",
-                        "Do not replace active tasks implicitly.",
-                    ]
-                )
+            exit_code = self.run_cli(
+                [
+                    "new",
+                    "task",
+                    str(target),
+                    "--title",
+                    "Second task",
+                    "--goal",
+                    "Do not replace active tasks implicitly.",
+                ]
+            )
+            self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
 
             exit_code = self.run_cli(args + ["--force"])
             self.assertEqual(exit_code, 0)
@@ -595,8 +627,7 @@ class CliTests(unittest.TestCase):
                 "Python reference.",
             ]
             self.run_cli(args)
-            with self.assertRaises(SystemExit):
-                self.run_cli(args)
+            self.assertEqual(self.run_cli(args), acf.EXIT_SAFETY_REFUSED)
 
     def test_new_source_force_updates_existing_row(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -696,8 +727,7 @@ class CliTests(unittest.TestCase):
                 "Initial draft.",
             ]
             self.run_cli(args)
-            with self.assertRaises(SystemExit):
-                self.run_cli(args)
+            self.assertEqual(self.run_cli(args), acf.EXIT_SAFETY_REFUSED)
 
     def test_writeback_draft_force_updates_existing_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -736,18 +766,18 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
             self.run_cli(["init", str(target), "--profile", "minimal"])
-            with self.assertRaises(SystemExit):
-                self.run_cli(
-                    [
-                        "writeback",
-                        "draft",
-                        str(target),
-                        "--name",
-                        "../session",
-                        "--text",
-                        "Do not escape draft directory.",
-                    ]
-                )
+            exit_code = self.run_cli(
+                [
+                    "writeback",
+                    "draft",
+                    str(target),
+                    "--name",
+                    "../session",
+                    "--text",
+                    "Do not escape draft directory.",
+                ]
+            )
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
             self.assertFalse((target / "worklog" / "writeback-drafts").exists())
 
     def test_new_adr_creates_file_and_active_index_row(self):
@@ -812,22 +842,22 @@ class CliTests(unittest.TestCase):
             target = Path(tmp) / "ctx"
             self.run_cli(["init", str(target), "--profile", "minimal"])
             (target / "decisions" / "ADR-0001.md").write_text("existing", encoding="utf-8")
-            with self.assertRaises(SystemExit):
-                self.run_cli(
-                    [
-                        "new",
-                        "adr",
-                        str(target),
-                        "--id",
-                        "ADR-0001",
-                        "--title",
-                        "Duplicate decision",
-                        "--summary",
-                        "Duplicate summary.",
-                        "--decision",
-                        "Do not overwrite existing ADRs.",
-                    ]
-                )
+            exit_code = self.run_cli(
+                [
+                    "new",
+                    "adr",
+                    str(target),
+                    "--id",
+                    "ADR-0001",
+                    "--title",
+                    "Duplicate decision",
+                    "--summary",
+                    "Duplicate summary.",
+                    "--decision",
+                    "Do not overwrite existing ADRs.",
+                ]
+            )
+            self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
 
     def test_new_adr_creates_proposed_index_row(self):
         with tempfile.TemporaryDirectory() as tmp:

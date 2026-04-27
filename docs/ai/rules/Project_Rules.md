@@ -9,6 +9,7 @@
 - 当前项目使用 `pyproject.toml` 和 `uv.lock` 固定 uv 解析结果，不新增第三方依赖。
 - AI 需要稳定读取命令结果时，优先给 acf 命令追加 `--json`。
 - 解析 acf JSON 输出时，优先依赖 `schema_version`、`ok`、`error_code`、`next_actions` 和 changed files 字段。
+- 根据 acf 退出码判断失败类型：1 为 check_failed，2 为 input_error，3 为 safety_refused，70 为 runtime_error。
 - 写入风险较高或需要先审阅变更范围时，优先使用 `--dry-run --json` 查看 changed files。
 - 修改模板文件时，同步确保 `uv run acf check template` 通过；该检查会校验模板打包 data-files 是否遗漏。
 - 修改当前任务时优先使用 `uv run acf new task ...`。

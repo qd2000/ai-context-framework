@@ -44,7 +44,7 @@
 
 ### 阶段 2：AI 友好输出和安全执行模式
 
-状态：已实现第一版，并完成 JSON schema 基础字段细化；后续可继续细化 exit code 和错误分类。
+状态：已实现第一版，并完成 JSON schema 基础字段、exit code 和错误分类细化。
 
 目标：
 
@@ -64,6 +64,7 @@
 - `status --json` 和 `check --json` 输出可解析 JSON。
 - JSON 输出包含 `schema_version`、`ok`、`error_code` 和 `next_actions`。
 - 检查失败时 `error_code` 为 `check_failed`，AI 可以读取 `next_actions` 决定后续动作。
+- 退出码已区分成功、检查失败、输入错误、安全拒绝和非预期运行时错误。
 - 写命令输出 changed files，支持 `--dry-run --json` 预览。
 - 写命令支持 `--check-after`。
 - `check template` 会校验 `pyproject.toml` 中模板 data-files 与 `template/` 文件同步，避免打包漏文件。
@@ -115,10 +116,9 @@
 
 优先做可验证、低歧义、可回退的命令：
 
-1. exit code 和错误分类细化：区分输入错误、安全拒绝、检查失败和运行时异常。
-2. 根薄入口自定义字段：允许用户在生成时追加少量仓库级规则，但仍不把完整上下文写入根入口。
-3. 安全结构化编辑原语：section get/replace/append 和 table upsert。
-4. `writeback-curator` 接入：由 subagent 生成更高质量的回写分类草案，但仍只输出草案。
+1. 根薄入口自定义字段：允许用户在生成时追加少量仓库级规则，但仍不把完整上下文写入根入口。
+2. 安全结构化编辑原语：section get/replace/append 和 table upsert。
+3. `writeback-curator` 接入：由 subagent 生成更高质量的回写分类草案，但仍只输出草案。
 
 这些命令应默认只生成草案或骨架。真正写入权威上下文前，仍应由用户或主代理确认。
 

@@ -102,6 +102,10 @@ ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
 DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
 JSON_SCHEMA_VERSION = 1
+EXIT_CHECK_FAILED = 1
+EXIT_INPUT_ERROR = 2
+EXIT_SAFETY_REFUSED = 3
+EXIT_RUNTIME_ERROR = 70
 
 MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本项目。
 
@@ -243,6 +247,66 @@ def write_next_actions(dry_run: bool, check_result: CheckResult | None) -> list[
             "Rerun the command after correction.",
         ]
     return []
+
+
+def error_next_actions(error_code: str) -> list[str]:
+    if error_code == "input_error":
+        return [
+            "Check command arguments and paths.",
+            "Rerun with `--help` if needed.",
+        ]
+    if error_code == "safety_refused":
+        return [
+            "Review the target state and changed files.",
+            "Rerun with `--force` only if overwriting is intended.",
+        ]
+    if error_code == "runtime_error":
+        return [
+            "Inspect the error message.",
+            "Rerun after fixing the unexpected failure.",
+        ]
+    return []
+
+
+def classify_cli_error(message: str) -> tuple[str, int]:
+    safety_markers = (
+        "already exists",
+        "already contains",
+        "current task is Active",
+        "path is a directory",
+        "target already exists",
+    )
+    if any(marker in message for marker in safety_markers):
+        return "safety_refused", EXIT_SAFETY_REFUSED
+    return "input_error", EXIT_INPUT_ERROR
+
+
+def command_name_from_argv(argv: Sequence[str]) -> str | None:
+    for token in argv:
+        if token.startswith("-"):
+            continue
+        return token
+    return None
+
+
+def json_requested(argv: Sequence[str]) -> bool:
+    return "--json" in argv
+
+
+def emit_cli_error(argv: Sequence[str], message: str, error_code: str, exit_code: int) -> int:
+    if json_requested(argv):
+        print_json(
+            {
+                "command": command_name_from_argv(argv),
+                "ok": False,
+                "error_code": error_code,
+                "message": message,
+                "next_actions": error_next_actions(error_code),
+            }
+        )
+    else:
+        print(f"ERROR: {message}", file=sys.stderr)
+    return exit_code
 
 
 def print_json(payload: dict[str, object]) -> None:
@@ -1650,7 +1714,7 @@ def check_command(args: argparse.Namespace) -> int:
         print(f"check passed: {root}")
         return 0
     print(f"check failed: {len(result.errors)} error(s), {len(result.warnings)} warning(s)", file=sys.stderr)
-    return 1
+    return EXIT_CHECK_FAILED
 
 
 def status_command(args: argparse.Namespace) -> int:
@@ -1812,9 +1876,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    argv_list = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
-    args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        args = parser.parse_args(argv_list)
+        return args.func(args)
+    except SystemExit as exc:
+        if isinstance(exc.code, int):
+            return exc.code
+        message = str(exc.code)
+        error_code, exit_code = classify_cli_error(message)
+        return emit_cli_error(argv_list, message, error_code, exit_code)
+    except Exception as exc:  # pragma: no cover - defensive CLI boundary
+        return emit_cli_error(argv_list, str(exc), "runtime_error", EXIT_RUNTIME_ERROR)
 
 
 if __name__ == "__main__":

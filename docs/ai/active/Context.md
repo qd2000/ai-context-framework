@@ -66,6 +66,7 @@ Dogfooding MVP / 框架稳定化。
 22. 写命令已支持 `--json`、`--dry-run`、`--check-after`，并输出 changed files。
 23. `acf check template` 会校验 `pyproject.toml` 中模板 data-files 与 `template/` 文件同步，降低新增模板文件后打包遗漏的风险。
 24. JSON 输出已包含基础稳定字段：`schema_version`、`ok`、`error_code` 和 `next_actions`；检查失败时 `error_code` 为 `check_failed`。
+25. acf 退出码已区分成功、检查失败、输入错误、安全拒绝和非预期运行时错误；JSON 错误响应会包含 `message` 和 `next_actions`。
 
 ---
 
@@ -86,10 +87,9 @@ Dogfooding MVP / 框架稳定化。
 
 ## 当前开放问题
 
-1. exit code 和错误分类是否需要进一步区分输入错误、安全拒绝、检查失败和运行时异常。
-2. 安全结构化编辑的第一批原语是否限定为 section get/replace/append 和 table upsert。
-3. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
-4. 是否需要 `writeback-curator` subagent 生成更高质量的回写分类草案。
+1. 安全结构化编辑的第一批原语是否限定为 section get/replace/append 和 table upsert。
+2. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
+3. 是否需要 `writeback-curator` subagent 生成更高质量的回写分类草案。
 
 ---
 
@@ -180,4 +180,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：细化 acf JSON schema，增加 `schema_version`、`error_code` 和 `next_actions`。
+- 更新原因：细化 acf exit code 和错误分类。

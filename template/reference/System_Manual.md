@@ -234,3 +234,11 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - 写命令可追加 `--check-after`：落盘后自动运行 context check。
 
 JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。当检查失败时，`error_code` 为 `check_failed`，`next_actions` 给出后续处理建议。
+
+退出码约定：
+
+- `0`：成功。
+- `1`：检查失败，`error_code=check_failed`。
+- `2`：输入错误，`error_code=input_error`。
+- `3`：安全拒绝，例如重复写入或需要 `--force`，`error_code=safety_refused`。
+- `70`：非预期运行时错误，`error_code=runtime_error`。
