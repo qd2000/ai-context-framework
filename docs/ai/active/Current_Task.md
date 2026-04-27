@@ -23,96 +23,79 @@ Done
 
 ## 任务名称
 
-实现 `acf.py new adr`
+实现 acf.py new task
 
 ---
 
 ## 本次任务目标
 
-1. 新增 `acf.py new adr <context>` 命令。
-2. 自动选择下一个 ADR 编号，也允许显式传入 `--id ADR-000N`。
-3. 生成无占位符 ADR 文件。
-4. 按 `Active` 或 `Proposed` 状态更新 `reference/Decisions_Index.md`。
-5. 用新命令生成 `ADR-0002`，记录 uv dogfooding Python 环境决策。
+1. 新增确定性命令生成 active/Current_Task.md。
+2. 默认保护 Active 任务，覆盖时要求 --force。
+3. 同步 README、System_Manual、Automation 和 dogfooding 上下文。
 
 ---
 
 ## 任务背景
 
-ADR 和决策索引需要保持同步。此前新增决策需要手工创建 ADR 文件、选择编号、写索引行并确保状态一致，容易出现遗漏或状态漂移。
+该任务由当前维护流程创建，需要写入当前任务文件以便协作过程可追踪。
 
 ---
 
 ## 输入材料
 
-- `reference/Decisions_Index.md` 的当前结构。
-- 已有 `decisions/ADR-0001.md`。
-- `../Automation.md` 中的自动化路线。
-- 当前 `acf.py` 的 `new worklog` 实现模式。
+- 用户当前请求。
+- `active/Context.md`。
 
 ---
 
 ## 输出要求
 
-- `acf.py new adr` 子命令。
-- 覆盖 Active、Proposed、自动编号和重复 ID 拒绝的测试。
-- `decisions/ADR-0002.md`。
-- 更新后的 `reference/Decisions_Index.md`。
-- 更新后的 README、System_Manual、Automation 和当前上下文。
+- acf.py 新增 new task 子命令。
+- tests/test_cli.py 覆盖生成、状态校验和 Active 覆盖保护。
+- README、System_Manual、Automation 和 docs/ai 上下文已同步。
 
 ---
 
 ## 成功标准
 
-1. `uv run python acf.py new adr docs/ai --title "..." --summary "..." --decision "..."` 能生成 ADR 文件并更新索引。
-2. 自动编号跳过已存在 ADR。
-3. 显式重复 ID 会失败，不覆盖已有 ADR。
-4. Active 决策进入“当前有效决策”表。
-5. Proposed 决策进入“待确认决策”表并保留详情链接。
-6. `uv run python acf.py check docs/ai --profile minimal --strict` 通过。
-7. `uv run python acf.py check template` 通过。
-8. `uv run python -m unittest` 通过。
-9. `uv run python -m py_compile acf.py tests\test_cli.py` 通过。
+1. new task 能生成无占位符且状态有效的 Current_Task 文件。
+2. Active 任务未传 --force 时不会被静默覆盖。
+3. 约定的 uv 验证命令通过。
 
 ---
 
 ## 失败信号
 
-1. ADR 文件和 `reference/Decisions_Index.md` 状态不一致。
-2. 新命令覆盖已有 ADR。
-3. 生成的 ADR 含占位符，导致 strict 检查失败。
-4. Proposed 决策没有可追溯详情链接。
+1. 目标无法验证。
+2. 任务范围需要重新确认。
 
 ---
 
 ## 约束条件
 
 1. 不引入第三方依赖。
-2. 不实现 `new task`、`new source` 或 `writeback draft`。
-3. 只支持新 ADR 的 `Active` 和 `Proposed` 状态。
-4. 生成内容是可审阅草案，不替代人工语义判断。
+2. 保持 template 的通用性。
 
 ---
 
 ## 不允许做的事
 
-- 不静默覆盖已有 ADR 文件。
-- 不把被否定方案或已替代决策自动写入新 ADR。
-- 不改变通用模板的 uv 无关性。
+- 本轮不实现 new source。
+- 本轮不实现 writeback draft。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-本任务已完成。下一步优先判断 `new task`、`new source` 和 `writeback draft` 的最小接口。
+1. new source 和 writeback draft 的最小接口后续如何设计。
 
 ---
 
 ## 完成后的回写要求
 
-已写入：
+任务完成后，请整理以下内容，供人审核后写回项目系统：
 
-1. `active/Context.md`：更新当前事实和开放问题。
-2. `reference/Decisions_Index.md` 和 `decisions/ADR-0002.md`：记录 uv dogfooding 决策。
-3. `worklog/Worklog_Index.md` 和 daily worklog：记录本次工作。
-4. README、System_Manual、`../Automation.md`：更新 CLI 能力说明。
+1. 应写入 `active/Context.md` 的新增当前事实。
+2. 应写入 `reference/Decisions_Index.md` 或 ADR 的重要决策。
+3. 应写入 rules 的新增规则。
+4. 应归档到 archive 的历史内容。

@@ -43,9 +43,20 @@ template/
 ## 使用方法
 
 1. 将 `template/` 目录复制到你的项目中（建议放在 `docs/ai/` 下）
-2. 在项目根目录放置 `AGENTS.md`，指向上下文目录
+2. `acf.py init docs/ai` 会在项目根目录生成薄入口 `AGENTS.md`，在 `docs/ai/` 下生成完整入口 `AGENTS.md`
 3. 根据项目需要填充模板中的占位符
-4. AI 进入项目时，从 `AGENTS.md` 开始读取
+4. AI 进入项目时，从根目录 `AGENTS.md` 开始读取
+
+### 关于两层 AGENTS.md 的设计
+
+这是"**渐进式暴露**"原则的实践：
+
+| 层级 | 文件 | 内容 | 维护者 | 频率 |
+|---|---|---|---|---|
+| 第一层 | `./AGENTS.md` | 薄入口 + 仓库级约定 | 框架维护者 | 很少改 |
+| 第二层 | `docs/ai/AGENTS.md` | 完整上下文导航 | 项目团队 + AI | 按阶段更新 |
+
+目的是在不暴露过多细节的前提下，让 AI 能逐步了解项目上下文结构。
 
 ## 信息层级
 
@@ -78,6 +89,7 @@ template/
 uv run python acf.py init docs/ai
 uv run python acf.py init docs/ai-min --profile minimal
 uv run python acf.py simplify docs/ai docs/ai-min
+uv run python acf.py new task docs/ai --title "实现一个维护任务" --goal "写清当前目标。"
 uv run python acf.py new worklog docs/ai --summary "完成一次上下文维护。"
 uv run python acf.py new adr docs/ai --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
 uv run python acf.py check docs/ai
@@ -87,12 +99,13 @@ uv run python acf.py check docs/ai --strict
 命令说明：
 
 - `init`：从 `template/` 生成标准或简化上下文目录。
-- `simplify`：从已有上下文生成只包含核心文件的简化版本。
+- `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
+- `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
 - `new adr`：生成下一个 ADR 文件，并更新 `reference/Decisions_Index.md`。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性和占位符残留。
 
-`check` 默认关注结构完整度；`--strict` 适合检查已投入使用的项目上下文，会把非模板文件中的占位符残留视为错误。
+`check` 默认关注结构完整度；`--strict` 适合检查已投入使用的项目上下文，会把占位符残留视为错误。
 
 ## 维护与验证
 
