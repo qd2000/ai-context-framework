@@ -124,6 +124,18 @@ MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本�
 
 ---
 
+## CLI 辅助维护
+
+如果项目可用 `acf` 命令，维护上下文时优先考虑使用它完成确定性操作。
+
+- 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
+- 新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时，优先考虑 `acf new`、`acf edit`、`acf writeback` 和 `acf check`。
+- 需要参数细节时，先查看 `acf --help`；如果项目包含系统手册，再按需读取 System Manual。
+
+`acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。
+
+---
+
 ## 目录结构
 
 ```text
@@ -1075,28 +1087,28 @@ def render_writeback_draft(draft_name: str, input_text: str) -> str:
 ## active/Current_Task.md 候选
 
 - 待人工判断当前任务状态是否需要更新。
-- 如需更新，优先使用 `uv run python acf.py new task ...`。
+- 如需更新，优先使用 `acf new task ...`。
 
 ---
 
 ## reference/Decisions_Index.md / ADR 候选
 
 - 待人工判断是否存在需要升格为 ADR 的重要决策。
-- 如需新增决策，优先使用 `uv run python acf.py new adr ...`。
+- 如需新增决策，优先使用 `acf new adr ...`。
 
 ---
 
 ## worklog 候选
 
 - 待人工判断是否需要写入当天整理后工作记录。
-- 如需新增或更新，优先使用 `uv run python acf.py new worklog ...`。
+- 如需新增或更新，优先使用 `acf new worklog ...`。
 
 ---
 
 ## source 候选
 
 - 待人工判断是否需要新增资料索引。
-- 如需新增或更新，优先使用 `uv run python acf.py new source ...`。
+- 如需新增或更新，优先使用 `acf new source ...`。
 
 ---
 

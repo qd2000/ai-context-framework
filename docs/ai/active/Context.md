@@ -70,6 +70,8 @@ Dogfooding MVP / 框架稳定化。
 26. `acf edit section get|replace|append` 已支持读取、替换和追加上下文根目录内 Markdown section，并继承 JSON、dry-run、changed files 和 check-after 契约。
 27. `acf edit table upsert` 已支持按 key column 更新或追加 Markdown 表格行，目标限制在上下文根目录内已有 `.md` 文件。
 
+28. 模板入口、minimal init 产物和当前 dogfooding 入口已补充 CLI 渐进式披露入口：默认只提示 `acf status --json`、`acf --help` 和按需读取系统手册，不在入口列完整命令手册。
+
 ---
 
 ## 当前关键约束
@@ -181,4 +183,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：实现安全结构化编辑第一版。
+- 更新原因：补充 CLI 渐进式披露入口。

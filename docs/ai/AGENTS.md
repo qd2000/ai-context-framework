@@ -14,6 +14,18 @@
 
 ---
 
+## CLI 辅助维护
+
+如果项目可用 `acf` 命令，维护上下文时优先考虑使用它完成确定性操作。
+
+- 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
+- 新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时，优先考虑 `acf new`、`acf edit`、`acf writeback` 和 `acf check`。
+- 需要参数细节时，先查看 `acf --help`；如果项目包含系统手册，再按需读取 System Manual。
+
+`acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。
+
+---
+
 ## 目录结构
 
 ```text

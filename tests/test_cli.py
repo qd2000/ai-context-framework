@@ -47,8 +47,23 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertFalse((target / "decisions" / "ADR-0001-template.md").exists())
             self.assertFalse((target / "worklog" / "daily" / "YYYY-MM-DD.md").exists())
+            agents_text = (target / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertIn("## CLI 辅助维护", agents_text)
+            self.assertIn("acf status --json", agents_text)
+            self.assertIn("acf --help", agents_text)
             result = acf.check_context(target, "minimal", strict=False)
             self.assertFalse(result.errors)
+
+    def test_init_standard_agents_exposes_cli_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            exit_code = self.run_cli(["init", str(target)])
+            self.assertEqual(exit_code, 0)
+
+            agents_text = (target / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertIn("## CLI 辅助维护", agents_text)
+            self.assertIn("acf status --json", agents_text)
+            self.assertIn("reference/System_Manual.md", agents_text)
 
     def test_init_creates_root_thin_agent_for_docs_context(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -683,6 +698,8 @@ class CliTests(unittest.TestCase):
             draft_text = draft_file.read_text(encoding="utf-8")
             self.assertIn("Context update: new source command shipped.", draft_text)
             self.assertIn("active/Context.md 候选", draft_text)
+            self.assertIn("acf new task", draft_text)
+            self.assertNotIn("uv run", draft_text)
             result = acf.check_context(target, "minimal", strict=False)
             self.assertFalse(result.errors)
 

@@ -23,45 +23,45 @@ Done
 
 ## 任务名称
 
-实现安全结构化编辑原语
+补充 CLI 渐进式披露入口
 
 ---
 
 ## 本次任务目标
 
-1. 提供 section get、section replace、section append 和 table upsert。
-2. 所有编辑限制在上下文根目录内，并拒绝非 Markdown 目标和路径穿越。
-3. 保持 JSON、dry-run、changed files 和 check-after 契约一致。
+1. 让模板和 init 产物在默认入口中提示 AI 可用 acf 管理上下文。
+2. 保持默认入口轻量，只提供工具发现路径，不写完整命令手册。
+3. 通用模板不绑定本仓库 uv dogfooding 运行方式。
 
 ---
 
 ## 任务背景
 
-AI-facing CLI 阶段 3 第一版已完成。
+模板入口、minimal init 产物和当前 dogfooding 入口的 CLI 渐进式披露已完成。
 
 ---
 
 ## 输入材料
 
-- docs/Automation.md 阶段 3 计划。
-- 现有 acf.py 写命令和 JSON 输出契约。
+- template AGENTS 入口。
+- minimal AGENTS 生成字符串。
+- template Project Rules 和 System Manual。
 
 ---
 
 ## 输出要求
 
-- acf.py edit section/table 子命令已实现。
-- tests/test_cli.py 已覆盖结构化编辑。
-- README、System Manual、Automation 和 dogfooding 上下文已同步。
+- 模板和 minimal init 产物包含 CLI 辅助维护提示。
+- 测试覆盖 minimal 和 standard init 的 AGENTS CLI 发现提示。
+- dogfooding 上下文和 worklog 已同步。
 
 ---
 
 ## 成功标准
 
-1. section get/replace/append 可稳定操作指定标题。
-2. table upsert 可按 key 更新或追加索引表行。
-3. 路径穿越和非 Markdown 文件被拒绝。
-4. 完整 uv 验证通过。
+1. 默认入口提示 acf status --json、acf --help 和按需读取系统手册。
+2. System Manual 首选 acf 命令，python acf.py 只作为未安装兼容方式。
+3. 完整 uv 验证通过。
 
 ---
 
@@ -74,20 +74,21 @@ AI-facing CLI 阶段 3 第一版已完成。
 
 ## 约束条件
 
-1. 不新增第三方运行依赖。
-2. 不实现通用 Markdown 编辑器或语义判断。
+1. 不新增 CLI 行为。
+2. 不在根薄入口加入完整 CLI 说明。
+3. 不把 uv 写入通用模板。
 
 ---
 
 ## 不允许做的事
 
-- 不实现 subagent 自动写入权威上下文。
+- 不实现阶段 4 subagent 接入。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. 第一版 table upsert 保持简单的精确表头/首表匹配。
+1. 无。
 
 ---
 
