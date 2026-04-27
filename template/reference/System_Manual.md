@@ -221,6 +221,10 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `python acf.py new worklog [target] --summary "..."`：生成 daily worklog 并更新工作记录索引。
 - `python acf.py new adr [target] --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `python acf.py writeback draft [target] --text "..."`：生成会话回写草案，供人工审阅后再决定是否写入权威上下文。
+- `python acf.py edit section get <file> --heading "## 标题"`：读取上下文根目录内某个 Markdown section 的正文。
+- `python acf.py edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
+- `python acf.py edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。
+- `python acf.py edit table upsert <file> --key-column "列名" --key "键值" --cell "列名=内容"`：按 key column 更新或追加表格行。
 - `python acf.py check [target]`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举和索引一致性。
 - `python acf.py check [target] --strict`：把占位符残留作为错误，适合正式项目上下文。
 
@@ -230,10 +234,13 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 - `acf status --json`：获取机器可读的上下文位置、profile、当前任务状态和检查结果。
 - `acf check --json --strict`：获取机器可读的检查结果。
+- `acf edit section get ... --json`：获取机器可读的 section 正文和行号信息。
 - 写命令可追加 `--dry-run --json`：只预览 changed files，不实际落盘。
 - 写命令可追加 `--check-after`：落盘后自动运行 context check。
 
 JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。当检查失败时，`error_code` 为 `check_failed`，`next_actions` 给出后续处理建议。
+
+`edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它只提供 section/table 级确定性编辑，不做事实判断，也不是通用 Markdown 编辑器。
 
 退出码约定：
 

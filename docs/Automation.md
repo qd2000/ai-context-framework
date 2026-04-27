@@ -18,6 +18,8 @@
 - `new worklog`：按日期生成 daily worklog，并向 `worklog/Worklog_Index.md` 添加或更新索引行。
 - `new adr`：生成下一个 ADR 文件，并按 Active 或 Proposed 状态更新 `reference/Decisions_Index.md`。
 - `writeback draft`：把会话结束回写建议保存到 `worklog/writeback-drafts/`，生成可审阅草案，不直接修改权威上下文文件。
+- `edit section get|replace|append`：读取、替换或追加上下文根目录内 Markdown 文件的指定 section body。
+- `edit table upsert`：按 key column 更新或追加上下文根目录内 Markdown 表格行。
 
 这些检查不需要模型判断，适合作为每次模板修改后的基础验证。
 
@@ -71,6 +73,8 @@
 
 ### 阶段 3：安全结构化编辑
 
+状态：已实现第一版。
+
 目标：
 
 - 提供面向 AI 的结构化 Markdown 编辑原语，而不是自由文本编辑器。
@@ -83,6 +87,13 @@
 - 常见上下文维护任务可以通过 CLI 完成，不需要 AI 手工拼接整文件。
 - 写入后 `check --strict` 能稳定发现结构漂移。
 - CLI 不理解语义，只做确定性文件编辑和校验。
+
+已完成：
+
+- section get 支持读取精确 Markdown heading 下的正文，并可输出 JSON。
+- section replace 和 section append 支持 `--text`、`--input`、stdin、`--json`、`--dry-run` 和 `--check-after`。
+- table upsert 支持精确表头或首表匹配，按 key column 更新或追加行。
+- edit 写操作只允许目标为上下文根目录内已有 `.md` 文件，并拒绝路径穿越和非 Markdown 目标。
 
 ### 阶段 4：草案和 subagent 接入
 
@@ -117,8 +128,8 @@
 优先做可验证、低歧义、可回退的命令：
 
 1. 根薄入口自定义字段：允许用户在生成时追加少量仓库级规则，但仍不把完整上下文写入根入口。
-2. 安全结构化编辑原语：section get/replace/append 和 table upsert。
-3. `writeback-curator` 接入：由 subagent 生成更高质量的回写分类草案，但仍只输出草案。
+2. `writeback-curator` 接入：由 subagent 生成更高质量的回写分类草案，但仍只输出草案。
+3. 跨项目 dogfooding 评测脚本：记录常见命令是否能在真实项目子目录稳定运行。
 
 这些命令应默认只生成草案或骨架。真正写入权威上下文前，仍应由用户或主代理确认。
 

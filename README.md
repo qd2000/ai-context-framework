@@ -97,6 +97,9 @@ uv run acf new source --title "资料标题" --type "文档" --location "https:/
 uv run acf new worklog --summary "完成一次上下文维护。"
 uv run acf new adr --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
 uv run acf writeback draft --name "session-note" --text "会话结束回写建议。"
+uv run acf edit section get active/Context.md --heading "## 当前有效事实" --json
+uv run acf edit section append active/Context.md --heading "## 当前开放问题" --text "1. 新问题。"
+uv run acf edit table upsert reference/Sources_Index.md --key-column "资料" --key "资料标题" --cell "状态=Useful"
 uv run acf check
 uv run acf check --strict
 uv run acf status --json
@@ -114,11 +117,15 @@ uv run acf new task --title "预览任务" --goal "只预览。" --dry-run --jso
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
 - `new adr`：生成下一个 ADR 文件，并更新 `reference/Decisions_Index.md`。
 - `writeback draft`：把会话结束回写建议保存为可审阅草案，不直接修改权威上下文文件。
+- `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
+- `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性和占位符残留。
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 
-`status` 和 `check` 支持 `--json` 输出。写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
+`status`、`check` 和 `edit section get` 支持 `--json` 输出。写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
+
+`edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它提供的是 section/table 级确定性编辑原语，不做语义判断，也不是通用 Markdown 编辑器。
 
 JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。检查失败时 `error_code` 为 `check_failed`，`next_actions` 给出 AI 可直接读取的后续动作。
 

@@ -67,6 +67,8 @@ Dogfooding MVP / 框架稳定化。
 23. `acf check template` 会校验 `pyproject.toml` 中模板 data-files 与 `template/` 文件同步，降低新增模板文件后打包遗漏的风险。
 24. JSON 输出已包含基础稳定字段：`schema_version`、`ok`、`error_code` 和 `next_actions`；检查失败时 `error_code` 为 `check_failed`。
 25. acf 退出码已区分成功、检查失败、输入错误、安全拒绝和非预期运行时错误；JSON 错误响应会包含 `message` 和 `next_actions`。
+26. `acf edit section get|replace|append` 已支持读取、替换和追加上下文根目录内 Markdown section，并继承 JSON、dry-run、changed files 和 check-after 契约。
+27. `acf edit table upsert` 已支持按 key column 更新或追加 Markdown 表格行，目标限制在上下文根目录内已有 `.md` 文件。
 
 ---
 
@@ -87,9 +89,8 @@ Dogfooding MVP / 框架稳定化。
 
 ## 当前开放问题
 
-1. 安全结构化编辑的第一批原语是否限定为 section get/replace/append 和 table upsert。
-2. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
-3. 是否需要 `writeback-curator` subagent 生成更高质量的回写分类草案。
+1. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
+2. 是否需要 writeback-curator subagent 生成更高质量的回写分类草案。
 
 ---
 
@@ -99,7 +100,7 @@ Dogfooding MVP / 框架稳定化。
 
 1. 可安装命令和上下文发现：支持在任意子目录调用 `acf`，自动找到上下文根目录，并提供 `acf status`。（已实现第一版）
 2. AI 友好输出和安全执行模式：支持 `--json`、`--dry-run`、统一 exit code、changed files 输出和写后检查。（已实现第一版）
-3. 安全结构化编辑：提供 section 和 table 级别的确定性编辑，限制写入范围在上下文根目录内。
+3. 安全结构化编辑：提供 section 和 table 级别的确定性编辑，限制写入范围在上下文根目录内。（已实现第一版）
 4. 草案和 subagent 接入：让 subagent 产出可审阅草案或建议 patch，不静默改写权威上下文。
 5. 跨项目 dogfooding 评测：在真实项目中验证任意目录调用、检查、写入和回写流程。
 
@@ -180,4 +181,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：细化 acf exit code 和错误分类。
+- 更新原因：实现安全结构化编辑第一版。

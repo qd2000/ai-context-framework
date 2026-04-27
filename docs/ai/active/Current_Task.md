@@ -23,44 +23,44 @@ Done
 
 ## 任务名称
 
-细化 acf exit code 和错误分类
+实现安全结构化编辑原语
 
 ---
 
 ## 本次任务目标
 
-1. 区分 input_error、safety_refused、check_failed 和 runtime_error。
-2. 为 JSON 错误响应返回稳定 error_code、message 和 next_actions。
-3. 让安全拒绝类场景使用单独退出码。
+1. 提供 section get、section replace、section append 和 table upsert。
+2. 所有编辑限制在上下文根目录内，并拒绝非 Markdown 目标和路径穿越。
+3. 保持 JSON、dry-run、changed files 和 check-after 契约一致。
 
 ---
 
 ## 任务背景
 
-该任务已完成，承接 AI-facing CLI 阶段 2 继续细化 exit code 和错误分类。
+AI-facing CLI 阶段 3 第一版已完成。
 
 ---
 
 ## 输入材料
 
-- docs/Automation.md 的阶段 2 后续计划。
-- 现有 acf.py JSON schema 输出。
+- docs/Automation.md 阶段 3 计划。
+- 现有 acf.py 写命令和 JSON 输出契约。
 
 ---
 
 ## 输出要求
 
-- acf.py 统一 CLI 错误边界和错误分类。
-- tests/test_cli.py 覆盖 input_error 和 safety_refused JSON/exit code。
-- 相关文档和 dogfooding 上下文同步。
+- acf.py edit section/table 子命令已实现。
+- tests/test_cli.py 已覆盖结构化编辑。
+- README、System Manual、Automation 和 dogfooding 上下文已同步。
 
 ---
 
 ## 成功标准
 
-1. 上下文无法发现时返回 input_error 和退出码 2。
-2. 重复写入或 Active 任务拒绝时返回 safety_refused 和退出码 3。
-3. check 失败仍返回 check_failed 和退出码 1。
+1. section get/replace/append 可稳定操作指定标题。
+2. table upsert 可按 key 更新或追加索引表行。
+3. 路径穿越和非 Markdown 文件被拒绝。
 4. 完整 uv 验证通过。
 
 ---
@@ -75,21 +75,19 @@ Done
 ## 约束条件
 
 1. 不新增第三方运行依赖。
-2. 不实现结构化 Markdown 编辑。
-3. 不改变 check_failed 的退出码。
+2. 不实现通用 Markdown 编辑器或语义判断。
 
 ---
 
 ## 不允许做的事
 
-- 本轮不实现 section/table 编辑原语。
-- 本轮不引入 subagent。
+- 不实现 subagent 自动写入权威上下文。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. 无。
+1. 第一版 table upsert 保持简单的精确表头/首表匹配。
 
 ---
 

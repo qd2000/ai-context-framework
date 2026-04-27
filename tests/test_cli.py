@@ -881,6 +881,335 @@ class CliTests(unittest.TestCase):
             index_text = (target / "reference" / "Decisions_Index.md").read_text(encoding="utf-8")
             self.assertIn("| ADR-0001 | Proposed decision | Proposed | Needs confirmation. | 详情：`decisions/ADR-0001.md` |", index_text)
 
+    def test_edit_section_get_json_returns_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            context_file = target / "active" / "Context.md"
+            context_file.write_text(
+                "# Context\n\n## Alpha\n\nOld body.\n\n## Beta\n\nNext body.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "edit",
+                    "section",
+                    "get",
+                    str(context_file),
+                    "--heading",
+                    "## Alpha",
+                    "--json",
+                    "--context",
+                    str(target),
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertEqual(payload["command"], "edit section get")
+            self.assertEqual(payload["body"], "Old body.")
+            self.assertEqual(payload["heading_line"], 3)
+
+    def test_edit_section_replace_dry_run_reports_changed_file_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            context_file = target / "active" / "Context.md"
+            before = "# Context\n\n## Alpha\n\nOld body.\n"
+            context_file.write_text(before, encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "edit",
+                    "section",
+                    "replace",
+                    "active/Context.md",
+                    "--heading",
+                    "## Alpha",
+                    "--text",
+                    "New body.",
+                    "--dry-run",
+                    "--json",
+                    "--context",
+                    str(target),
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["dry_run"])
+            self.assertEqual(payload["changed_files"], [str(context_file.resolve())])
+            self.assertEqual(context_file.read_text(encoding="utf-8"), before)
+
+    def test_edit_section_replace_preserves_section_separator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            context_file = target / "active" / "Context.md"
+            context_file.write_text(
+                "# Context\n\n## Alpha\n\nOld body.\n\n---\n\n## Beta\n\nNext body.\n",
+                encoding="utf-8",
+            )
+
+            exit_code = self.run_cli(
+                [
+                    "edit",
+                    "section",
+                    "replace",
+                    "active/Context.md",
+                    "--heading",
+                    "## Alpha",
+                    "--text",
+                    "New body.",
+                    "--context",
+                    str(target),
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            context_text = context_file.read_text(encoding="utf-8")
+            self.assertIn("New body.\n\n---\n\n## Beta", context_text)
+
+    def test_edit_section_append_writes_and_check_after_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, _stdout, stderr = self.run_cli_output(
+                [
+                    "edit",
+                    "section",
+                    "append",
+                    "active/Context.md",
+                    "--heading",
+                    "## 当前开放问题",
+                    "--text",
+                    "2. 新增的开放问题。",
+                    "--check-after",
+                    "--context",
+                    str(target),
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            context_text = (target / "active" / "Context.md").read_text(encoding="utf-8")
+            self.assertIn("2. 新增的开放问题。", context_text)
+
+    def test_edit_section_append_inserts_before_section_separator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            context_file = target / "active" / "Context.md"
+            context_file.write_text(
+                "# Context\n\n## Alpha\n\nOld body.\n\n---\n\n## Beta\n\nNext body.\n",
+                encoding="utf-8",
+            )
+
+            exit_code = self.run_cli(
+                [
+                    "edit",
+                    "section",
+                    "append",
+                    "active/Context.md",
+                    "--heading",
+                    "## Alpha",
+                    "--text",
+                    "Added body.",
+                    "--context",
+                    str(target),
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            context_text = context_file.read_text(encoding="utf-8")
+            self.assertIn("Old body.\n\nAdded body.\n\n---\n\n## Beta", context_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "edit",
+                    "section",
+                    "get",
+                    "active/Context.md",
+                    "--heading",
+                    "## Alpha",
+                    "--json",
+                    "--context",
+                    str(target),
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertNotIn("---", payload["body"])
+
+    def test_edit_section_rejects_path_traversal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "edit",
+                    "section",
+                    "replace",
+                    "../README.md",
+                    "--heading",
+                    "## Alpha",
+                    "--text",
+                    "No escape.",
+                    "--json",
+                    "--context",
+                    str(target),
+                ]
+            )
+
+            self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["error_code"], "safety_refused")
+
+    def test_edit_section_rejects_non_markdown_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            note = target / "active" / "note.txt"
+            note.write_text("text", encoding="utf-8")
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "edit",
+                    "section",
+                    "get",
+                    "active/note.txt",
+                    "--heading",
+                    "## Alpha",
+                    "--json",
+                    "--context",
+                    str(target),
+                ]
+            )
+
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["error_code"], "input_error")
+
+    def test_edit_table_upsert_updates_existing_key_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            table_file = target / "active" / "Table.md"
+            table_file.write_text(
+                "| Key | Value | Note |\n|---|---|---|\n| A | old | keep |\n",
+                encoding="utf-8",
+            )
+
+            exit_code = self.run_cli(
+                [
+                    "edit",
+                    "table",
+                    "upsert",
+                    "active/Table.md",
+                    "--key-column",
+                    "Key",
+                    "--key",
+                    "A",
+                    "--cell",
+                    "Value=new",
+                    "--context",
+                    str(target),
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("| A | new | keep |", table_file.read_text(encoding="utf-8"))
+
+    def test_edit_table_upsert_appends_missing_key_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            table_file = target / "active" / "Table.md"
+            table_file.write_text(
+                "| Key | Value | Note |\n|---|---|---|\n| A | old | keep |\n",
+                encoding="utf-8",
+            )
+
+            exit_code = self.run_cli(
+                [
+                    "edit",
+                    "table",
+                    "upsert",
+                    "active/Table.md",
+                    "--key-column",
+                    "Key",
+                    "--key",
+                    "B",
+                    "--cell",
+                    "Value=added",
+                    "--cell",
+                    "Note=created",
+                    "--context",
+                    str(target),
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            table_text = table_file.read_text(encoding="utf-8")
+            self.assertIn("| B | added | created |", table_text)
+
+    def test_edit_table_upsert_dry_run_does_not_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            table_file = target / "active" / "Table.md"
+            before = "| Key | Value |\n|---|---|\n| A | old |\n"
+            table_file.write_text(before, encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "edit",
+                    "table",
+                    "upsert",
+                    "active/Table.md",
+                    "--key-column",
+                    "Key",
+                    "--key",
+                    "A",
+                    "--cell",
+                    "Value=new",
+                    "--dry-run",
+                    "--json",
+                    "--context",
+                    str(target),
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["dry_run"])
+            self.assertEqual(table_file.read_text(encoding="utf-8"), before)
+
+    def test_edit_section_uses_discovered_context_from_subdirectory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            nested = project_root / "src" / "package"
+            nested.mkdir(parents=True)
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Context.md").write_text(
+                "# Context\n\n## Alpha\n\nDiscovered body.\n",
+                encoding="utf-8",
+            )
+
+            with pushd(nested):
+                exit_code, stdout, stderr = self.run_cli_output(
+                    ["edit", "section", "get", "active/Context.md", "--heading", "## Alpha", "--json"]
+                )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["context"], str(target.resolve()))
+            self.assertEqual(payload["body"], "Discovered body.")
+
 
 if __name__ == "__main__":
     unittest.main()

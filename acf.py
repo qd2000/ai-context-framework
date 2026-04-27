@@ -100,6 +100,7 @@ MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
 DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
 JSON_SCHEMA_VERSION = 1
 EXIT_CHECK_FAILED = 1
@@ -186,6 +187,23 @@ class ContextLocation:
     project_root: Path
     context_root: Path
     profile: str
+
+
+@dataclass
+class SectionRange:
+    heading_index: int
+    body_start: int
+    body_end: int
+    level: int
+
+
+@dataclass
+class TableRange:
+    header_index: int
+    separator_index: int
+    body_start: int
+    body_end: int
+    headers: list[str]
 
 
 def json_enabled(args: argparse.Namespace) -> bool:
@@ -275,6 +293,7 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "current task is Active",
         "path is a directory",
         "target already exists",
+        "outside context root",
     )
     if any(marker in message for marker in safety_markers):
         return "safety_refused", EXIT_SAFETY_REFUSED
@@ -1434,6 +1453,343 @@ def writeback_draft_command(args: argparse.Namespace) -> int:
     return emit_write_result(args, "writeback draft", f"{action} writeback draft {draft_path}", [draft_path], check_result)
 
 
+def is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def resolve_context_markdown_file(root: Path, target: Path) -> Path:
+    root = root.resolve()
+    if target.is_absolute():
+        resolved = target.resolve()
+    else:
+        root_candidate = (root / target).resolve()
+        if not is_relative_to(root_candidate, root):
+            raise SystemExit(f"target file is outside context root: {target}")
+
+        cwd_candidate = (Path.cwd() / target).resolve()
+        if cwd_candidate.exists() and is_relative_to(cwd_candidate, root):
+            resolved = cwd_candidate
+        else:
+            resolved = root_candidate
+
+    if not is_relative_to(resolved, root):
+        raise SystemExit(f"target file is outside context root: {target}")
+    if resolved.suffix.lower() != ".md":
+        raise SystemExit(f"target file must be Markdown (.md): {resolved}")
+    if not resolved.exists():
+        raise SystemExit(f"target file does not exist: {resolved}")
+    if not resolved.is_file():
+        raise SystemExit(f"target path is not a file: {resolved}")
+    return resolved
+
+
+def read_edit_input(args: argparse.Namespace) -> str:
+    text = getattr(args, "text", None)
+    input_path = getattr(args, "input", None)
+    if text is not None and input_path is not None:
+        raise SystemExit("use either --text or --input, not both")
+    if text is not None:
+        return text
+    if input_path is not None:
+        resolved = input_path.resolve()
+        if not resolved.is_file():
+            raise SystemExit(f"edit input file does not exist: {resolved}")
+        return resolved.read_text(encoding="utf-8")
+    if not sys.stdin.isatty():
+        return sys.stdin.read()
+    raise SystemExit("edit command requires --text, --input, or stdin")
+
+
+def heading_level(line: str) -> int | None:
+    match = MARKDOWN_HEADING_RE.match(line.strip())
+    if match is None:
+        return None
+    return len(match.group(1))
+
+
+def find_section(lines: Sequence[str], heading: str) -> SectionRange:
+    expected = heading.strip()
+    if heading_level(expected) is None:
+        raise SystemExit(f"section heading must be a Markdown heading: {heading}")
+
+    heading_index = next((index for index, line in enumerate(lines) if line.strip() == expected), None)
+    if heading_index is None:
+        raise SystemExit(f"section heading was not found: {heading}")
+
+    level = heading_level(lines[heading_index])
+    if level is None:
+        raise SystemExit(f"section heading must be a Markdown heading: {heading}")
+
+    body_start = heading_index + 1
+    body_end = len(lines)
+    for index in range(body_start, len(lines)):
+        candidate_level = heading_level(lines[index])
+        if candidate_level is not None and candidate_level <= level:
+            body_end = index
+            break
+
+    return SectionRange(heading_index, body_start, body_end, level)
+
+
+def section_content_and_suffix(lines: Sequence[str], section: SectionRange) -> tuple[list[str], list[str]]:
+    content = list(lines[section.body_start : section.body_end])
+    while content and not content[-1].strip():
+        content.pop()
+
+    suffix: list[str] = []
+    if content and content[-1].strip() == "---":
+        content.pop()
+        while content and not content[-1].strip():
+            content.pop()
+        suffix = ["---", ""]
+
+    while content and not content[0].strip():
+        content.pop(0)
+
+    return content, suffix
+
+
+def section_body(lines: Sequence[str], section: SectionRange) -> str:
+    content, _suffix = section_content_and_suffix(lines, section)
+    return "\n".join(content).strip("\n")
+
+
+def normalized_section_body_lines(text: str) -> list[str]:
+    stripped = text.strip("\n")
+    return stripped.splitlines() if stripped else []
+
+
+def apply_section_body(
+    lines: Sequence[str],
+    section: SectionRange,
+    body_lines: Sequence[str],
+    suffix_lines: Sequence[str] | None = None,
+) -> str:
+    replacement = list(body_lines)
+    new_section = [lines[section.heading_index], ""]
+    new_section.extend(replacement)
+    suffix = list(suffix_lines or [])
+    if suffix:
+        if replacement:
+            new_section.append("")
+        new_section.extend(suffix)
+    elif replacement:
+        new_section.append("")
+
+    updated_lines = (
+        list(lines[: section.heading_index])
+        + new_section
+        + list(lines[section.body_end :])
+    )
+    return "\n".join(updated_lines).rstrip() + "\n"
+
+
+def replace_section_text(original: str, heading: str, replacement: str) -> str:
+    lines = original.splitlines()
+    section = find_section(lines, heading)
+    _content, suffix = section_content_and_suffix(lines, section)
+    return apply_section_body(lines, section, normalized_section_body_lines(replacement), suffix)
+
+
+def append_section_text(original: str, heading: str, addition: str) -> str:
+    lines = original.splitlines()
+    section = find_section(lines, heading)
+    body_lines, suffix = section_content_and_suffix(lines, section)
+    addition_lines = normalized_section_body_lines(addition)
+    if body_lines and addition_lines:
+        body_lines.append("")
+    body_lines.extend(addition_lines)
+    return apply_section_body(lines, section, body_lines, suffix)
+
+
+def edit_section_get_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.context)
+    target = resolve_context_markdown_file(root, args.file)
+    lines = read_text(target).splitlines()
+    section = find_section(lines, args.heading)
+    body = section_body(lines, section)
+
+    if json_enabled(args):
+        print_json(
+            {
+                "command": "edit section get",
+                "ok": True,
+                "context": str(root),
+                "file": str(target),
+                "heading": args.heading,
+                "body": body,
+                "heading_line": section.heading_index + 1,
+                "body_start_line": section.body_start + 1,
+                "body_end_line": section.body_end,
+            }
+        )
+    else:
+        print(body)
+    return 0
+
+
+def edit_section_replace_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.context)
+    dry_run = dry_run_enabled(args)
+    target = resolve_context_markdown_file(root, args.file)
+    updated = replace_section_text(read_text(target), args.heading, read_edit_input(args))
+    if not dry_run:
+        target.write_text(updated, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would replace" if dry_run else "replaced"
+    return emit_write_result(
+        args,
+        "edit section replace",
+        f"{action} section {args.heading} in {target}",
+        [target],
+        check_result,
+    )
+
+
+def edit_section_append_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.context)
+    dry_run = dry_run_enabled(args)
+    target = resolve_context_markdown_file(root, args.file)
+    updated = append_section_text(read_text(target), args.heading, read_edit_input(args))
+    if not dry_run:
+        target.write_text(updated, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would append" if dry_run else "appended"
+    return emit_write_result(
+        args,
+        "edit section append",
+        f"{action} to section {args.heading} in {target}",
+        [target],
+        check_result,
+    )
+
+
+def split_table_line(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def is_table_line(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("|") and stripped.endswith("|")
+
+
+def is_table_separator(line: str) -> bool:
+    if not is_table_line(line):
+        return False
+    cells = split_table_line(line)
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell.replace(" ", "")) for cell in cells)
+
+
+def find_table(lines: Sequence[str], header: str | None) -> TableRange:
+    for index, line in enumerate(lines[:-1]):
+        if header is not None and line.strip() != header.strip():
+            continue
+        if not is_table_line(line) or not is_table_separator(lines[index + 1]):
+            continue
+
+        body_start = index + 2
+        body_end = body_start
+        while body_end < len(lines) and is_table_line(lines[body_end]):
+            body_end += 1
+        return TableRange(index, index + 1, body_start, body_end, split_table_line(line))
+
+    if header is None:
+        raise SystemExit("Markdown table was not found")
+    raise SystemExit(f"Markdown table header was not found: {header}")
+
+
+def parse_cell_updates(values: Sequence[str]) -> dict[str, str]:
+    updates: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise SystemExit(f"table cell update must use COLUMN=VALUE: {value}")
+        column, cell_value = value.split("=", 1)
+        column = column.strip()
+        if not column:
+            raise SystemExit(f"table cell update has empty column name: {value}")
+        updates[column] = cell_value.strip()
+    return updates
+
+
+def render_table_row(cells: Sequence[str]) -> str:
+    return "| " + " | ".join(clean_table_cell(cell) for cell in cells) + " |"
+
+
+def upsert_table_row(
+    original: str,
+    header: str | None,
+    key_column: str,
+    key: str,
+    cell_updates: dict[str, str],
+) -> str:
+    lines = original.splitlines()
+    table = find_table(lines, header)
+    headers = table.headers
+    if key_column not in headers:
+        raise SystemExit(f"table key column was not found: {key_column}")
+
+    unknown_columns = sorted(set(cell_updates) - set(headers))
+    if unknown_columns:
+        raise SystemExit(f"table cell column was not found: {', '.join(unknown_columns)}")
+
+    key_index = headers.index(key_column)
+    updated_rows = list(lines[table.body_start : table.body_end])
+    target_row_index: int | None = None
+    for index, row in enumerate(updated_rows):
+        row_cells = split_table_line(row)
+        if len(row_cells) != len(headers):
+            raise SystemExit(f"table row has {len(row_cells)} cells but header has {len(headers)} cells: {row}")
+        if row_cells[key_index] == key:
+            target_row_index = index
+            break
+
+    if target_row_index is None:
+        row_cells = [""] * len(headers)
+    else:
+        row_cells = split_table_line(updated_rows[target_row_index])
+
+    row_cells[key_index] = key
+    for column, value in cell_updates.items():
+        row_cells[headers.index(column)] = value
+
+    rendered = render_table_row(row_cells)
+    if target_row_index is None:
+        updated_rows.append(rendered)
+    else:
+        updated_rows[target_row_index] = rendered
+
+    updated_lines = list(lines[: table.body_start]) + updated_rows + list(lines[table.body_end :])
+    return "\n".join(updated_lines).rstrip() + "\n"
+
+
+def edit_table_upsert_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.context)
+    dry_run = dry_run_enabled(args)
+    target = resolve_context_markdown_file(root, args.file)
+    updated = upsert_table_row(
+        read_text(target),
+        args.header,
+        args.key_column,
+        args.key,
+        parse_cell_updates(args.cell),
+    )
+    if not dry_run:
+        target.write_text(updated, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would upsert" if dry_run else "upserted"
+    return emit_write_result(
+        args,
+        "edit table upsert",
+        f"{action} table row {args.key} in {target}",
+        [target],
+        check_result,
+    )
+
+
 def iter_markdown_files(root: Path) -> Iterable[Path]:
     yield from sorted(root.rglob("*.md"))
 
@@ -1871,6 +2227,50 @@ def build_parser() -> argparse.ArgumentParser:
     draft_parser.add_argument("--force", action="store_true", help="replace an existing draft")
     add_write_arguments(draft_parser)
     draft_parser.set_defaults(func=writeback_draft_command)
+
+    edit_parser = subparsers.add_parser("edit", help="safely edit context Markdown files")
+    edit_subparsers = edit_parser.add_subparsers(dest="edit_target", required=True)
+
+    section_parser = edit_subparsers.add_parser("section", help="get or update a Markdown section")
+    section_subparsers = section_parser.add_subparsers(dest="section_command", required=True)
+
+    section_get_parser = section_subparsers.add_parser("get", help="print a section body")
+    section_get_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
+    section_get_parser.add_argument("--heading", required=True, help="exact Markdown heading, for example '## 当前阶段'")
+    section_get_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
+    add_json_argument(section_get_parser)
+    section_get_parser.set_defaults(func=edit_section_get_command)
+
+    section_replace_parser = section_subparsers.add_parser("replace", help="replace a section body")
+    section_replace_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
+    section_replace_parser.add_argument("--heading", required=True, help="exact Markdown heading to replace")
+    section_replace_parser.add_argument("--text", default=None, help="replacement text")
+    section_replace_parser.add_argument("--input", type=Path, default=None, help="file containing replacement text")
+    section_replace_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
+    add_write_arguments(section_replace_parser)
+    section_replace_parser.set_defaults(func=edit_section_replace_command)
+
+    section_append_parser = section_subparsers.add_parser("append", help="append text to a section body")
+    section_append_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
+    section_append_parser.add_argument("--heading", required=True, help="exact Markdown heading to append to")
+    section_append_parser.add_argument("--text", default=None, help="text to append")
+    section_append_parser.add_argument("--input", type=Path, default=None, help="file containing text to append")
+    section_append_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
+    add_write_arguments(section_append_parser)
+    section_append_parser.set_defaults(func=edit_section_append_command)
+
+    table_parser = edit_subparsers.add_parser("table", help="update Markdown tables")
+    table_subparsers = table_parser.add_subparsers(dest="table_command", required=True)
+
+    table_upsert_parser = table_subparsers.add_parser("upsert", help="insert or update a Markdown table row")
+    table_upsert_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
+    table_upsert_parser.add_argument("--header", default=None, help="exact table header line; omitted to use first table")
+    table_upsert_parser.add_argument("--key-column", required=True, help="column used as the row key")
+    table_upsert_parser.add_argument("--key", required=True, help="key value to update or append")
+    table_upsert_parser.add_argument("--cell", action="append", required=True, help="cell update as COLUMN=VALUE; can be repeated")
+    table_upsert_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
+    add_write_arguments(table_upsert_parser)
+    table_upsert_parser.set_defaults(func=edit_table_upsert_command)
 
     return parser
 
