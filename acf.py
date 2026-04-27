@@ -68,9 +68,7 @@ MINIMAL_FILES = (
     "reference/Project_Brief.md",
     "reference/Decisions_Index.md",
     "reference/Sources_Index.md",
-    "decisions/ADR-0001-template.md",
     "worklog/Worklog_Index.md",
-    "worklog/daily/YYYY-MM-DD.md",
 )
 
 VALID_TASK_STATUSES = {"Active", "Paused", "Done", "Empty"}
@@ -80,10 +78,6 @@ PLACEHOLDER_RE = re.compile(r"【[^】]+】")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
-PLACEHOLDER_TEMPLATE_FILES = {
-    "decisions/ADR-0001-template.md",
-    "worklog/daily/YYYY-MM-DD.md",
-}
 
 MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本项目。
 
@@ -193,8 +187,76 @@ def copy_selected_files(source: Path, target: Path, files: Sequence[str], dirs: 
         shutil.copy2(src, dst)
 
 
+def copy_dynamic_minimal_files(source: Path, target: Path) -> None:
+    dynamic_groups = (
+        ("decisions", "ADR-*.md", {"ADR-0001-template.md"}),
+        ("worklog/daily", "*.md", {"YYYY-MM-DD.md"}),
+    )
+    for dirname, pattern, excluded_names in dynamic_groups:
+        src_dir = source / dirname
+        if not src_dir.exists():
+            continue
+        dst_dir = target / dirname
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        for src in sorted(src_dir.glob(pattern)):
+            if not src.is_file() or src.name in excluded_names:
+                continue
+            shutil.copy2(src, dst_dir / src.name)
+
+
+def remove_markdown_section(text: str, heading: str) -> str:
+    lines = text.splitlines()
+    start = next((index for index, line in enumerate(lines) if line.strip() == heading), None)
+    if start is None:
+        return text
+    end = next(
+        (
+            index
+            for index, line in enumerate(lines[start + 1 :], start=start + 1)
+            if line.strip().startswith("## ")
+        ),
+        len(lines),
+    )
+    updated = lines[:start] + lines[end:]
+    return "\n".join(updated).rstrip() + "\n"
+
+
+def remove_worklog_example_block(text: str) -> str:
+    lines = text.splitlines()
+    start = next((index for index, line in enumerate(lines) if line.strip() == "填写示例："), None)
+    if start is None:
+        return text
+    end = next(
+        (
+            index
+            for index, line in enumerate(lines[start + 1 :], start=start + 1)
+            if line.strip() == "---"
+        ),
+        len(lines),
+    )
+    updated = lines[:start] + lines[end:]
+    return "\n".join(updated).rstrip() + "\n"
+
+
+def sanitize_minimal_indexes(target: Path) -> None:
+    decisions_index = target / "reference" / "Decisions_Index.md"
+    if decisions_index.exists():
+        decisions_index.write_text(
+            remove_markdown_section(read_text(decisions_index), "## 示例"),
+            encoding="utf-8",
+        )
+
+    worklog_index = target / "worklog" / "Worklog_Index.md"
+    if worklog_index.exists():
+        worklog_index.write_text(
+            remove_worklog_example_block(read_text(worklog_index)),
+            encoding="utf-8",
+        )
+
+
 def write_minimal_overrides(target: Path) -> None:
     (target / "AGENTS.md").write_text(MINIMAL_AGENTS, encoding="utf-8")
+    sanitize_minimal_indexes(target)
 
 
 def validate_date(value: str) -> str:
@@ -466,6 +528,126 @@ def render_adr(
 """
 
 
+def normalize_items(values: Sequence[str] | None, fallback: Sequence[str]) -> list[str]:
+    items = [value.strip() for value in values or [] if value.strip()]
+    return items or list(fallback)
+
+
+def numbered_list(items: Sequence[str]) -> str:
+    return "\n".join(f"{index}. {item}" for index, item in enumerate(items, start=1))
+
+
+def bullet_list(items: Sequence[str]) -> str:
+    return "\n".join(f"- {item}" for item in items)
+
+
+def render_current_task(
+    status: str,
+    title: str,
+    goals: Sequence[str],
+    background: str,
+    inputs: Sequence[str],
+    outputs: Sequence[str],
+    success: Sequence[str],
+    failures: Sequence[str],
+    constraints: Sequence[str],
+    non_goals: Sequence[str],
+    questions: Sequence[str],
+) -> str:
+    return f"""本文件记录当前正在处理的具体任务。
+
+- 长期目标请查看：`reference/Project_Brief.md`
+- 当前阶段目标请查看：`active/Context.md`
+- 本文件只维护当前具体任务
+
+如果用户在当前对话中提出了新的具体需求，并且该需求与本文件冲突，以用户当前消息为准。
+
+---
+
+## 当前任务状态
+
+{status}
+
+说明：
+
+- Active：当前任务正在进行
+- Paused：当前任务暂停
+- Done：当前任务已完成
+- Empty：暂无需要写入文件的当前任务
+
+---
+
+## 任务名称
+
+{title}
+
+---
+
+## 本次任务目标
+
+{numbered_list(goals)}
+
+---
+
+## 任务背景
+
+{background}
+
+---
+
+## 输入材料
+
+{bullet_list(inputs)}
+
+---
+
+## 输出要求
+
+{bullet_list(outputs)}
+
+---
+
+## 成功标准
+
+{numbered_list(success)}
+
+---
+
+## 失败信号
+
+{numbered_list(failures)}
+
+---
+
+## 约束条件
+
+{numbered_list(constraints)}
+
+---
+
+## 不允许做的事
+
+{bullet_list(non_goals)}
+
+---
+
+## 需要 AI 协助判断的问题
+
+{numbered_list(questions)}
+
+---
+
+## 完成后的回写要求
+
+任务完成后，请整理以下内容，供人审核后写回项目系统：
+
+1. 应写入 `active/Context.md` 的新增当前事实。
+2. 应写入 `reference/Decisions_Index.md` 或 ADR 的重要决策。
+3. 应写入 rules 的新增规则。
+4. 应归档到 archive 的历史内容。
+"""
+
+
 def index_contains_id(index_path: Path, adr_id: str) -> bool:
     return any(cells and cells[0] == adr_id for cells in parse_markdown_table_rows(read_text(index_path)))
 
@@ -529,6 +711,7 @@ def simplify_command(args: argparse.Namespace) -> int:
         raise SystemExit(f"source context does not exist: {source}")
     ensure_clean_target(target, args.force)
     copy_selected_files(source, target, MINIMAL_FILES, MINIMAL_DIRS)
+    copy_dynamic_minimal_files(source, target)
     write_minimal_overrides(target)
     print(f"created minimal context at {target}")
     return 0
@@ -589,6 +772,52 @@ def new_adr_command(args: argparse.Namespace) -> int:
     )
     update_decisions_index(root / "reference" / "Decisions_Index.md", adr_id, title, args.status, summary)
     print(f"created ADR {adr_path}")
+    return 0
+
+
+def new_task_command(args: argparse.Namespace) -> int:
+    root = args.path.resolve()
+    if not root.exists() or not root.is_dir():
+        raise SystemExit(f"context directory does not exist: {root}")
+
+    task_path = root / "active" / "Current_Task.md"
+    if task_path.exists():
+        current_status = extract_current_task_status(task_path)
+        if current_status == "Active" and not args.force:
+            raise SystemExit(f"current task is Active; use --force to replace it: {task_path}")
+
+    title = args.title.strip()
+    background = args.background.strip() or "该任务由当前维护流程创建，需要写入当前任务文件以便协作过程可追踪。"
+    if not title:
+        raise SystemExit("task title cannot be empty")
+
+    goals = normalize_items(args.goal, ("完成当前任务。",))
+    inputs = normalize_items(args.input, ("用户当前请求。", "`active/Context.md`。"))
+    outputs = normalize_items(args.output, ("更新后的 `active/Current_Task.md`。",))
+    success = normalize_items(args.success, ("任务目标已完成并通过必要验证。",))
+    failures = normalize_items(args.failure, ("目标无法验证。", "任务范围需要重新确认。"))
+    constraints = normalize_items(args.constraint, ("遵守当前项目规则。", "不引入无关依赖。"))
+    non_goals = normalize_items(args.non_goal, ("无。",))
+    questions = normalize_items(args.question, ("无。",))
+
+    task_path.parent.mkdir(parents=True, exist_ok=True)
+    task_path.write_text(
+        render_current_task(
+            args.status,
+            title,
+            goals,
+            background,
+            inputs,
+            outputs,
+            success,
+            failures,
+            constraints,
+            non_goals,
+            questions,
+        ),
+        encoding="utf-8",
+    )
+    print(f"created current task {task_path}")
     return 0
 
 
@@ -660,10 +889,6 @@ def strip_code_ticks(value: str) -> str:
     if value.startswith("`") and value.endswith("`"):
         return value[1:-1]
     return value
-
-
-def is_placeholder_template_file(rel_path: str) -> bool:
-    return rel_path in PLACEHOLDER_TEMPLATE_FILES
 
 
 def check_decisions(root: Path, errors: list[str]) -> None:
@@ -794,7 +1019,7 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
         placeholders = PLACEHOLDER_RE.findall(text)
         if placeholders:
             message = f"{rel_file}: contains {len(placeholders)} placeholder(s)"
-            if strict and not is_placeholder_template_file(rel_file):
+            if strict:
                 errors.append(message)
             elif not strict:
                 warnings.append(message)
@@ -867,6 +1092,22 @@ def build_parser() -> argparse.ArgumentParser:
     adr_parser.add_argument("--decision", required=True, help="decision statement")
     adr_parser.add_argument("--context", default="", help="decision background")
     adr_parser.set_defaults(func=new_adr_command)
+
+    task_parser = new_subparsers.add_parser("task", help="create or replace active/Current_Task.md")
+    task_parser.add_argument("path", type=Path)
+    task_parser.add_argument("--status", choices=tuple(sorted(VALID_TASK_STATUSES)), default="Active")
+    task_parser.add_argument("--title", required=True, help="task title")
+    task_parser.add_argument("--goal", action="append", required=True, help="task goal; can be repeated")
+    task_parser.add_argument("--background", default="", help="task background")
+    task_parser.add_argument("--input", action="append", default=None, help="input material; can be repeated")
+    task_parser.add_argument("--output", action="append", default=None, help="expected output; can be repeated")
+    task_parser.add_argument("--success", action="append", default=None, help="success criterion; can be repeated")
+    task_parser.add_argument("--failure", action="append", default=None, help="failure signal; can be repeated")
+    task_parser.add_argument("--constraint", action="append", default=None, help="task constraint; can be repeated")
+    task_parser.add_argument("--non-goal", action="append", default=None, help="out-of-scope item; can be repeated")
+    task_parser.add_argument("--question", action="append", default=None, help="question for AI judgment; can be repeated")
+    task_parser.add_argument("--force", action="store_true", help="replace an Active current task")
+    task_parser.set_defaults(func=new_task_command)
 
     return parser
 

@@ -26,6 +26,8 @@ class CliTests(unittest.TestCase):
             target = Path(tmp) / "ctx"
             exit_code = self.run_cli(["init", str(target), "--profile", "minimal"])
             self.assertEqual(exit_code, 0)
+            self.assertFalse((target / "decisions" / "ADR-0001-template.md").exists())
+            self.assertFalse((target / "worklog" / "daily" / "YYYY-MM-DD.md").exists())
             result = acf.check_context(target, "minimal", strict=False)
             self.assertFalse(result.errors)
 
@@ -81,7 +83,48 @@ class CliTests(unittest.TestCase):
             result = acf.check_context(target, "minimal", strict=False)
             self.assertTrue(any("does not match date" in error for error in result.errors))
 
-    def test_strict_ignores_explicit_template_placeholder_files(self):
+    def test_simplify_copies_real_history_without_placeholder_templates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            target = Path(tmp) / "target"
+            self.run_cli(["init", str(source), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "new",
+                    "adr",
+                    str(source),
+                    "--date",
+                    "2026-04-27",
+                    "--title",
+                    "Keep real decisions",
+                    "--summary",
+                    "Real ADR files survive simplify.",
+                    "--decision",
+                    "Copy real ADR files into simplified contexts.",
+                ]
+            )
+            self.run_cli(
+                [
+                    "new",
+                    "worklog",
+                    str(source),
+                    "--date",
+                    "2026-04-27",
+                    "--summary",
+                    "Keep real worklogs.",
+                ]
+            )
+
+            exit_code = self.run_cli(["simplify", str(source), str(target)])
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((target / "decisions" / "ADR-0001.md").exists())
+            self.assertTrue((target / "worklog" / "daily" / "2026-04-27.md").exists())
+            self.assertFalse((target / "decisions" / "ADR-0001-template.md").exists())
+            self.assertFalse((target / "worklog" / "daily" / "YYYY-MM-DD.md").exists())
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertFalse(result.errors)
+
+    def test_strict_flags_placeholder_files_when_present(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
             self.run_cli(["init", str(target), "--profile", "minimal"])
@@ -101,6 +144,16 @@ class CliTests(unittest.TestCase):
 
             result = acf.check_context(target, "minimal", strict=True)
             self.assertFalse(result.errors)
+
+            placeholder_file = target / "decisions" / "ADR-0001-template.md"
+            placeholder_file.write_text("【占位内容】\n", encoding="utf-8")
+            result = acf.check_context(target, "minimal", strict=True)
+            self.assertTrue(
+                any(
+                    "decisions/ADR-0001-template.md: contains 1 placeholder(s)" in error
+                    for error in result.errors
+                )
+            )
 
     def test_new_worklog_creates_daily_file_and_index_row(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,6 +230,67 @@ class CliTests(unittest.TestCase):
             index_text = (target / "worklog" / "Worklog_Index.md").read_text(encoding="utf-8")
             self.assertIn("Updated worklog.", index_text)
             self.assertNotIn("Initial worklog.", index_text)
+
+    def test_new_task_creates_current_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            exit_code = self.run_cli(
+                [
+                    "new",
+                    "task",
+                    str(target),
+                    "--title",
+                    "Implement task command",
+                    "--goal",
+                    "Generate active/Current_Task.md.",
+                    "--goal",
+                    "Keep task status valid.",
+                    "--success",
+                    "Context check passes.",
+                    "--constraint",
+                    "Use existing CLI patterns.",
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+
+            task_text = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            self.assertIn("## 当前任务状态\n\nActive", task_text)
+            self.assertIn("Implement task command", task_text)
+            self.assertIn("1. Generate active/Current_Task.md.", task_text)
+            self.assertNotIn("【", task_text)
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertFalse(result.errors)
+
+    def test_new_task_refuses_to_replace_active_task_without_force(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            args = [
+                "new",
+                "task",
+                str(target),
+                "--title",
+                "First task",
+                "--goal",
+                "Create the first task.",
+            ]
+            self.run_cli(args)
+            with self.assertRaises(SystemExit):
+                self.run_cli(
+                    [
+                        "new",
+                        "task",
+                        str(target),
+                        "--title",
+                        "Second task",
+                        "--goal",
+                        "Do not replace active tasks implicitly.",
+                    ]
+                )
+
+            exit_code = self.run_cli(args + ["--force"])
+            self.assertEqual(exit_code, 0)
 
     def test_new_adr_creates_file_and_active_index_row(self):
         with tempfile.TemporaryDirectory() as tmp:
