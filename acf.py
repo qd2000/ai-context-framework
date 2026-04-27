@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -195,6 +196,141 @@ def write_minimal_overrides(target: Path) -> None:
     (target / "AGENTS.md").write_text(MINIMAL_AGENTS, encoding="utf-8")
 
 
+def validate_date(value: str) -> str:
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid date `{value}`, expected YYYY-MM-DD") from exc
+    return value
+
+
+def clean_table_cell(value: str) -> str:
+    return " ".join(value.split()).replace("|", "/")
+
+
+def render_worklog_daily(log_date: str, summary: str, conclusion: str) -> str:
+    return f"""本文件记录当天整理后的项目工作记录。
+
+请注意：本文件是历史过程记录，不是当前事实源。  
+当前事实请查看 `active/Context.md`。
+
+---
+
+## 今日完成
+
+- {summary}
+
+---
+
+## 今日讨论 / AI 协作
+
+- 通过 `acf.py new worklog` 生成本工作记录，并更新 `worklog/Worklog_Index.md`。
+
+---
+
+## 有价值的结论
+
+- {conclusion}
+
+如果这些结论已经成为当前事实，请同步更新到 `active/Context.md`。
+
+---
+
+## 重要决策候选
+
+- 无。
+
+如果确认生效，请同步更新到：
+
+- `reference/Decisions_Index.md`
+- `decisions/`
+
+---
+
+## 无效尝试
+
+- 无。
+
+---
+
+## 新发现的问题
+
+- 无。
+
+---
+
+## 原始日志位置
+
+- 无。
+
+注意：不要把原始日志全文写入本文件。
+
+---
+
+## 需要同步更新的文件
+
+- `active/Context.md`：视情况更新。
+- `reference/Decisions_Index.md`：视情况更新。
+- `rules/`：视情况更新。
+- `archive/`：视情况归档。
+
+---
+
+## 下一步候选
+
+- 无。
+
+注意：下一步候选不等于当前任务。  
+如果某个候选下一步被选为当前任务，请写入 `active/Current_Task.md`。
+"""
+
+
+def worklog_index_row(log_date: str, summary: str, conclusion: str) -> str:
+    return (
+        f"| {log_date} | {clean_table_cell(summary)} | {clean_table_cell(conclusion)} | "
+        f"`worklog/daily/{log_date}.md` |"
+    )
+
+
+def row_date(row: str) -> str:
+    cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+    return cells[0] if cells else ""
+
+
+def update_worklog_index(index_path: Path, log_date: str, summary: str, conclusion: str, force: bool) -> None:
+    if not index_path.exists():
+        raise SystemExit(f"worklog index does not exist: {index_path}")
+
+    lines = read_text(index_path).splitlines()
+    header_index = next(
+        (index for index, line in enumerate(lines) if line.strip() == "| 日期 | 摘要 | 关键结论 | 详情 |"),
+        None,
+    )
+    if header_index is None or header_index + 1 >= len(lines):
+        raise SystemExit(f"worklog index table was not found: {index_path}")
+
+    table_start = header_index + 2
+    table_end = table_start
+    while table_end < len(lines) and lines[table_end].strip().startswith("|"):
+        table_end += 1
+
+    existing_rows = lines[table_start:table_end]
+    if any(row_date(row) == log_date for row in existing_rows) and not force:
+        raise SystemExit(f"worklog index already contains date: {log_date}")
+
+    new_row = worklog_index_row(log_date, summary, conclusion)
+    kept_rows = [
+        row
+        for row in existing_rows
+        if row_date(row) not in {log_date, "暂无"} and row.strip()
+    ]
+    rows = kept_rows + [new_row]
+    rows.sort(key=row_date, reverse=True)
+
+    updated = lines[:table_start] + rows + lines[table_end:]
+    index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
 def init_command(args: argparse.Namespace) -> int:
     target = args.target.resolve()
     ensure_clean_target(target, args.force)
@@ -216,6 +352,31 @@ def simplify_command(args: argparse.Namespace) -> int:
     copy_selected_files(source, target, MINIMAL_FILES, MINIMAL_DIRS)
     write_minimal_overrides(target)
     print(f"created minimal context at {target}")
+    return 0
+
+
+def new_worklog_command(args: argparse.Namespace) -> int:
+    root = args.path.resolve()
+    if not root.exists() or not root.is_dir():
+        raise SystemExit(f"context directory does not exist: {root}")
+
+    log_date = args.date or date.today().isoformat()
+    summary = args.summary.strip()
+    conclusion = args.conclusion.strip()
+    if not summary:
+        raise SystemExit("worklog summary cannot be empty")
+    if not conclusion:
+        conclusion = "无。"
+
+    daily_dir = root / "worklog" / "daily"
+    daily_dir.mkdir(parents=True, exist_ok=True)
+    daily_path = daily_dir / f"{log_date}.md"
+    if daily_path.exists() and not args.force:
+        raise SystemExit(f"worklog daily file already exists: {daily_path}")
+
+    daily_path.write_text(render_worklog_daily(log_date, summary, conclusion), encoding="utf-8")
+    update_worklog_index(root / "worklog" / "Worklog_Index.md", log_date, summary, conclusion, args.force)
+    print(f"created worklog {daily_path}")
     return 0
 
 
@@ -472,6 +633,17 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("--profile", choices=("standard", "minimal"), default="standard")
     check_parser.add_argument("--strict", action="store_true", help="treat placeholders as errors")
     check_parser.set_defaults(func=check_command)
+
+    new_parser = subparsers.add_parser("new", help="create context entries")
+    new_subparsers = new_parser.add_subparsers(dest="entry_type", required=True)
+
+    worklog_parser = new_subparsers.add_parser("worklog", help="create a daily worklog and index row")
+    worklog_parser.add_argument("path", type=Path)
+    worklog_parser.add_argument("--date", type=validate_date, default=None, help="date in YYYY-MM-DD format")
+    worklog_parser.add_argument("--summary", required=True, help="one-line worklog summary")
+    worklog_parser.add_argument("--conclusion", default="无。", help="one-line key conclusion")
+    worklog_parser.add_argument("--force", action="store_true", help="replace existing daily file and index row")
+    worklog_parser.set_defaults(func=new_worklog_command)
 
     return parser
 

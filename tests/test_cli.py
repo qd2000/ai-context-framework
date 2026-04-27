@@ -102,6 +102,82 @@ class CliTests(unittest.TestCase):
             result = acf.check_context(target, "minimal", strict=True)
             self.assertFalse(result.errors)
 
+    def test_new_worklog_creates_daily_file_and_index_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            exit_code = self.run_cli(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-04-27",
+                    "--summary",
+                    "Implemented | worklog command.",
+                    "--conclusion",
+                    "Worklog maintenance is now automated.",
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+
+            daily_file = target / "worklog" / "daily" / "2026-04-27.md"
+            self.assertTrue(daily_file.exists())
+            self.assertIn("Implemented | worklog command.", daily_file.read_text(encoding="utf-8"))
+
+            index_text = (target / "worklog" / "Worklog_Index.md").read_text(encoding="utf-8")
+            self.assertIn("| 2026-04-27 | Implemented / worklog command.", index_text)
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertFalse(result.errors)
+
+    def test_new_worklog_refuses_existing_daily_file_without_force(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            args = [
+                "new",
+                "worklog",
+                str(target),
+                "--date",
+                "2026-04-27",
+                "--summary",
+                "Initial worklog.",
+            ]
+            self.run_cli(args)
+            with self.assertRaises(SystemExit):
+                self.run_cli(args)
+
+    def test_new_worklog_force_updates_existing_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-04-27",
+                    "--summary",
+                    "Initial worklog.",
+                ]
+            )
+            self.run_cli(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-04-27",
+                    "--summary",
+                    "Updated worklog.",
+                    "--force",
+                ]
+            )
+            index_text = (target / "worklog" / "Worklog_Index.md").read_text(encoding="utf-8")
+            self.assertIn("Updated worklog.", index_text)
+            self.assertNotIn("Initial worklog.", index_text)
+
 
 if __name__ == "__main__":
     unittest.main()
