@@ -88,20 +88,24 @@ template/
 本仓库提供一个无第三方依赖的辅助 CLI：
 
 ```bash
+uv run acf status
 uv run python acf.py init docs/ai
 uv run python acf.py init docs/ai-min --profile minimal
 uv run python acf.py simplify docs/ai docs/ai-min
-uv run python acf.py new task docs/ai --title "实现一个维护任务" --goal "写清当前目标。"
-uv run python acf.py new source docs/ai --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
-uv run python acf.py new worklog docs/ai --summary "完成一次上下文维护。"
-uv run python acf.py new adr docs/ai --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
-uv run python acf.py writeback draft docs/ai --name "session-note" --text "会话结束回写建议。"
-uv run python acf.py check docs/ai
-uv run python acf.py check docs/ai --strict
+uv run acf new task --title "实现一个维护任务" --goal "写清当前目标。"
+uv run acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
+uv run acf new worklog --summary "完成一次上下文维护。"
+uv run acf new adr --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
+uv run acf writeback draft --name "session-note" --text "会话结束回写建议。"
+uv run acf check
+uv run acf check --strict
+uv run acf status --json
+uv run acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
 
 命令说明：
 
+- `status`：从当前目录向上自动发现上下文，输出项目根、上下文目录、profile、当前任务状态和检查结果。
 - `init`：从 `template/` 生成标准或简化上下文目录。
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
@@ -112,6 +116,12 @@ uv run python acf.py check docs/ai --strict
 - `writeback draft`：把会话结束回写建议保存为可审阅草案，不直接修改权威上下文文件。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性和占位符残留。
 
+`check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
+
+`status` 和 `check` 支持 `--json` 输出。写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
+
+JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。检查失败时 `error_code` 为 `check_failed`，`next_actions` 给出 AI 可直接读取的后续动作。
+
 `check` 默认关注结构完整度；`--strict` 适合检查已投入使用的项目上下文，会把占位符残留视为错误。
 
 ## 维护与验证
@@ -119,8 +129,8 @@ uv run python acf.py check docs/ai --strict
 修改模板或 CLI 后运行：
 
 ```bash
-uv run python acf.py check template
-uv run python acf.py check docs/ai --profile minimal --strict
+uv run acf check template
+uv run acf check --strict
 uv run python -m unittest
 ```
 

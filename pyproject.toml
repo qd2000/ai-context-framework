@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "ai-context-framework"
 version = "0.1.0"
@@ -6,5 +10,52 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
+[project.scripts]
+acf = "acf:main"
+
+[tool.setuptools]
+py-modules = ["acf"]
+include-package-data = true
+
+[tool.setuptools.data-files]
+"share/ai-context-framework/template" = ["template/AGENTS.md"]
+"share/ai-context-framework/template/archive" = [
+    "template/archive/.gitkeep",
+]
+"share/ai-context-framework/template/active" = [
+    "template/active/Context.md",
+    "template/active/Current_Task.md",
+]
+"share/ai-context-framework/template/decisions" = [
+    "template/decisions/ADR-0001-template.md",
+]
+"share/ai-context-framework/template/reference" = [
+    "template/reference/Architecture.md",
+    "template/reference/Decisions_Index.md",
+    "template/reference/Project_Brief.md",
+    "template/reference/Sources_Index.md",
+    "template/reference/System_Manual.md",
+    "template/reference/Tech_Context.md",
+]
+"share/ai-context-framework/template/reference/sources" = [
+    "template/reference/sources/.gitkeep",
+]
+"share/ai-context-framework/template/rules" = [
+    "template/rules/Agent_Requested.md",
+    "template/rules/Always_Active.md",
+    "template/rules/Coding_Rules.md",
+    "template/rules/Manual_Only.md",
+    "template/rules/Project_Rules.md",
+    "template/rules/Review_Rules.md",
+    "template/rules/Rules_Index.md",
+    "template/rules/Writing_Rules.md",
+]
+"share/ai-context-framework/template/worklog" = [
+    "template/worklog/Worklog_Index.md",
+]
+"share/ai-context-framework/template/worklog/daily" = [
+    "template/worklog/daily/YYYY-MM-DD.md",
+]
+
 [tool.uv]
-package = false
+package = true

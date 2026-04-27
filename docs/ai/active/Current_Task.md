@@ -23,44 +23,44 @@ Done
 
 ## 任务名称
 
-写入 AI-facing CLI 长期阶段计划
+细化 acf JSON schema：schema_version、error_code 和 next_actions
 
 ---
 
 ## 本次任务目标
 
-1. 把任意目录可用、主要给 AI 使用的 acf 长期路线写入 dogfooding 上下文。
-2. 明确近期阶段、边界和评测标准。
-3. 记录该产品方向的长期决策。
+1. 为 JSON 输出增加稳定 schema_version 字段。
+2. 为 check/status/write 输出增加统一 error_code 语义。
+3. 为 AI 增加 next_actions 字段，减少解析自然语言输出。
 
 ---
 
 ## 任务背景
 
-该规划已写入 dogfooding 上下文和 ADR。
+该任务已完成，承接 AI-facing CLI 阶段 2 第一版继续细化 JSON schema 和字段契约。
 
 ---
 
 ## 输入材料
 
-- 用户关于任意目录 CLI 和 AI 使用场景的需求。
-- docs/Automation.md。
-- active/Context.md。
+- docs/Automation.md 的适合继续程序化工作。
+- 现有 acf.py JSON 输出实现。
 
 ---
 
 ## 输出要求
 
-- docs/Automation.md 增加 AI-facing CLI 阶段路线。
-- active/Context.md 增加长期阶段计划和当前开放问题。
-- 新增 ADR-0004 记录产品方向。
+- acf.py JSON payload 包含 schema_version、error_code 和 next_actions。
+- tests/test_cli.py 覆盖成功、check 失败和 dry-run JSON 字段。
+- README、System Manual、Automation 和 dogfooding 上下文同步。
 
 ---
 
 ## 成功标准
 
-1. dogfooding strict check 通过。
-2. 计划不把 CLI 扩展成通用 Markdown 编辑器或常驻 runtime。
+1. status/check/write JSON 输出字段稳定且测试可解析。
+2. check 失败时 JSON 返回 error_code 和 next_actions。
+3. 完整 uv 验证通过。
 
 ---
 
@@ -73,16 +73,16 @@ Done
 
 ## 约束条件
 
-1. 不改 CLI 代码。
-2. Python 命令使用 uv run python。
-3. 仍保持无第三方运行依赖。
+1. 不新增第三方运行依赖。
+2. 不实现结构化 Markdown 编辑。
+3. 不改变非 JSON 人类输出语义。
 
 ---
 
 ## 不允许做的事
 
-- 本轮不实现可安装 CLI。
-- 本轮不实现结构化编辑命令。
+- 本轮不实现 section/table 编辑原语。
+- 本轮不引入 subagent。
 
 ---
 

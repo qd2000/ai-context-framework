@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import sys
+import sysconfig
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -14,7 +16,26 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-TEMPLATE_DIR = ROOT / "template"
+
+
+def find_template_dir() -> Path:
+    source_template = ROOT / "template"
+    if source_template.is_dir():
+        return source_template
+
+    installed_template = (
+        Path(sysconfig.get_path("data"))
+        / "share"
+        / "ai-context-framework"
+        / "template"
+    )
+    if installed_template.is_dir():
+        return installed_template
+
+    return source_template
+
+
+TEMPLATE_DIR = find_template_dir()
 
 STANDARD_DIRS = (
     "active",
@@ -80,6 +101,7 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
 DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
+JSON_SCHEMA_VERSION = 1
 
 MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本项目。
 
@@ -155,6 +177,124 @@ class CheckResult:
         return not self.errors
 
 
+@dataclass
+class ContextLocation:
+    project_root: Path
+    context_root: Path
+    profile: str
+
+
+def json_enabled(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "json", False))
+
+
+def dry_run_enabled(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "dry_run", False))
+
+
+def check_after_enabled(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "check_after", False))
+
+
+def path_values(paths: Sequence[Path]) -> list[str]:
+    return [str(path) for path in paths]
+
+
+def check_payload(result: CheckResult) -> dict[str, object]:
+    return {
+        "ok": result.ok,
+        "errors": result.errors,
+        "warnings": result.warnings,
+    }
+
+
+def check_error_code(result: CheckResult | None) -> str | None:
+    if result is not None and not result.ok:
+        return "check_failed"
+    return None
+
+
+def check_next_actions(result: CheckResult | None, strict: bool = False) -> list[str]:
+    if result is None:
+        return []
+    command = "acf check --strict" if strict else "acf check"
+    if result.errors:
+        return [
+            "Fix the reported errors.",
+            f"Rerun `{command}`.",
+        ]
+    if result.warnings:
+        return [
+            "Review the reported warnings.",
+            "Use `acf check --strict` when this context should reject placeholders.",
+        ]
+    return []
+
+
+def write_next_actions(dry_run: bool, check_result: CheckResult | None) -> list[str]:
+    if dry_run:
+        return [
+            "Review changed_files.",
+            "Rerun the command without `--dry-run` to apply changes.",
+        ]
+    if check_result is not None and not check_result.ok:
+        return [
+            "Fix the reported check errors.",
+            "Rerun the command after correction.",
+        ]
+    return []
+
+
+def print_json(payload: dict[str, object]) -> None:
+    payload.setdefault("schema_version", JSON_SCHEMA_VERSION)
+    payload.setdefault("error_code", None)
+    payload.setdefault("next_actions", [])
+    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+def emit_write_result(
+    args: argparse.Namespace,
+    command: str,
+    message: str,
+    changed_files: Sequence[Path],
+    check_result: CheckResult | None = None,
+) -> int:
+    dry_run = dry_run_enabled(args)
+    payload: dict[str, object] = {
+        "command": command,
+        "ok": check_result.ok if check_result is not None else True,
+        "error_code": check_error_code(check_result),
+        "dry_run": dry_run,
+        "changed_files": path_values(changed_files),
+        "message": message,
+        "next_actions": write_next_actions(dry_run, check_result),
+    }
+    if check_result is not None:
+        payload["check"] = check_payload(check_result)
+
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(message)
+        label = "would change" if dry_run else "changed"
+        for changed_file in changed_files:
+            print(f"{label}: {changed_file}")
+        if check_result is not None:
+            print(f"check: {'passed' if check_result.ok else 'failed'}")
+            for error in check_result.errors:
+                print(f"ERROR: {error}", file=sys.stderr)
+            for warning in check_result.warnings:
+                print(f"WARN: {warning}", file=sys.stderr)
+
+    return 0 if check_result is None or check_result.ok else 1
+
+
+def maybe_check_after(args: argparse.Namespace, root: Path, profile: str | None = None) -> CheckResult | None:
+    if not check_after_enabled(args) or dry_run_enabled(args):
+        return None
+    return check_context(root, profile or infer_context_profile(root), bool(getattr(args, "strict", False)))
+
+
 def required_dirs(profile: str) -> tuple[str, ...]:
     return MINIMAL_DIRS if profile == "minimal" else STANDARD_DIRS
 
@@ -163,10 +303,81 @@ def required_files(profile: str) -> tuple[str, ...]:
     return MINIMAL_FILES if profile == "minimal" else STANDARD_FILES
 
 
-def ensure_clean_target(target: Path, force: bool) -> None:
+def infer_context_profile(root: Path) -> str:
+    standard_only_files = set(STANDARD_FILES) - set(MINIMAL_FILES)
+    if any((root / rel_path).exists() for rel_path in standard_only_files):
+        return "standard"
+    return "minimal"
+
+
+def is_context_root(path: Path) -> bool:
+    return (
+        path.is_dir()
+        and (path / "AGENTS.md").is_file()
+        and (path / "active" / "Context.md").is_file()
+        and (path / "rules" / "Always_Active.md").is_file()
+    )
+
+
+def infer_project_root(context_root: Path) -> Path:
+    if context_root.name == "ai" and context_root.parent.name == "docs":
+        return context_root.parent.parent
+    return context_root
+
+
+def make_context_location(context_root: Path) -> ContextLocation:
+    root = context_root.resolve()
+    return ContextLocation(
+        project_root=infer_project_root(root),
+        context_root=root,
+        profile=infer_context_profile(root),
+    )
+
+
+def discover_context(start: Path | None = None) -> ContextLocation:
+    start_path = (start or Path.cwd()).resolve()
+    current = start_path.parent if start_path.is_file() else start_path
+
+    for directory in (current, *current.parents):
+        if is_context_root(directory):
+            return make_context_location(directory)
+
+        docs_ai = directory / "docs" / "ai"
+        if is_context_root(docs_ai):
+            return make_context_location(docs_ai)
+
+    raise SystemExit("could not find AI context directory; pass a context path or run `acf init docs/ai`")
+
+
+def resolve_context_root(path: Path | None) -> Path:
+    if path is not None:
+        return path.resolve()
+    return discover_context().context_root
+
+
+def require_context_root(path: Path | None) -> Path:
+    root = resolve_context_root(path)
+    if not root.exists() or not root.is_dir():
+        raise SystemExit(f"context directory does not exist: {root}")
+    return root
+
+
+def resolve_status_location(path: Path | None) -> ContextLocation:
+    if path is None:
+        return discover_context()
+
+    resolved = path.resolve()
+    if is_context_root(resolved):
+        return make_context_location(resolved)
+    return discover_context(resolved)
+
+
+def ensure_clean_target(target: Path, force: bool, dry_run: bool = False) -> None:
     if not target.exists():
         return
     if force:
+        if dry_run:
+            return
         if target.is_dir():
             shutil.rmtree(target)
         else:
@@ -241,7 +452,27 @@ def write_root_agents(context_root: Path, force: bool) -> Path | None:
     return root_agents
 
 
-def copy_dynamic_minimal_files(source: Path, target: Path) -> None:
+def planned_root_agents_path(context_root: Path, force: bool) -> Path | None:
+    project_root = infer_project_root(context_root)
+    root_agents = project_root / "AGENTS.md"
+    if root_agents.exists() and root_agents.is_dir():
+        raise SystemExit(f"root AGENTS.md path is a directory: {root_agents}")
+    if root_agents.exists() and not force:
+        return None
+    return root_agents
+
+
+def planned_init_files(target: Path, profile: str, force_root_agent: bool) -> list[Path]:
+    files = STANDARD_FILES if profile == "standard" else MINIMAL_FILES
+    changed_files = [target / rel_path for rel_path in files]
+    root_agents = planned_root_agents_path(target, force_root_agent)
+    if root_agents is not None:
+        changed_files.append(root_agents)
+    return changed_files
+
+
+def dynamic_minimal_rel_files(source: Path) -> list[str]:
+    rel_files: list[str] = []
     dynamic_groups = (
         ("decisions", "ADR-*.md", {"ADR-0001-template.md"}),
         ("worklog/daily", "*.md", {"YYYY-MM-DD.md"}),
@@ -250,12 +481,24 @@ def copy_dynamic_minimal_files(source: Path, target: Path) -> None:
         src_dir = source / dirname
         if not src_dir.exists():
             continue
-        dst_dir = target / dirname
-        dst_dir.mkdir(parents=True, exist_ok=True)
         for src in sorted(src_dir.glob(pattern)):
             if not src.is_file() or src.name in excluded_names:
                 continue
-            shutil.copy2(src, dst_dir / src.name)
+            rel_files.append(src.relative_to(source).as_posix())
+    return rel_files
+
+
+def planned_simplify_files(source: Path, target: Path) -> list[Path]:
+    rel_files = list(MINIMAL_FILES) + dynamic_minimal_rel_files(source)
+    return [target / rel_path for rel_path in rel_files]
+
+
+def copy_dynamic_minimal_files(source: Path, target: Path) -> None:
+    for rel_path in dynamic_minimal_rel_files(source):
+        src = source / rel_path
+        dst = target / rel_path
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
 
 
 def remove_markdown_section(text: str, heading: str) -> str:
@@ -894,17 +1137,25 @@ def update_sources_index(
 
 def init_command(args: argparse.Namespace) -> int:
     target = args.target.resolve()
-    ensure_clean_target(target, args.force)
-    if args.profile == "standard":
-        shutil.copytree(TEMPLATE_DIR, target, dirs_exist_ok=True)
-    else:
-        copy_selected_files(TEMPLATE_DIR, target, MINIMAL_FILES, MINIMAL_DIRS)
-        write_minimal_overrides(target)
-    root_agents = write_root_agents(target, args.force_root_agent)
-    print(f"created {args.profile} context template at {target}")
-    if root_agents is not None:
-        print(f"created root AGENTS.md at {root_agents}")
-    return 0
+    dry_run = dry_run_enabled(args)
+    ensure_clean_target(target, args.force, dry_run=dry_run)
+    changed_files = planned_init_files(target, args.profile, args.force_root_agent)
+    if not dry_run:
+        if args.profile == "standard":
+            shutil.copytree(TEMPLATE_DIR, target, dirs_exist_ok=True)
+        else:
+            copy_selected_files(TEMPLATE_DIR, target, MINIMAL_FILES, MINIMAL_DIRS)
+            write_minimal_overrides(target)
+        write_root_agents(target, args.force_root_agent)
+    check_result = maybe_check_after(args, target, args.profile)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(
+        args,
+        "init",
+        f"{action} {args.profile} context template at {target}",
+        changed_files,
+        check_result,
+    )
 
 
 def simplify_command(args: argparse.Namespace) -> int:
@@ -912,18 +1163,21 @@ def simplify_command(args: argparse.Namespace) -> int:
     target = args.target.resolve()
     if not source.exists():
         raise SystemExit(f"source context does not exist: {source}")
-    ensure_clean_target(target, args.force)
-    copy_selected_files(source, target, MINIMAL_FILES, MINIMAL_DIRS)
-    copy_dynamic_minimal_files(source, target)
-    write_minimal_overrides(target)
-    print(f"created minimal context at {target}")
-    return 0
+    dry_run = dry_run_enabled(args)
+    ensure_clean_target(target, args.force, dry_run=dry_run)
+    changed_files = planned_simplify_files(source, target)
+    if not dry_run:
+        copy_selected_files(source, target, MINIMAL_FILES, MINIMAL_DIRS)
+        copy_dynamic_minimal_files(source, target)
+        write_minimal_overrides(target)
+    check_result = maybe_check_after(args, target, "minimal")
+    action = "would create" if dry_run else "created"
+    return emit_write_result(args, "simplify", f"{action} minimal context at {target}", changed_files, check_result)
 
 
 def new_worklog_command(args: argparse.Namespace) -> int:
-    root = args.path.resolve()
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"context directory does not exist: {root}")
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
 
     log_date = args.date or date.today().isoformat()
     summary = args.summary.strip()
@@ -934,28 +1188,35 @@ def new_worklog_command(args: argparse.Namespace) -> int:
         conclusion = "无。"
 
     daily_dir = root / "worklog" / "daily"
-    daily_dir.mkdir(parents=True, exist_ok=True)
     daily_path = daily_dir / f"{log_date}.md"
     if daily_path.exists() and not args.force:
         raise SystemExit(f"worklog daily file already exists: {daily_path}")
+    index_path = root / "worklog" / "Worklog_Index.md"
+    if not index_path.exists():
+        raise SystemExit(f"worklog index does not exist: {index_path}")
 
-    daily_path.write_text(render_worklog_daily(log_date, summary, conclusion), encoding="utf-8")
-    update_worklog_index(root / "worklog" / "Worklog_Index.md", log_date, summary, conclusion, args.force)
-    print(f"created worklog {daily_path}")
-    return 0
+    changed_files = [daily_path, index_path]
+    if not dry_run:
+        daily_dir.mkdir(parents=True, exist_ok=True)
+        daily_path.write_text(render_worklog_daily(log_date, summary, conclusion), encoding="utf-8")
+        update_worklog_index(index_path, log_date, summary, conclusion, args.force)
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(args, "new worklog", f"{action} worklog {daily_path}", changed_files, check_result)
 
 
 def new_adr_command(args: argparse.Namespace) -> int:
-    root = args.path.resolve()
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"context directory does not exist: {root}")
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
 
     decisions_dir = root / "decisions"
-    decisions_dir.mkdir(parents=True, exist_ok=True)
     adr_id = args.id or next_adr_id(decisions_dir)
     adr_path = decisions_dir / f"{adr_id}.md"
     if adr_path.exists():
         raise SystemExit(f"ADR file already exists: {adr_path}")
+    index_path = root / "reference" / "Decisions_Index.md"
+    if not index_path.exists():
+        raise SystemExit(f"decisions index does not exist: {index_path}")
 
     title = args.title.strip()
     summary = args.summary.strip()
@@ -969,19 +1230,22 @@ def new_adr_command(args: argparse.Namespace) -> int:
         raise SystemExit("ADR decision cannot be empty")
 
     adr_date = args.date or date.today().isoformat()
-    adr_path.write_text(
-        render_adr(adr_id, title, args.status, adr_date, summary, decision, context),
-        encoding="utf-8",
-    )
-    update_decisions_index(root / "reference" / "Decisions_Index.md", adr_id, title, args.status, summary)
-    print(f"created ADR {adr_path}")
-    return 0
+    changed_files = [adr_path, index_path]
+    if not dry_run:
+        decisions_dir.mkdir(parents=True, exist_ok=True)
+        adr_path.write_text(
+            render_adr(adr_id, title, args.status, adr_date, summary, decision, context),
+            encoding="utf-8",
+        )
+        update_decisions_index(index_path, adr_id, title, args.status, summary)
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(args, "new adr", f"{action} ADR {adr_path}", changed_files, check_result)
 
 
 def new_task_command(args: argparse.Namespace) -> int:
-    root = args.path.resolve()
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"context directory does not exist: {root}")
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
 
     task_path = root / "active" / "Current_Task.md"
     if task_path.exists():
@@ -1003,31 +1267,32 @@ def new_task_command(args: argparse.Namespace) -> int:
     non_goals = normalize_items(args.non_goal, ("无。",))
     questions = normalize_items(args.question, ("无。",))
 
-    task_path.parent.mkdir(parents=True, exist_ok=True)
-    task_path.write_text(
-        render_current_task(
-            args.status,
-            title,
-            goals,
-            background,
-            inputs,
-            outputs,
-            success,
-            failures,
-            constraints,
-            non_goals,
-            questions,
-        ),
-        encoding="utf-8",
-    )
-    print(f"created current task {task_path}")
-    return 0
+    if not dry_run:
+        task_path.parent.mkdir(parents=True, exist_ok=True)
+        task_path.write_text(
+            render_current_task(
+                args.status,
+                title,
+                goals,
+                background,
+                inputs,
+                outputs,
+                success,
+                failures,
+                constraints,
+                non_goals,
+                questions,
+            ),
+            encoding="utf-8",
+        )
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(args, "new task", f"{action} current task {task_path}", [task_path], check_result)
 
 
 def new_source_command(args: argparse.Namespace) -> int:
-    root = args.path.resolve()
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"context directory does not exist: {root}")
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
 
     title = args.title.strip()
     source_type = args.type.strip()
@@ -1044,19 +1309,28 @@ def new_source_command(args: argparse.Namespace) -> int:
     if not relation:
         raise SystemExit("source relation cannot be empty")
 
-    update_sources_index(
-        root / "reference" / "Sources_Index.md",
-        title,
-        source_type,
-        location,
-        args.status,
-        credibility,
-        relation,
-        next_action,
-        args.force,
-    )
-    print(f"created source entry {title}")
-    return 0
+    index_path = root / "reference" / "Sources_Index.md"
+    if dry_run:
+        if not index_path.exists():
+            raise SystemExit(f"sources index does not exist: {index_path}")
+        rows = parse_markdown_table_rows(read_text(index_path))
+        if any(cells and cells[0] == title for cells in rows) and not args.force:
+            raise SystemExit(f"sources index already contains source: {title}")
+    else:
+        update_sources_index(
+            index_path,
+            title,
+            source_type,
+            location,
+            args.status,
+            credibility,
+            relation,
+            next_action,
+            args.force,
+        )
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(args, "new source", f"{action} source entry {title}", [index_path], check_result)
 
 
 def read_writeback_input(args: argparse.Namespace) -> str:
@@ -1075,9 +1349,8 @@ def read_writeback_input(args: argparse.Namespace) -> str:
 
 
 def writeback_draft_command(args: argparse.Namespace) -> int:
-    root = args.path.resolve()
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"context directory does not exist: {root}")
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
 
     draft_name = args.name or date.today().isoformat()
     input_text = read_writeback_input(args).strip()
@@ -1085,14 +1358,16 @@ def writeback_draft_command(args: argparse.Namespace) -> int:
         raise SystemExit("writeback input cannot be empty")
 
     draft_dir = root / "worklog" / "writeback-drafts"
-    draft_dir.mkdir(parents=True, exist_ok=True)
     draft_path = draft_dir / f"{draft_name}.md"
     if draft_path.exists() and not args.force:
         raise SystemExit(f"writeback draft already exists: {draft_path}")
 
-    draft_path.write_text(render_writeback_draft(draft_name, input_text), encoding="utf-8")
-    print(f"created writeback draft {draft_path}")
-    return 0
+    if not dry_run:
+        draft_dir.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(render_writeback_draft(draft_name, input_text), encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(args, "writeback draft", f"{action} writeback draft {draft_path}", [draft_path], check_result)
 
 
 def iter_markdown_files(root: Path) -> Iterable[Path]:
@@ -1255,6 +1530,36 @@ def check_worklog(root: Path, errors: list[str]) -> None:
             )
 
 
+def template_packaging_files_from_pyproject(pyproject_path: Path) -> set[str]:
+    if not pyproject_path.exists():
+        return set()
+    text = read_text(pyproject_path)
+    return {
+        match.replace("\\", "/").removeprefix("template/")
+        for match in re.findall(r'"(template/[^"]+)"', text)
+    }
+
+
+def check_template_packaging(root: Path, errors: list[str]) -> None:
+    pyproject_path = ROOT / "pyproject.toml"
+    if root.resolve() != TEMPLATE_DIR.resolve() or not pyproject_path.exists():
+        return
+
+    actual_files = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+    packaged_files = template_packaging_files_from_pyproject(pyproject_path)
+    missing = sorted(actual_files - packaged_files)
+    extra = sorted(packaged_files - actual_files)
+
+    for rel_path in missing:
+        errors.append(f"pyproject.toml: missing template data-file entry for `{rel_path}`")
+    for rel_path in extra:
+        errors.append(f"pyproject.toml: stale template data-file entry for `{rel_path}`")
+
+
 def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
     errors: list[str] = []
     warnings: list[str] = []
@@ -1288,6 +1593,7 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
     check_decisions(path, errors)
     check_sources(path, errors)
     check_worklog(path, errors)
+    check_template_packaging(path, errors)
 
     for md_file in iter_markdown_files(path):
         rel_file = md_file.relative_to(path).as_posix()
@@ -1318,16 +1624,84 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
 
 
 def check_command(args: argparse.Namespace) -> int:
-    result = check_context(args.path.resolve(), args.profile, args.strict)
+    root = resolve_context_root(args.path)
+    profile = args.profile or infer_context_profile(root)
+    result = check_context(root, profile, args.strict)
+    if json_enabled(args):
+        print_json(
+            {
+                "command": "check",
+                "context": str(root),
+                "profile": profile,
+                "strict": args.strict,
+                "check": check_payload(result),
+                "ok": result.ok,
+                "error_code": check_error_code(result),
+                "next_actions": check_next_actions(result, args.strict),
+            }
+        )
+        return 0 if result.ok else 1
+
     for error in result.errors:
         print(f"ERROR: {error}", file=sys.stderr)
     for warning in result.warnings:
         print(f"WARN: {warning}", file=sys.stderr)
     if result.ok:
-        print(f"check passed: {args.path.resolve()}")
+        print(f"check passed: {root}")
         return 0
     print(f"check failed: {len(result.errors)} error(s), {len(result.warnings)} warning(s)", file=sys.stderr)
     return 1
+
+
+def status_command(args: argparse.Namespace) -> int:
+    location = resolve_status_location(args.path)
+    profile = args.profile or location.profile
+    task_path = location.context_root / "active" / "Current_Task.md"
+    task_status = extract_current_task_status(task_path) if task_path.exists() else None
+    result = check_context(location.context_root, profile, args.strict)
+    if json_enabled(args):
+        print_json(
+            {
+                "command": "status",
+                "project_root": str(location.project_root),
+                "context": str(location.context_root),
+                "profile": profile,
+                "current_task": task_status or "Unknown",
+                "strict": args.strict,
+                "check": check_payload(result),
+                "ok": result.ok,
+                "error_code": check_error_code(result),
+                "next_actions": check_next_actions(result, args.strict),
+            }
+        )
+        return 0 if result.ok else 1
+
+    print(f"project root: {location.project_root}")
+    print(f"context: {location.context_root}")
+    print(f"profile: {profile}")
+    print(f"current task: {task_status or 'Unknown'}")
+    print(f"check: {'passed' if result.ok else 'failed'}")
+    if result.errors:
+        print(f"errors: {len(result.errors)}")
+        for error in result.errors:
+            print(f"ERROR: {error}")
+    if result.warnings:
+        print(f"warnings: {len(result.warnings)}")
+        for warning in result.warnings:
+            print(f"WARN: {warning}")
+
+    return 0 if result.ok else 1
+
+
+def add_json_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="print machine-readable JSON")
+
+
+def add_write_arguments(parser: argparse.ArgumentParser) -> None:
+    add_json_argument(parser)
+    parser.add_argument("--dry-run", action="store_true", help="validate and report changed files without writing")
+    parser.add_argument("--check-after", action="store_true", help="run context check after writing")
+    parser.add_argument("--strict", action="store_true", help="use strict mode for --check-after")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1335,40 +1709,53 @@ def build_parser() -> argparse.ArgumentParser:
         prog="acf",
         description="Generate, simplify, and check AI context framework templates.",
     )
+    parser.set_defaults(json=False)
+    add_json_argument(parser)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    status_parser = subparsers.add_parser("status", help="show discovered context status")
+    status_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    status_parser.add_argument("--profile", choices=("standard", "minimal"), default=None)
+    status_parser.add_argument("--strict", action="store_true", help="treat placeholders as errors")
+    add_json_argument(status_parser)
+    status_parser.set_defaults(func=status_command)
 
     init_parser = subparsers.add_parser("init", help="create a context template")
     init_parser.add_argument("target", type=Path)
     init_parser.add_argument("--profile", choices=("standard", "minimal"), default="standard")
     init_parser.add_argument("--force", action="store_true", help="replace target if it exists")
     init_parser.add_argument("--force-root-agent", action="store_true", help="replace existing root AGENTS.md")
+    add_write_arguments(init_parser)
     init_parser.set_defaults(func=init_command)
 
     simplify_parser = subparsers.add_parser("simplify", help="copy a minimal context from an existing one")
     simplify_parser.add_argument("source", type=Path)
     simplify_parser.add_argument("target", type=Path)
     simplify_parser.add_argument("--force", action="store_true", help="replace target if it exists")
+    add_write_arguments(simplify_parser)
     simplify_parser.set_defaults(func=simplify_command)
 
     check_parser = subparsers.add_parser("check", help="check context completeness")
-    check_parser.add_argument("path", type=Path)
-    check_parser.add_argument("--profile", choices=("standard", "minimal"), default="standard")
+    check_parser.add_argument("path", nargs="?", type=Path)
+    check_parser.add_argument("--profile", choices=("standard", "minimal"), default=None)
     check_parser.add_argument("--strict", action="store_true", help="treat placeholders as errors")
+    add_json_argument(check_parser)
     check_parser.set_defaults(func=check_command)
 
     new_parser = subparsers.add_parser("new", help="create context entries")
     new_subparsers = new_parser.add_subparsers(dest="entry_type", required=True)
 
     worklog_parser = new_subparsers.add_parser("worklog", help="create a daily worklog and index row")
-    worklog_parser.add_argument("path", type=Path)
+    worklog_parser.add_argument("path", nargs="?", type=Path)
     worklog_parser.add_argument("--date", type=validate_date, default=None, help="date in YYYY-MM-DD format")
     worklog_parser.add_argument("--summary", required=True, help="one-line worklog summary")
     worklog_parser.add_argument("--conclusion", default="无。", help="one-line key conclusion")
     worklog_parser.add_argument("--force", action="store_true", help="replace existing daily file and index row")
+    add_write_arguments(worklog_parser)
     worklog_parser.set_defaults(func=new_worklog_command)
 
     adr_parser = new_subparsers.add_parser("adr", help="create an ADR and update the decisions index")
-    adr_parser.add_argument("path", type=Path)
+    adr_parser.add_argument("path", nargs="?", type=Path)
     adr_parser.add_argument("--id", type=validate_adr_id, default=None, help="ADR id in ADR-0001 format")
     adr_parser.add_argument("--date", type=validate_date, default=None, help="date in YYYY-MM-DD format")
     adr_parser.add_argument("--status", choices=("Active", "Proposed"), default="Proposed")
@@ -1376,10 +1763,11 @@ def build_parser() -> argparse.ArgumentParser:
     adr_parser.add_argument("--summary", required=True, help="one-line decision summary")
     adr_parser.add_argument("--decision", required=True, help="decision statement")
     adr_parser.add_argument("--context", default="", help="decision background")
+    add_write_arguments(adr_parser)
     adr_parser.set_defaults(func=new_adr_command)
 
     task_parser = new_subparsers.add_parser("task", help="create or replace active/Current_Task.md")
-    task_parser.add_argument("path", type=Path)
+    task_parser.add_argument("path", nargs="?", type=Path)
     task_parser.add_argument("--status", choices=tuple(sorted(VALID_TASK_STATUSES)), default="Active")
     task_parser.add_argument("--title", required=True, help="task title")
     task_parser.add_argument("--goal", action="append", required=True, help="task goal; can be repeated")
@@ -1392,10 +1780,11 @@ def build_parser() -> argparse.ArgumentParser:
     task_parser.add_argument("--non-goal", action="append", default=None, help="out-of-scope item; can be repeated")
     task_parser.add_argument("--question", action="append", default=None, help="question for AI judgment; can be repeated")
     task_parser.add_argument("--force", action="store_true", help="replace an Active current task")
+    add_write_arguments(task_parser)
     task_parser.set_defaults(func=new_task_command)
 
     source_parser = new_subparsers.add_parser("source", help="create or update a source index entry")
-    source_parser.add_argument("path", type=Path)
+    source_parser.add_argument("path", nargs="?", type=Path)
     source_parser.add_argument("--title", required=True, help="source title")
     source_parser.add_argument("--type", required=True, help="source type")
     source_parser.add_argument("--location", required=True, help="source URL or local path")
@@ -1404,17 +1793,19 @@ def build_parser() -> argparse.ArgumentParser:
     source_parser.add_argument("--relation", required=True, help="why the source is relevant")
     source_parser.add_argument("--next-action", default="无。", help="next action for this source")
     source_parser.add_argument("--force", action="store_true", help="replace an existing source row")
+    add_write_arguments(source_parser)
     source_parser.set_defaults(func=new_source_command)
 
     writeback_parser = subparsers.add_parser("writeback", help="create reviewable writeback drafts")
     writeback_subparsers = writeback_parser.add_subparsers(dest="writeback_command", required=True)
 
     draft_parser = writeback_subparsers.add_parser("draft", help="create a session writeback draft")
-    draft_parser.add_argument("path", type=Path)
+    draft_parser.add_argument("path", nargs="?", type=Path)
     draft_parser.add_argument("--name", type=validate_draft_name, default=None, help="draft file name without .md")
     draft_parser.add_argument("--text", default="", help="writeback suggestion text")
     draft_parser.add_argument("--input", type=Path, default=None, help="file containing writeback suggestion text")
     draft_parser.add_argument("--force", action="store_true", help="replace an existing draft")
+    add_write_arguments(draft_parser)
     draft_parser.set_defaults(func=writeback_draft_command)
 
     return parser

@@ -211,16 +211,26 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 如果本仓库附带 `acf.py`，可以用它降低维护成本：
 
+- `acf status`：自动发现当前上下文，输出项目根、上下文目录、profile、当前任务状态和检查结果。
 - `python acf.py init <target>`：生成标准上下文模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `python acf.py init <target> --profile minimal`：生成简化模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `python acf.py init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `python acf.py simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
-- `python acf.py new task <target> --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
-- `python acf.py new source <target> --title "..." --type "..." --location "..." --relation "..."`：添加或更新资料索引行；重复资料标题需传入 `--force` 才能覆盖。
-- `python acf.py new worklog <target> --summary "..."`：生成 daily worklog 并更新工作记录索引。
-- `python acf.py new adr <target> --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
-- `python acf.py writeback draft <target> --text "..."`：生成会话回写草案，供人工审阅后再决定是否写入权威上下文。
-- `python acf.py check <target>`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举和索引一致性。
-- `python acf.py check <target> --strict`：把占位符残留作为错误，适合正式项目上下文。
+- `python acf.py new task [target] --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
+- `python acf.py new source [target] --title "..." --type "..." --location "..." --relation "..."`：添加或更新资料索引行；重复资料标题需传入 `--force` 才能覆盖。
+- `python acf.py new worklog [target] --summary "..."`：生成 daily worklog 并更新工作记录索引。
+- `python acf.py new adr [target] --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
+- `python acf.py writeback draft [target] --text "..."`：生成会话回写草案，供人工审阅后再决定是否写入权威上下文。
+- `python acf.py check [target]`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举和索引一致性。
+- `python acf.py check [target] --strict`：把占位符残留作为错误，适合正式项目上下文。
 
-CLI 的检查结果不能替代人工判断，但可以自动发现维护成本高、容易遗忘的结构性问题。
+`target` 省略时，CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录；显式传入 `target` 时，以显式路径为准。CLI 的检查结果不能替代人工判断，但可以自动发现维护成本高、容易遗忘的结构性问题。
+
+面向 AI 的稳定调用建议：
+
+- `acf status --json`：获取机器可读的上下文位置、profile、当前任务状态和检查结果。
+- `acf check --json --strict`：获取机器可读的检查结果。
+- 写命令可追加 `--dry-run --json`：只预览 changed files，不实际落盘。
+- 写命令可追加 `--check-after`：落盘后自动运行 context check。
+
+JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。当检查失败时，`error_code` 为 `check_failed`，`next_actions` 给出后续处理建议。

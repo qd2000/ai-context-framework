@@ -1,16 +1,35 @@
 import io
+import json
+import os
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import acf
+
+
+@contextmanager
+def pushd(path):
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
 
 
 class CliTests(unittest.TestCase):
     def run_cli(self, args):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             return acf.main(args)
+
+    def run_cli_output(self, args):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = acf.main(args)
+        return exit_code, stdout.getvalue(), stderr.getvalue()
 
     def test_standard_template_check_passes_with_placeholder_warnings(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=False)
@@ -72,6 +91,170 @@ class CliTests(unittest.TestCase):
             root_text = root_agents.read_text(encoding="utf-8")
             self.assertNotEqual(root_text, "custom root agent\n")
             self.assertIn("docs/ai/AGENTS.md", root_text)
+
+    def test_status_discovers_context_from_project_subdirectory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            nested = project_root / "src" / "package"
+            nested.mkdir(parents=True)
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            with pushd(nested):
+                exit_code, stdout, stderr = self.run_cli_output(["status"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertIn(f"project root: {project_root.resolve()}", stdout)
+            self.assertIn(f"context: {target.resolve()}", stdout)
+            self.assertIn("profile: minimal", stdout)
+            self.assertIn("current task: Empty", stdout)
+            self.assertIn("check: passed", stdout)
+
+    def test_status_json_is_machine_readable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            nested = project_root / "src"
+            nested.mkdir(parents=True)
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            with pushd(nested):
+                exit_code, stdout, stderr = self.run_cli_output(["status", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertEqual(payload["command"], "status")
+            self.assertEqual(payload["context"], str(target.resolve()))
+            self.assertEqual(payload["profile"], "minimal")
+            self.assertIsNone(payload["error_code"])
+            self.assertTrue(payload["next_actions"])
+            self.assertTrue(payload["check"]["ok"])
+
+    def test_check_uses_discovered_context_when_path_is_omitted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            nested = project_root / "src"
+            nested.mkdir(parents=True)
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            with pushd(nested):
+                exit_code, stdout, stderr = self.run_cli_output(["check"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertIn(f"check passed: {target.resolve()}", stdout)
+
+    def test_check_json_is_machine_readable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertEqual(payload["command"], "check")
+            self.assertEqual(payload["context"], str(target.resolve()))
+            self.assertIsNone(payload["error_code"])
+            self.assertTrue(payload["next_actions"])
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["check"]["ok"])
+
+    def test_check_json_reports_error_code_and_next_actions_on_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "AGENTS.md").unlink()
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+
+            self.assertEqual(exit_code, 1)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["error_code"], "check_failed")
+            self.assertTrue(payload["next_actions"])
+            self.assertTrue(payload["check"]["errors"])
+
+    def test_check_explicit_path_takes_priority_over_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "project"
+            discovered = project_root / "docs" / "ai"
+            explicit = Path(tmp) / "explicit"
+            nested = project_root / "src"
+            nested.mkdir(parents=True)
+            self.run_cli(["init", str(discovered), "--profile", "minimal"])
+            self.run_cli(["init", str(explicit), "--profile", "minimal"])
+            (explicit / "AGENTS.md").unlink()
+
+            with pushd(nested):
+                exit_code, _stdout, stderr = self.run_cli_output(["check", str(explicit)])
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("missing file: AGENTS.md", stderr)
+
+    def test_new_task_uses_discovered_context_when_path_is_omitted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            nested = project_root / "src"
+            nested.mkdir(parents=True)
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            with pushd(nested):
+                exit_code = self.run_cli(
+                    [
+                        "new",
+                        "task",
+                        "--title",
+                        "Discovered task",
+                        "--goal",
+                        "Use discovered context.",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            task_text = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            self.assertIn("Discovered task", task_text)
+
+    def test_new_task_dry_run_reports_changed_file_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            before = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "new",
+                    "task",
+                    str(target),
+                    "--title",
+                    "Dry run task",
+                    "--goal",
+                    "Do not write.",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertTrue(payload["dry_run"])
+            self.assertIsNone(payload["error_code"])
+            self.assertTrue(payload["next_actions"])
+            self.assertEqual(payload["changed_files"], [str((target / "active" / "Current_Task.md").resolve())])
+            after = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            self.assertEqual(after, before)
+            self.assertNotIn("Dry run task", after)
+
+    def test_status_fails_when_context_cannot_be_discovered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with pushd(Path(tmp)):
+                with self.assertRaises(SystemExit):
+                    self.run_cli(["status"])
 
     def test_check_detects_missing_required_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -138,6 +321,16 @@ class CliTests(unittest.TestCase):
             )
             result = acf.check_context(target, "minimal", strict=False)
             self.assertTrue(any("invalid source status" in error for error in result.errors))
+
+    def test_template_packaging_entries_cover_all_template_files(self):
+        actual_files = {
+            path.relative_to(acf.TEMPLATE_DIR).as_posix()
+            for path in acf.TEMPLATE_DIR.rglob("*")
+            if path.is_file()
+        }
+        packaged_files = acf.template_packaging_files_from_pyproject(acf.ROOT / "pyproject.toml")
+        self.assertFalse(actual_files - packaged_files)
+        self.assertFalse(packaged_files - actual_files)
 
     def test_simplify_copies_real_history_without_placeholder_templates(self):
         with tempfile.TemporaryDirectory() as tmp:

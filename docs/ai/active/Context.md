@@ -44,12 +44,12 @@ Dogfooding MVP / 框架稳定化。
 
 1. 本仓库的核心产物是 `template/` 标准 AI 上下文模板。
 2. `docs/ai/` 是本仓库真实使用中的 dogfooding 上下文实例。
-3. `acf.py` 是无第三方依赖的辅助 CLI，已支持 `init`、`simplify`、`check`、`new task`、`new source`、`new worklog`、`new adr` 和 `writeback draft`。
+3. `acf.py` 是无第三方依赖的辅助 CLI，已支持 `status`、`init`、`simplify`、`check`、`new task`、`new source`、`new worklog`、`new adr` 和 `writeback draft`。
 4. `acf.py check --strict` 会把检查目标中的占位符残留视为错误。
 5. 本仓库已使用 `pyproject.toml` 和 `uv.lock` 建立最小 uv Python 环境，Python 版本约束为 `>=3.10`。
 6. 本仓库运行 Python 代码时，优先使用 `uv run python ...`。
 7. `docs/ai/` 当前应通过 `uv run python acf.py check docs/ai --profile minimal --strict`。
-8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 占位符检查、task 自动生成、source 自动生成、worklog 自动生成、ADR 自动生成和 writeback draft 场景。
+8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 占位符检查、task 自动生成、source 自动生成、worklog 自动生成、ADR 自动生成、writeback draft、上下文自动发现和 status 场景。
 9. `init --profile minimal` 和 `simplify` 不再向真实 minimal 实例复制 ADR 模板文件与 daily worklog 模板文件；真实 ADR 和 worklog 应通过 `new adr`、`new worklog` 生成，`simplify` 会保留已有真实 ADR 和 daily worklog。
 10. `acf.py init` 会在推断出的项目根目录生成缺失的薄入口 AGENTS.md；已有根入口默认不覆盖，需要 force root agent 参数才覆盖。
 11. 两层 AGENTS.md 设计已由 `decisions/ADR-0003.md` 记录：根目录薄入口负责发现和转发，上下文目录内入口负责完整导航。
@@ -59,6 +59,13 @@ Dogfooding MVP / 框架稳定化。
 15. `writeback draft` 只生成 `worklog/writeback-drafts/` 下的可审阅草案，不直接修改权威上下文文件。
 16. `decisions/ADR-0004.md` 已记录长期产品方向：`acf` 应演进为可安装、任意目录可调用、主要面向 AI 的上下文维护 CLI。
 17. `../Automation.md` 已记录 AI-facing CLI 的阶段路线：可安装与上下文发现、AI 友好输出、安全结构化编辑、草案/subagent 接入、跨项目 dogfooding 评测。
+18. `pyproject.toml` 已提供 `acf` console script，模板文件通过 setuptools data files 随包安装；本仓库开发入口仍保留 `uv run python acf.py ...`。
+19. `acf status` 已能从当前目录向上发现 `docs/ai` 或上下文根目录，并输出项目根、上下文目录、profile、当前任务状态和检查结果。
+20. `acf check`、`acf new ...` 和 `acf writeback draft` 在省略上下文路径时，会使用自动发现到的上下文；显式传入路径时仍以显式路径为准。
+21. `acf status --json` 和 `acf check --json` 已提供机器可读输出。
+22. 写命令已支持 `--json`、`--dry-run`、`--check-after`，并输出 changed files。
+23. `acf check template` 会校验 `pyproject.toml` 中模板 data-files 与 `template/` 文件同步，降低新增模板文件后打包遗漏的风险。
+24. JSON 输出已包含基础稳定字段：`schema_version`、`ok`、`error_code` 和 `next_actions`；检查失败时 `error_code` 为 `check_failed`。
 
 ---
 
@@ -70,8 +77,8 @@ Dogfooding MVP / 框架稳定化。
 4. Python 命令应优先使用项目 uv 环境运行。
 5. 自动化应优先做确定性检查和草案生成，不替代人的事实判断。
 6. 涉及模板结构变更时，需要同时验证模板和 dogfooding 实例。
-7. 新增或重置当前任务优先使用 `acf.py new task`；新增资料索引优先使用 `acf.py new source`；重要设计决策优先使用 `acf.py new adr`；当天工作记录优先使用 `acf.py new worklog`。
-8. 会话结束回写建议需要暂存时优先使用 `acf.py writeback draft`，再审阅是否写入权威上下文。
+7. 新增或重置当前任务优先使用 `acf new task`；新增资料索引优先使用 `acf new source`；重要设计决策优先使用 `acf new adr`；当天工作记录优先使用 `acf new worklog`。
+8. 会话结束回写建议需要暂存时优先使用 `acf writeback draft`，再审阅是否写入权威上下文。
 9. 修改 `template/` 时，应同步检查 README、上下文入口说明和 System Manual 是否仍一致。
 10. 任意目录 CLI 的设计应优先服务 AI 的确定性上下文维护，不扩展为自由文本编辑器或常驻运行时。
 
@@ -79,11 +86,10 @@ Dogfooding MVP / 框架稳定化。
 
 ## 当前开放问题
 
-1. 第一阶段是否先实现可安装命令、上下文自动发现和 `acf status`。
-2. `--json`、`--dry-run` 和写后检查应如何作为全局能力接入现有子命令。
-3. 安全结构化编辑的第一批原语是否限定为 section get/replace/append 和 table upsert。
-4. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
-5. 是否需要 `writeback-curator` subagent 生成更高质量的回写分类草案。
+1. exit code 和错误分类是否需要进一步区分输入错误、安全拒绝、检查失败和运行时异常。
+2. 安全结构化编辑的第一批原语是否限定为 section get/replace/append 和 table upsert。
+3. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
+4. 是否需要 `writeback-curator` subagent 生成更高质量的回写分类草案。
 
 ---
 
@@ -91,8 +97,8 @@ Dogfooding MVP / 框架稳定化。
 
 定位：`acf` 是上下文文件 API，主要供 AI 在项目中稳定维护上下文；它不替代人的判断，也不作为通用 Markdown 编辑器。
 
-1. 可安装命令和上下文发现：支持在任意子目录调用 `acf`，自动找到上下文根目录，并提供 `acf status`。
-2. AI 友好输出和安全执行模式：支持 `--json`、`--dry-run`、统一 exit code、changed files 输出和写后检查。
+1. 可安装命令和上下文发现：支持在任意子目录调用 `acf`，自动找到上下文根目录，并提供 `acf status`。（已实现第一版）
+2. AI 友好输出和安全执行模式：支持 `--json`、`--dry-run`、统一 exit code、changed files 输出和写后检查。（已实现第一版）
 3. 安全结构化编辑：提供 section 和 table 级别的确定性编辑，限制写入范围在上下文根目录内。
 4. 草案和 subagent 接入：让 subagent 产出可审阅草案或建议 patch，不静默改写权威上下文。
 5. 跨项目 dogfooding 评测：在真实项目中验证任意目录调用、检查、写入和回写流程。
@@ -155,6 +161,7 @@ Dogfooding MVP / 框架稳定化。
 - CLI：`acf.py`
 - Python 项目配置：`pyproject.toml`
 - uv 锁文件：`uv.lock`
+- 包清单：`MANIFEST.in`
 - 自动化路线：`../Automation.md`
 - 资料索引：`reference/Sources_Index.md`
 - 工作记录索引：`worklog/Worklog_Index.md`
@@ -173,4 +180,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：写入 AI-facing CLI 长期阶段计划，并新增 `ADR-0004` 记录产品方向。
+- 更新原因：细化 acf JSON schema，增加 `schema_version`、`error_code` 和 `next_actions`。

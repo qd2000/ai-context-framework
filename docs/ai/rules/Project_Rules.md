@@ -5,12 +5,17 @@
 - 文件名和目录名使用英文。
 - 不依赖某个特定 AI 模型。
 - 本仓库运行 Python 代码时，优先使用项目 uv 环境：`uv run python ...`。
+- 本仓库运行 acf CLI 时，优先使用项目 uv 入口：`uv run acf ...`；需要直接调试脚本时再使用 `uv run python acf.py ...`。
 - 当前项目使用 `pyproject.toml` 和 `uv.lock` 固定 uv 解析结果，不新增第三方依赖。
-- 修改当前任务时优先使用 `uv run python acf.py new task ...`。
-- 添加资料索引时优先使用 `uv run python acf.py new source ...`，并只记录摘要、可信度、相关性和后续动作，不保存大段原文。
-- 记录重要设计决策时优先使用 `uv run python acf.py new adr ...`，并确保编号不与既有 ADR 冲突。
-- 记录当天整理后工作记录时优先使用 `uv run python acf.py new worklog ...`；同日已有记录时，按当前 CLI 能力审慎使用 `--force` 或人工合并。
-- 暂存会话结束回写建议时优先使用 `uv run python acf.py writeback draft ...`，生成草案后再审阅是否写入权威上下文。
+- AI 需要稳定读取命令结果时，优先给 acf 命令追加 `--json`。
+- 解析 acf JSON 输出时，优先依赖 `schema_version`、`ok`、`error_code`、`next_actions` 和 changed files 字段。
+- 写入风险较高或需要先审阅变更范围时，优先使用 `--dry-run --json` 查看 changed files。
+- 修改模板文件时，同步确保 `uv run acf check template` 通过；该检查会校验模板打包 data-files 是否遗漏。
+- 修改当前任务时优先使用 `uv run acf new task ...`。
+- 添加资料索引时优先使用 `uv run acf new source ...`，并只记录摘要、可信度、相关性和后续动作，不保存大段原文。
+- 记录重要设计决策时优先使用 `uv run acf new adr ...`，并确保编号不与既有 ADR 冲突。
+- 记录当天整理后工作记录时优先使用 `uv run acf new worklog ...`；同日已有记录时，按当前 CLI 能力审慎使用 `--force` 或人工合并。
+- 暂存会话结束回写建议时优先使用 `uv run acf writeback draft ...`，生成草案后再审阅是否写入权威上下文。
 - 规划或修改 acf 长期 CLI 能力时，以 `decisions/ADR-0004.md` 和 `../Automation.md` 的 AI-facing CLI 阶段计划为当前方向。
 - 修改 `template/` 前先判断该内容是否属于可复用产品模板；本仓库 dogfooding 专属要求应写入根入口、`docs/ai/` 或维护文档。
 - 修改 `template/` 后必须同步检查 README、template 入口说明、System Manual 和 `../Automation.md` 是否一致。

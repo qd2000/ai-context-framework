@@ -17,10 +17,11 @@
 - `docs/ai/` 是本仓库真实使用中的 AI 上下文实例。
 - `.omx/` 是本地运行态目录，不属于项目交付物。
 - 本仓库运行 Python 代码时，优先使用项目 uv 环境：`uv run python ...`。
+- 本仓库运行 acf CLI 时，优先使用项目 uv 入口：`uv run acf ...`。
 
 ## 修改规则
 
 - 修改 `template/` 时，同步检查 `README.md`、`template/AGENTS.md` 和 `template/reference/System_Manual.md` 是否一致。
-- 修改 CLI 时，运行 `uv run python acf.py check template`、`uv run python acf.py check docs/ai --profile minimal --strict` 和 `uv run python -m unittest`。
+- 修改 CLI 时，运行 `uv run acf check template`、`uv run acf check --strict` 和 `uv run python -m unittest`。
 - 修改维护流程或 subagent 边界时，同步更新 `docs/Automation.md`。
 - 不要把 `template/active/` 中的占位内容当作本仓库当前任务事实。
