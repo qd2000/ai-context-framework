@@ -71,6 +71,7 @@ Dogfooding MVP / 框架稳定化。
 27. `acf edit table upsert` 已支持按 key column 更新或追加 Markdown 表格行，目标限制在上下文根目录内已有 `.md` 文件。
 
 28. 模板入口、minimal init 产物和当前 dogfooding 入口已补充 CLI 渐进式披露入口：默认只提示 `acf status --json`、`acf --help` 和按需读取系统手册，不在入口列完整命令手册。
+29. README 和产品手册已补充安装到 PATH 的说明：开发期可用 `uv tool install -e .` 安装可执行命令，并用 `uv tool update-shell`、`where acf` 或 `which acf` 验证。
 
 ---
 
@@ -183,4 +184,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：补充 CLI 渐进式披露入口。
+- 更新原因：补充 acf 任意目录安装与验收说明。

@@ -6,7 +6,7 @@
 
 `acf.py` 先覆盖确定性工作：
 
-- 可安装入口：`pyproject.toml` 提供 `acf` console script；本仓库开发入口仍保留 `uv run python acf.py ...`。
+- 可安装入口：`pyproject.toml` 提供 `acf` console script；开发期可用 `uv tool install -e .` 安装到 PATH，本仓库开发入口仍保留 `uv run python acf.py ...`。
 - 上下文自动发现：`check`、`new ...` 和 `writeback draft` 在省略路径时，会从当前目录向上查找 `docs/ai` 或上下文根目录；显式路径仍优先。
 - `status`：输出项目根、上下文目录、profile、当前任务状态和检查结果。
 - AI 友好输出第一版：`status` 和 `check` 支持 `--json`；写命令支持 `--json`、`--dry-run`、`--check-after` 并输出 changed files。

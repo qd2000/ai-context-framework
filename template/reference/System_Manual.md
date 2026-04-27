@@ -211,6 +211,27 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 如果项目可用 `acf` 命令，可以用它降低维护成本。未安装 `acf` 时，可按项目实际运行方式使用 `python acf.py ...` 作为兼容入口。
 
+### 14.1 安装和可用性判断
+
+`acf` 能在任意目录直接运行的前提是：命令已经安装到当前 shell 的 PATH 中。
+
+常见安装方式：
+
+- 从本框架源码目录开发安装：`uv tool install -e .`
+- 安装后更新 shell PATH：`uv tool update-shell`
+- 发布后按包名安装：`uv tool install ai-context-framework`
+- 从 Git 地址安装：`uv tool install git+<repo-url>`
+
+验证命令：
+
+- Windows：`where acf`
+- macOS/Linux：`which acf`
+- 通用：`acf --help`
+
+请注意：能在任意目录运行 `acf`，不等于任意目录都有 AI 上下文。`acf status --json` 只有在当前目录位于某个包含 `docs/ai` 或上下文根目录的项目中时才会成功。否则应先进入项目目录、显式传入上下文路径，或运行 `acf init docs/ai` 初始化。
+
+### 14.2 常用命令
+
 - `acf status`：自动发现当前上下文，输出项目根、上下文目录、profile、当前任务状态和检查结果。
 - `acf init <target>`：生成标准上下文模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --profile minimal`：生成简化模板，并在项目根目录生成缺失的薄入口 AGENTS.md。

@@ -42,7 +42,7 @@ template/
 
 ## 使用方法
 
-1. 在项目根目录运行 `uv run python acf.py init docs/ai`
+1. 安装 CLI 后，在项目根目录运行 `acf init docs/ai`
 2. `init` 会在项目根目录生成薄入口 `AGENTS.md`，在 `docs/ai/` 下生成完整入口 `AGENTS.md`
 3. 根据项目需要填充模板中的占位符
 4. AI 进入项目时，从根目录 `AGENTS.md` 开始读取
@@ -87,24 +87,48 @@ template/
 
 本仓库提供一个无第三方依赖的辅助 CLI：
 
+### 安装到 PATH
+
+开发本仓库时，可从仓库根目录安装 editable 工具：
+
 ```bash
-uv run acf status
-uv run python acf.py init docs/ai
-uv run python acf.py init docs/ai-min --profile minimal
-uv run python acf.py simplify docs/ai docs/ai-min
-uv run acf new task --title "实现一个维护任务" --goal "写清当前目标。"
-uv run acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
-uv run acf new worklog --summary "完成一次上下文维护。"
-uv run acf new adr --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
-uv run acf writeback draft --name "session-note" --text "会话结束回写建议。"
-uv run acf edit section get active/Context.md --heading "## 当前有效事实" --json
-uv run acf edit section append active/Context.md --heading "## 当前开放问题" --text "1. 新问题。"
-uv run acf edit table upsert reference/Sources_Index.md --key-column "资料" --key "资料标题" --cell "状态=Useful"
-uv run acf check
-uv run acf check --strict
-uv run acf status --json
-uv run acf new task --title "预览任务" --goal "只预览。" --dry-run --json
+uv tool install -e .
+uv tool update-shell
 ```
+
+重新打开终端后验证：
+
+```bash
+acf --help
+acf status --json
+```
+
+Windows 可用 `where acf` 查看命令位置；macOS/Linux 可用 `which acf`。后续发布后，用户可通过包名或 Git URL 安装，例如 `uv tool install ai-context-framework` 或 `uv tool install git+<repo-url>`。
+
+“任意目录可运行 `acf`”表示命令已进入 PATH；是否能自动找到上下文，取决于当前目录是否位于包含 `docs/ai` 或上下文根目录的项目中。
+
+### 常用命令
+
+```bash
+acf status
+acf init docs/ai
+acf init docs/ai-min --profile minimal
+acf simplify docs/ai docs/ai-min
+acf new task --title "实现一个维护任务" --goal "写清当前目标。"
+acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
+acf new worklog --summary "完成一次上下文维护。"
+acf new adr --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
+acf writeback draft --name "session-note" --text "会话结束回写建议。"
+acf edit section get active/Context.md --heading "## 当前有效事实" --json
+acf edit section append active/Context.md --heading "## 当前开放问题" --text "1. 新问题。"
+acf edit table upsert reference/Sources_Index.md --key-column "资料" --key "资料标题" --cell "状态=Useful"
+acf check
+acf check --strict
+acf status --json
+acf new task --title "预览任务" --goal "只预览。" --dry-run --json
+```
+
+未安装全局命令时，在本仓库开发环境中也可以使用 `uv run acf ...`。
 
 命令说明：
 

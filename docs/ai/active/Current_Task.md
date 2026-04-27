@@ -23,44 +23,44 @@ Done
 
 ## 任务名称
 
-补充 CLI 渐进式披露入口
+补充 acf 任意目录安装与验收说明
 
 ---
 
 ## 本次任务目标
 
-1. 让模板和 init 产物在默认入口中提示 AI 可用 acf 管理上下文。
-2. 保持默认入口轻量，只提供工具发现路径，不写完整命令手册。
-3. 通用模板不绑定本仓库 uv dogfooding 运行方式。
+1. 说明如何把 acf 安装到 PATH，使任意目录可直接运行 acf。
+2. 区分本仓库开发入口、可安装工具入口和上下文自动发现行为。
+3. 增加测试防止 console script 配置被误删。
 
 ---
 
 ## 任务背景
 
-模板入口、minimal init 产物和当前 dogfooding 入口的 CLI 渐进式披露已完成。
+任意目录安装与验收说明已补充。
 
 ---
 
 ## 输入材料
 
-- template AGENTS 入口。
-- minimal AGENTS 生成字符串。
-- template Project Rules 和 System Manual。
+- pyproject.toml 的 project.scripts 配置。
+- README.md 命令行工具章节。
+- template/reference/System_Manual.md CLI 辅助工具章节。
 
 ---
 
 ## 输出要求
 
-- 模板和 minimal init 产物包含 CLI 辅助维护提示。
-- 测试覆盖 minimal 和 standard init 的 AGENTS CLI 发现提示。
-- dogfooding 上下文和 worklog 已同步。
+- README 已增加全局安装和任意目录验证说明。
+- System Manual 已增加 CLI 可用性和安装方式提示。
+- tests/test_cli.py 已覆盖 console script 打包入口配置。
 
 ---
 
 ## 成功标准
 
-1. 默认入口提示 acf status --json、acf --help 和按需读取系统手册。
-2. System Manual 首选 acf 命令，python acf.py 只作为未安装兼容方式。
+1. 文档明确 uv tool install -e .、uv tool update-shell、where/which acf 和 acf status --json 验收路径。
+2. 说明任意目录可运行 acf 不等于任意目录都有上下文。
 3. 完整 uv 验证通过。
 
 ---
@@ -74,15 +74,15 @@ Done
 
 ## 约束条件
 
-1. 不新增 CLI 行为。
-2. 不在根薄入口加入完整 CLI 说明。
-3. 不把 uv 写入通用模板。
+1. 不新增第三方运行依赖。
+2. 不实际执行全局安装修改用户环境。
+3. 不改变 CLI 行为。
 
 ---
 
 ## 不允许做的事
 
-- 不实现阶段 4 subagent 接入。
+- 本轮不发布 PyPI。
 
 ---
 

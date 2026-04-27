@@ -358,6 +358,13 @@ class CliTests(unittest.TestCase):
         self.assertFalse(actual_files - packaged_files)
         self.assertFalse(packaged_files - actual_files)
 
+    def test_pyproject_declares_acf_console_script(self):
+        pyproject_text = (acf.ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn("[project.scripts]", pyproject_text)
+        self.assertIn('acf = "acf:main"', pyproject_text)
+        self.assertIn('py-modules = ["acf"]', pyproject_text)
+        self.assertIn("[tool.setuptools.data-files]", pyproject_text)
+
     def test_simplify_copies_real_history_without_placeholder_templates(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source"
