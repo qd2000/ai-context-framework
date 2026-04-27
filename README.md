@@ -79,6 +79,7 @@ uv run python acf.py init docs/ai
 uv run python acf.py init docs/ai-min --profile minimal
 uv run python acf.py simplify docs/ai docs/ai-min
 uv run python acf.py new worklog docs/ai --summary "完成一次上下文维护。"
+uv run python acf.py new adr docs/ai --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
 uv run python acf.py check docs/ai
 uv run python acf.py check docs/ai --strict
 ```
@@ -88,6 +89,7 @@ uv run python acf.py check docs/ai --strict
 - `init`：从 `template/` 生成标准或简化上下文目录。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
+- `new adr`：生成下一个 ADR 文件，并更新 `reference/Decisions_Index.md`。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性和占位符残留。
 
 `check` 默认关注结构完整度；`--strict` 适合检查已投入使用的项目上下文，会把非模板文件中的占位符残留视为错误。

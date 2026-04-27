@@ -12,7 +12,7 @@
 
 | 日期 | 摘要 | 关键结论 | 详情 |
 |---|---|---|---|
-| 2026-04-27 | 实现 acf.py new worklog 并引入 uv dogfooding Python 环境。 | 本仓库 Python 验证入口已切换为 uv run python，worklog 维护也已自动化。 | `worklog/daily/2026-04-27.md` |
+| 2026-04-27 | 实现 acf.py new worklog、引入 uv dogfooding 环境，并实现 acf.py new adr。 | worklog 和 ADR 的创建及索引更新已进入确定性 CLI 流程，Python 验证入口统一为 uv run python。 | `worklog/daily/2026-04-27.md` |
 | 2026-04-26 | 初始化本仓库的 `docs/ai` dogfooding 上下文。 | 采用 minimal 实例和根薄入口，`template/` 继续作为产品模板。 | `worklog/daily/2026-04-26.md` |
 
 ---

@@ -215,6 +215,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `python acf.py init <target> --profile minimal`：生成简化模板。
 - `python acf.py simplify <source> <target>`：从已有上下文导出简化版本。
 - `python acf.py new worklog <target> --summary "..."`：生成 daily worklog 并更新工作记录索引。
+- `python acf.py new adr <target> --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `python acf.py check <target>`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举和索引一致性。
 - `python acf.py check <target> --strict`：把非模板文件中的占位符残留作为错误，适合正式项目上下文。
 

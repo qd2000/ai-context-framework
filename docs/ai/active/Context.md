@@ -42,12 +42,12 @@ Dogfooding MVP / 框架稳定化。
 
 1. 本仓库的核心产物是 `template/` 标准 AI 上下文模板。
 2. `docs/ai/` 是本仓库真实使用中的 dogfooding 上下文实例。
-3. `acf.py` 是无第三方依赖的辅助 CLI，已支持 `init`、`simplify`、`check` 和 `new worklog`。
+3. `acf.py` 是无第三方依赖的辅助 CLI，已支持 `init`、`simplify`、`check`、`new worklog` 和 `new adr`。
 4. `acf.py check --strict` 会把非模板文件中的占位符视为错误，并忽略明确模板文件中的占位符。
 5. 本仓库已使用 `pyproject.toml` 和 `uv.lock` 建立最小 uv Python 环境，Python 版本约束为 `>=3.10`。
 6. 本仓库运行 Python 代码时，优先使用 `uv run python ...`。
 7. `docs/ai/` 当前应通过 `uv run python acf.py check docs/ai --profile minimal --strict`。
-8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 模板文件忽略和 worklog 自动生成场景。
+8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 模板文件忽略、worklog 自动生成和 ADR 自动生成场景。
 9. `../Automation.md` 记录自动化边界、后续 CLI 命令和 subagent 草案路线。
 10. `template/` 中的占位符是产品模板内容，不是本仓库事实。
 
@@ -66,7 +66,7 @@ Dogfooding MVP / 框架稳定化。
 
 ## 当前开放问题
 
-1. `new adr`、`new task`、`new source` 的最小接口如何设计。
+1. `new task`、`new source` 的最小接口如何设计。
 2. `writeback draft` 应接收什么输入格式，以及如何避免越权写入事实源。
 
 ---
@@ -103,4 +103,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：引入 uv dogfooding Python 环境，优先使用 `uv run python ...`。
+- 更新原因：实现 `acf.py new adr`，并用它记录 uv dogfooding Python 环境决策。

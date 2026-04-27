@@ -10,6 +10,7 @@
 - `simplify`：从已有上下文导出简化版本。
 - `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径；`--strict` 会将非模板文件中的占位符视为错误。
 - `new worklog`：按日期生成 daily worklog，并向 `worklog/Worklog_Index.md` 添加或更新索引行。
+- `new adr`：生成下一个 ADR 文件，并按 Active 或 Proposed 状态更新 `reference/Decisions_Index.md`。
 
 这些检查不需要模型判断，适合作为每次模板修改后的基础验证。
 
@@ -18,9 +19,8 @@
 优先做可验证、低歧义、可回退的命令：
 
 1. `new task`：按模板生成或重置 `active/Current_Task.md`。
-2. `new adr`：生成下一个 ADR 编号，并向 `reference/Decisions_Index.md` 添加待确认行。
-3. `new source`：向 `reference/Sources_Index.md` 添加资料条目。
-4. `writeback draft`：读取会话结束回写建议，拆成 Context、Task、Decision、Worklog、Archive 草案，但不自动落盘。
+2. `new source`：向 `reference/Sources_Index.md` 添加资料条目。
+3. `writeback draft`：读取会话结束回写建议，拆成 Context、Task、Decision、Worklog、Archive 草案，但不自动落盘。
 
 这些命令应默认只生成草案或骨架。真正写入权威上下文前，仍应由用户或主代理确认。
 

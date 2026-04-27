@@ -178,6 +178,107 @@ class CliTests(unittest.TestCase):
             self.assertIn("Updated worklog.", index_text)
             self.assertNotIn("Initial worklog.", index_text)
 
+    def test_new_adr_creates_file_and_active_index_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            exit_code = self.run_cli(
+                [
+                    "new",
+                    "adr",
+                    str(target),
+                    "--date",
+                    "2026-04-27",
+                    "--status",
+                    "Active",
+                    "--title",
+                    "Use uv for Python execution",
+                    "--summary",
+                    "Python commands run through uv.",
+                    "--decision",
+                    "Use uv run python for repository Python commands.",
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+
+            adr_file = target / "decisions" / "ADR-0001.md"
+            self.assertTrue(adr_file.exists())
+            adr_text = adr_file.read_text(encoding="utf-8")
+            self.assertIn("Use uv for Python execution", adr_text)
+            self.assertIn("Active", adr_text)
+
+            index_text = (target / "reference" / "Decisions_Index.md").read_text(encoding="utf-8")
+            self.assertIn("| ADR-0001 | Use uv for Python execution | Active | Python commands run through uv. | `decisions/ADR-0001.md` |", index_text)
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertFalse(result.errors)
+
+    def test_new_adr_uses_next_available_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "decisions" / "ADR-0001.md").write_text(
+                "ADR：Existing\n\n## 状态\n\nActive\n",
+                encoding="utf-8",
+            )
+            self.run_cli(
+                [
+                    "new",
+                    "adr",
+                    str(target),
+                    "--title",
+                    "Second decision",
+                    "--summary",
+                    "Second summary.",
+                    "--decision",
+                    "Record a second decision.",
+                ]
+            )
+            self.assertTrue((target / "decisions" / "ADR-0002.md").exists())
+
+    def test_new_adr_refuses_existing_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "decisions" / "ADR-0001.md").write_text("existing", encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                self.run_cli(
+                    [
+                        "new",
+                        "adr",
+                        str(target),
+                        "--id",
+                        "ADR-0001",
+                        "--title",
+                        "Duplicate decision",
+                        "--summary",
+                        "Duplicate summary.",
+                        "--decision",
+                        "Do not overwrite existing ADRs.",
+                    ]
+                )
+
+    def test_new_adr_creates_proposed_index_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "new",
+                    "adr",
+                    str(target),
+                    "--status",
+                    "Proposed",
+                    "--title",
+                    "Proposed decision",
+                    "--summary",
+                    "Needs confirmation.",
+                    "--decision",
+                    "Draft the decision before confirmation.",
+                ]
+            )
+            index_text = (target / "reference" / "Decisions_Index.md").read_text(encoding="utf-8")
+            self.assertIn("| ADR-0001 | Proposed decision | Proposed | Needs confirmation. | 详情：`decisions/ADR-0001.md` |", index_text)
+
 
 if __name__ == "__main__":
     unittest.main()

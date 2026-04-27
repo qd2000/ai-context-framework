@@ -79,6 +79,7 @@ VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Re
 PLACEHOLDER_RE = re.compile(r"【[^】]+】")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
 PLACEHOLDER_TEMPLATE_FILES = {
     "decisions/ADR-0001-template.md",
     "worklog/daily/YYYY-MM-DD.md",
@@ -331,6 +332,184 @@ def update_worklog_index(index_path: Path, log_date: str, summary: str, conclusi
     index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
 
 
+def existing_adr_numbers(decisions_dir: Path) -> list[int]:
+    if not decisions_dir.exists():
+        return []
+    numbers: list[int] = []
+    for path in decisions_dir.glob("ADR-*.md"):
+        match = re.match(r"ADR-(\d{4})\.md$", path.name)
+        if match:
+            numbers.append(int(match.group(1)))
+    return sorted(numbers)
+
+
+def next_adr_id(decisions_dir: Path) -> str:
+    numbers = existing_adr_numbers(decisions_dir)
+    next_number = (numbers[-1] + 1) if numbers else 1
+    return f"ADR-{next_number:04d}"
+
+
+def validate_adr_id(value: str) -> str:
+    if not ADR_ID_RE.match(value):
+        raise argparse.ArgumentTypeError("ADR id must use ADR-0001 format")
+    return value
+
+
+def render_adr(
+    adr_id: str,
+    title: str,
+    status: str,
+    adr_date: str,
+    summary: str,
+    decision: str,
+    context: str,
+) -> str:
+    return f"""ADR：{title}
+
+## 状态
+
+{status}
+
+---
+
+## 日期
+
+{adr_date}
+
+---
+
+## 背景
+
+{context}
+
+---
+
+## 问题
+
+需要记录该决策，使 `reference/Decisions_Index.md` 和 ADR 详情保持同步，并避免后续协作重复讨论同一取舍。
+
+---
+
+## 决策
+
+{decision}
+
+---
+
+## 理由
+
+1. {summary}
+2. 该决策已经进入项目维护流程，需要成为可追溯事实。
+3. ADR 文件提供比索引摘要更完整的背景和后续评估入口。
+
+---
+
+## 考虑过的替代方案
+
+### 方案 A：只更新索引，不生成 ADR
+
+优点：
+
+- 文件更少。
+- 短期维护成本更低。
+
+缺点：
+
+- 缺少背景、理由和重新评估条件。
+- 后续 AI 协作容易只看到结论，看不到取舍过程。
+
+为什么没有选择：
+
+本项目要求重要决策可追溯，索引只应保存摘要。
+
+---
+
+## 后果
+
+### 正面影响
+
+- 决策摘要和详情文件同步生成。
+- 后续检查可以验证 ADR 状态和索引状态一致。
+
+### 负面影响或代价
+
+- 每个重要决策会增加一个 Markdown 文件。
+- 自动生成内容仍需要人工或主代理审阅语义质量。
+
+---
+
+## 适用范围
+
+适用于：
+
+- 本仓库当前 dogfooding 和 CLI 维护流程。
+
+不适用于：
+
+- 通用模板使用者的强制流程。
+
+---
+
+## 重新评估条件
+
+1. 后续 `new adr` 命令支持更完整的交互式字段。
+2. 决策索引结构发生变化。
+3. 该决策带来的维护成本超过收益。
+
+---
+
+## 相关文件
+
+- `reference/Decisions_Index.md`
+- `active/Context.md`
+- `worklog/Worklog_Index.md`
+"""
+
+
+def index_contains_id(index_path: Path, adr_id: str) -> bool:
+    return any(cells and cells[0] == adr_id for cells in parse_markdown_table_rows(read_text(index_path)))
+
+
+def update_decisions_index(
+    index_path: Path,
+    adr_id: str,
+    title: str,
+    status: str,
+    summary: str,
+) -> None:
+    if not index_path.exists():
+        raise SystemExit(f"decisions index does not exist: {index_path}")
+    if index_contains_id(index_path, adr_id):
+        raise SystemExit(f"decisions index already contains id: {adr_id}")
+
+    lines = read_text(index_path).splitlines()
+    if status == "Active":
+        header = "| ID | 标题 | 状态 | 摘要 | 详情 |"
+        new_row = f"| {adr_id} | {clean_table_cell(title)} | Active | {clean_table_cell(summary)} | `decisions/{adr_id}.md` |"
+    else:
+        header = "| ID | 标题 | 状态 | 摘要 | 需要确认的问题 |"
+        new_row = (
+            f"| {adr_id} | {clean_table_cell(title)} | Proposed | {clean_table_cell(summary)} | "
+            f"详情：`decisions/{adr_id}.md` |"
+        )
+
+    header_index = next((index for index, line in enumerate(lines) if line.strip() == header), None)
+    if header_index is None or header_index + 1 >= len(lines):
+        raise SystemExit(f"decisions index table was not found: {index_path}")
+
+    table_start = header_index + 2
+    table_end = table_start
+    while table_end < len(lines) and lines[table_end].strip().startswith("|"):
+        table_end += 1
+
+    existing_rows = lines[table_start:table_end]
+    kept_rows = [row for row in existing_rows if row_date(row) != "暂无" and row.strip()]
+    rows = kept_rows + [new_row]
+    rows.sort(key=row_date)
+    updated = lines[:table_start] + rows + lines[table_end:]
+    index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
 def init_command(args: argparse.Namespace) -> int:
     target = args.target.resolve()
     ensure_clean_target(target, args.force)
@@ -377,6 +556,39 @@ def new_worklog_command(args: argparse.Namespace) -> int:
     daily_path.write_text(render_worklog_daily(log_date, summary, conclusion), encoding="utf-8")
     update_worklog_index(root / "worklog" / "Worklog_Index.md", log_date, summary, conclusion, args.force)
     print(f"created worklog {daily_path}")
+    return 0
+
+
+def new_adr_command(args: argparse.Namespace) -> int:
+    root = args.path.resolve()
+    if not root.exists() or not root.is_dir():
+        raise SystemExit(f"context directory does not exist: {root}")
+
+    decisions_dir = root / "decisions"
+    decisions_dir.mkdir(parents=True, exist_ok=True)
+    adr_id = args.id or next_adr_id(decisions_dir)
+    adr_path = decisions_dir / f"{adr_id}.md"
+    if adr_path.exists():
+        raise SystemExit(f"ADR file already exists: {adr_path}")
+
+    title = args.title.strip()
+    summary = args.summary.strip()
+    decision = args.decision.strip()
+    context = args.context.strip() or "该决策由当前项目维护流程提出，需要进入 ADR 以便后续追溯。"
+    if not title:
+        raise SystemExit("ADR title cannot be empty")
+    if not summary:
+        raise SystemExit("ADR summary cannot be empty")
+    if not decision:
+        raise SystemExit("ADR decision cannot be empty")
+
+    adr_date = args.date or date.today().isoformat()
+    adr_path.write_text(
+        render_adr(adr_id, title, args.status, adr_date, summary, decision, context),
+        encoding="utf-8",
+    )
+    update_decisions_index(root / "reference" / "Decisions_Index.md", adr_id, title, args.status, summary)
+    print(f"created ADR {adr_path}")
     return 0
 
 
@@ -644,6 +856,17 @@ def build_parser() -> argparse.ArgumentParser:
     worklog_parser.add_argument("--conclusion", default="无。", help="one-line key conclusion")
     worklog_parser.add_argument("--force", action="store_true", help="replace existing daily file and index row")
     worklog_parser.set_defaults(func=new_worklog_command)
+
+    adr_parser = new_subparsers.add_parser("adr", help="create an ADR and update the decisions index")
+    adr_parser.add_argument("path", type=Path)
+    adr_parser.add_argument("--id", type=validate_adr_id, default=None, help="ADR id in ADR-0001 format")
+    adr_parser.add_argument("--date", type=validate_date, default=None, help="date in YYYY-MM-DD format")
+    adr_parser.add_argument("--status", choices=("Active", "Proposed"), default="Proposed")
+    adr_parser.add_argument("--title", required=True, help="ADR title")
+    adr_parser.add_argument("--summary", required=True, help="one-line decision summary")
+    adr_parser.add_argument("--decision", required=True, help="decision statement")
+    adr_parser.add_argument("--context", default="", help="decision background")
+    adr_parser.set_defaults(func=new_adr_command)
 
     return parser
 
