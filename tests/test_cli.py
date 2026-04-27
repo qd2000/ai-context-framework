@@ -125,6 +125,20 @@ class CliTests(unittest.TestCase):
             result = acf.check_context(target, "minimal", strict=False)
             self.assertTrue(any("does not match date" in error for error in result.errors))
 
+    def test_check_detects_invalid_source_status_in_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            index_file = target / "reference" / "Sources_Index.md"
+            index_file.write_text(
+                "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| Source | 文档 | https://example.com | Maybe | 未评估 | Test | Read it. |\n",
+                encoding="utf-8",
+            )
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertTrue(any("invalid source status" in error for error in result.errors))
+
     def test_simplify_copies_real_history_without_placeholder_templates(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source"
@@ -333,6 +347,95 @@ class CliTests(unittest.TestCase):
 
             exit_code = self.run_cli(args + ["--force"])
             self.assertEqual(exit_code, 0)
+
+    def test_new_source_creates_index_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            exit_code = self.run_cli(
+                [
+                    "new",
+                    "source",
+                    str(target),
+                    "--title",
+                    "Python docs",
+                    "--type",
+                    "文档",
+                    "--location",
+                    "https://docs.python.org/3/",
+                    "--status",
+                    "Useful",
+                    "--credibility",
+                    "高",
+                    "--relation",
+                    "Python standard library reference.",
+                    "--next-action",
+                    "Use for CLI behavior checks.",
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+
+            index_text = (target / "reference" / "Sources_Index.md").read_text(encoding="utf-8")
+            self.assertIn(
+                "| Python docs | 文档 | https://docs.python.org/3/ | Useful | 高 | "
+                "Python standard library reference. | Use for CLI behavior checks. |",
+                index_text,
+            )
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertFalse(result.errors)
+
+    def test_new_source_refuses_duplicate_without_force(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            args = [
+                "new",
+                "source",
+                str(target),
+                "--title",
+                "Python docs",
+                "--type",
+                "文档",
+                "--location",
+                "https://docs.python.org/3/",
+                "--relation",
+                "Python reference.",
+            ]
+            self.run_cli(args)
+            with self.assertRaises(SystemExit):
+                self.run_cli(args)
+
+    def test_new_source_force_updates_existing_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            base_args = [
+                "new",
+                "source",
+                str(target),
+                "--title",
+                "Python docs",
+                "--type",
+                "文档",
+                "--location",
+                "https://docs.python.org/3/",
+                "--relation",
+                "Initial relation.",
+            ]
+            self.run_cli(base_args)
+            self.run_cli(
+                base_args
+                + [
+                    "--status",
+                    "Read",
+                    "--relation",
+                    "Updated relation.",
+                    "--force",
+                ]
+            )
+            index_text = (target / "reference" / "Sources_Index.md").read_text(encoding="utf-8")
+            self.assertIn("Updated relation.", index_text)
+            self.assertNotIn("Initial relation.", index_text)
 
     def test_new_adr_creates_file_and_active_index_row(self):
         with tempfile.TemporaryDirectory() as tmp:

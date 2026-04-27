@@ -23,15 +23,15 @@ Done
 
 ## 任务名称
 
-修复 AGENTS.md 生成并同步 template 设计约束
+实现 acf.py new source
 
 ---
 
 ## 本次任务目标
 
-1. 让 acf.py init 生成根目录薄入口 AGENTS.md，并保护已有入口不被静默覆盖。
-2. 用正确 ADR 编号记录两层 AGENTS.md 设计。
-3. 将 template 设计理念和后续维护要求同步到 dogfooding 上下文。
+1. 统一 Sources_Index 为可由 CLI 维护的表格格式。
+2. 新增 new source 命令，向 reference/Sources_Index.md 添加或更新资料条目。
+3. 扩展 check_sources，校验表格资料状态。
 
 ---
 
@@ -50,17 +50,17 @@ Done
 
 ## 输出要求
 
-- acf.py 已新增根薄入口生成逻辑和 --force-root-agent 参数。
-- tests/test_cli.py 已覆盖根薄入口生成、默认不覆盖和显式覆盖。
-- ADR-0003、Context、Project_Rules、Project_Brief、Automation、README、System_Manual 和 worklog 已同步。
+- acf.py 已新增 new source 子命令、source 索引更新逻辑和表格状态检查。
+- tests/test_cli.py 已覆盖 source 生成、重复保护、force 更新和状态校验。
+- README、System_Manual、Automation、template 与 docs/ai 上下文已同步。
 
 ---
 
 ## 成功标准
 
-1. init docs/ai 会生成根薄入口和 docs/ai 完整入口。
-2. 已有根 AGENTS.md 默认不会被覆盖，显式参数才覆盖。
-3. docs/ai --strict、template check、unittest 和 py_compile 均通过。
+1. new source 能写入 Sources_Index 表格并通过 check。
+2. 无效资料状态会被 check 检出。
+3. 约定的 uv 验证命令通过。
 
 ---
 
@@ -75,20 +75,20 @@ Done
 
 1. Python 命令使用 uv run python。
 2. 不引入第三方依赖。
-3. template 保持模型无关和通用性。
+3. template 保持通用产品模板语义。
 
 ---
 
 ## 不允许做的事
 
-- 本轮不实现 new source。
 - 本轮不实现 writeback draft。
+- 本轮不实现资料笔记全文生成。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. 根薄入口生成是否还需要后续支持自定义项目规则字段。
+1. 后续是否需要 source-curator 生成资料摘要草案。
 
 ---
 

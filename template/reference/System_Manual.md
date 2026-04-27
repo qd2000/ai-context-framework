@@ -216,6 +216,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `python acf.py init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `python acf.py simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `python acf.py new task <target> --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
+- `python acf.py new source <target> --title "..." --type "..." --location "..." --relation "..."`：添加或更新资料索引行；重复资料标题需传入 `--force` 才能覆盖。
 - `python acf.py new worklog <target> --summary "..."`：生成 daily worklog 并更新工作记录索引。
 - `python acf.py new adr <target> --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `python acf.py check <target>`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举和索引一致性。

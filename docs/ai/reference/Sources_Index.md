@@ -19,7 +19,7 @@
 
 | 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |
 |---|---|---|---|---|---|---|
-| 暂无 |  |  |  |  |  |  |
+| Python argparse documentation | 文档 | https://docs.python.org/3/library/argparse.html | Useful | 高 | 用于维护 acf.py CLI 子命令、参数和帮助文本行为。 | 按需查阅，不默认读取全文。 |
 
 ---
 

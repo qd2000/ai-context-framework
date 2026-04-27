@@ -42,12 +42,12 @@ Dogfooding MVP / 框架稳定化。
 
 1. 本仓库的核心产物是 `template/` 标准 AI 上下文模板。
 2. `docs/ai/` 是本仓库真实使用中的 dogfooding 上下文实例。
-3. `acf.py` 是无第三方依赖的辅助 CLI，已支持 `init`、`simplify`、`check`、`new task`、`new worklog` 和 `new adr`。
+3. `acf.py` 是无第三方依赖的辅助 CLI，已支持 `init`、`simplify`、`check`、`new task`、`new source`、`new worklog` 和 `new adr`。
 4. `acf.py check --strict` 会把检查目标中的占位符残留视为错误。
 5. 本仓库已使用 `pyproject.toml` 和 `uv.lock` 建立最小 uv Python 环境，Python 版本约束为 `>=3.10`。
 6. 本仓库运行 Python 代码时，优先使用 `uv run python ...`。
 7. `docs/ai/` 当前应通过 `uv run python acf.py check docs/ai --profile minimal --strict`。
-8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 占位符检查、task 自动生成、worklog 自动生成和 ADR 自动生成场景。
+8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 占位符检查、task 自动生成、source 自动生成、worklog 自动生成和 ADR 自动生成场景。
 9. `init --profile minimal` 和 `simplify` 不再向真实 minimal 实例复制 ADR 模板文件与 daily worklog 模板文件；真实 ADR 和 worklog 应通过 `new adr`、`new worklog` 生成，`simplify` 会保留已有真实 ADR 和 daily worklog。
 10. `acf.py init` 会在推断出的项目根目录生成缺失的薄入口 AGENTS.md；已有根入口默认不覆盖，需要 force root agent 参数才覆盖。
 11. 两层 AGENTS.md 设计已由 `decisions/ADR-0003.md` 记录：根目录薄入口负责发现和转发，上下文目录内入口负责完整导航。
@@ -65,15 +65,14 @@ Dogfooding MVP / 框架稳定化。
 4. Python 命令应优先使用项目 uv 环境运行。
 5. 自动化应优先做确定性检查和草案生成，不替代人的事实判断。
 6. 涉及模板结构变更时，需要同时验证模板和 dogfooding 实例。
-7. 新增或重置当前任务优先使用 `acf.py new task`；重要设计决策优先使用 `acf.py new adr`；当天工作记录优先使用 `acf.py new worklog`。
+7. 新增或重置当前任务优先使用 `acf.py new task`；新增资料索引优先使用 `acf.py new source`；重要设计决策优先使用 `acf.py new adr`；当天工作记录优先使用 `acf.py new worklog`。
 8. 修改 `template/` 时，应同步检查 README、上下文入口说明和 System Manual 是否仍一致。
 
 ---
 
 ## 当前开放问题
 
-1. `new source` 的最小接口如何设计。
-2. `writeback draft` 应接收什么输入格式，以及如何避免越权写入事实源。
+1. `writeback draft` 应接收什么输入格式，以及如何避免越权写入事实源。
 
 ---
 
@@ -149,4 +148,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：修复 `acf.py init` 根薄入口生成，并记录两层 AGENTS.md 设计决策。
+- 更新原因：实现 `acf.py new source`，并统一 Sources_Index 表格维护语义。

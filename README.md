@@ -92,6 +92,7 @@ uv run python acf.py init docs/ai
 uv run python acf.py init docs/ai-min --profile minimal
 uv run python acf.py simplify docs/ai docs/ai-min
 uv run python acf.py new task docs/ai --title "实现一个维护任务" --goal "写清当前目标。"
+uv run python acf.py new source docs/ai --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
 uv run python acf.py new worklog docs/ai --summary "完成一次上下文维护。"
 uv run python acf.py new adr docs/ai --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
 uv run python acf.py check docs/ai
@@ -104,6 +105,7 @@ uv run python acf.py check docs/ai --strict
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
+- `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
 - `new adr`：生成下一个 ADR 文件，并更新 `reference/Decisions_Index.md`。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性和占位符残留。

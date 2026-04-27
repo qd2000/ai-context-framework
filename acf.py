@@ -78,6 +78,7 @@ PLACEHOLDER_RE = re.compile(r"【[^】]+】")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
+SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
 
 MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本项目。
 
@@ -321,6 +322,11 @@ def validate_date(value: str) -> str:
 
 def clean_table_cell(value: str) -> str:
     return " ".join(value.split()).replace("|", "/")
+
+
+def table_cell(value: str, default: str = "无。") -> str:
+    value = value.strip()
+    return clean_table_cell(value or default)
 
 
 def render_worklog_daily(log_date: str, summary: str, conclusion: str) -> str:
@@ -744,6 +750,62 @@ def update_decisions_index(
     index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
 
 
+def source_index_row(
+    title: str,
+    source_type: str,
+    location: str,
+    status: str,
+    credibility: str,
+    relation: str,
+    next_action: str,
+) -> str:
+    return (
+        f"| {table_cell(title)} | {table_cell(source_type)} | {table_cell(location)} | {status} | "
+        f"{table_cell(credibility, '未评估')} | {table_cell(relation)} | {table_cell(next_action)} |"
+    )
+
+
+def update_sources_index(
+    index_path: Path,
+    title: str,
+    source_type: str,
+    location: str,
+    status: str,
+    credibility: str,
+    relation: str,
+    next_action: str,
+    force: bool,
+) -> None:
+    if not index_path.exists():
+        raise SystemExit(f"sources index does not exist: {index_path}")
+
+    lines = read_text(index_path).splitlines()
+    header_index = next((index for index, line in enumerate(lines) if line.strip() == SOURCE_TABLE_HEADER), None)
+    if header_index is None or header_index + 1 >= len(lines):
+        raise SystemExit(f"sources index table was not found: {index_path}")
+
+    table_start = header_index + 2
+    table_end = table_start
+    while table_end < len(lines) and lines[table_end].strip().startswith("|"):
+        table_end += 1
+
+    existing_rows = lines[table_start:table_end]
+    if any(row_date(row) == title for row in existing_rows) and not force:
+        raise SystemExit(f"sources index already contains source: {title}")
+
+    new_row = source_index_row(title, source_type, location, status, credibility, relation, next_action)
+    kept_rows = [
+        row
+        for row in existing_rows
+        if row_date(row) not in {title, "暂无"} and row.strip()
+    ]
+    rows = kept_rows + [new_row]
+    rows.sort(key=row_date)
+
+    updated = lines[:table_start] + rows + lines[table_end:]
+    index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
 def init_command(args: argparse.Namespace) -> int:
     target = args.target.resolve()
     ensure_clean_target(target, args.force)
@@ -876,6 +938,41 @@ def new_task_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def new_source_command(args: argparse.Namespace) -> int:
+    root = args.path.resolve()
+    if not root.exists() or not root.is_dir():
+        raise SystemExit(f"context directory does not exist: {root}")
+
+    title = args.title.strip()
+    source_type = args.type.strip()
+    location = args.location.strip()
+    relation = args.relation.strip()
+    credibility = args.credibility.strip() or "未评估"
+    next_action = args.next_action.strip() or "无。"
+    if not title:
+        raise SystemExit("source title cannot be empty")
+    if not source_type:
+        raise SystemExit("source type cannot be empty")
+    if not location:
+        raise SystemExit("source location cannot be empty")
+    if not relation:
+        raise SystemExit("source relation cannot be empty")
+
+    update_sources_index(
+        root / "reference" / "Sources_Index.md",
+        title,
+        source_type,
+        location,
+        args.status,
+        credibility,
+        relation,
+        next_action,
+        args.force,
+    )
+    print(f"created source entry {title}")
+    return 0
+
+
 def iter_markdown_files(root: Path) -> Iterable[Path]:
     yield from sorted(root.rglob("*.md"))
 
@@ -991,6 +1088,16 @@ def check_sources(root: Path, errors: list[str]) -> None:
     if not sources_path.exists():
         return
     text = read_text(sources_path)
+    rows = parse_markdown_table_rows(text)
+    for cells in rows:
+        if len(cells) < 7 or cells[0] in {"资料", "暂无"}:
+            continue
+        title, _source_type, _location, status, _credibility, _relation, _next_action = cells[:7]
+        if is_placeholder(title) or is_placeholder(status) or not status:
+            continue
+        if status not in VALID_SOURCE_STATUSES:
+            errors.append(f"reference/Sources_Index.md: invalid source status `{status}` for {title}")
+
     for line_number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped.startswith("- 状态："):
@@ -1164,6 +1271,18 @@ def build_parser() -> argparse.ArgumentParser:
     task_parser.add_argument("--question", action="append", default=None, help="question for AI judgment; can be repeated")
     task_parser.add_argument("--force", action="store_true", help="replace an Active current task")
     task_parser.set_defaults(func=new_task_command)
+
+    source_parser = new_subparsers.add_parser("source", help="create or update a source index entry")
+    source_parser.add_argument("path", type=Path)
+    source_parser.add_argument("--title", required=True, help="source title")
+    source_parser.add_argument("--type", required=True, help="source type")
+    source_parser.add_argument("--location", required=True, help="source URL or local path")
+    source_parser.add_argument("--status", choices=tuple(sorted(VALID_SOURCE_STATUSES)), default="To Read")
+    source_parser.add_argument("--credibility", default="未评估", help="source credibility")
+    source_parser.add_argument("--relation", required=True, help="why the source is relevant")
+    source_parser.add_argument("--next-action", default="无。", help="next action for this source")
+    source_parser.add_argument("--force", action="store_true", help="replace an existing source row")
+    source_parser.set_defaults(func=new_source_command)
 
     return parser
 

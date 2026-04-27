@@ -10,6 +10,7 @@
 - `simplify`：从已有上下文导出简化版本，保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径；`--strict` 会将占位符残留视为错误。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
+- `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并向 `worklog/Worklog_Index.md` 添加或更新索引行。
 - `new adr`：生成下一个 ADR 文件，并按 Active 或 Proposed 状态更新 `reference/Decisions_Index.md`。
 
@@ -19,9 +20,8 @@
 
 优先做可验证、低歧义、可回退的命令：
 
-1. `new source`：向 `reference/Sources_Index.md` 添加资料条目。
-2. `writeback draft`：读取会话结束回写建议，拆成 Context、Task、Decision、Worklog、Archive 草案，但不自动落盘。
-3. 根薄入口自定义字段：允许用户在生成时追加少量仓库级规则，但仍不把完整上下文写入根入口。
+1. `writeback draft`：读取会话结束回写建议，拆成 Context、Task、Decision、Worklog、Archive 草案，但不自动落盘。
+2. 根薄入口自定义字段：允许用户在生成时追加少量仓库级规则，但仍不把完整上下文写入根入口。
 
 这些命令应默认只生成草案或骨架。真正写入权威上下文前，仍应由用户或主代理确认。
 
@@ -56,7 +56,7 @@ subagent 适合处理需要语义判断、但不应静默修改权威文件的�
 2. 模板结构变化后运行 `uv run python acf.py check template`。
 3. CLI 行为变化后运行 `uv run python acf.py check docs/ai --profile minimal --strict` 和 `uv run python -m unittest`。
 4. minimal 实例不保留 ADR 和 worklog 的占位模板文件，真实条目通过 `new adr` 和 `new worklog` 生成。
-5. 新增或重置当前任务时优先使用 `new task`，重要设计决策优先使用 `new adr`，当天工作记录优先使用 `new worklog`。
+5. 新增或重置当前任务时优先使用 `new task`，新增资料索引时优先使用 `new source`，重要设计决策优先使用 `new adr`，当天工作记录优先使用 `new worklog`。
 6. 修改 `template/` 前先确认该变更属于通用产品模板需求，而不是本仓库 dogfooding 特例。
 7. 如果发现跨文件同步问题，优先考虑补充 `acf.py check` 规则，而不是只补文档说明。
 8. 如果某项维护动作重复出现两次以上，评估是否应新增 CLI 子命令或 subagent 草案流程。
