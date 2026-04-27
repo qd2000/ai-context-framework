@@ -23,79 +23,84 @@ Done
 
 ## 任务名称
 
-让 `docs/ai` dogfooding 上下文通过 strict 检查
+引入 uv dogfooding Python 运行环境
 
 ---
 
 ## 本次任务目标
 
-1. 改进 `acf.py check --strict`，使其区分真实项目文件和明确模板文件。
-2. 清理 `reference/Sources_Index.md` 中的占位符，使资料索引成为真实空索引。
-3. 更新 dogfooding 规则，使 CLI 修改时验证 `docs/ai` strict 检查。
-4. 补充测试覆盖 strict 忽略明确模板文件的行为。
+1. 新增最小 `pyproject.toml`，声明 `requires-python = ">=3.10"` 且无依赖。
+2. 使用 `uv lock` 生成 `uv.lock`。
+3. 将本仓库 Python 运行约定改为优先使用 `uv run python ...`。
+4. 更新根 `AGENTS.md`、`rules/Project_Rules.md`、README、`../Automation.md` 和当前上下文。
+5. 不把 uv 要求写入通用 `template/` 规则。
 
 ---
 
 ## 任务背景
 
-`docs/ai` 初始化后，minimal 实例仍包含 `decisions/ADR-0001-template.md`、`worklog/daily/YYYY-MM-DD.md` 和未填的 `reference/Sources_Index.md`。这导致真实 dogfooding 上下文无法通过 `--strict`。其中前两者是明确模板文件，应允许保留占位符；资料索引是项目事实文件，应替换为真实空索引。
+本仓库已经开始 dogfooding 自己的上下文框架，并持续增加 Python CLI 能力。为了避免不同解释器或全局环境影响验证结果，需要把本仓库自身的 Python 运行入口固定到项目 uv 环境。
 
 ---
 
 ## 输入材料
 
-- `python acf.py check docs/ai --profile minimal --strict` 的失败输出。
-- `active/Context.md` 中记录的 strict dogfooding 开放问题。
-- `acf.py` 当前的 placeholder 检查逻辑。
+- 用户批准的 uv dogfooding 计划。
+- 当前 `acf.py` CLI 和测试。
+- 当前 dogfooding 上下文。
 
 ---
 
 ## 输出要求
 
-- `acf.py check --strict` 只把非模板文件占位符作为错误。
-- `reference/Sources_Index.md` 不再保留占位符。
-- `docs/ai` strict 检查通过。
-- 相关文档和测试同步更新。
+- `pyproject.toml`
+- `uv.lock`
+- `.gitignore` 忽略 `.venv/`
+- README 和 dogfooding 规则中的 Python 示例使用 `uv run python ...`
+- 当前上下文记录 uv 环境事实和验证要求
 
 ---
 
 ## 成功标准
 
-1. `python acf.py check docs/ai --profile minimal --strict` 通过。
-2. `python acf.py check template` 通过。
-3. `python -m unittest` 通过。
-4. `python -m py_compile acf.py tests\test_cli.py` 通过。
-5. `reference/Sources_Index.md` 不含占位符。
+1. `uv lock --check` 通过。
+2. `uv run python acf.py check docs/ai --profile minimal --strict` 通过。
+3. `uv run python acf.py check template` 通过。
+4. `uv run python -m unittest` 通过。
+5. `uv run python -m py_compile acf.py tests\test_cli.py` 通过。
+6. 通用 `template/` 不新增 uv 专属要求。
 
 ---
 
 ## 失败信号
 
-1. `--strict` 对真实项目上下文仍因明确模板文件失败。
-2. `--strict` 对普通项目文件中的占位符不再报错。
-3. 模板自身检查或单元测试回归失败。
+1. 仍在本仓库维护规则中要求直接运行 `python ...`。
+2. `uv.lock` 与 `pyproject.toml` 不一致。
+3. 新增了第三方依赖。
+4. uv 要求泄漏到通用模板规则中。
 
 ---
 
 ## 约束条件
 
-1. 不删除当前 generated 模板文件。
-2. 不引入新依赖。
-3. 不改变 `template/` 作为产品模板的占位符语义。
+1. 继续保持无第三方运行依赖。
+2. Python 版本约束为 `>=3.10`。
+3. uv 要求只作用于本仓库 dogfooding 和维护流程。
+4. 不实现新的 CLI 功能。
 
 ---
 
 ## 不允许做的事
 
-- 不把所有占位符都静默忽略。
-- 不让 strict 对真实项目文件失去约束力。
-- 不实现下一批 `new ...` 命令。
+- 不把 uv 作为生成模板的默认要求。
+- 不引入依赖包。
+- 不删除已有 dogfooding 文件。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-本任务已完成。后续优先判断 `new worklog`、`new adr`、`new task`、`new source` 的最小接口。
+本任务已完成。下一步优先判断 `new adr`、`new task`、`new source` 的最小接口。
 
 ---
 
@@ -103,6 +108,7 @@ Done
 
 已写入：
 
-1. `active/Context.md`：更新 strict dogfooding 当前事实和开放问题。
-2. `worklog/daily/2026-04-26.md`：追加本次工作记录。
-3. `../Automation.md` 和根 `AGENTS.md`：更新 dogfooding 验证规则。
+1. `active/Context.md`：更新 uv 运行环境事实和约束。
+2. `rules/Project_Rules.md`：新增本仓库 Python 运行规则。
+3. `worklog/Worklog_Index.md` 和 daily worklog：记录本次工作。
+4. README、`../Automation.md`、根 `AGENTS.md`：更新维护命令。

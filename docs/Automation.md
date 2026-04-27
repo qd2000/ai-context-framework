@@ -9,6 +9,7 @@
 - `init`：生成标准或简化上下文模板。
 - `simplify`：从已有上下文导出简化版本。
 - `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径；`--strict` 会将非模板文件中的占位符视为错误。
+- `new worklog`：按日期生成 daily worklog，并向 `worklog/Worklog_Index.md` 添加或更新索引行。
 
 这些检查不需要模型判断，适合作为每次模板修改后的基础验证。
 
@@ -17,10 +18,9 @@
 优先做可验证、低歧义、可回退的命令：
 
 1. `new task`：按模板生成或重置 `active/Current_Task.md`。
-2. `new worklog`：按日期生成 daily worklog，并向 `worklog/Worklog_Index.md` 添加索引行。
-3. `new adr`：生成下一个 ADR 编号，并向 `reference/Decisions_Index.md` 添加待确认行。
-4. `new source`：向 `reference/Sources_Index.md` 添加资料条目。
-5. `writeback draft`：读取会话结束回写建议，拆成 Context、Task、Decision、Worklog、Archive 草案，但不自动落盘。
+2. `new adr`：生成下一个 ADR 编号，并向 `reference/Decisions_Index.md` 添加待确认行。
+3. `new source`：向 `reference/Sources_Index.md` 添加资料条目。
+4. `writeback draft`：读取会话结束回写建议，拆成 Context、Task、Decision、Worklog、Archive 草案，但不自动落盘。
 
 这些命令应默认只生成草案或骨架。真正写入权威上下文前，仍应由用户或主代理确认。
 
@@ -51,7 +51,8 @@ subagent 适合处理需要语义判断、但不应静默修改权威文件的�
 
 修改本项目时，应把本仓库当成第一个使用者：
 
-1. 模板结构变化后运行 `python acf.py check template`。
-2. CLI 行为变化后运行 `python acf.py check docs/ai --profile minimal --strict` 和 `python -m unittest`。
-3. 如果发现跨文件同步问题，优先考虑补充 `acf.py check` 规则，而不是只补文档说明。
-4. 如果某项维护动作重复出现两次以上，评估是否应新增 CLI 子命令或 subagent 草案流程。
+1. Python 代码优先通过项目 uv 环境运行：`uv run python ...`。
+2. 模板结构变化后运行 `uv run python acf.py check template`。
+3. CLI 行为变化后运行 `uv run python acf.py check docs/ai --profile minimal --strict` 和 `uv run python -m unittest`。
+4. 如果发现跨文件同步问题，优先考虑补充 `acf.py check` 规则，而不是只补文档说明。
+5. 如果某项维护动作重复出现两次以上，评估是否应新增 CLI 子命令或 subagent 草案流程。

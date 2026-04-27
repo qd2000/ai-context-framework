@@ -1,0 +1,10 @@
+[project]
+name = "ai-context-framework"
+version = "0.1.0"
+description = "Model-independent AI context framework templates and CLI."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.uv]
+package = false

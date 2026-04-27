@@ -42,12 +42,14 @@ Dogfooding MVP / 框架稳定化。
 
 1. 本仓库的核心产物是 `template/` 标准 AI 上下文模板。
 2. `docs/ai/` 是本仓库真实使用中的 dogfooding 上下文实例。
-3. `acf.py` 是无第三方依赖的辅助 CLI，已支持 `init`、`simplify` 和 `check`。
+3. `acf.py` 是无第三方依赖的辅助 CLI，已支持 `init`、`simplify`、`check` 和 `new worklog`。
 4. `acf.py check --strict` 会把非模板文件中的占位符视为错误，并忽略明确模板文件中的占位符。
-5. `docs/ai/` 当前应通过 `python acf.py check docs/ai --profile minimal --strict`。
-6. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性和 strict 模板文件忽略场景。
-7. `../Automation.md` 记录自动化边界、后续 CLI 命令和 subagent 草案路线。
-8. `template/` 中的占位符是产品模板内容，不是本仓库事实。
+5. 本仓库已使用 `pyproject.toml` 和 `uv.lock` 建立最小 uv Python 环境，Python 版本约束为 `>=3.10`。
+6. 本仓库运行 Python 代码时，优先使用 `uv run python ...`。
+7. `docs/ai/` 当前应通过 `uv run python acf.py check docs/ai --profile minimal --strict`。
+8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 模板文件忽略和 worklog 自动生成场景。
+9. `../Automation.md` 记录自动化边界、后续 CLI 命令和 subagent 草案路线。
+10. `template/` 中的占位符是产品模板内容，不是本仓库事实。
 
 ---
 
@@ -56,14 +58,15 @@ Dogfooding MVP / 框架稳定化。
 1. 框架必须保持模型无关。
 2. 权威上下文必须是普通 Markdown，并且可人工审阅。
 3. CLI 不应引入第三方运行依赖。
-4. 自动化应优先做确定性检查和草案生成，不替代人的事实判断。
-5. 涉及模板结构变更时，需要同时验证模板和 dogfooding 实例。
+4. Python 命令应优先使用项目 uv 环境运行。
+5. 自动化应优先做确定性检查和草案生成，不替代人的事实判断。
+6. 涉及模板结构变更时，需要同时验证模板和 dogfooding 实例。
 
 ---
 
 ## 当前开放问题
 
-1. `new worklog`、`new adr`、`new task`、`new source` 的最小接口如何设计。
+1. `new adr`、`new task`、`new source` 的最小接口如何设计。
 2. `writeback draft` 应接收什么输入格式，以及如何避免越权写入事实源。
 
 ---
@@ -80,6 +83,8 @@ Dogfooding MVP / 框架稳定化。
 - AI 文档目录：`docs/ai/`
 - 产品模板目录：`template/`
 - CLI：`acf.py`
+- Python 项目配置：`pyproject.toml`
+- uv 锁文件：`uv.lock`
 - 自动化路线：`../Automation.md`
 - 资料索引：`reference/Sources_Index.md`
 - 工作记录索引：`worklog/Worklog_Index.md`
@@ -97,5 +102,5 @@ Dogfooding MVP / 框架稳定化。
 
 ## 上次更新
 
-- 日期：2026-04-26
-- 更新原因：完成 strict dogfooding 检查语义，`docs/ai` 可作为真实上下文严格检查。
+- 日期：2026-04-27
+- 更新原因：引入 uv dogfooding Python 环境，优先使用 `uv run python ...`。

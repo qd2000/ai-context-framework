@@ -1,4 +1,5 @@
-ADR：Architecture Decision Record
+ADR：【决策标题】
+
 ## 状态
 
 【Active / Proposed / Superseded / Rejected / Deprecated】
