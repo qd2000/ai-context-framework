@@ -42,8 +42,8 @@ template/
 
 ## 使用方法
 
-1. 将 `template/` 目录复制到你的项目中（建议放在 `docs/ai/` 下）
-2. `acf.py init docs/ai` 会在项目根目录生成薄入口 `AGENTS.md`，在 `docs/ai/` 下生成完整入口 `AGENTS.md`
+1. 在项目根目录运行 `uv run python acf.py init docs/ai`
+2. `init` 会在项目根目录生成薄入口 `AGENTS.md`，在 `docs/ai/` 下生成完整入口 `AGENTS.md`
 3. 根据项目需要填充模板中的占位符
 4. AI 进入项目时，从根目录 `AGENTS.md` 开始读取
 
@@ -57,6 +57,8 @@ template/
 | 第二层 | `docs/ai/AGENTS.md` | 完整上下文导航 | 项目团队 + AI | 按阶段更新 |
 
 目的是在不暴露过多细节的前提下，让 AI 能逐步了解项目上下文结构。
+
+如果项目根目录已经存在 `AGENTS.md`，`init` 默认不会覆盖；确认要重写根薄入口时再传入 `--force-root-agent`。
 
 ## 信息层级
 
@@ -99,6 +101,7 @@ uv run python acf.py check docs/ai --strict
 命令说明：
 
 - `init`：从 `template/` 生成标准或简化上下文目录。
+- `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。

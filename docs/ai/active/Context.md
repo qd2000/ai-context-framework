@@ -49,8 +49,11 @@ Dogfooding MVP / 框架稳定化。
 7. `docs/ai/` 当前应通过 `uv run python acf.py check docs/ai --profile minimal --strict`。
 8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 占位符检查、task 自动生成、worklog 自动生成和 ADR 自动生成场景。
 9. `init --profile minimal` 和 `simplify` 不再向真实 minimal 实例复制 ADR 模板文件与 daily worklog 模板文件；真实 ADR 和 worklog 应通过 `new adr`、`new worklog` 生成，`simplify` 会保留已有真实 ADR 和 daily worklog。
-10. `../Automation.md` 记录自动化边界、后续 CLI 命令和 subagent 草案路线。
-11. `template/` 中的占位符是产品模板内容，不是本仓库事实。
+10. `acf.py init` 会在推断出的项目根目录生成缺失的薄入口 AGENTS.md；已有根入口默认不覆盖，需要 force root agent 参数才覆盖。
+11. 两层 AGENTS.md 设计已由 `decisions/ADR-0003.md` 记录：根目录薄入口负责发现和转发，上下文目录内入口负责完整导航。
+12. `../Automation.md` 记录自动化边界、后续 CLI 命令和 subagent 草案路线。
+13. `template/` 中的占位符是产品模板内容，不是本仓库事实。
+14. `template/` 是面向使用者的产品源，新增或修改前应确认是通用模板需求；本仓库 dogfooding 特例应写入根入口、`docs/ai/` 或维护文档，不写入通用模板。
 
 ---
 
@@ -62,6 +65,8 @@ Dogfooding MVP / 框架稳定化。
 4. Python 命令应优先使用项目 uv 环境运行。
 5. 自动化应优先做确定性检查和草案生成，不替代人的事实判断。
 6. 涉及模板结构变更时，需要同时验证模板和 dogfooding 实例。
+7. 新增或重置当前任务优先使用 `acf.py new task`；重要设计决策优先使用 `acf.py new adr`；当天工作记录优先使用 `acf.py new worklog`。
+8. 修改 `template/` 时，应同步检查 README、上下文入口说明和 System Manual 是否仍一致。
 
 ---
 
@@ -69,24 +74,23 @@ Dogfooding MVP / 框架稳定化。
 
 1. `new source` 的最小接口如何设计。
 2. `writeback draft` 应接收什么输入格式，以及如何避免越权写入事实源。
-3. **新发现：根目录 AGENTS.md 的生成与设计** - 见下方详述。
 
 ---
 
-## 设计问题：AGENTS.md 的两层结构
+## 已解决设计问题：AGENTS.md 的两层结构
 
-### 问题描述
+### 已解决的问题
 
-当前设计理念是"渐进式暴露"，但 `acf.py init` 的实现不完整：
+此前设计理念是"渐进式暴露"，但 `acf.py init` 的实现不完整：
 
 - **设计理念**：根目录 AGENTS.md（薄入口） + docs/ai/AGENTS.md（完整入口）
 - **README 说法**：第 46 行推荐"在项目根目录放置 AGENTS.md"
-- **实际情况**：`acf.py init docs/ai` 只生成 docs/ai/AGENTS.md，不生成根目录版本
-- **结果**：新项目初始化后，根目录没有入口文件，用户困惑
+- **旧实现**：`acf.py init docs/ai` 只生成上下文目录内入口，不生成根目录版本
+- **修复结果**：`acf.py init` 现在生成缺失的根薄入口，并保护已有根入口不被静默覆盖
 
 ### 设计意图确认
 
-经过讨论，当前设计（两个 AGENTS.md）是**符合渐进式暴露原则的**：
+当前设计（两个 AGENTS.md）符合渐进式暴露原则：
 
 1. **根目录 AGENTS.md**（薄入口）
    - 角色：最轻量级的仓库级配置
@@ -102,16 +106,14 @@ Dogfooding MVP / 框架稳定化。
 
 ### 后续改进方向
 
-**优先级 1（MVP 后立即改进）**：
-- 修改 `acf.py init` 逻辑，在 target 根目录生成薄入口 AGENTS.md
-- 更新 README 第 43-48 行的"使用方法"部分，明确说明这个两层设计
+**已完成**：
+- 修改 `acf.py init` 逻辑，在推断出的项目根目录生成薄入口 AGENTS.md。
+- 更新 README 和 template 入口说明，明确两层入口设计。
+- 新增 `decisions/ADR-0003.md`，正式记录"渐进式暴露的两层 AGENTS.md 设计"。
 
-**优先级 2（文档完善）**：
-- 在 decisions/ 中创建 ADR-0002，正式记录"渐进式暴露的两层 AGENTS.md 设计"
-- 在 template/AGENTS.md 顶部添加注释，说明它是"上下文内的完整入口，不是根目录版本"
-
-**优先级 3（验证）**：
-- 用 KnowledgeConnector 项目验证改进后的初始化流程
+**后续可选**：
+- 根薄入口生成支持少量用户自定义仓库规则字段。
+- 用其他真实项目验证改进后的初始化流程。
 
 ---
 
@@ -147,4 +149,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：实现 `acf.py new task`，将当前任务文件维护纳入确定性 CLI 流程。
+- 更新原因：修复 `acf.py init` 根薄入口生成，并记录两层 AGENTS.md 设计决策。

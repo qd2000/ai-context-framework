@@ -211,8 +211,9 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 如果本仓库附带 `acf.py`，可以用它降低维护成本：
 
-- `python acf.py init <target>`：生成标准上下文模板。
-- `python acf.py init <target> --profile minimal`：生成简化模板。
+- `python acf.py init <target>`：生成标准上下文模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
+- `python acf.py init <target> --profile minimal`：生成简化模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
+- `python acf.py init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `python acf.py simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `python acf.py new task <target> --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
 - `python acf.py new worklog <target> --summary "..."`：生成 daily worklog 并更新工作记录索引。

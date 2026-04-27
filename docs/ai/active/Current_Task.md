@@ -23,15 +23,15 @@ Done
 
 ## 任务名称
 
-实现 acf.py new task
+修复 AGENTS.md 生成并同步 template 设计约束
 
 ---
 
 ## 本次任务目标
 
-1. 新增确定性命令生成 active/Current_Task.md。
-2. 默认保护 Active 任务，覆盖时要求 --force。
-3. 同步 README、System_Manual、Automation 和 dogfooding 上下文。
+1. 让 acf.py init 生成根目录薄入口 AGENTS.md，并保护已有入口不被静默覆盖。
+2. 用正确 ADR 编号记录两层 AGENTS.md 设计。
+3. 将 template 设计理念和后续维护要求同步到 dogfooding 上下文。
 
 ---
 
@@ -50,17 +50,17 @@ Done
 
 ## 输出要求
 
-- acf.py 新增 new task 子命令。
-- tests/test_cli.py 覆盖生成、状态校验和 Active 覆盖保护。
-- README、System_Manual、Automation 和 docs/ai 上下文已同步。
+- acf.py 已新增根薄入口生成逻辑和 --force-root-agent 参数。
+- tests/test_cli.py 已覆盖根薄入口生成、默认不覆盖和显式覆盖。
+- ADR-0003、Context、Project_Rules、Project_Brief、Automation、README、System_Manual 和 worklog 已同步。
 
 ---
 
 ## 成功标准
 
-1. new task 能生成无占位符且状态有效的 Current_Task 文件。
-2. Active 任务未传 --force 时不会被静默覆盖。
-3. 约定的 uv 验证命令通过。
+1. init docs/ai 会生成根薄入口和 docs/ai 完整入口。
+2. 已有根 AGENTS.md 默认不会被覆盖，显式参数才覆盖。
+3. docs/ai --strict、template check、unittest 和 py_compile 均通过。
 
 ---
 
@@ -73,8 +73,9 @@ Done
 
 ## 约束条件
 
-1. 不引入第三方依赖。
-2. 保持 template 的通用性。
+1. Python 命令使用 uv run python。
+2. 不引入第三方依赖。
+3. template 保持模型无关和通用性。
 
 ---
 
@@ -87,7 +88,7 @@ Done
 
 ## 需要 AI 协助判断的问题
 
-1. new source 和 writeback draft 的最小接口后续如何设计。
+1. 根薄入口生成是否还需要后续支持自定义项目规则字段。
 
 ---
 

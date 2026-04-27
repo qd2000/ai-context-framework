@@ -20,6 +20,7 @@
 |---|---|---|---|---|
 | ADR-0001 | 使用 `docs/ai` minimal 实例进行 dogfooding | Active | 本仓库用 `docs/ai/` 保存真实上下文，根 `AGENTS.md` 作为薄入口转发。 | `decisions/ADR-0001.md` |
 | ADR-0002 | 使用 uv 管理本仓库 Python 运行环境 | Active | 本仓库 Python 命令优先通过 uv run python 执行，uv 要求只作用于 dogfooding 维护流程。 | `decisions/ADR-0002.md` |
+| ADR-0003 | 采用两层 AGENTS.md 入口结构 | Active | 项目根目录保留薄入口，docs/ai/AGENTS.md 承载完整上下文导航。 | `decisions/ADR-0003.md` |
 
 ---
 

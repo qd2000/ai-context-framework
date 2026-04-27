@@ -31,6 +31,48 @@ class CliTests(unittest.TestCase):
             result = acf.check_context(target, "minimal", strict=False)
             self.assertFalse(result.errors)
 
+    def test_init_creates_root_thin_agent_for_docs_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            exit_code = self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.assertEqual(exit_code, 0)
+
+            root_agents = project_root / "AGENTS.md"
+            self.assertTrue(root_agents.exists())
+            root_text = root_agents.read_text(encoding="utf-8")
+            self.assertIn("docs/ai/AGENTS.md", root_text)
+            self.assertIn("AI 上下文目录", root_text)
+            self.assertTrue((target / "AGENTS.md").exists())
+
+    def test_init_keeps_existing_root_agent_without_force_root_agent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "project"
+            project_root.mkdir()
+            root_agents = project_root / "AGENTS.md"
+            root_agents.write_text("custom root agent\n", encoding="utf-8")
+
+            target = project_root / "docs" / "ai"
+            exit_code = self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(root_agents.read_text(encoding="utf-8"), "custom root agent\n")
+
+    def test_init_force_root_agent_replaces_existing_root_agent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "project"
+            project_root.mkdir()
+            root_agents = project_root / "AGENTS.md"
+            root_agents.write_text("custom root agent\n", encoding="utf-8")
+
+            target = project_root / "docs" / "ai"
+            exit_code = self.run_cli(
+                ["init", str(target), "--profile", "minimal", "--force-root-agent"]
+            )
+            self.assertEqual(exit_code, 0)
+            root_text = root_agents.read_text(encoding="utf-8")
+            self.assertNotEqual(root_text, "custom root agent\n")
+            self.assertIn("docs/ai/AGENTS.md", root_text)
+
     def test_check_detects_missing_required_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

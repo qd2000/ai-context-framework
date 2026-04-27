@@ -187,6 +187,58 @@ def copy_selected_files(source: Path, target: Path, files: Sequence[str], dirs: 
         shutil.copy2(src, dst)
 
 
+def infer_project_root(context_root: Path) -> Path:
+    if context_root.parent.name.lower() == "docs":
+        return context_root.parent.parent
+    return context_root.parent
+
+
+def display_path(path: Path) -> str:
+    return path.as_posix()
+
+
+def relative_display_path(path: Path, base: Path) -> str:
+    try:
+        return display_path(path.relative_to(base))
+    except ValueError:
+        return display_path(path)
+
+
+def render_root_agents(project_name: str, context_rel: str) -> str:
+    context_rel = context_rel.rstrip("/")
+    return f"""# {project_name}
+
+本仓库使用 AI context framework 管理项目上下文。
+
+默认从项目 AI 上下文进入：
+
+1. 先读取 `{context_rel}/AGENTS.md`
+2. 再按其中的读取顺序读取当前有效上下文
+
+## 仓库级约定
+
+- 文档内容默认使用中文。
+- 文件名和目录名使用英文。
+- 不依赖特定 AI 模型或私有上下文格式。
+- `{context_rel}/` 是本项目的 AI 上下文目录。
+- 不要把上下文目录中的模板占位内容当作当前项目事实。
+"""
+
+
+def write_root_agents(context_root: Path, force: bool) -> Path | None:
+    project_root = infer_project_root(context_root)
+    root_agents = project_root / "AGENTS.md"
+    if root_agents.exists() and root_agents.is_dir():
+        raise SystemExit(f"root AGENTS.md path is a directory: {root_agents}")
+    if root_agents.exists() and not force:
+        return None
+
+    context_rel = relative_display_path(context_root, project_root)
+    project_name = project_root.name or "Project"
+    root_agents.write_text(render_root_agents(project_name, context_rel), encoding="utf-8")
+    return root_agents
+
+
 def copy_dynamic_minimal_files(source: Path, target: Path) -> None:
     dynamic_groups = (
         ("decisions", "ADR-*.md", {"ADR-0001-template.md"}),
@@ -700,7 +752,10 @@ def init_command(args: argparse.Namespace) -> int:
     else:
         copy_selected_files(TEMPLATE_DIR, target, MINIMAL_FILES, MINIMAL_DIRS)
         write_minimal_overrides(target)
+    root_agents = write_root_agents(target, args.force_root_agent)
     print(f"created {args.profile} context template at {target}")
+    if root_agents is not None:
+        print(f"created root AGENTS.md at {root_agents}")
     return 0
 
 
@@ -1057,6 +1112,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("target", type=Path)
     init_parser.add_argument("--profile", choices=("standard", "minimal"), default="standard")
     init_parser.add_argument("--force", action="store_true", help="replace target if it exists")
+    init_parser.add_argument("--force-root-agent", action="store_true", help="replace existing root AGENTS.md")
     init_parser.set_defaults(func=init_command)
 
     simplify_parser = subparsers.add_parser("simplify", help="copy a minimal context from an existing one")

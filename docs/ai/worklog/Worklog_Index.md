@@ -12,8 +12,7 @@
 
 | 日期 | 摘要 | 关键结论 | 详情 |
 |---|---|---|---|
-| 2026-04-27 | 设计讨论：AGENTS.md 两层结构的合理性与实现缺陷。 | 两层 AGENTS.md（根薄入口 + docs/ai 完整入口）设计符合渐进式暴露原则，问题在于 acf.py init 实现不完整。 | `worklog/daily/2026-04-27.md` |
-| 2026-04-27 | 实现 acf.py new task、new worklog、new adr，引入 uv dogfooding 环境，并清理 minimal 实例模板残留。 | 当前任务、worklog 和 ADR 的创建已进入确定性 CLI 流程；Python 验证入口统一为 uv run python；minimal 真实实例不再保留 ADR/worklog 占位模板文件。 | `worklog/daily/2026-04-27.md` |
+| 2026-04-27 | 实现 acf.py new task、new worklog、new adr，引入 uv dogfooding 环境，清理 minimal 模板残留，并修复 init 根薄入口生成。 | 当前任务、worklog、ADR 和根薄入口生成已进入确定性 CLI 流程；template 修改需区分通用产品需求和 dogfooding 专属事实。 | `worklog/daily/2026-04-27.md` |
 | 2026-04-26 | 初始化本仓库的 `docs/ai` dogfooding 上下文。 | 采用 minimal 实例和根薄入口，`template/` 继续作为产品模板。 | `worklog/daily/2026-04-26.md` |
 
 ---
