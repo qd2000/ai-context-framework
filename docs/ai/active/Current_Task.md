@@ -10,7 +10,7 @@
 
 ## 当前任务状态
 
-Done
+Active
 
 说明：
 
@@ -23,72 +23,74 @@ Done
 
 ## 任务名称
 
-补充 acf 任意目录安装与验收说明
+跨项目 dogfooding 评测
 
 ---
 
 ## 本次任务目标
 
-1. 说明如何把 acf 安装到 PATH，使任意目录可直接运行 acf。
-2. 区分本仓库开发入口、可安装工具入口和上下文自动发现行为。
-3. 增加测试防止 console script 配置被误删。
+1. 在临时或真实小项目中验证 acf init/status/check/new/edit/writeback/log 的完整使用路径。
+2. 启用 usage event log，记录命令成功率、失败类型、dry-run 使用和 changed files 规模。
+3. 根据评测结果形成后续功能排序建议。
 
 ---
 
 ## 任务背景
 
-任意目录安装与验收说明已补充。
+AI-facing CLI 阶段 1/2/3 已实现第一版，usage event log 已可记录命令结果元数据；下一步需要用真实项目流程验证哪些能力足够、哪些仍需产品化。
 
 ---
 
 ## 输入材料
 
-- pyproject.toml 的 project.scripts 配置。
-- README.md 命令行工具章节。
-- template/reference/System_Manual.md CLI 辅助工具章节。
+- 当前 dogfooding 上下文：docs/ai/。
+- 自动化路线：docs/Automation.md。
+- usage event log：acf log enable/status/tail/summarize/prune。
 
 ---
 
 ## 输出要求
 
-- README 已增加全局安装和任意目录验证说明。
-- System Manual 已增加 CLI 可用性和安装方式提示。
-- tests/test_cli.py 已覆盖 console script 打包入口配置。
+- 一份跨项目 dogfooding 评测记录。
+- 后续功能排序建议，重点评估 project-root scoped edit、文件创建命令和 writeback-curator。
 
 ---
 
 ## 成功标准
 
-1. 文档明确 uv tool install -e .、uv tool update-shell、where/which acf 和 acf status --json 验收路径。
-2. 说明任意目录可运行 acf 不等于任意目录都有上下文。
-3. 完整 uv 验证通过。
+1. 至少完成一轮 init/status/check/new/edit/writeback/log 路径验证。
+2. 记录成功命令、失败命令、失败原因和 AI 使用痛点。
+3. 给出下一步优先级建议。
 
 ---
 
 ## 失败信号
 
-1. 目标无法验证。
-2. 任务范围需要重新确认。
+1. 无法在临时或真实项目中复现完整流程。
+2. usage event log 无法提供足够评估信息。
 
 ---
 
 ## 约束条件
 
-1. 不新增第三方运行依赖。
-2. 不实际执行全局安装修改用户环境。
-3. 不改变 CLI 行为。
+1. 不引入第三方运行依赖。
+2. 不把 usage event log 当作权威上下文或 worklog。
+3. 不因 docs/ai 是 minimal profile 而补齐 standard profile 文件。
 
 ---
 
 ## 不允许做的事
 
-- 本轮不发布 PyPI。
+- 本任务不实现新的 CLI 子命令。
+- 本任务不发布 PyPI。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. 无。
+1. 评测后是否需要优先实现 project-root scoped edit。
+2. 评测后是否需要优先实现 acf new rule/reference 等文件创建命令。
+3. 评测后是否需要 writeback-curator subagent。
 
 ---
 

@@ -15,7 +15,7 @@ Dogfooding MVP / 框架稳定化。
 ## 当前阶段目标
 
 1. 验证本框架可以作为本仓库自身的 AI 上下文系统使用。
-2. 用 `acf.py` 将模板生成、简化和完整度检查自动化，降低人工维护成本。
+2. 用 `acf` 将模板生成、简化、完整度检查和结构化维护自动化，降低人工维护成本。
 3. 规划并逐步实现下一批确定性维护命令。
 4. 将 `acf` 逐步演进为可安装、可在任意目录调用、主要面向 AI 使用的上下文维护 CLI。
 
@@ -44,14 +44,14 @@ Dogfooding MVP / 框架稳定化。
 
 1. 本仓库的核心产物是 `template/` 标准 AI 上下文模板。
 2. `docs/ai/` 是本仓库真实使用中的 dogfooding 上下文实例。
-3. `acf.py` 是无第三方依赖的辅助 CLI，已支持 `status`、`init`、`simplify`、`check`、`new task`、`new source`、`new worklog`、`new adr` 和 `writeback draft`。
-4. `acf.py check --strict` 会把检查目标中的占位符残留视为错误。
+3. `acf` 是无第三方依赖的辅助 CLI，已支持 `status`、`init`、`simplify`、`check`、`new task`、`new source`、`new worklog`、`new adr`、`writeback draft`、`edit section`、`edit table upsert` 和 `log enable|disable|status|tail|summarize|prune`。
+4. `acf check --strict` 会把检查目标中的占位符残留视为错误。
 5. 本仓库已使用 `pyproject.toml` 和 `uv.lock` 建立最小 uv Python 环境，Python 版本约束为 `>=3.10`。
 6. 本仓库运行 Python 代码时，优先使用 `uv run python ...`。
-7. `docs/ai/` 当前应通过 `uv run python acf.py check docs/ai --profile minimal --strict`。
-8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 占位符检查、task 自动生成、source 自动生成、worklog 自动生成、ADR 自动生成、writeback draft、上下文自动发现和 status 场景。
+7. `docs/ai/` 当前应通过 `uv run acf check --strict`。
+8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 占位符检查、task/source/worklog/ADR 自动生成、writeback draft、上下文自动发现、status、JSON schema、错误分类、section/table 编辑、usage event log 和 console script 配置。
 9. `init --profile minimal` 和 `simplify` 不再向真实 minimal 实例复制 ADR 模板文件与 daily worklog 模板文件；真实 ADR 和 worklog 应通过 `new adr`、`new worklog` 生成，`simplify` 会保留已有真实 ADR 和 daily worklog。
-10. `acf.py init` 会在推断出的项目根目录生成缺失的薄入口 AGENTS.md；已有根入口默认不覆盖，需要 force root agent 参数才覆盖。
+10. `acf init` 会在推断出的项目根目录生成缺失的薄入口 AGENTS.md；已有根入口默认不覆盖，需要 force root agent 参数才覆盖。
 11. 两层 AGENTS.md 设计已由 `decisions/ADR-0003.md` 记录：根目录薄入口负责发现和转发，上下文目录内入口负责完整导航。
 12. `../Automation.md` 记录自动化边界、后续 CLI 命令和 subagent 草案路线。
 13. `template/` 中的占位符是产品模板内容，不是本仓库事实。
@@ -69,13 +69,10 @@ Dogfooding MVP / 框架稳定化。
 25. acf 退出码已区分成功、检查失败、输入错误、安全拒绝和非预期运行时错误；JSON 错误响应会包含 `message` 和 `next_actions`。
 26. `acf edit section get|replace|append` 已支持读取、替换和追加上下文根目录内 Markdown section，并继承 JSON、dry-run、changed files 和 check-after 契约。
 27. `acf edit table upsert` 已支持按 key column 更新或追加 Markdown 表格行，目标限制在上下文根目录内已有 `.md` 文件。
-
 28. 模板入口、minimal init 产物和当前 dogfooding 入口已补充 CLI 渐进式披露入口：默认只提示 `acf status --json`、`acf --help` 和按需读取系统手册，不在入口列完整命令手册。
 29. README 和产品手册已补充安装到 PATH 的说明：开发期可用 `uv tool install -e .` 安装可执行命令，并用 `uv tool update-shell`、`where acf` 或 `which acf` 验证。
-
 30. 后续维护 `docs/ai/` 内上下文计划、规则、worklog 或索引时，应优先 dogfood `acf edit section` 或 `acf edit table upsert`，先用 `--dry-run --json` 预览高风险写入。
 31. `acf edit` 当前安全边界是 context-root 内已有 Markdown 文件；`../Automation.md` 等 `docs/ai/` 外仓库级文档暂时仍通过常规补丁维护，项目级安全编辑能力需单独设计。
-
 32. `acf log enable|disable|status|tail|summarize|prune` 已实现 opt-in 的用户级全局 usage event log，日志默认存放在 `%USERPROFILE%\.acf\projects\<project-id>\` 或 `~/.acf/projects/<project-id>/`，按项目子目录记录命令结果元数据用于 dogfooding 评测。
 33. usage event log 不写入项目目录或 `worklog/`，不记录正文输入、stdin 内容、Markdown diff 或完整 stdout/stderr；测试可用 `ACF_HOME` 指定隔离的日志根目录。
 
@@ -105,8 +102,8 @@ Dogfooding MVP / 框架稳定化。
 
 1. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
 2. 是否需要 writeback-curator subagent 生成更高质量的回写分类草案。
-
 3. 是否需要为 `docs/ai/` 外的仓库级维护文档设计安全的 project-root scoped edit 能力，还是继续保持常规补丁维护。
+4. `docs/ai/` 当前是 minimal profile，缺少 standard profile 的规则、参考文档和 ADR 模板不是 bug；真正待评估的是是否需要新增 `acf new rule`、`acf new reference` 等文件创建命令，让 AI 能安全创建新的上下文文档。
 
 ---
 
@@ -197,4 +194,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-04-27
-- 更新原因：实现 opt-in 的 acf 使用状态日志，用于记录 CLI 结果元数据并支撑跨项目 dogfooding 评测。
+- 更新原因：修复 Context 当前事实和开放问题，切换下一阶段任务为跨项目 dogfooding 评测。
