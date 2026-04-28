@@ -45,16 +45,21 @@ STANDARD_DIRS = (
     "rules",
     "reference",
     "reference/sources",
+    "reference/knowledge",
     "decisions",
     "worklog",
     "worklog/daily",
+    "worklog/knowledge-drafts",
     "archive",
+    "archive/tasks",
+    "archive/plans",
 )
 
 STANDARD_FILES = (
     "AGENTS.md",
     "active/Context.md",
     "active/Current_Task.md",
+    "active/Task_Plan.md",
     "rules/Always_Active.md",
     "rules/Project_Rules.md",
     "rules/Coding_Rules.md",
@@ -67,44 +72,62 @@ STANDARD_FILES = (
     "reference/Architecture.md",
     "reference/Tech_Context.md",
     "reference/Decisions_Index.md",
+    "reference/Knowledge_Index.md",
     "reference/Sources_Index.md",
     "reference/System_Manual.md",
     "decisions/ADR-0001-template.md",
     "worklog/Worklog_Index.md",
     "worklog/daily/YYYY-MM-DD.md",
+    "archive/Archive_Index.md",
 )
 
 MINIMAL_DIRS = (
     "active",
     "rules",
     "reference",
+    "reference/knowledge",
     "decisions",
     "worklog",
     "worklog/daily",
+    "worklog/knowledge-drafts",
+    "archive",
+    "archive/tasks",
+    "archive/plans",
 )
 
 MINIMAL_FILES = (
     "AGENTS.md",
     "active/Context.md",
     "active/Current_Task.md",
+    "active/Task_Plan.md",
     "rules/Always_Active.md",
     "rules/Project_Rules.md",
     "reference/Project_Brief.md",
     "reference/Decisions_Index.md",
+    "reference/Knowledge_Index.md",
     "reference/Sources_Index.md",
     "worklog/Worklog_Index.md",
+    "archive/Archive_Index.md",
 )
 
 VALID_TASK_STATUSES = {"Active", "Paused", "Done", "Empty"}
+VALID_PLAN_STATUSES = {"Active", "Paused", "Done", "Empty"}
+VALID_SUBTASK_STATUSES = {"Pending", "Active", "Done", "Blocked", "Skipped", "Superseded"}
 VALID_DECISION_STATUSES = {"Active", "Proposed", "Superseded", "Rejected", "Deprecated"}
 VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Rejected"}
+VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
 PLACEHOLDER_RE = re.compile(r"【[^】]+】")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
+TASK_ID_RE = re.compile(r"^T(\d{3})$")
+KNOWLEDGE_ID_RE = re.compile(r"^K(\d{3})$")
 DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
+TASK_TABLE_HEADER = "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |"
+KNOWLEDGE_TABLE_HEADER = "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |"
+ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | 标题 | 原因 | 详情 |"
 JSON_SCHEMA_VERSION = 1
 EXIT_CHECK_FAILED = 1
 EXIT_INPUT_ERROR = 2
@@ -124,7 +147,8 @@ MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本�
 
 1. `active/Context.md`
 2. `rules/Always_Active.md`
-3. `active/Current_Task.md`（仅当任务状态为 Active 时）
+3. `active/Task_Plan.md`
+4. `active/Current_Task.md`（仅当任务状态为 Active 时）
 
 如果用户在当前消息中已给出明确任务，以用户当前消息为准。
 
@@ -135,7 +159,7 @@ MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本�
 如果项目可用 `acf` 命令，维护上下文时优先考虑使用它完成确定性操作。
 
 - 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
-- 新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时，优先考虑 `acf new`、`acf edit`、`acf writeback` 和 `acf check`。
+- 新增或更新当前计划、当前任务、资料索引、知识草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`、`acf task`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
 - 需要参数细节时，先查看 `acf --help`；如果项目包含系统手册，再按需读取 System Manual。
 
 `acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。
@@ -145,11 +169,12 @@ MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本�
 ## 目录结构
 
 ```text
-active/      当前阶段上下文和当前任务
+active/      当前阶段上下文、当前大任务计划和当前任务
 rules/       核心规则
-reference/   长期背景、资料索引和决策索引
+reference/   长期背景、资料索引、知识索引和决策索引
 decisions/   重要决策详情
 worklog/     整理后的工作记录
+archive/     历史归档，默认不读取
 ```
 
 ---
@@ -163,6 +188,7 @@ worklog/     整理后的工作记录
 | 涉及项目通用约束 | `rules/Project_Rules.md` |
 | 需要了解近期进展 | `worklog/Worklog_Index.md` |
 | 涉及外部资料来源 | `reference/Sources_Index.md` |
+| 需要追溯可复用经验 | `reference/Knowledge_Index.md` -> `reference/knowledge/*.md` |
 
 ---
 
@@ -170,12 +196,15 @@ worklog/     整理后的工作记录
 
 1. 用户当前消息
 2. `active/Current_Task.md`
-3. `active/Context.md`
-4. `reference/Decisions_Index.md`
-5. ADR 文件
-6. `worklog/`
+3. `active/Task_Plan.md`
+4. `active/Context.md`
+5. `reference/Decisions_Index.md`
+6. ADR 文件
+7. `reference/Knowledge_Index.md`
+8. `worklog/`
+9. `archive/`
 
-worklog 是历史过程记录，不等于当前事实。
+knowledge 是可复用经验层，不是当前事实源；worklog 是历史过程记录，不等于当前事实；archive 默认不读取。
 
 ---
 
@@ -187,6 +216,8 @@ worklog 是历史过程记录，不等于当前事实。
 - `active/Current_Task.md` 状态是否需要变化
 - 是否需要新增 ADR 或更新 `reference/Decisions_Index.md`
 - 是否需要新增 worklog 条目
+- 是否存在 Knowledge 候选
+- 是否存在 Archive 候选
 """
 
 
@@ -699,6 +730,14 @@ def command_label(args: argparse.Namespace) -> str:
             return f"edit table {getattr(args, 'table_command', '')}".strip()
     if command == "log":
         return f"log {getattr(args, 'log_command', '')}".strip()
+    if command == "plan":
+        return f"plan {getattr(args, 'plan_command', '')}".strip()
+    if command == "task":
+        return f"task {getattr(args, 'task_command', '')}".strip()
+    if command == "archive":
+        return f"archive {getattr(args, 'archive_command', '')}".strip()
+    if command == "knowledge":
+        return f"knowledge {getattr(args, 'knowledge_command', '')}".strip()
     return command
 
 
@@ -716,12 +755,16 @@ def context_location_for_args(args: argparse.Namespace) -> ContextLocation:
         return make_context_location(getattr(args, "target").resolve())
     if command == "simplify":
         return make_context_location(getattr(args, "target").resolve())
+    if command == "upgrade":
+        return make_context_location(require_context_root(getattr(args, "path", None)))
     if command == "new":
         return make_context_location(require_context_root(getattr(args, "path", None)))
     if command == "writeback":
         return make_context_location(require_context_root(getattr(args, "path", None)))
     if command == "edit":
         return make_context_location(require_context_root(getattr(args, "context", None)))
+    if command in {"plan", "task", "archive", "knowledge"}:
+        return make_context_location(require_context_root(getattr(args, "path", None)))
     raise SystemExit("usage log is not available for this command")
 
 
@@ -1097,6 +1140,18 @@ def validate_draft_name(value: str) -> str:
     return value
 
 
+def validate_task_id(value: str) -> str:
+    if not TASK_ID_RE.match(value):
+        raise argparse.ArgumentTypeError("task id must use T001 format")
+    return value
+
+
+def validate_knowledge_id(value: str) -> str:
+    if not KNOWLEDGE_ID_RE.match(value):
+        raise argparse.ArgumentTypeError("knowledge id must use K001 format")
+    return value
+
+
 def render_adr(
     adr_id: str,
     title: str,
@@ -1224,6 +1279,8 @@ def bullet_list(items: Sequence[str]) -> str:
 def render_current_task(
     status: str,
     title: str,
+    plan: str,
+    task_id: str,
     goals: Sequence[str],
     background: str,
     inputs: Sequence[str],
@@ -1260,6 +1317,18 @@ def render_current_task(
 ## 任务名称
 
 {title}
+
+---
+
+## 所属大任务
+
+{plan}
+
+---
+
+## 子任务 ID
+
+{task_id}
 
 ---
 
@@ -1324,7 +1393,8 @@ def render_current_task(
 1. 应写入 `active/Context.md` 的新增当前事实。
 2. 应写入 `reference/Decisions_Index.md` 或 ADR 的重要决策。
 3. 应写入 rules 的新增规则。
-4. 应归档到 archive 的历史内容。
+4. 应写入 `reference/Knowledge_Index.md` 或 Knowledge 条目的可复用经验。
+5. 应归档到 archive 的历史内容。
 """
 
 
@@ -1382,6 +1452,14 @@ def render_writeback_draft(draft_name: str, input_text: str) -> str:
 
 ---
 
+## Knowledge 候选
+
+- 待人工判断是否存在可复用经验、模式或反例。
+- Knowledge 只保存可迁移判断，不保存当前事实或一次性过程。
+- 如需新增，优先使用 `acf knowledge draft ...` 生成草案。
+
+---
+
 ## source 候选
 
 - 待人工判断是否需要新增资料索引。
@@ -1402,6 +1480,7 @@ def render_writeback_draft(draft_name: str, input_text: str) -> str:
 - [ ] 已确认哪些内容只是历史过程。
 - [ ] 已确认是否需要新增 ADR。
 - [ ] 已确认是否需要新增 worklog。
+- [ ] 已确认是否需要新增 Knowledge 草案。
 - [ ] 已确认是否需要新增 source。
 - [ ] 已确认是否需要归档。
 """
@@ -1626,6 +1705,8 @@ def new_task_command(args: argparse.Namespace) -> int:
             raise SystemExit(f"current task is Active; use --force to replace it: {task_path}")
 
     title = args.title.strip()
+    plan = getattr(args, "plan", "").strip() or "无。"
+    task_id = getattr(args, "task_id", "").strip() or "无。"
     background = args.background.strip() or "该任务由当前维护流程创建，需要写入当前任务文件以便协作过程可追踪。"
     if not title:
         raise SystemExit("task title cannot be empty")
@@ -1645,6 +1726,8 @@ def new_task_command(args: argparse.Namespace) -> int:
             render_current_task(
                 args.status,
                 title,
+                plan,
+                task_id,
                 goals,
                 background,
                 inputs,
@@ -2079,6 +2162,817 @@ def edit_table_upsert_command(args: argparse.Namespace) -> int:
     )
 
 
+def slugify_file_stem(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-").lower()
+    return slug or "item"
+
+
+def render_empty_task_plan() -> str:
+    return render_task_plan(
+        "Empty",
+        "无。",
+        ["无。"],
+        ["无。"],
+        "无。",
+        [],
+    )
+
+
+def render_task_plan(
+    status: str,
+    title: str,
+    goals: Sequence[str],
+    success: Sequence[str],
+    focus: str,
+    rows: Sequence[dict[str, str]],
+) -> str:
+    rendered_rows = [
+        render_table_row(
+            [
+                row.get("ID", ""),
+                row.get("状态", ""),
+                row.get("子任务", ""),
+                row.get("依赖", ""),
+                row.get("输出物", ""),
+                row.get("证据", ""),
+                row.get("下一步", ""),
+            ]
+        )
+        for row in rows
+    ] or ["| 暂无 |  |  |  |  |  |  |"]
+    return f"""本文件记录当前大任务计划和轻量子任务板。
+
+- 当前阶段事实请查看：`active/Context.md`
+- 当前正在执行的小任务请查看：`active/Current_Task.md`
+- 本文件只维护当前大任务拆分、子任务状态和下一步，不记录长过程、命令输出或详细推理
+
+---
+
+## 大任务状态
+
+{status}
+
+---
+
+## 大任务名称
+
+{title}
+
+---
+
+## 大任务目标
+
+{numbered_list(goals)}
+
+---
+
+## 成功标准
+
+{numbered_list(success)}
+
+---
+
+## 当前焦点
+
+{focus}
+
+---
+
+## 子任务
+
+{TASK_TABLE_HEADER}
+|---|---|---|---|---|---|---|
+{chr(10).join(rendered_rows)}
+
+---
+
+## 使用规则
+
+1. 本文件保持轻量，只放任务板和必要摘要。
+2. 子任务完成证据优先引用 worklog、测试结果或输出文件路径。
+3. 已失效的大任务计划应归档到 `archive/plans/`。
+4. 不要把历史过程、完整日志或详细推理写入本文件。
+"""
+
+
+def render_archive_index() -> str:
+    return f"""本文件记录历史归档索引。
+
+请注意：
+
+- archive 是历史材料，不是当前事实源。
+- 默认不要读取 archive；只有需要追溯旧任务、旧计划或比较历史版本时才读取。
+
+---
+
+## 归档条目
+
+{ARCHIVE_TABLE_HEADER}
+|---|---|---|---|---|
+| 暂无 |  |  |  |  |
+"""
+
+
+def render_knowledge_index() -> str:
+    return f"""本文件记录可复用经验索引。
+
+这里只保存从 worklog、ADR、任务复盘或评测中提炼出的经验、模式、反例和判断方法，不保存当前事实、不保存一次性过程、不重复 ADR 或 rules。
+
+---
+
+## Knowledge 状态说明
+
+- Draft：初步提炼，待验证。
+- Active：当前可复用经验。
+- Promoted：已升级为 rules、ADR、手册或其他权威位置。
+- Stale：可能过时，需要重新评估。
+- Rejected：提炼错误或不再适用。
+
+---
+
+## Knowledge 条目
+
+{KNOWLEDGE_TABLE_HEADER}
+|---|---|---|---|---|---|
+| 暂无 |  |  |  |  |  |
+
+---
+
+## 使用规则
+
+1. Knowledge 不是当前事实源。
+2. 每条 Knowledge 必须引用来源。
+3. Knowledge 只记录可迁移判断，不复述当前状态。
+4. 如果经验升级为强约束或重要决策，应标记为 Promoted，并指向新的权威位置。
+"""
+
+
+def ensure_upgrade_structure(root: Path, dry_run: bool) -> list[Path]:
+    planned = [
+        root / "active" / "Task_Plan.md",
+        root / "archive" / "Archive_Index.md",
+        root / "reference" / "Knowledge_Index.md",
+        root / "archive" / "tasks" / ".gitkeep",
+        root / "archive" / "plans" / ".gitkeep",
+        root / "reference" / "knowledge" / ".gitkeep",
+        root / "worklog" / "knowledge-drafts" / ".gitkeep",
+    ]
+    changed = [path for path in planned if not path.exists()]
+    agents = root / "AGENTS.md"
+    if agents.exists() and "active/Task_Plan.md" not in read_text(agents):
+        changed.append(agents)
+
+    if dry_run:
+        return changed
+
+    for path in planned:
+        if path.exists():
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.name == "Task_Plan.md":
+            path.write_text(render_empty_task_plan(), encoding="utf-8")
+        elif path.name == "Archive_Index.md":
+            path.write_text(render_archive_index(), encoding="utf-8")
+        elif path.name == "Knowledge_Index.md":
+            path.write_text(render_knowledge_index(), encoding="utf-8")
+        else:
+            path.write_text("", encoding="utf-8")
+
+    if agents.exists() and "active/Task_Plan.md" not in read_text(agents):
+        text = read_text(agents)
+        text = text.replace(
+            "3. `active/Current_Task.md`（仅当任务状态为 Active 时）",
+            "3. `active/Task_Plan.md`\n4. `active/Current_Task.md`（仅当任务状态为 Active 时）",
+        )
+        text = text.replace(
+            "新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时",
+            "新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时",
+        )
+        agents.write_text(text, encoding="utf-8")
+
+    return changed
+
+
+def upgrade_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    changed_files = ensure_upgrade_structure(root, dry_run)
+    check_result = maybe_check_after(args, root)
+    action = "would upgrade" if dry_run else "upgraded"
+    return emit_write_result(args, "upgrade", f"{action} context structure at {root}", changed_files, check_result)
+
+
+def task_plan_path(root: Path) -> Path:
+    return root / "active" / "Task_Plan.md"
+
+
+def read_task_rows(plan_path: Path) -> list[dict[str, str]]:
+    if not plan_path.exists():
+        raise SystemExit(f"task plan does not exist: {plan_path}")
+    table = find_table(read_text(plan_path).splitlines(), TASK_TABLE_HEADER)
+    rows: list[dict[str, str]] = []
+    for line in read_text(plan_path).splitlines()[table.body_start : table.body_end]:
+        cells = split_table_line(line)
+        if len(cells) < len(table.headers) or cells[0] == "暂无":
+            continue
+        rows.append(dict(zip(table.headers, cells)))
+    return rows
+
+
+def write_task_rows(plan_path: Path, rows: Sequence[dict[str, str]]) -> None:
+    text = read_text(plan_path)
+    lines = text.splitlines()
+    table = find_table(lines, TASK_TABLE_HEADER)
+    rendered_rows = [
+        render_table_row([row.get(header, "") for header in table.headers])
+        for row in rows
+    ] or ["| 暂无 |  |  |  |  |  |  |"]
+    updated = lines[: table.body_start] + rendered_rows + lines[table.body_end :]
+    plan_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
+def next_task_id(rows: Sequence[dict[str, str]]) -> str:
+    numbers = []
+    for row in rows:
+        match = TASK_ID_RE.match(row.get("ID", ""))
+        if match:
+            numbers.append(int(match.group(1)))
+    return f"T{((max(numbers) + 1) if numbers else 1):03d}"
+
+
+def find_task_row(rows: Sequence[dict[str, str]], task_id: str) -> dict[str, str]:
+    for row in rows:
+        if row.get("ID") == task_id:
+            return row
+    raise SystemExit(f"task id was not found in active/Task_Plan.md: {task_id}")
+
+
+def set_plan_focus(plan_path: Path, task_id: str) -> None:
+    plan_path.write_text(replace_section_text(read_text(plan_path), "## 当前焦点", task_id), encoding="utf-8")
+
+
+def set_plan_status(plan_path: Path, status: str) -> None:
+    plan_path.write_text(replace_section_text(read_text(plan_path), "## 大任务状态", status), encoding="utf-8")
+
+
+def plan_init_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    if plan_path.exists() and extract_heading_value(plan_path, "## 大任务状态") == "Active" and not args.force:
+        raise SystemExit(f"task plan is Active; use --force to replace it: {plan_path}")
+    title = args.title.strip()
+    if not title:
+        raise SystemExit("plan title cannot be empty")
+    goals = normalize_items(args.goal, ("完成当前大任务。",))
+    success = normalize_items(args.success, ("大任务目标已完成并通过必要验证。",))
+    if not dry_run:
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text(render_task_plan("Active", title, goals, success, "无。", []), encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(args, "plan init", f"{action} task plan {plan_path}", [plan_path], check_result)
+
+
+def plan_add_task_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    rows = read_task_rows(plan_path)
+    task_id = args.id or next_task_id(rows)
+    if any(row.get("ID") == task_id for row in rows):
+        raise SystemExit(f"task id already exists: {task_id}")
+    title = args.title.strip()
+    if not title:
+        raise SystemExit("task title cannot be empty")
+    rows.append(
+        {
+            "ID": task_id,
+            "状态": "Pending",
+            "子任务": title,
+            "依赖": args.depends.strip() or "无。",
+            "输出物": args.output.strip() or "无。",
+            "证据": "无。",
+            "下一步": args.next_action.strip() or "无。",
+        }
+    )
+    if not dry_run:
+        write_task_rows(plan_path, rows)
+    check_result = maybe_check_after(args, root)
+    action = "would add" if dry_run else "added"
+    return emit_write_result(args, "plan add-task", f"{action} task {task_id} in {plan_path}", [plan_path], check_result)
+
+
+def plan_set_task_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    rows = read_task_rows(plan_path)
+    row = find_task_row(rows, args.id)
+    if args.status:
+        row["状态"] = args.status
+    if args.title:
+        row["子任务"] = args.title.strip()
+    if args.depends is not None:
+        row["依赖"] = args.depends.strip() or "无。"
+    if args.output is not None:
+        row["输出物"] = args.output.strip() or "无。"
+    if args.evidence is not None:
+        row["证据"] = args.evidence.strip() or "无。"
+    if args.next_action is not None:
+        row["下一步"] = args.next_action.strip() or "无。"
+    if not dry_run:
+        write_task_rows(plan_path, rows)
+    check_result = maybe_check_after(args, root)
+    action = "would update" if dry_run else "updated"
+    return emit_write_result(args, "plan set-task", f"{action} task {args.id} in {plan_path}", [plan_path], check_result)
+
+
+def plan_focus_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    rows = read_task_rows(plan_path)
+    find_task_row(rows, args.id)
+    if not dry_run:
+        set_plan_focus(plan_path, args.id)
+    check_result = maybe_check_after(args, root)
+    action = "would focus" if dry_run else "focused"
+    return emit_write_result(args, "plan focus", f"{action} task plan on {args.id}", [plan_path], check_result)
+
+
+def plan_status_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    plan_path = task_plan_path(root)
+    rows = read_task_rows(plan_path)
+    payload: dict[str, object] = {
+        "command": "plan status",
+        "ok": True,
+        "context": str(root),
+        "plan_status": extract_heading_value(plan_path, "## 大任务状态"),
+        "title": extract_heading_value(plan_path, "## 大任务名称"),
+        "focus": extract_heading_value(plan_path, "## 当前焦点"),
+        "tasks": rows,
+        "next_task": next((row for row in rows if row.get("状态") == "Pending"), None),
+        "error_code": None,
+        "next_actions": [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"plan: {payload['title']} ({payload['plan_status']})")
+        print(f"focus: {payload['focus']}")
+        for row in rows:
+            print(f"{row.get('ID')}: {row.get('状态')} {row.get('子任务')}")
+    return 0
+
+
+def current_task_path(root: Path) -> Path:
+    return root / "active" / "Current_Task.md"
+
+
+def render_empty_current_task() -> str:
+    return render_current_task(
+        "Empty",
+        "无。",
+        "无。",
+        "无。",
+        ["无。"],
+        "暂无当前任务。",
+        ["无。"],
+        ["无。"],
+        ["无。"],
+        ["无。"],
+        ["遵守当前项目规则。"],
+        ["无。"],
+        ["无。"],
+    )
+
+
+def task_start_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    task_path = current_task_path(root)
+    if task_path.exists() and extract_current_task_status(task_path) == "Active" and not args.force:
+        raise SystemExit(f"current task is Active; use --force to replace it: {task_path}")
+    rows = read_task_rows(plan_path)
+    row = find_task_row(rows, args.id)
+    for candidate in rows:
+        if candidate.get("状态") == "Active" and candidate.get("ID") != args.id:
+            candidate["状态"] = "Pending"
+    row["状态"] = "Active"
+    title = row.get("子任务", args.id)
+    if not dry_run:
+        write_task_rows(plan_path, rows)
+        set_plan_focus(plan_path, args.id)
+        set_plan_status(plan_path, "Active")
+        task_path.write_text(
+            render_current_task(
+                "Active",
+                title,
+                extract_heading_value(plan_path, "## 大任务名称") or "active/Task_Plan.md",
+                args.id,
+                [row.get("下一步") or f"完成子任务 {args.id}。"],
+                f"该任务来自 `active/Task_Plan.md` 中的子任务 {args.id}。",
+                ["`active/Task_Plan.md`。"],
+                [row.get("输出物") or "子任务输出物已完成。"],
+                [f"子任务 {args.id} 已完成并记录证据。"],
+                ["目标无法验证。"],
+                ["遵守当前项目规则。"],
+                ["无。"],
+                ["无。"],
+            ),
+            encoding="utf-8",
+        )
+    check_result = maybe_check_after(args, root)
+    action = "would start" if dry_run else "started"
+    return emit_write_result(args, "task start", f"{action} task {args.id}", [plan_path, task_path], check_result)
+
+
+def task_done_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    task_path = current_task_path(root)
+    rows = read_task_rows(plan_path)
+    row = find_task_row(rows, args.id)
+    row["状态"] = "Done"
+    row["证据"] = args.evidence.strip() or "已完成。"
+    row["下一步"] = "无。"
+    if not dry_run:
+        write_task_rows(plan_path, rows)
+        if task_path.exists():
+            task_path.write_text(replace_section_text(read_text(task_path), "## 当前任务状态", "Done"), encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would mark" if dry_run else "marked"
+    return emit_write_result(args, "task done", f"{action} task {args.id} done", [plan_path, task_path], check_result)
+
+
+def task_block_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    rows = read_task_rows(plan_path)
+    row = find_task_row(rows, args.id)
+    row["状态"] = "Blocked"
+    row["下一步"] = args.reason.strip() or "等待阻塞解除。"
+    if not dry_run:
+        write_task_rows(plan_path, rows)
+    check_result = maybe_check_after(args, root)
+    action = "would block" if dry_run else "blocked"
+    return emit_write_result(args, "task block", f"{action} task {args.id}", [plan_path], check_result)
+
+
+def task_clear_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    task_path = current_task_path(root)
+    if not dry_run:
+        task_path.write_text(render_empty_current_task(), encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would clear" if dry_run else "cleared"
+    return emit_write_result(args, "task clear", f"{action} current task {task_path}", [task_path], check_result)
+
+
+def archive_index_path(root: Path) -> Path:
+    return root / "archive" / "Archive_Index.md"
+
+
+def update_archive_index(index_path: Path, archive_date: str, item_type: str, title: str, reason: str, detail: str) -> None:
+    text = read_text(index_path) if index_path.exists() else render_archive_index()
+    lines = text.splitlines()
+    table = find_table(lines, ARCHIVE_TABLE_HEADER)
+    rows = list(lines[table.body_start : table.body_end])
+    rows = [row for row in rows if split_table_line(row)[0] != "暂无"]
+    rows.append(render_table_row([archive_date, item_type, title, reason, f"`{detail}`"]))
+    updated = lines[: table.body_start] + rows + lines[table.body_end :]
+    index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
+def archive_file(root: Path, source: Path, kind: str, reason: str, force: bool, dry_run: bool) -> list[Path]:
+    if not source.exists():
+        raise SystemExit(f"archive source does not exist: {source}")
+    if kind == "Task" and extract_current_task_status(source) == "Active" and not force:
+        raise SystemExit("current task is Active; use --force to archive it")
+    if kind == "Plan" and extract_heading_value(source, "## 大任务状态") == "Active" and not force:
+        raise SystemExit("task plan is Active; use --force to archive it")
+    title_heading = "## 任务名称" if kind == "Task" else "## 大任务名称"
+    title = extract_heading_value(source, title_heading) or source.stem
+    archive_date = date.today().isoformat()
+    dirname = "tasks" if kind == "Task" else "plans"
+    destination = root / "archive" / dirname / f"{archive_date}-{slugify_file_stem(title)}.md"
+    index_path = archive_index_path(root)
+    changed = [destination, index_path, source]
+    if dry_run:
+        return changed
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(read_text(source), encoding="utf-8")
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    if not index_path.exists():
+        index_path.write_text(render_archive_index(), encoding="utf-8")
+    update_archive_index(
+        index_path,
+        archive_date,
+        kind,
+        title,
+        reason.strip() or "归档旧内容。",
+        destination.relative_to(root).as_posix(),
+    )
+    if kind == "Task":
+        source.write_text(render_empty_current_task(), encoding="utf-8")
+    else:
+        source.write_text(render_empty_task_plan(), encoding="utf-8")
+    return changed
+
+
+def archive_current_task_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    changed = archive_file(root, current_task_path(root), "Task", args.reason, args.force, dry_run)
+    check_result = maybe_check_after(args, root)
+    action = "would archive" if dry_run else "archived"
+    return emit_write_result(args, "archive current-task", f"{action} current task", changed, check_result)
+
+
+def archive_task_plan_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    changed = archive_file(root, task_plan_path(root), "Plan", args.reason, args.force, dry_run)
+    check_result = maybe_check_after(args, root)
+    action = "would archive" if dry_run else "archived"
+    return emit_write_result(args, "archive task-plan", f"{action} task plan", changed, check_result)
+
+
+def archive_list_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    index_path = archive_index_path(root)
+    rows: list[dict[str, str]] = []
+    if index_path.exists():
+        table = find_table(read_text(index_path).splitlines(), ARCHIVE_TABLE_HEADER)
+        for line in read_text(index_path).splitlines()[table.body_start : table.body_end]:
+            cells = split_table_line(line)
+            if len(cells) >= 5 and cells[0] != "暂无":
+                rows.append(dict(zip(["日期", "类型", "标题", "原因", "详情"], cells)))
+    payload: dict[str, object] = {
+        "command": "archive list",
+        "ok": True,
+        "context": str(root),
+        "archives": rows,
+        "error_code": None,
+        "next_actions": [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        for row in rows:
+            print(f"{row.get('日期')} {row.get('类型')} {row.get('标题')} {row.get('详情')}")
+    return 0
+
+
+def resolve_context_existing_path(root: Path, value: str) -> Path:
+    candidate = Path(strip_code_ticks(value))
+    resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    if not is_relative_to(resolved, root):
+        raise SystemExit(f"path is outside context root: {value}")
+    if not resolved.exists():
+        raise SystemExit(f"path does not exist: {value}")
+    return resolved
+
+
+def render_knowledge_draft(title: str, sources: Sequence[str], tags: str, summary: str) -> str:
+    source_lines = "\n".join(f"- `{source}`" for source in sources)
+    return f"""# K-草案：{title}
+
+## 状态
+
+Draft
+
+## 标签
+
+{tags or "未分类"}
+
+## 摘要
+
+{summary or "待补充。"}
+
+## 结论
+
+待提炼为一句可复用经验，不写当前事实。
+
+## 适用场景
+
+- 待补充。
+
+## 不适用场景
+
+- 待补充。
+
+## 来源
+
+{source_lines}
+
+## 与现有事实源的关系
+
+- 当前事实看：`active/Context.md`
+- 相关任务看：`active/Task_Plan.md`
+
+## 去重判断
+
+待确认不是重复的 Context / ADR / rules / worklog。
+"""
+
+
+def knowledge_draft_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    title = args.title.strip()
+    if not title:
+        raise SystemExit("knowledge title cannot be empty")
+    sources = [source.strip() for source in args.source if source.strip()]
+    if not sources:
+        raise SystemExit("knowledge draft requires at least one --source")
+    for source in sources:
+        resolve_context_existing_path(root, source)
+    draft_dir = root / "worklog" / "knowledge-drafts"
+    draft_path = draft_dir / f"{date.today().isoformat()}-{slugify_file_stem(title)}.md"
+    if draft_path.exists() and not args.force:
+        raise SystemExit(f"knowledge draft already exists: {draft_path}")
+    if not dry_run:
+        draft_dir.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(render_knowledge_draft(title, sources, args.tag, args.summary), encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(args, "knowledge draft", f"{action} knowledge draft {draft_path}", [draft_path], check_result)
+
+
+def knowledge_index_path(root: Path) -> Path:
+    return root / "reference" / "Knowledge_Index.md"
+
+
+def existing_knowledge_numbers(root: Path) -> list[int]:
+    numbers: list[int] = []
+    index_path = knowledge_index_path(root)
+    if index_path.exists():
+        for cells in parse_markdown_table_rows(read_text(index_path)):
+            if cells and (match := KNOWLEDGE_ID_RE.match(cells[0])):
+                numbers.append(int(match.group(1)))
+    knowledge_dir = root / "reference" / "knowledge"
+    if knowledge_dir.exists():
+        for path in knowledge_dir.glob("K*.md"):
+            if match := re.match(r"K(\d{3})-", path.name):
+                numbers.append(int(match.group(1)))
+    return sorted(numbers)
+
+
+def next_knowledge_id(root: Path) -> str:
+    numbers = existing_knowledge_numbers(root)
+    return f"K{((numbers[-1] + 1) if numbers else 1):03d}"
+
+
+def update_knowledge_index(root: Path, knowledge_id: str, title: str, status: str, tags: str, summary: str, detail: str) -> None:
+    index_path = knowledge_index_path(root)
+    if not index_path.exists():
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(render_knowledge_index(), encoding="utf-8")
+    lines = read_text(index_path).splitlines()
+    table = find_table(lines, KNOWLEDGE_TABLE_HEADER)
+    rows = [row for row in lines[table.body_start : table.body_end] if split_table_line(row)[0] not in {"暂无", knowledge_id}]
+    rows.append(render_table_row([knowledge_id, title, status, tags or "未分类", summary or "无。", f"`{detail}`"]))
+    updated = lines[: table.body_start] + rows + lines[table.body_end :]
+    index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
+def resolve_knowledge_draft(root: Path, draft: Path) -> Path:
+    candidates = []
+    if draft.is_absolute():
+        candidates.append(draft.resolve())
+    else:
+        candidates.append((Path.cwd() / draft).resolve())
+        candidates.append((root / draft).resolve())
+    for candidate in candidates:
+        if candidate.exists():
+            if not is_relative_to(candidate, root):
+                raise SystemExit(f"knowledge draft is outside context root: {draft}")
+            return candidate
+    raise SystemExit(f"knowledge draft does not exist: {draft}")
+
+
+def knowledge_apply_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    draft_path = resolve_knowledge_draft(root, args.draft)
+    text = read_text(draft_path)
+    title = text.splitlines()[0].replace("# K-草案：", "").replace("# ", "").strip() or draft_path.stem
+    status = extract_heading_value(draft_path, "## 状态") or "Draft"
+    if status not in VALID_KNOWLEDGE_STATUSES:
+        raise SystemExit(f"invalid knowledge status: {status}")
+    tags = extract_heading_value(draft_path, "## 标签") or "未分类"
+    summary = extract_heading_value(draft_path, "## 摘要") or "无。"
+    knowledge_id = next_knowledge_id(root)
+    destination = root / "reference" / "knowledge" / f"{knowledge_id}-{slugify_file_stem(title)}.md"
+    if destination.exists():
+        raise SystemExit(f"knowledge file already exists: {destination}")
+    changed = [destination, knowledge_index_path(root)]
+    if not dry_run:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text.replace("# K-草案：", f"# {knowledge_id}：", 1), encoding="utf-8")
+        update_knowledge_index(root, knowledge_id, title, status, tags, summary, destination.relative_to(root).as_posix())
+    check_result = maybe_check_after(args, root)
+    action = "would apply" if dry_run else "applied"
+    return emit_write_result(args, "knowledge apply", f"{action} knowledge {knowledge_id}", changed, check_result)
+
+
+def knowledge_list_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    rows: list[dict[str, str]] = []
+    index_path = knowledge_index_path(root)
+    if index_path.exists():
+        table = find_table(read_text(index_path).splitlines(), KNOWLEDGE_TABLE_HEADER)
+        for line in read_text(index_path).splitlines()[table.body_start : table.body_end]:
+            cells = split_table_line(line)
+            if len(cells) >= 6 and cells[0] != "暂无":
+                rows.append(dict(zip(["ID", "标题", "状态", "标签", "摘要", "详情"], cells)))
+    payload: dict[str, object] = {
+        "command": "knowledge list",
+        "ok": True,
+        "context": str(root),
+        "knowledge": rows,
+        "error_code": None,
+        "next_actions": [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        for row in rows:
+            print(f"{row.get('ID')} {row.get('状态')} {row.get('标题')}")
+    return 0
+
+
+def knowledge_detail_path(root: Path, knowledge_id: str) -> Path:
+    index_path = knowledge_index_path(root)
+    if index_path.exists():
+        for cells in parse_markdown_table_rows(read_text(index_path)):
+            if len(cells) >= 6 and cells[0] == knowledge_id:
+                return resolve_context_existing_path(root, cells[5])
+    raise SystemExit(f"knowledge id was not found: {knowledge_id}")
+
+
+def knowledge_show_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    detail = knowledge_detail_path(root, args.id)
+    text = read_text(detail)
+    payload: dict[str, object] = {
+        "command": "knowledge show",
+        "ok": True,
+        "context": str(root),
+        "id": args.id,
+        "file": str(detail),
+        "body": text,
+        "error_code": None,
+        "next_actions": [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(text)
+    return 0
+
+
+def knowledge_mark_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    detail = knowledge_detail_path(root, args.id)
+    text = replace_section_text(read_text(detail), "## 状态", args.status)
+    if args.status == "Promoted" and not args.promoted_to.strip():
+        raise SystemExit("--promoted-to is required when status is Promoted")
+    if args.promoted_to.strip():
+        addition = f"\n\nPromoted to: `{args.promoted_to.strip()}`"
+        text = append_section_text(text, "## 与现有事实源的关系", addition)
+    if not dry_run:
+        detail.write_text(text, encoding="utf-8")
+        # Keep index status in sync.
+        index_path = knowledge_index_path(root)
+        lines = read_text(index_path).splitlines()
+        table = find_table(lines, KNOWLEDGE_TABLE_HEADER)
+        rows = lines[table.body_start : table.body_end]
+        updated_rows = []
+        for row in rows:
+            cells = split_table_line(row)
+            if len(cells) >= 6 and cells[0] == args.id:
+                cells[2] = args.status
+                row = render_table_row(cells)
+            updated_rows.append(row)
+        index_path.write_text("\n".join(lines[: table.body_start] + updated_rows + lines[table.body_end :]).rstrip() + "\n", encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would mark" if dry_run else "marked"
+    return emit_write_result(args, "knowledge mark", f"{action} knowledge {args.id}", [detail, knowledge_index_path(root)], check_result)
+
+
 def iter_markdown_files(root: Path) -> Iterable[Path]:
     yield from sorted(root.rglob("*.md"))
 
@@ -2239,6 +3133,142 @@ def check_worklog(root: Path, errors: list[str]) -> None:
             )
 
 
+def safe_section_body(path: Path, heading: str) -> str | None:
+    try:
+        lines = read_text(path).splitlines()
+        return section_body(lines, find_section(lines, heading))
+    except SystemExit:
+        return None
+
+
+def check_task_plan(root: Path, errors: list[str]) -> None:
+    plan_path = root / "active" / "Task_Plan.md"
+    if not plan_path.exists():
+        return
+    status = extract_heading_value(plan_path, "## 大任务状态")
+    if status and not is_placeholder(status) and status not in VALID_PLAN_STATUSES:
+        errors.append(f"active/Task_Plan.md: invalid plan status `{status}`")
+
+    try:
+        rows = read_task_rows(plan_path)
+    except SystemExit as exc:
+        errors.append(f"active/Task_Plan.md: {exc}")
+        return
+
+    seen: set[str] = set()
+    active_count = 0
+    for row in rows:
+        task_id = row.get("ID", "")
+        task_status = row.get("状态", "")
+        if not TASK_ID_RE.match(task_id):
+            errors.append(f"active/Task_Plan.md: invalid subtask id `{task_id}`")
+        if task_id in seen:
+            errors.append(f"active/Task_Plan.md: duplicate subtask id `{task_id}`")
+        seen.add(task_id)
+        if task_status not in VALID_SUBTASK_STATUSES:
+            errors.append(f"active/Task_Plan.md: invalid subtask status `{task_status}` for {task_id}")
+        if task_status == "Active":
+            active_count += 1
+    if active_count > 1:
+        errors.append("active/Task_Plan.md: more than one subtask is Active")
+
+    focus = extract_heading_value(plan_path, "## 当前焦点")
+    if focus and focus not in {"无。", "None", "Empty"} and not is_placeholder(focus) and focus not in seen:
+        errors.append(f"active/Task_Plan.md: current focus `{focus}` does not match any subtask id")
+
+    task_file = root / "active" / "Current_Task.md"
+    if task_file.exists():
+        task_id = extract_heading_value(task_file, "## 子任务 ID")
+        if task_id and task_id not in {"无。", "None", "Empty"} and not is_placeholder(task_id) and task_id not in seen:
+            errors.append(f"active/Current_Task.md: subtask id `{task_id}` does not exist in active/Task_Plan.md")
+
+
+def check_archive(root: Path, errors: list[str]) -> None:
+    index_path = root / "archive" / "Archive_Index.md"
+    if not index_path.exists():
+        return
+    rows = parse_markdown_table_rows(read_text(index_path))
+    for cells in rows:
+        if len(cells) < 5 or cells[0] in {"日期", "暂无"}:
+            continue
+        archive_date, _kind, _title, _reason, detail = cells[:5]
+        if not DATE_RE.match(archive_date):
+            errors.append(f"archive/Archive_Index.md: invalid archive date `{archive_date}`")
+        ref = strip_code_ticks(detail)
+        if should_check_ref(ref) and resolve_ref(root, index_path, ref) is None:
+            errors.append(f"archive/Archive_Index.md: broken archive detail `{ref}`")
+
+
+def check_knowledge(root: Path, errors: list[str], warnings: list[str], strict: bool) -> None:
+    index_path = root / "reference" / "Knowledge_Index.md"
+    indexed_refs: list[tuple[str, str, str]] = []
+    if index_path.exists():
+        rows = parse_markdown_table_rows(read_text(index_path))
+        for cells in rows:
+            if len(cells) < 6 or cells[0] in {"ID", "暂无"}:
+                continue
+            knowledge_id, _title, status, _tags, _summary, detail = cells[:6]
+            if not KNOWLEDGE_ID_RE.match(knowledge_id):
+                errors.append(f"reference/Knowledge_Index.md: invalid knowledge id `{knowledge_id}`")
+            if status not in VALID_KNOWLEDGE_STATUSES:
+                errors.append(f"reference/Knowledge_Index.md: invalid knowledge status `{status}` for {knowledge_id}")
+            ref = strip_code_ticks(detail)
+            indexed_refs.append((knowledge_id, status, ref))
+            if should_check_ref(ref) and resolve_ref(root, index_path, ref) is None:
+                errors.append(f"reference/Knowledge_Index.md: broken knowledge detail `{ref}`")
+
+    for knowledge_id, index_status, ref in indexed_refs:
+        resolved = resolve_ref(root, index_path, ref)
+        if resolved is None:
+            continue
+        file_status = extract_heading_value(resolved, "## 状态")
+        if file_status and file_status not in VALID_KNOWLEDGE_STATUSES:
+            rel = resolved.relative_to(root).as_posix()
+            errors.append(f"{rel}: invalid knowledge status `{file_status}`")
+        if file_status and index_status != file_status:
+            errors.append(f"reference/Knowledge_Index.md: status mismatch for {knowledge_id} ({index_status}) vs {ref} ({file_status})")
+
+    knowledge_dir = root / "reference" / "knowledge"
+    if not knowledge_dir.exists():
+        return
+    required_headings = (
+        "## 状态",
+        "## 结论",
+        "## 适用场景",
+        "## 不适用场景",
+        "## 来源",
+        "## 与现有事实源的关系",
+        "## 去重判断",
+    )
+    fact_phrases = ("当前任务状态", "今日完成", "当前已支持")
+    for path in sorted(knowledge_dir.glob("*.md")):
+        rel = path.relative_to(root).as_posix()
+        text = read_text(path)
+        for heading in required_headings:
+            body = safe_section_body(path, heading)
+            if body is None or not body.strip():
+                errors.append(f"{rel}: missing or empty required section `{heading}`")
+        status = extract_heading_value(path, "## 状态")
+        if status and status not in VALID_KNOWLEDGE_STATUSES:
+            errors.append(f"{rel}: invalid knowledge status `{status}`")
+        if status == "Promoted" and "Promoted to:" not in text:
+            errors.append(f"{rel}: Promoted knowledge must record promoted target")
+        source_body = safe_section_body(path, "## 来源") or ""
+        refs = MARKDOWN_REF_RE.findall(source_body)
+        if not refs:
+            errors.append(f"{rel}: knowledge source must contain at least one Markdown source reference")
+        for ref in refs:
+            if should_check_ref(ref) and resolve_ref(root, path, ref) is None:
+                errors.append(f"{rel}: broken knowledge source `{ref}`")
+        for phrase in fact_phrases:
+            if phrase in text:
+                message = f"{rel}: may contain current-fact wording `{phrase}`"
+                if strict:
+                    errors.append(message)
+                else:
+                    warnings.append(message)
+
+
 def template_packaging_files_from_pyproject(pyproject_path: Path) -> set[str]:
     if not pyproject_path.exists():
         return set()
@@ -2302,6 +3332,9 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
     check_decisions(path, errors)
     check_sources(path, errors)
     check_worklog(path, errors)
+    check_task_plan(path, errors)
+    check_archive(path, errors)
+    check_knowledge(path, errors, warnings, strict)
     check_template_packaging(path, errors)
 
     for md_file in iter_markdown_files(path):
@@ -2582,6 +3615,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_write_arguments(simplify_parser)
     simplify_parser.set_defaults(func=simplify_command)
 
+    upgrade_parser = subparsers.add_parser("upgrade", help="non-destructively upgrade an existing context structure")
+    upgrade_parser.add_argument("path", nargs="?", type=Path)
+    add_write_arguments(upgrade_parser)
+    upgrade_parser.set_defaults(func=upgrade_command)
+
     check_parser = subparsers.add_parser("check", help="check context completeness")
     check_parser.add_argument("path", nargs="?", type=Path)
     check_parser.add_argument("--profile", choices=("standard", "minimal"), default=None)
@@ -2624,6 +3662,140 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(log_prune_parser)
     log_prune_parser.set_defaults(func=log_prune_command)
 
+    plan_parser = subparsers.add_parser("plan", help="manage active/Task_Plan.md")
+    plan_subparsers = plan_parser.add_subparsers(dest="plan_command", required=True)
+
+    plan_init_parser = plan_subparsers.add_parser("init", help="create or replace the active task plan")
+    plan_init_parser.add_argument("path", nargs="?", type=Path)
+    plan_init_parser.add_argument("--title", required=True, help="large task title")
+    plan_init_parser.add_argument("--goal", action="append", required=True, help="large task goal; can be repeated")
+    plan_init_parser.add_argument("--success", action="append", default=None, help="success criterion; can be repeated")
+    plan_init_parser.add_argument("--force", action="store_true", help="replace an Active task plan")
+    add_write_arguments(plan_init_parser)
+    plan_init_parser.set_defaults(func=plan_init_command)
+
+    plan_add_parser = plan_subparsers.add_parser("add-task", help="add a subtask to active/Task_Plan.md")
+    plan_add_parser.add_argument("path", nargs="?", type=Path)
+    plan_add_parser.add_argument("--id", type=validate_task_id, default=None, help="subtask id, for example T001")
+    plan_add_parser.add_argument("--title", required=True, help="subtask title")
+    plan_add_parser.add_argument("--depends", default="无。", help="dependency summary")
+    plan_add_parser.add_argument("--output", default="无。", help="expected output")
+    plan_add_parser.add_argument("--next-action", default="无。", help="next action")
+    add_write_arguments(plan_add_parser)
+    plan_add_parser.set_defaults(func=plan_add_task_command)
+
+    plan_set_parser = plan_subparsers.add_parser("set-task", help="update a subtask row")
+    plan_set_parser.add_argument("path", nargs="?", type=Path)
+    plan_set_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
+    plan_set_parser.add_argument("--status", choices=tuple(sorted(VALID_SUBTASK_STATUSES)), default=None)
+    plan_set_parser.add_argument("--title", default=None)
+    plan_set_parser.add_argument("--depends", default=None)
+    plan_set_parser.add_argument("--output", default=None)
+    plan_set_parser.add_argument("--evidence", default=None)
+    plan_set_parser.add_argument("--next-action", default=None)
+    add_write_arguments(plan_set_parser)
+    plan_set_parser.set_defaults(func=plan_set_task_command)
+
+    plan_focus_parser = plan_subparsers.add_parser("focus", help="set the current plan focus")
+    plan_focus_parser.add_argument("path", nargs="?", type=Path)
+    plan_focus_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
+    add_write_arguments(plan_focus_parser)
+    plan_focus_parser.set_defaults(func=plan_focus_command)
+
+    plan_status_parser = plan_subparsers.add_parser("status", help="show task plan status")
+    plan_status_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(plan_status_parser)
+    plan_status_parser.set_defaults(func=plan_status_command)
+
+    task_group_parser = subparsers.add_parser("task", help="start, finish, block, or clear the current task")
+    task_subparsers = task_group_parser.add_subparsers(dest="task_command", required=True)
+
+    task_start_parser = task_subparsers.add_parser("start", help="start a subtask from active/Task_Plan.md")
+    task_start_parser.add_argument("path", nargs="?", type=Path)
+    task_start_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
+    task_start_parser.add_argument("--force", action="store_true", help="replace an Active current task")
+    add_write_arguments(task_start_parser)
+    task_start_parser.set_defaults(func=task_start_command)
+
+    task_done_parser = task_subparsers.add_parser("done", help="mark a subtask done")
+    task_done_parser.add_argument("path", nargs="?", type=Path)
+    task_done_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
+    task_done_parser.add_argument("--evidence", required=True, help="completion evidence")
+    add_write_arguments(task_done_parser)
+    task_done_parser.set_defaults(func=task_done_command)
+
+    task_block_parser = task_subparsers.add_parser("block", help="mark a subtask blocked")
+    task_block_parser.add_argument("path", nargs="?", type=Path)
+    task_block_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
+    task_block_parser.add_argument("--reason", required=True, help="blocker reason")
+    add_write_arguments(task_block_parser)
+    task_block_parser.set_defaults(func=task_block_command)
+
+    task_clear_parser = task_subparsers.add_parser("clear", help="reset active/Current_Task.md to Empty")
+    task_clear_parser.add_argument("path", nargs="?", type=Path)
+    add_write_arguments(task_clear_parser)
+    task_clear_parser.set_defaults(func=task_clear_command)
+
+    archive_parser = subparsers.add_parser("archive", help="archive inactive task context")
+    archive_subparsers = archive_parser.add_subparsers(dest="archive_command", required=True)
+
+    archive_task_parser = archive_subparsers.add_parser("current-task", help="archive active/Current_Task.md")
+    archive_task_parser.add_argument("path", nargs="?", type=Path)
+    archive_task_parser.add_argument("--reason", required=True, help="archive reason")
+    archive_task_parser.add_argument("--force", action="store_true", help="archive even when Active")
+    add_write_arguments(archive_task_parser)
+    archive_task_parser.set_defaults(func=archive_current_task_command)
+
+    archive_plan_parser = archive_subparsers.add_parser("task-plan", help="archive active/Task_Plan.md")
+    archive_plan_parser.add_argument("path", nargs="?", type=Path)
+    archive_plan_parser.add_argument("--reason", required=True, help="archive reason")
+    archive_plan_parser.add_argument("--force", action="store_true", help="archive even when Active")
+    add_write_arguments(archive_plan_parser)
+    archive_plan_parser.set_defaults(func=archive_task_plan_command)
+
+    archive_list_parser = archive_subparsers.add_parser("list", help="list archive index entries")
+    archive_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(archive_list_parser)
+    archive_list_parser.set_defaults(func=archive_list_command)
+
+    knowledge_parser = subparsers.add_parser("knowledge", help="manage reusable knowledge drafts and entries")
+    knowledge_subparsers = knowledge_parser.add_subparsers(dest="knowledge_command", required=True)
+
+    knowledge_draft_parser = knowledge_subparsers.add_parser("draft", help="create a reviewable knowledge draft")
+    knowledge_draft_parser.add_argument("path", nargs="?", type=Path)
+    knowledge_draft_parser.add_argument("--title", required=True, help="knowledge title")
+    knowledge_draft_parser.add_argument("--source", action="append", required=True, help="source path inside context; can be repeated")
+    knowledge_draft_parser.add_argument("--tag", default="未分类", help="knowledge tags")
+    knowledge_draft_parser.add_argument("--summary", default="待补充。", help="one-line summary")
+    knowledge_draft_parser.add_argument("--force", action="store_true", help="replace existing draft")
+    add_write_arguments(knowledge_draft_parser)
+    knowledge_draft_parser.set_defaults(func=knowledge_draft_command)
+
+    knowledge_apply_parser = knowledge_subparsers.add_parser("apply", help="apply a knowledge draft")
+    knowledge_apply_parser.add_argument("draft", type=Path, help="draft path")
+    knowledge_apply_parser.add_argument("path", nargs="?", type=Path, help="context path")
+    add_write_arguments(knowledge_apply_parser)
+    knowledge_apply_parser.set_defaults(func=knowledge_apply_command)
+
+    knowledge_list_parser = knowledge_subparsers.add_parser("list", help="list knowledge entries")
+    knowledge_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(knowledge_list_parser)
+    knowledge_list_parser.set_defaults(func=knowledge_list_command)
+
+    knowledge_show_parser = knowledge_subparsers.add_parser("show", help="show a knowledge entry")
+    knowledge_show_parser.add_argument("path", nargs="?", type=Path)
+    knowledge_show_parser.add_argument("--id", type=validate_knowledge_id, required=True, help="knowledge id")
+    add_json_argument(knowledge_show_parser)
+    knowledge_show_parser.set_defaults(func=knowledge_show_command)
+
+    knowledge_mark_parser = knowledge_subparsers.add_parser("mark", help="mark knowledge status")
+    knowledge_mark_parser.add_argument("path", nargs="?", type=Path)
+    knowledge_mark_parser.add_argument("--id", type=validate_knowledge_id, required=True, help="knowledge id")
+    knowledge_mark_parser.add_argument("--status", choices=tuple(sorted(VALID_KNOWLEDGE_STATUSES)), required=True)
+    knowledge_mark_parser.add_argument("--promoted-to", default="", help="target authority when status is Promoted")
+    add_write_arguments(knowledge_mark_parser)
+    knowledge_mark_parser.set_defaults(func=knowledge_mark_command)
+
     new_parser = subparsers.add_parser("new", help="create context entries")
     new_subparsers = new_parser.add_subparsers(dest="entry_type", required=True)
 
@@ -2652,6 +3824,8 @@ def build_parser() -> argparse.ArgumentParser:
     task_parser.add_argument("path", nargs="?", type=Path)
     task_parser.add_argument("--status", choices=tuple(sorted(VALID_TASK_STATUSES)), default="Active")
     task_parser.add_argument("--title", required=True, help="task title")
+    task_parser.add_argument("--plan", default="无。", help="parent task plan title or path")
+    task_parser.add_argument("--task-id", default="无。", help="subtask id in active/Task_Plan.md")
     task_parser.add_argument("--goal", action="append", required=True, help="task goal; can be repeated")
     task_parser.add_argument("--background", default="", help="task background")
     task_parser.add_argument("--input", action="append", default=None, help="input material; can be repeated")

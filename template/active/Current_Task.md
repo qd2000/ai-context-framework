@@ -30,6 +30,18 @@ Empty
 
 ---
 
+## 所属大任务
+
+【无 / active/Task_Plan.md 中的大任务名称】
+
+---
+
+## 子任务 ID
+
+【无 / T001】
+
+---
+
 ## 本次任务目标
 
 本次任务要达成：
@@ -127,4 +139,5 @@ Empty
 1. 应写入 `Context.md` 的新增当前事实。
 2. 应写入 `reference/Decisions_Index.md` 或 ADR 的重要决策。
 3. 应写入 rules 的新增规则。
-4. 应归档到 `archive/` 的历史内容。
+4. 应写入 `reference/Knowledge_Index.md` 或 Knowledge 条目的可复用经验。
+5. 应归档到 `archive/` 的历史内容。

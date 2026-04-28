@@ -44,7 +44,8 @@ archive/     历史归档，默认不读取
 
 1. `active/Context.md`
 2. `rules/Always_Active.md`
-3. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）
+3. `active/Task_Plan.md`
+4. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）
 
 如果用户在当前消息中已给出明确任务，以用户当前消息为准，以上文件作为背景上下文。
 
@@ -55,7 +56,7 @@ archive/     历史归档，默认不读取
 如果项目可用 `acf` 命令，维护上下文时优先考虑使用它完成确定性操作。
 
 - 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
-- 新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时，优先考虑 `acf new`、`acf edit`、`acf writeback` 和 `acf check`。
+- 新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`、`acf task`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
 - 需要参数细节时，先查看 `acf --help`；需要系统级说明时，再读取 `reference/System_Manual.md`。
 
 `acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。
@@ -71,6 +72,7 @@ archive/     历史归档，默认不读取
 | 涉及架构设计 | `reference/Architecture.md` |
 | 涉及技术实现、运行环境 | `reference/Tech_Context.md` |
 | 涉及外部资料来源 | `reference/Sources_Index.md` |
+| 需要追溯可复用经验 | `reference/Knowledge_Index.md` → `reference/knowledge/*.md` |
 | 需要了解近期进展 | `worklog/Worklog_Index.md` → 最近 N 条 daily |
 | 涉及项目通用约束 | `rules/Project_Rules.md` |
 | 涉及代码实现 | `rules/Coding_Rules.md` |
@@ -88,13 +90,15 @@ archive/     历史归档，默认不读取
 
 1. 用户当前消息
 2. `active/Current_Task.md`
-3. `active/Context.md`
-4. `reference/Decisions_Index.md`
-5. `decisions/` 中的 ADR 文件
-6. `worklog/`
-7. `archive/`
+3. `active/Task_Plan.md`
+4. `active/Context.md`
+5. `reference/Decisions_Index.md`
+6. `decisions/` 中的 ADR 文件
+7. `reference/Knowledge_Index.md`
+8. `worklog/`
+9. `archive/`
 
-worklog 是历史过程记录，archive 是归档材料，均不等于当前事实。
+Knowledge 是可复用经验层，不是当前事实源；worklog 是历史过程记录，archive 是归档材料，均不等于当前事实。
 
 ---
 
@@ -104,6 +108,7 @@ worklog 是历史过程记录，archive 是归档材料，均不等于当前事�
 
 - 长期目标 / 项目愿景：`reference/Project_Brief.md`
 - 当前阶段目标：`active/Context.md`
+- 当前大任务计划：`active/Task_Plan.md`
 - 当前具体任务：`active/Current_Task.md`
 - 当前用户临时需求：用户当前消息
 
@@ -143,6 +148,9 @@ worklog 是历史过程记录，archive 是归档材料，均不等于当前事�
 
 ### 今日 Worklog 条目
 - [完成了什么 + 关键结论，或"无"]
+
+### Knowledge 候选
+- [可复用经验 / 模式 / 反例，或"无"]
 
 ### 需要归档的内容
 - [或"无"]

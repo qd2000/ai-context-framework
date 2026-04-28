@@ -17,15 +17,17 @@
 其中：
 
 - `active/Context.md`：当前阶段事实源，记录当前阶段目标、范围、约束、有效事实和开放问题。
+- `active/Task_Plan.md`：当前大任务计划和轻量子任务板，记录子任务状态、证据和下一步。
 - `active/Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源。
 
 使用规则：
 
 1. 默认优先读取 `active/Context.md`。
-2. 如果 `active/Current_Task.md` 状态为 Active，则读取它。
-3. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
-4. `active/` 中的信息应保持短、准、当前有效。
-5. 不要把历史过程、旧方案、原始日志写入 `active/`。
+2. 默认读取 `active/Task_Plan.md`，但该文件必须保持轻量。
+3. 如果 `active/Current_Task.md` 状态为 Active，则读取它。
+4. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
+5. `active/` 中的信息应保持短、准、当前有效。
+6. 不要把历史过程、旧方案、原始日志写入 `active/`。
 
 ---
 
@@ -79,6 +81,7 @@
 | 涉及架构设计 | `reference/Architecture.md` |
 | 涉及技术实现、运行环境 | `reference/Tech_Context.md` |
 | 涉及外部资料来源 | `reference/Sources_Index.md` |
+| 需要追溯可复用经验 | `reference/Knowledge_Index.md` |
 
 不要默认读取所有 reference 文件。
 
@@ -90,6 +93,7 @@
 
 - **Project_Brief.md**：项目长期背景、目标、愿景、边界和非目标。不记录当前阶段目标。
 - **Decisions_Index.md**：重要决策索引，只记录摘要和 ADR 路径。
+- **Knowledge_Index.md**：可复用经验索引，只记录从历史材料中提炼出的模式、反例和判断方法。
 - **Architecture.md**：项目架构说明，仅在涉及系统设计时读取。
 - **Tech_Context.md**：技术环境和约束，仅在涉及技术栈、兼容性时读取。
 - **Sources_Index.md**：外部资料索引，只保存摘要和路径，不保存大段原文。
@@ -141,7 +145,21 @@
 
 ---
 
-## 9. Sources 和原始资料的处理
+## 9. knowledge/ 使用规则
+
+`reference/knowledge/` 保存可复用经验、模式、反例和判断方法。
+
+使用规则：
+
+1. 默认不要读取完整 knowledge 条目。
+2. 先读取 `reference/Knowledge_Index.md`，再按需读取具体条目。
+3. Knowledge 不是当前事实源，不保存当前状态、一次性过程或完整决策。
+4. 每条 Knowledge 必须有来源、适用场景、不适用场景、与现有事实源的关系和去重判断。
+5. 如果 Knowledge 已升级为 rules、ADR 或手册内容，应标记为 Promoted。
+
+---
+
+## 10. Sources 和原始资料的处理
 
 `reference/Sources_Index.md` 只是资料索引。
 
@@ -160,7 +178,7 @@
 
 ---
 
-## 10. 原始日志的处理
+## 11. 原始日志的处理
 
 原始运行日志、错误堆栈、构建输出、测试输出等，不应写入 `worklog/`。
 
@@ -173,7 +191,7 @@ AI 使用日志时：
 
 ---
 
-## 11. 处理不确定信息
+## 12. 处理不确定信息
 
 如果信息不足：
 
@@ -185,7 +203,7 @@ AI 使用日志时：
 
 ---
 
-## 12. 更新项目上下文的规则
+## 13. 更新项目上下文的规则
 
 AI 可以提出项目文件更新建议，但不要擅自把内容写入长期上下文。
 
@@ -195,7 +213,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 ---
 
-## 13. 根目录其他文件
+## 14. 根目录其他文件
 
 项目根目录可能存在模板、笔记、概念卡等其他文件。
 
@@ -207,11 +225,11 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 ---
 
-## 14. CLI 辅助工具
+## 15. CLI 辅助工具
 
 如果项目可用 `acf` 命令，可以用它降低维护成本。未安装 `acf` 时，可按项目实际运行方式使用 `python acf.py ...` 作为兼容入口。
 
-### 14.1 安装和可用性判断
+### 15.1 安装和可用性判断
 
 `acf` 能在任意目录直接运行的前提是：命令已经安装到当前 shell 的 PATH 中。
 
@@ -230,13 +248,18 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 请注意：能在任意目录运行 `acf`，不等于任意目录都有 AI 上下文。`acf status --json` 只有在当前目录位于某个包含 `docs/ai` 或上下文根目录的项目中时才会成功。否则应先进入项目目录、显式传入上下文路径，或运行 `acf init docs/ai` 初始化。
 
-### 14.2 常用命令
+### 15.2 常用命令
 
 - `acf status`：自动发现当前上下文，输出项目根、上下文目录、profile、当前任务状态和检查结果。
 - `acf init <target>`：生成标准上下文模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --profile minimal`：生成简化模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `acf simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
+- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Task_Plan、archive 和 Knowledge 结构。
+- `acf plan init|add-task|set-task|focus|status [target]`：维护当前大任务计划和子任务板。
+- `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务。
+- `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
+- `acf knowledge draft|apply|list|show|mark [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态。
 - `acf new task [target] --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
 - `acf new source [target] --title "..." --type "..." --location "..." --relation "..."`：添加或更新资料索引行；重复资料标题需传入 `--force` 才能覆盖。
 - `acf new worklog [target] --summary "..."`：生成 daily worklog 并更新工作记录索引。

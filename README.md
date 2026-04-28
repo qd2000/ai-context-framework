@@ -20,7 +20,8 @@ template/
   AGENTS.md              # AI 入口文件（~115 行）
   active/                # 当前有效上下文（AI 默认读取）
     Context.md           # 当前阶段目标、事实、约束
-    Current_Task.md      # 当前具体任务
+    Task_Plan.md         # 当前大任务计划和轻量子任务板
+    Current_Task.md      # 当前具体小任务
   rules/                 # 规则系统（分层加载）
     Always_Active.md     # 每次必须遵守的核心规则
     Project_Rules.md     # 项目级通用规则
@@ -33,6 +34,7 @@ template/
     Architecture.md      # 架构说明
     Tech_Context.md      # 技术环境
     Decisions_Index.md   # 决策索引
+    Knowledge_Index.md   # 可复用经验索引
     Sources_Index.md     # 外部资料索引
     System_Manual.md     # 系统详细使用手册
   decisions/             # ADR 决策记录
@@ -64,9 +66,9 @@ template/
 
 | 层级 | 目录 | 读取时机 | 说明 |
 |------|------|----------|------|
-| 1 | active/ | 默认读取 | 当前阶段有效信息 |
+| 1 | active/ | 默认读取 | 当前阶段事实、当前大任务计划和当前小任务 |
 | 2 | rules/ | Always_Active 默认，其余按需 | 行为规则 |
-| 3 | reference/ | 按需 | 背景资料和索引 |
+| 3 | reference/ | 按需 | 背景资料、知识和索引 |
 | 4 | decisions/ | 按需 | 决策详情 |
 | 5 | worklog/ | 按需 | 工作历史 |
 | 6 | archive/ | 仅明确要求时 | 归档内容 |
@@ -77,11 +79,13 @@ template/
 
 1. 用户当前消息
 2. Current_Task.md
-3. Context.md
-4. Decisions_Index.md
-5. ADR 文件
-6. worklog
-7. archive
+3. Task_Plan.md
+4. Context.md
+5. Decisions_Index.md
+6. ADR 文件
+7. Knowledge_Index.md
+8. worklog
+9. archive
 
 ## 命令行工具
 
@@ -114,6 +118,13 @@ acf status
 acf init docs/ai
 acf init docs/ai-min --profile minimal
 acf simplify docs/ai docs/ai-min
+acf upgrade --dry-run --json
+acf plan init --title "跨项目评测" --goal "完成一轮完整路径验证。"
+acf plan add-task --title "验证 init/status/check" --output "命令结果摘要" --next-action "运行命令并记录结果"
+acf task start --id T001
+acf task done --id T001 --evidence "worklog/daily/YYYY-MM-DD.md"
+acf archive current-task --reason "任务已完成"
+acf knowledge draft --title "任务拆分经验" --source "worklog/daily/YYYY-MM-DD.md"
 acf new task --title "实现一个维护任务" --goal "写清当前目标。"
 acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
 acf new worklog --summary "完成一次上下文维护。"
@@ -141,6 +152,11 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `init`：从 `template/` 生成标准或简化上下文目录。
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
+- `upgrade`：非破坏式补齐新版本上下文结构，不自动移动或覆盖 Active 当前任务。
+- `plan init|add-task|set-task|focus|status`：维护 `active/Task_Plan.md` 中的大任务和子任务板。
+- `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务。
+- `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
+- `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
@@ -148,7 +164,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `writeback draft`：把会话结束回写建议保存为可审阅草案，不直接修改权威上下文文件。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
-- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性和占位符残留。
+- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、archive、Knowledge 和占位符残留。
 - `log enable|disable|status|tail|summarize|prune`：管理本地使用状态日志，默认关闭，启用后记录命令结果元数据。
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。

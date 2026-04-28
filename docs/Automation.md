@@ -11,8 +11,13 @@
 - `status`：输出项目根、上下文目录、profile、当前任务状态和检查结果。
 - AI 友好输出第一版：`status` 和 `check` 支持 `--json`；写命令支持 `--json`、`--dry-run`、`--check-after` 并输出 changed files。
 - `init`：生成标准或简化上下文模板，并在推断出的项目根目录生成缺失的薄入口 AGENTS.md；已有根入口默认不覆盖，需要 `--force-root-agent` 才覆盖。
+- `upgrade`：非破坏式补齐旧上下文缺失的 `active/Task_Plan.md`、archive 结构和 Knowledge 结构，不自动移动或覆盖 Active 当前任务。
 - `simplify`：从已有上下文导出简化版本，保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径；`--strict` 会将占位符残留视为错误。
+- `plan init|add-task|set-task|focus|status`：维护当前大任务计划和轻量子任务板。
+- `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务。
+- `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并维护 `archive/Archive_Index.md`。
+- `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引，并维护状态。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并向 `worklog/Worklog_Index.md` 添加或更新索引行。

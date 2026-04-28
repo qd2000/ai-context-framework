@@ -58,10 +58,14 @@ class CliTests(unittest.TestCase):
             target = Path(tmp) / "ctx"
             exit_code = self.run_cli(["init", str(target), "--profile", "minimal"])
             self.assertEqual(exit_code, 0)
+            self.assertTrue((target / "active" / "Task_Plan.md").exists())
+            self.assertTrue((target / "archive" / "Archive_Index.md").exists())
+            self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
             self.assertFalse((target / "decisions" / "ADR-0001-template.md").exists())
             self.assertFalse((target / "worklog" / "daily" / "YYYY-MM-DD.md").exists())
             agents_text = (target / "AGENTS.md").read_text(encoding="utf-8")
             self.assertIn("## CLI 辅助维护", agents_text)
+            self.assertIn("active/Task_Plan.md", agents_text)
             self.assertIn("acf status --json", agents_text)
             self.assertIn("acf --help", agents_text)
             result = acf.check_context(target, "minimal", strict=False)
@@ -72,6 +76,9 @@ class CliTests(unittest.TestCase):
             target = Path(tmp) / "ctx"
             exit_code = self.run_cli(["init", str(target)])
             self.assertEqual(exit_code, 0)
+            self.assertTrue((target / "active" / "Task_Plan.md").exists())
+            self.assertTrue((target / "archive" / "Archive_Index.md").exists())
+            self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
 
             agents_text = (target / "AGENTS.md").read_text(encoding="utf-8")
             self.assertIn("## CLI 辅助维护", agents_text)
@@ -118,7 +125,204 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             root_text = root_agents.read_text(encoding="utf-8")
             self.assertNotEqual(root_text, "custom root agent\n")
-            self.assertIn("docs/ai/AGENTS.md", root_text)
+
+    def test_upgrade_dry_run_reports_missing_new_structure_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            for rel in (
+                "active/Task_Plan.md",
+                "archive/Archive_Index.md",
+                "reference/Knowledge_Index.md",
+            ):
+                (target / rel).unlink()
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["upgrade", str(target), "--dry-run", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["dry_run"])
+            self.assertIn(str((target / "active" / "Task_Plan.md").resolve()), payload["changed_files"])
+            self.assertFalse((target / "active" / "Task_Plan.md").exists())
+
+    def test_upgrade_does_not_replace_active_current_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            task_path = target / "active" / "Current_Task.md"
+            task_path.write_text("## 当前任务状态\n\nActive\n\n## 任务名称\n\nKeep me\n", encoding="utf-8")
+            (target / "active" / "Task_Plan.md").unlink()
+
+            exit_code = self.run_cli(["upgrade", str(target)])
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Keep me", task_path.read_text(encoding="utf-8"))
+            self.assertTrue((target / "active" / "Task_Plan.md").exists())
+
+    def test_plan_and_task_commands_manage_subtask_flow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "plan",
+                        "init",
+                        str(target),
+                        "--title",
+                        "Large task",
+                        "--goal",
+                        "Finish the plan.",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "plan",
+                        "add-task",
+                        str(target),
+                        "--title",
+                        "First slice",
+                        "--output",
+                        "Slice output",
+                        "--next-action",
+                        "Do first slice",
+                    ]
+                ),
+                0,
+            )
+            plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
+            self.assertIn("| T001 | Pending | First slice |", plan_text)
+
+            self.assertEqual(self.run_cli(["task", "start", str(target), "--id", "T001"]), 0)
+            self.assertIn("T001", (target / "active" / "Current_Task.md").read_text(encoding="utf-8"))
+            self.assertIn("## 当前焦点\n\nT001", (target / "active" / "Task_Plan.md").read_text(encoding="utf-8"))
+
+            self.assertEqual(
+                self.run_cli(["task", "done", str(target), "--id", "T001", "--evidence", "unit test"]),
+                0,
+            )
+            plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
+            self.assertIn("| T001 | Done | First slice |", plan_text)
+            self.assertIn("## 当前任务状态\n\nDone", (target / "active" / "Current_Task.md").read_text(encoding="utf-8"))
+
+    def test_plan_set_task_updates_evidence_and_next_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--title", "First slice"])
+
+            exit_code = self.run_cli(
+                [
+                    "plan",
+                    "set-task",
+                    str(target),
+                    "--id",
+                    "T001",
+                    "--status",
+                    "Blocked",
+                    "--evidence",
+                    "blocked evidence",
+                    "--next-action",
+                    "wait",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
+            self.assertIn("| T001 | Blocked | First slice |", plan_text)
+            self.assertIn("blocked evidence", plan_text)
+            self.assertIn("wait", plan_text)
+
+    def test_archive_current_task_and_task_plan_reset_active_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--title", "First slice"])
+            self.run_cli(["task", "start", str(target), "--id", "T001"])
+            self.run_cli(["task", "done", str(target), "--id", "T001", "--evidence", "done"])
+
+            self.assertEqual(
+                self.run_cli(["archive", "current-task", str(target), "--reason", "completed"]),
+                0,
+            )
+            self.assertIn("## 当前任务状态\n\nEmpty", (target / "active" / "Current_Task.md").read_text(encoding="utf-8"))
+            self.assertTrue(list((target / "archive" / "tasks").glob("*.md")))
+
+            exit_code = self.run_cli(
+                ["archive", "task-plan", str(target), "--reason", "completed", "--force"]
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("## 大任务状态\n\nEmpty", (target / "active" / "Task_Plan.md").read_text(encoding="utf-8"))
+            self.assertTrue(list((target / "archive" / "plans").glob("*.md")))
+
+    def test_knowledge_draft_and_apply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "knowledge",
+                    "draft",
+                    str(target),
+                    "--title",
+                    "Markdown editing lesson",
+                    "--source",
+                    "active/Context.md",
+                    "--summary",
+                    "Reusable editing lesson.",
+                ]
+            )
+            self.assertFalse(list((target / "reference" / "knowledge").glob("*.md")))
+            draft = next((target / "worklog" / "knowledge-drafts").glob("*.md"))
+
+            exit_code = self.run_cli(["knowledge", "apply", str(draft), str(target)])
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((target / "reference" / "knowledge" / "K001-markdown-editing-lesson.md").exists())
+            index_text = (target / "reference" / "Knowledge_Index.md").read_text(encoding="utf-8")
+            self.assertIn("| K001 | Markdown editing lesson | Draft |", index_text)
+
+    def test_check_detects_invalid_plan_and_knowledge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            plan = target / "active" / "Task_Plan.md"
+            plan.write_text(
+                "## 大任务状态\n\nActive\n\n## 当前焦点\n\nT999\n\n## 子任务\n\n"
+                "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| T001 | Active | A | 无。 | 无。 | 无。 | 无。 |\n"
+                "| T001 | Active | B | 无。 | 无。 | 无。 | 无。 |\n",
+                encoding="utf-8",
+            )
+            knowledge_dir = target / "reference" / "knowledge"
+            knowledge_dir.mkdir(parents=True, exist_ok=True)
+            knowledge_file = knowledge_dir / "K001-bad.md"
+            knowledge_file.write_text("# K001：Bad\n\n## 状态\n\nActive\n\n## 结论\n\n当前已支持 bad。\n", encoding="utf-8")
+            (target / "reference" / "Knowledge_Index.md").write_text(
+                "## Knowledge 条目\n\n"
+                "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |\n"
+                "|---|---|---|---|---|---|\n"
+                "| K001 | Bad | Active | test | bad | `reference/knowledge/K001-bad.md` |\n",
+                encoding="utf-8",
+            )
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            joined = "\n".join(result.errors)
+            self.assertIn("duplicate subtask id", joined)
+            self.assertIn("more than one subtask is Active", joined)
+            self.assertIn("current focus `T999`", joined)
+            self.assertIn("missing or empty required section", joined)
+            self.assertIn("may contain current-fact wording", joined)
 
     def test_status_discovers_context_from_project_subdirectory(self):
         with tempfile.TemporaryDirectory() as tmp:

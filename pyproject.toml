@@ -21,10 +21,18 @@ include-package-data = true
 "share/ai-context-framework/template" = ["template/AGENTS.md"]
 "share/ai-context-framework/template/archive" = [
     "template/archive/.gitkeep",
+    "template/archive/Archive_Index.md",
+]
+"share/ai-context-framework/template/archive/plans" = [
+    "template/archive/plans/.gitkeep",
+]
+"share/ai-context-framework/template/archive/tasks" = [
+    "template/archive/tasks/.gitkeep",
 ]
 "share/ai-context-framework/template/active" = [
     "template/active/Context.md",
     "template/active/Current_Task.md",
+    "template/active/Task_Plan.md",
 ]
 "share/ai-context-framework/template/decisions" = [
     "template/decisions/ADR-0001-template.md",
@@ -32,6 +40,7 @@ include-package-data = true
 "share/ai-context-framework/template/reference" = [
     "template/reference/Architecture.md",
     "template/reference/Decisions_Index.md",
+    "template/reference/Knowledge_Index.md",
     "template/reference/Project_Brief.md",
     "template/reference/Sources_Index.md",
     "template/reference/System_Manual.md",
@@ -39,6 +48,9 @@ include-package-data = true
 ]
 "share/ai-context-framework/template/reference/sources" = [
     "template/reference/sources/.gitkeep",
+]
+"share/ai-context-framework/template/reference/knowledge" = [
+    "template/reference/knowledge/.gitkeep",
 ]
 "share/ai-context-framework/template/rules" = [
     "template/rules/Agent_Requested.md",
@@ -55,6 +67,9 @@ include-package-data = true
 ]
 "share/ai-context-framework/template/worklog/daily" = [
     "template/worklog/daily/YYYY-MM-DD.md",
+]
+"share/ai-context-framework/template/worklog/knowledge-drafts" = [
+    "template/worklog/knowledge-drafts/.gitkeep",
 ]
 
 [tool.uv]
