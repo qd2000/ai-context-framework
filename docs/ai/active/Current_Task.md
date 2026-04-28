@@ -23,74 +23,86 @@ Active
 
 ## 任务名称
 
+准备临时评测项目和基线
+
+---
+
+## 所属大任务
+
 跨项目 dogfooding 评测
+
+---
+
+## 子任务 ID
+
+T004
 
 ---
 
 ## 本次任务目标
 
-1. 在临时或真实小项目中验证 acf init/status/check/new/edit/writeback/log 的完整使用路径。
-2. 启用 usage event log，记录命令成功率、失败类型、dry-run 使用和 changed files 规模。
-3. 根据评测结果形成后续功能排序建议。
+1. 创建隔离的临时评测项目。
+2. 准备旧版本/缺结构上下文和新版本上下文两个评测场景。
+3. 列出要验证的 acf 命令链和预期观察点。
 
 ---
 
 ## 任务背景
 
-AI-facing CLI 阶段 1/2/3 已实现第一版，usage event log 已可记录命令结果元数据；下一步需要用真实项目流程验证哪些能力足够、哪些仍需产品化。
+T002 已拆分为多个评测子任务；当前先准备评测场景，后续再验证 init/status/check/upgrade、plan/task/archive/knowledge 和 usage log。
 
 ---
 
 ## 输入材料
 
-- 当前 dogfooding 上下文：docs/ai/。
-- 自动化路线：docs/Automation.md。
-- usage event log：acf log enable/status/tail/summarize/prune。
+- docs/ai/active/Task_Plan.md
+- docs/Automation.md
+- 当前 acf CLI
 
 ---
 
 ## 输出要求
 
-- 一份跨项目 dogfooding 评测记录。
-- 后续功能排序建议，重点评估 project-root scoped edit、文件创建命令和 writeback-curator。
+- 临时评测项目路径。
+- 评测命令清单。
+- 基线场景说明。
 
 ---
 
 ## 成功标准
 
-1. 至少完成一轮 init/status/check/new/edit/writeback/log 路径验证。
-2. 记录成功命令、失败命令、失败原因和 AI 使用痛点。
-3. 给出下一步优先级建议。
+1. 临时项目已创建且不污染本仓库交付物。
+2. 至少包含一个新项目初始化场景和一个旧上下文升级场景。
+3. 后续 T006/T003 可直接按命令清单执行。
 
 ---
 
 ## 失败信号
 
-1. 无法在临时或真实项目中复现完整流程。
-2. usage event log 无法提供足够评估信息。
+1. 临时项目无法稳定复现上下文发现。
+2. 评测场景会覆盖或移动本仓库真实上下文。
 
 ---
 
 ## 约束条件
 
-1. 不引入第三方运行依赖。
-2. 不把 usage event log 当作权威上下文或 worklog。
-3. 不因 docs/ai 是 minimal profile 而补齐 standard profile 文件。
+1. 使用新增 acf 命令进行 dogfooding。
+2. 评测日志使用 usage event log 记录，整理结论进入 worklog。
+3. 不要把 usage event log 当作权威上下文。
 
 ---
 
 ## 不允许做的事
 
-- 本任务不实现新的 CLI 子命令。
-- 本任务不发布 PyPI。
+- 本子任务不修复评测中发现的问题。
+- 本子任务不发布 PyPI。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. 评测后是否需要优先实现 project-root scoped edit。
-2. 评测后是否需要优先实现 acf new rule/reference 等文件创建命令。
-3. 评测后是否需要 writeback-curator subagent。
+1. 新命令在真实使用中是否足够明确。
+2. 哪些操作仍需要手工补写或容易误用。
 
 ---
 
@@ -101,4 +113,5 @@ AI-facing CLI 阶段 1/2/3 已实现第一版，usage event log 已可记录命�
 1. 应写入 `active/Context.md` 的新增当前事实。
 2. 应写入 `reference/Decisions_Index.md` 或 ADR 的重要决策。
 3. 应写入 rules 的新增规则。
-4. 应归档到 archive 的历史内容。
+4. 应写入 `reference/Knowledge_Index.md` 或 Knowledge 条目的可复用经验。
+5. 应归档到 archive 的历史内容。

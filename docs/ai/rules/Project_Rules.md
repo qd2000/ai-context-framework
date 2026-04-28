@@ -18,7 +18,10 @@
 - `acf edit` 当前只允许编辑上下文根目录内已有 `.md` 文件；`../Automation.md` 等 `docs/ai/` 外仓库级文档暂时使用常规补丁，直到项目级安全编辑边界完成设计。
 - 需要评估 CLI 实际使用效果时，可用 `uv run acf log enable` 启用用户级全局 usage event log；日志按项目子目录隔离，只记录状态元数据，不记录正文输入，不写入项目 `worklog/`。
 - usage event log 默认位于用户级 `.acf/projects/` 下；测试或隔离环境可用 `ACF_HOME` 指定日志根目录。
-- 修改当前任务时优先使用 `uv run acf new task ...`。
+- 维护当前大任务计划时优先使用 `uv run acf plan ...`；`active/Task_Plan.md` 只放轻量子任务板、证据和下一步。
+- 从大任务计划启动或完成当前小任务时优先使用 `uv run acf task ...`；旧的 `uv run acf new task ...` 保留为兼容入口。
+- 归档旧当前任务或旧大任务计划时优先使用 `uv run acf archive ...`，不要让失效内容长期留在 active。
+- 沉淀可复用经验时优先使用 `uv run acf knowledge draft ...` 生成草案；Knowledge 不保存当前事实、不保存一次性过程、不重复 ADR 或 rules。
 - 添加资料索引时优先使用 `uv run acf new source ...`，并只记录摘要、可信度、相关性和后续动作，不保存大段原文。
 - 记录重要设计决策时优先使用 `uv run acf new adr ...`，并确保编号不与既有 ADR 冲突。
 - 记录当天整理后工作记录时优先使用 `uv run acf new worklog ...`；同日已有记录时，按当前 CLI 能力审慎使用 `--force` 或人工合并。

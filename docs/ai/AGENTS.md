@@ -8,7 +8,8 @@
 
 1. `active/Context.md`
 2. `rules/Always_Active.md`
-3. `active/Current_Task.md`（仅当任务状态为 Active 时）
+3. `active/Task_Plan.md`
+4. `active/Current_Task.md`（仅当任务状态为 Active 时）
 
 如果用户在当前消息中已给出明确任务，以用户当前消息为准。
 
@@ -19,7 +20,7 @@
 如果项目可用 `acf` 命令，维护上下文时优先考虑使用它完成确定性操作。
 
 - 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
-- 新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时，优先考虑 `acf new`、`acf edit`、`acf writeback` 和 `acf check`。
+- 新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`、`acf task`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
 - 需要参数细节时，先查看 `acf --help`；如果项目包含系统手册，再按需读取 System Manual。
 
 `acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。
@@ -29,11 +30,12 @@
 ## 目录结构
 
 ```text
-active/      当前阶段上下文和当前任务
+active/      当前阶段上下文、当前大任务计划和当前任务
 rules/       核心规则
-reference/   长期背景、资料索引和决策索引
+reference/   长期背景、资料索引、知识索引和决策索引
 decisions/   重要决策详情
 worklog/     整理后的工作记录
+archive/     历史归档，默认不读取
 ```
 
 ---
@@ -47,6 +49,7 @@ worklog/     整理后的工作记录
 | 涉及项目通用约束 | `rules/Project_Rules.md` |
 | 需要了解近期进展 | `worklog/Worklog_Index.md` |
 | 涉及外部资料来源 | `reference/Sources_Index.md` |
+| 需要追溯可复用经验 | `reference/Knowledge_Index.md` -> `reference/knowledge/*.md` |
 
 ---
 
@@ -54,12 +57,15 @@ worklog/     整理后的工作记录
 
 1. 用户当前消息
 2. `active/Current_Task.md`
-3. `active/Context.md`
-4. `reference/Decisions_Index.md`
-5. ADR 文件
-6. `worklog/`
+3. `active/Task_Plan.md`
+4. `active/Context.md`
+5. `reference/Decisions_Index.md`
+6. ADR 文件
+7. `reference/Knowledge_Index.md`
+8. `worklog/`
+9. `archive/`
 
-worklog 是历史过程记录，不等于当前事实。
+Knowledge 是可复用经验层，不是当前事实源；worklog 是历史过程记录，不等于当前事实；archive 默认不读取。
 
 ---
 
@@ -71,3 +77,5 @@ worklog 是历史过程记录，不等于当前事实。
 - `active/Current_Task.md` 状态是否需要变化
 - 是否需要新增 ADR 或更新 `reference/Decisions_Index.md`
 - 是否需要新增 worklog 条目
+- 是否存在 Knowledge 候选
+- 是否存在 Archive 候选

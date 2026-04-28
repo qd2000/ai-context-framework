@@ -75,6 +75,10 @@ Dogfooding MVP / 框架稳定化。
 31. `acf edit` 当前安全边界是 context-root 内已有 Markdown 文件；`../Automation.md` 等 `docs/ai/` 外仓库级文档暂时仍通过常规补丁维护，项目级安全编辑能力需单独设计。
 32. `acf log enable|disable|status|tail|summarize|prune` 已实现 opt-in 的用户级全局 usage event log，日志默认存放在 `%USERPROFILE%\.acf\projects\<project-id>\` 或 `~/.acf/projects/<project-id>/`，按项目子目录记录命令结果元数据用于 dogfooding 评测。
 33. usage event log 不写入项目目录或 `worklog/`，不记录正文输入、stdin 内容、Markdown diff 或完整 stdout/stderr；测试可用 `ACF_HOME` 指定隔离的日志根目录。
+34. `active/Task_Plan.md` 已成为当前大任务计划和轻量子任务板，默认读取但必须保持短、准、低噪音。
+35. `archive/Archive_Index.md`、`archive/tasks/` 和 `archive/plans/` 已成为旧当前任务和旧大任务计划的归档结构，archive 默认不读取。
+36. `reference/Knowledge_Index.md` 和 `reference/knowledge/` 已成为可复用经验层；Knowledge 不保存当前事实、不保存一次性过程、不重复 ADR 或 rules。
+37. `acf upgrade`、`acf plan ...`、`acf task ...`、`acf archive ...` 和 `acf knowledge ...` 已实现第一版，并继承 JSON、dry-run、changed files 和 check-after 契约。
 
 ---
 
@@ -95,6 +99,8 @@ Dogfooding MVP / 框架稳定化。
 12. 不为 dogfooding 临时放宽 `acf edit` 的 context-root 限制；若需要编辑仓库级文档，应先设计安全的项目级编辑边界。
 
 13. usage event log 是用户级运行态观测数据，不是权威上下文；日志写入失败不应影响原命令退出码。
+14. Task_Plan 只保存当前大任务拆分、子任务状态、证据和下一步；详细过程进入 worklog，失效计划进入 archive。
+15. Knowledge 只能通过草案流程沉淀可迁移判断；当前事实仍以 `active/Context.md`、`active/Task_Plan.md` 和 `active/Current_Task.md` 为准。
 
 ---
 
@@ -173,6 +179,7 @@ Dogfooding MVP / 框架稳定化。
 - AI 文档目录：`docs/ai/`
 - 产品模板目录：`template/`
 - CLI：`acf.py`
+- 当前大任务计划：`active/Task_Plan.md`
 - Python 项目配置：`pyproject.toml`
 - uv 锁文件：`uv.lock`
 - 包清单：`MANIFEST.in`
