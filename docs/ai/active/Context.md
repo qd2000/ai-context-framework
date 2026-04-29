@@ -95,6 +95,12 @@ Dogfooding MVP / 框架稳定化。
 48. 版本号维护规则已进入项目规则：修改 CLI 对外行为、模板结构、打包文件、命令契约、默认策略或用户可见文档时，需要判断是否更新 version number；更新时优先使用 `uv run acf version set <version>`。
 49. 真实项目 strict 检查会忽略 ADR template 和 YYYY-MM-DD daily worklog 这两个示例模板文件的占位符，模板源自身仍通过 `acf check template` 暴露占位符 warning。
 
+50. 会话结束回写协议已改为落盘优先：可确定内容应优先写入对应文件或生成可审阅草案，最终回复只报告实际变更、草案路径、验证结果和仍需人工判断的风险。
+51. Feedback_Inbox 生命周期已明确：Open/Triaged/Planned/Done/Rejected 各有处理规则，Done/Rejected 需要证据位置或拒绝原因，长期已处理反馈归档到 `archive/feedback/`。
+52. `acf init` 和 `acf upgrade` 已补齐 `archive/feedback/` 目录；旧上下文升级会非破坏式补齐反馈归档结构。
+53. T002-T005 已完成验证：`uv run acf check template`、`uv run acf check docs/ai --strict --json`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf version show --json` 和 `uv run python -m unittest` 均通过。
+54. `acf --version` 当前版本记为 `v0.0.3.3`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.3`。
+
 ---
 
 ## 当前关键约束
@@ -215,5 +221,5 @@ Dogfooding MVP / 框架稳定化。
 
 ## 上次更新
 
-- 日期：2026-04-27
-- 更新原因：修复 Context 当前事实和开放问题，切换下一阶段任务为跨项目 dogfooding 评测。
+- 日期：2026-04-29
+- 更新原因：完成反馈入口与回写流程 dogfooding 改进的协议、模板/CLI 支持和验证记录，同步当前事实与版本号。
