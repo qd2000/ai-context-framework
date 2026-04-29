@@ -80,6 +80,9 @@ Dogfooding MVP / 框架稳定化。
 36. `reference/Knowledge_Index.md` 和 `reference/knowledge/` 已成为可复用经验层；Knowledge 不保存当前事实、不保存一次性过程、不重复 ADR 或 rules。
 37. `acf upgrade`、`acf plan ...`、`acf task ...`、`acf archive ...` 和 `acf knowledge ...` 已实现第一版，并继承 JSON、dry-run、changed files 和 check-after 契约。
 
+38. 已完成一轮新版 CLI dogfooding 评测：本仓库 usage log 记录 33 个事件、临时新项目 usage log 记录 12 个事件，`init/status/check/upgrade/plan/task/archive/knowledge` 主路径均可跑通。
+39. 本轮评测发现的优先改进方向包括：`plan status` next_task 推荐逻辑、同文件写命令并发保护、Knowledge 草案质量检查、plan complete 体验、PowerShell 长 Markdown 输入提示和中文标题 slug 策略；详情见 `worklog/daily/2026-04-29.md`。
+
 ---
 
 ## 当前关键约束

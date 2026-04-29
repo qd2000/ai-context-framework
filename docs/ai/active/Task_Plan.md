@@ -8,7 +8,7 @@
 
 ## 大任务状态
 
-Active
+Done
 
 ---
 
@@ -36,7 +36,7 @@ Active
 
 ## 当前焦点
 
-T004
+T005
 
 ---
 
@@ -46,10 +46,10 @@ T004
 |---|---|---|---|---|---|---|
 | T001 | Done | 实现任务规划、归档、升级与 Knowledge 层增强 | 无。 | CLI、模板、文档和测试同步完成 | uv run acf check template; uv run acf check --strict; uv run python -m unittest | 无。 |
 | T002 | Superseded | 执行跨项目 dogfooding 评测 | T001 | 评测记录和功能排序建议 | 已拆分为 T004/T006/T003/T005 | 按拆分后的评测子任务推进 |
-| T003 | Pending | 验证 plan/task/archive/knowledge 路径 | T006 | 任务板、当前任务、归档和 Knowledge 草案评测记录 | 无。 | 使用新命令完成一轮维护流程 |
-| T004 | Active | 准备临时评测项目和基线 | T001 | 临时项目路径和旧版/新版上下文基线 | 无。 | 创建隔离目录并准备命令清单 |
-| T005 | Pending | 整理评测发现和优先级建议 | T003 | 问题清单、改进建议和后续功能排序 | 无。 | 汇总 usage log、worklog 和人工观察 |
-| T006 | Pending | 验证 init/status/check/upgrade 路径 | T004 | 初始化、发现、检查和升级结果摘要 | 无。 | 运行 dry-run 与正式命令并记录 changed files |
+| T003 | Done | 验证 plan/task/archive/knowledge 路径 | T006 | 任务板、当前任务、归档和 Knowledge 草案评测记录 | worklog/daily/2026-04-29.md; temp new-project plan/task/archive/knowledge usage log | 无。 |
+| T004 | Done | 准备临时评测项目和基线 | T001 | 临时项目路径和旧版/新版上下文基线 | worklog/daily/2026-04-29.md; temp acf-dogfood-20260429-014817 | 无。 |
+| T005 | Done | 整理评测发现和优先级建议 | T003 | 问题清单、改进建议和后续功能排序 | worklog/daily/2026-04-29.md; usage logs: repo 33 events, temp new-project 12 events | 无。 |
+| T006 | Done | 验证 init/status/check/upgrade 路径 | T004 | 初始化、发现、检查和升级结果摘要 | worklog/daily/2026-04-29.md; init/status/check/upgrade temp project run | 无。 |
 
 ---
 

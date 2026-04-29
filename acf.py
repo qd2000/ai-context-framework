@@ -12,6 +12,7 @@ import shutil
 import sys
 import sysconfig
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -19,6 +20,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
+VERSION = "v0.0.3"
 
 
 def find_template_dir() -> Path:
@@ -136,6 +138,7 @@ EXIT_RUNTIME_ERROR = 70
 ACF_HOME_ENV = "ACF_HOME"
 USAGE_LOG_CONFIG_NAME = "config.json"
 USAGE_LOG_FILE_REL = "logs/usage.jsonl"
+LOCK_FILE_REL = ".acf.lock"
 
 MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本项目。
 
@@ -429,6 +432,70 @@ def emit_write_result(
                 print(f"WARN: {warning}", file=sys.stderr)
 
     return 0 if check_result is None or check_result.ok else 1
+
+
+def lock_path_for_context(root: Path) -> Path:
+    return root / LOCK_FILE_REL
+
+
+def acquire_context_lock(root: Path, command: str) -> Path:
+    lock_path = lock_path_for_context(root)
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise SystemExit(
+            f"context is locked by another acf write command: {lock_path}; "
+            "rerun after it finishes or remove the stale lock if no acf process is running"
+        ) from exc
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "schema_version": JSON_SCHEMA_VERSION,
+                    "command": command,
+                    "created_at": utc_now_iso(),
+                    "pid": os.getpid(),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+    return lock_path
+
+
+def release_context_lock(lock_path: Path) -> None:
+    try:
+        lock_path.unlink()
+    except FileNotFoundError:
+        return
+
+
+def write_command_context_root(args: argparse.Namespace) -> Path | None:
+    command = getattr(args, "command", None)
+    if command == "init":
+        return getattr(args, "target").resolve()
+    if command == "simplify":
+        return getattr(args, "target").resolve()
+    if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "knowledge"}:
+        return require_context_root(getattr(args, "path", None))
+    if command == "edit":
+        return require_context_root(getattr(args, "context", None))
+    return None
+
+
+def run_with_context_lock(args: argparse.Namespace) -> int:
+    if dry_run_enabled(args):
+        return args.func(args)
+    root = write_command_context_root(args)
+    if root is None:
+        return args.func(args)
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = acquire_context_lock(root, command_label(args))
+    try:
+        return args.func(args)
+    finally:
+        release_context_lock(lock_path)
 
 
 def maybe_check_after(args: argparse.Namespace, root: Path, profile: str | None = None) -> CheckResult | None:
@@ -2163,8 +2230,9 @@ def edit_table_upsert_command(args: argparse.Namespace) -> int:
 
 
 def slugify_file_stem(value: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-").lower()
-    return slug or "item"
+    normalized = unicodedata.normalize("NFKC", value).strip().lower()
+    normalized = re.sub(r"[^\w.-]+", "-", normalized, flags=re.UNICODE).strip(".-_")
+    return normalized or hashlib.sha1(value.encode("utf-8")).hexdigest()[:8]
 
 
 def render_empty_task_plan() -> str:
@@ -2413,6 +2481,31 @@ def set_plan_focus(plan_path: Path, task_id: str) -> None:
 
 def set_plan_status(plan_path: Path, status: str) -> None:
     plan_path.write_text(replace_section_text(read_text(plan_path), "## 大任务状态", status), encoding="utf-8")
+
+
+def task_dependencies_satisfied(row: dict[str, str], rows: Sequence[dict[str, str]]) -> bool:
+    depends = row.get("依赖", "").strip()
+    if not depends or depends in {"无。", "无", "None", "-"}:
+        return True
+    done_ids = {candidate.get("ID") for candidate in rows if candidate.get("状态") in {"Done", "Superseded", "Skipped"}}
+    dependency_ids = TASK_ID_RE.findall(depends)
+    if not dependency_ids:
+        return True
+    return all(f"T{number}" in done_ids for number in dependency_ids)
+
+
+def recommended_next_task(rows: Sequence[dict[str, str]]) -> dict[str, str] | None:
+    active = next((row for row in rows if row.get("状态") == "Active"), None)
+    if active is not None:
+        return active
+    return next(
+        (
+            row
+            for row in rows
+            if row.get("状态") == "Pending" and task_dependencies_satisfied(row, rows)
+        ),
+        None,
+    )
 
 
 def plan_init_command(args: argparse.Namespace) -> int:
@@ -3591,6 +3684,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.set_defaults(json=False)
     add_json_argument(parser)
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     status_parser = subparsers.add_parser("status", help="show discovered context status")
@@ -3615,7 +3709,16 @@ def build_parser() -> argparse.ArgumentParser:
     add_write_arguments(simplify_parser)
     simplify_parser.set_defaults(func=simplify_command)
 
-    upgrade_parser = subparsers.add_parser("upgrade", help="non-destructively upgrade an existing context structure")
+    upgrade_parser = subparsers.add_parser(
+        "upgrade",
+        help="non-destructively add missing files for the current context schema",
+        description=(
+            "Upgrade an existing AI context to the current schema by adding missing "
+            "Task_Plan, archive, and Knowledge files/directories. This command does "
+            "not move old content, archive active tasks, or overwrite an Active "
+            "Current_Task.md. Use --dry-run --json first to review changed_files."
+        ),
+    )
     upgrade_parser.add_argument("path", nargs="?", type=Path)
     add_write_arguments(upgrade_parser)
     upgrade_parser.set_defaults(func=upgrade_command)
@@ -3919,7 +4022,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     exit_code = 0
     try:
         args = parser.parse_args(argv_list)
-        exit_code = args.func(args)
+        exit_code = run_with_context_lock(args)
     except SystemExit as exc:
         if isinstance(exc.code, int):
             exit_code = exc.code

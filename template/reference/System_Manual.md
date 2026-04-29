@@ -280,6 +280,29 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 `target` 省略时，CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录；显式传入 `target` 时，以显式路径为准。CLI 的检查结果不能替代人工判断，但可以自动发现维护成本高、容易遗忘的结构性问题。
 
+### 15.3 旧版本上下文升级
+
+旧项目升级到当前模板结构时，推荐流程：
+
+1. `acf status --json`：确认当前目录能发现目标上下文。
+2. `acf upgrade --dry-run --json`：预览将补齐的文件和目录。
+3. 审阅 `changed_files`。
+4. `acf upgrade --check-after --json`：正式补齐结构并检查。
+5. `acf check --strict --json`：在正式项目中确认占位符和结构问题。
+
+`upgrade` 是非破坏式命令，只补齐当前 schema 缺失的 `active/Task_Plan.md`、archive 和 Knowledge 文件/目录；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。
+
+如果旧任务或旧计划需要归档，升级后再显式运行：
+
+- `acf archive current-task --reason "..."`
+- `acf archive task-plan --reason "..."`
+
+如果全局 `acf` 未安装，可以从本框架源码环境运行：
+
+```bash
+uv run --project <ai-context-framework 路径> acf upgrade --dry-run --json
+```
+
 面向 AI 的稳定调用建议：
 
 - `acf status --json`：获取机器可读的上下文位置、profile、当前任务状态和检查结果。

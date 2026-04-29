@@ -1,3 +1,10 @@
+Metadata-Version: 2.4
+Name: ai-context-framework
+Version: 0.1.0
+Summary: Model-independent AI context framework templates and CLI.
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
 # ai-context-framework
 
 一个模型无关的 AI 上下文管理框架模板。
