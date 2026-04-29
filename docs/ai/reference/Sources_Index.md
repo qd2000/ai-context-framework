@@ -20,6 +20,7 @@
 | 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |
 |---|---|---|---|---|---|---|
 | Python argparse documentation | 文档 | https://docs.python.org/3/library/argparse.html | Useful | 高 | 用于维护 acf.py CLI 子命令、参数和帮助文本行为。 | 按需查阅，不默认读取全文。 |
+| Workstream Design | 设计文档 | reference/Workstream_Design.md | Useful | 高 | 记录多 agent 并行目标线治理方案、front matter 取舍、状态机、合并契约和后续 CLI/check 计划。 | 作为 T001 设计依据；后续实现 Workstream 可选层时按需读取。 |
 
 ---
 
