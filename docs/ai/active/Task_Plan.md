@@ -8,35 +8,38 @@
 
 ## 大任务状态
 
-Done
+Active
 
 ---
 
 ## 大任务名称
 
-跨项目 dogfooding 评测
+反馈入口与回写流程 dogfooding 改进
 
 ---
 
 ## 大任务目标
 
-1. 在临时或真实小项目中验证 acf init/status/check/new/edit/writeback/log 的完整使用路径。
-2. 启用 usage event log，记录命令成功率、失败类型、dry-run 使用和 changed files 规模。
-3. 根据评测结果形成后续功能排序建议。
+1. 将 Feedback_Inbox 作为人工反馈入口纳入可持续维护流程。
+2. 让会话结束回写从“重复打印建议”改为“优先落盘或生成明确草案，并只报告实际变更”。
+3. 建立已处理反馈的归档、隐藏或清理规则，避免 active 上下文长期膨胀。
+4. 用当前 docs/ai dogfooding 上下文验证新流程是否可执行、可检查、可升级。
 
 ---
 
 ## 成功标准
 
-1. 至少完成一轮 init/status/check/new/edit/writeback/log 路径验证。
-2. 记录成功命令、失败命令、失败原因和 AI 使用痛点。
-3. 给出下一步优先级建议。
+1. F005/F006 均有明确任务映射、处理状态和证据位置。
+2. AI Update Protocol 明确会话结束时哪些内容应落盘、哪些只能生成草案、哪些不应重复输出。
+3. Feedback_Inbox 生命周期明确 Done/Rejected/Planned 条目的保留、归档和清理策略。
+4. 如新增或调整 CLI 行为，`--help`、文档和单元测试同步覆盖。
+5. 完成后 `uv run acf check docs/ai --strict --json` 与 `uv run acf upgrade docs/ai --dry-run --json` 通过。
 
 ---
 
 ## 当前焦点
 
-无。
+T004
 
 ---
 
@@ -44,12 +47,11 @@ Done
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | 实现任务规划、归档、升级与 Knowledge 层增强 | 无。 | CLI、模板、文档和测试同步完成 | uv run acf check template; uv run acf check --strict; uv run python -m unittest | 无。 |
-| T002 | Superseded | 执行跨项目 dogfooding 评测 | T001 | 评测记录和功能排序建议 | 已拆分为 T004/T006/T003/T005 | 按拆分后的评测子任务推进 |
-| T003 | Done | 验证 plan/task/archive/knowledge 路径 | T006 | 任务板、当前任务、归档和 Knowledge 草案评测记录 | worklog/daily/2026-04-29.md; temp new-project plan/task/archive/knowledge usage log | 无。 |
-| T004 | Done | 准备临时评测项目和基线 | T001 | 临时项目路径和旧版/新版上下文基线 | worklog/daily/2026-04-29.md; temp acf-dogfood-20260429-014817 | 无。 |
-| T005 | Done | 整理评测发现和优先级建议 | T003 | 问题清单、改进建议和后续功能排序 | worklog/daily/2026-04-29.md; usage logs: repo 33 events, temp new-project 12 events | 无。 |
-| T006 | Done | 验证 init/status/check/upgrade 路径 | T004 | 初始化、发现、检查和升级结果摘要 | worklog/daily/2026-04-29.md; init/status/check/upgrade temp project run | 无。 |
+| T001 | Done | 规范化 Feedback_Inbox 新增人工反馈 | 无。 | F005/F006 条目编号、状态和后续处理明确 | active/Feedback_Inbox.md: F005/F006 已编号、标为 Planned，并映射到本计划。 | 无。 |
+| T002 | Done | 定义会话结束回写落盘协议 | T001 | 明确哪些会话结束内容应直接落盘、哪些生成草案、最终报告只包含实际变更和验证结果 | docs/ai/AGENTS.md: 会话结束回写建议已改为落盘优先协议，覆盖计划、Feedback、Context、worklog、Knowledge、Archive、ADR/rules 和最终回复规则。 | 无。 |
+| T003 | Done | 定义 Feedback_Inbox 生命周期与归档策略 | T001 | 明确 Open/Triaged/Planned/Done/Rejected 的处理规则、保留阈值、归档位置和 AI 清理责任 | active/Feedback_Inbox.md: 已定义 Open/Triaged/Planned/Done/Rejected 生命周期、Done/Rejected 保留阈值、archive/feedback/YYYY-MM.md 归档位置和 AI 清理责任；F001-F006 已更新为 Done。 | 无。 |
+| T004 | Pending | 实现文档与 CLI 支持 | T002, T003 | 模板、docs/ai、System Manual、必要 CLI/help/check 流程与测试同步更新 | 无。 | 按 T002/T003 的协议补齐模板和 acf 工具；若无需新增 CLI，则在证据中说明原因 |
+| T005 | Pending | 验证反馈驱动流程并记录 dogfooding 结果 | T004 | strict 检查、upgrade dry-run、相关单元测试和 worklog/Context 更新完成 | 无。 | 运行 docs/ai strict、upgrade dry-run、unittest/定向测试，并把发现写回 worklog 与 Context |
 
 ---
 

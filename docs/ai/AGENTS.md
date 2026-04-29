@@ -79,11 +79,21 @@ Knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 
 ## 会话结束回写建议
 
-重要协作结束时，请给出以下建议，由用户决定是否写入：
+重要协作结束时，AI 不应默认重复打印完整回写建议清单。先判断是否存在可确定写入的内容；有则优先落盘或生成可审阅草案，最终报告只列出实际变更、草案路径、验证结果和仍需人工判断的风险。
 
-- `active/Context.md` 是否需要更新
-- `active/Current_Task.md` 状态是否需要变化
-- 是否需要新增 ADR 或更新 `reference/Decisions_Index.md`
-- 是否需要新增 worklog 条目
-- 是否存在 Knowledge 候选
-- 是否存在 Archive 候选
+处理规则：
+
+1. 当前任务或计划状态变化：优先使用 `uv run acf task ...` 或 `uv run acf plan ...` 更新 `active/Current_Task.md`、`active/Task_Plan.md`；工具不能表达时，再用 `uv run acf edit ...` 精确更新相关 section 或表格。
+2. 新的人工反馈、问题、需求碎片：优先写入或更新 `active/Feedback_Inbox.md`；如果无法确定归属，生成 `uv run acf writeback draft ...` 草案，不把反馈直接写成当前事实。
+3. 已验证的当前事实：只在与当前阶段仍相关、且证据明确时更新 `active/Context.md`；一次性过程不写入 Context。
+4. 今日工作记录：完成了可复述的工作或验证后，优先使用 `uv run acf new worklog ...` 记录整理后的摘要；不要写入原始日志或大段命令输出。
+5. Knowledge 候选：优先使用 `uv run acf knowledge draft ...` 生成草案；只有经审阅或任务明确要求时，才 apply 到 `reference/Knowledge_Index.md`。
+6. Archive 候选：旧当前任务或旧大任务计划优先使用 `uv run acf archive ...`；其他归档建议先生成 writeback 草案，等待人工确认归档位置。
+7. ADR 或规则候选：已经形成稳定决策时使用 `uv run acf new adr ...` 或更新 rules；只是建议或待确认事项时生成 writeback 草案。
+
+最终回复规则：
+
+- 只报告本轮实际修改的文件、生成的草案、执行的检查和检查结果。
+- 对没有变化的类别，不输出“无需更新”清单。
+- 如果存在应回写但本轮不能安全落盘的内容，只报告草案路径或明确的人工待确认项。
+- 不把 usage event log、原始测试输出、完整对话或 Feedback_Inbox 随想直接写入权威事实源。
