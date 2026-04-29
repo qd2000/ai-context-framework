@@ -76,11 +76,15 @@ STANDARD_FILES = (
     "reference/Decisions_Index.md",
     "reference/Knowledge_Index.md",
     "reference/Sources_Index.md",
+    "reference/knowledge/.gitkeep",
     "reference/System_Manual.md",
     "decisions/ADR-0001-template.md",
     "worklog/Worklog_Index.md",
     "worklog/daily/YYYY-MM-DD.md",
+    "worklog/knowledge-drafts/.gitkeep",
     "archive/Archive_Index.md",
+    "archive/tasks/.gitkeep",
+    "archive/plans/.gitkeep",
 )
 
 MINIMAL_DIRS = (
@@ -108,8 +112,12 @@ MINIMAL_FILES = (
     "reference/Decisions_Index.md",
     "reference/Knowledge_Index.md",
     "reference/Sources_Index.md",
+    "reference/knowledge/.gitkeep",
     "worklog/Worklog_Index.md",
+    "worklog/knowledge-drafts/.gitkeep",
     "archive/Archive_Index.md",
+    "archive/tasks/.gitkeep",
+    "archive/plans/.gitkeep",
 )
 
 VALID_TASK_STATUSES = {"Active", "Paused", "Done", "Empty"}
@@ -314,8 +322,10 @@ def check_next_actions(result: CheckResult | None, strict: bool = False) -> list
     return []
 
 
-def write_next_actions(dry_run: bool, check_result: CheckResult | None) -> list[str]:
+def write_next_actions(dry_run: bool, check_result: CheckResult | None, changed_files: Sequence[Path] = ()) -> list[str]:
     if dry_run:
+        if not changed_files:
+            return ["No changes needed."]
         return [
             "Review changed_files.",
             "Rerun the command without `--dry-run` to apply changes.",
@@ -412,7 +422,7 @@ def emit_write_result(
         "dry_run": dry_run,
         "changed_files": path_values(changed_files),
         "message": message,
-        "next_actions": write_next_actions(dry_run, check_result),
+        "next_actions": write_next_actions(dry_run, check_result, changed_files),
     }
     if check_result is not None:
         payload["check"] = check_payload(check_result)
@@ -2373,6 +2383,55 @@ def render_knowledge_index() -> str:
 """
 
 
+def upgraded_agents_text(text: str) -> str:
+    if "active/Task_Plan.md" not in text:
+        replacements = (
+            (
+                "3. `active/Current_Task.md`（仅当任务状态为 Active 时）",
+                "3. `active/Task_Plan.md`\n4. `active/Current_Task.md`（仅当任务状态为 Active 时）",
+            ),
+            (
+                "3. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）",
+                "3. `active/Task_Plan.md`\n4. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）",
+            ),
+        )
+        for old, new in replacements:
+            text = text.replace(old, new)
+
+    text = text.replace(
+        "新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时",
+        "新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时",
+    )
+    text = text.replace(
+        "新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时",
+        "新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时",
+    )
+    return text
+
+
+def upgraded_system_manual_text(text: str) -> str:
+    if "acf upgrade [target]" not in text:
+        marker = "### 14.2 常用命令"
+        if marker not in text:
+            marker = "### 15.2 常用命令"
+        if marker in text:
+            text = text.replace(
+                marker,
+                marker
+                + "\n\n"
+                + "- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Task_Plan、archive 和 Knowledge 结构。\n"
+                + "- `acf plan init|add-task|set-task|focus|complete|status [target]`：维护当前大任务计划和子任务板，并在完成后标记计划 Done。\n"
+                + "- `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务。\n"
+                + "- `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。\n",
+            )
+    if "旧版本上下文升级" not in text and "CLI 辅助工具" in text:
+        insertion = """\n\n### 旧版本上下文升级\n\n推荐流程：`acf status --json` -> `acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。\n\n`upgrade` 只补齐缺失结构，不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。旧任务或旧计划需要归档时，升级后显式运行 `acf archive current-task` 或 `acf archive task-plan`。\n"""
+        text = text.rstrip() + insertion + "\n"
+    if "PowerShell 中反引号是转义字符" not in text:
+        text = text.rstrip() + "\n\nPowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。\n"
+    return text
+
+
 def ensure_upgrade_structure(root: Path, dry_run: bool) -> list[Path]:
     planned = [
         root / "active" / "Task_Plan.md",
@@ -2385,8 +2444,11 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> list[Path]:
     ]
     changed = [path for path in planned if not path.exists()]
     agents = root / "AGENTS.md"
-    if agents.exists() and "active/Task_Plan.md" not in read_text(agents):
+    if agents.exists() and upgraded_agents_text(read_text(agents)) != read_text(agents):
         changed.append(agents)
+    manual = root / "reference" / "System_Manual.md"
+    if manual.exists() and upgraded_system_manual_text(read_text(manual)) != read_text(manual):
+        changed.append(manual)
 
     if dry_run:
         return changed
@@ -2404,17 +2466,17 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> list[Path]:
         else:
             path.write_text("", encoding="utf-8")
 
-    if agents.exists() and "active/Task_Plan.md" not in read_text(agents):
+    if agents.exists():
         text = read_text(agents)
-        text = text.replace(
-            "3. `active/Current_Task.md`（仅当任务状态为 Active 时）",
-            "3. `active/Task_Plan.md`\n4. `active/Current_Task.md`（仅当任务状态为 Active 时）",
-        )
-        text = text.replace(
-            "新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时",
-            "新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时",
-        )
-        agents.write_text(text, encoding="utf-8")
+        updated = upgraded_agents_text(text)
+        if updated != text:
+            agents.write_text(updated, encoding="utf-8")
+
+    if manual.exists():
+        text = read_text(manual)
+        updated = upgraded_system_manual_text(text)
+        if updated != text:
+            manual.write_text(updated, encoding="utf-8")
 
     return changed
 

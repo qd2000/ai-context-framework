@@ -108,7 +108,7 @@ acf --version
 acf status --json
 ```
 
-Windows 可用 `where acf` 查看命令位置；macOS/Linux 可用 `which acf`。后续发布后，用户可通过包名或 Git URL 安装，例如 `uv tool install ai-context-framework` 或 `uv tool install git+<repo-url>`。
+Windows CMD 可用 `where.exe acf` 查看命令位置；PowerShell 可用 `Get-Command acf`；macOS/Linux 可用 `which acf`。后续发布后，用户可通过包名或 Git URL 安装，例如 `uv tool install ai-context-framework` 或 `uv tool install git+<repo-url>`。
 
 “任意目录可运行 `acf`”表示命令已进入 PATH；是否能自动找到上下文，取决于当前目录是否位于包含 `docs/ai` 或上下文根目录的项目中。
 

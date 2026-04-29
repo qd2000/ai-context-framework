@@ -86,6 +86,9 @@ Dogfooding MVP / 框架稳定化。
 40. `acf --version` 已支持版本输出，当前版本记为 `v0.0.3`，`pyproject.toml` 同步为 `0.0.3`。
 41. P1/P2 dogfooding 改进已落地：`plan status` 推荐逻辑考虑 Active 与依赖，写命令增加 `.acf.lock` 互斥，Knowledge strict 检查拦截草案占位，新增 `plan complete`，中文标题 slug 保留安全 Unicode，文档补充 PowerShell `--input` 提示。
 
+42. `acf upgrade` 进一步增强旧文档兼容：可补旧 standard/minimal AGENTS 读取顺序，并为旧 System Manual 补充升级流程和相关命令说明。
+43. Windows 命令定位说明已修正：PowerShell 使用 `Get-Command acf`，CMD 使用 `where.exe acf`。
+
 ---
 
 ## 当前关键约束

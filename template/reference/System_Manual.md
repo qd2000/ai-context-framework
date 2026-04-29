@@ -242,7 +242,8 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 验证命令：
 
-- Windows：`where acf`
+- Windows CMD：`where.exe acf`
+- PowerShell：`Get-Command acf`
 - macOS/Linux：`which acf`
 - 通用：`acf --help`
 - 查看版本：`acf --version`

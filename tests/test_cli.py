@@ -166,6 +166,62 @@ class CliTests(unittest.TestCase):
             self.assertIn("Keep me", task_path.read_text(encoding="utf-8"))
             self.assertTrue((target / "active" / "Task_Plan.md").exists())
 
+    def test_upgrade_updates_old_standard_agents_and_system_manual(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target)])
+            agents = target / "AGENTS.md"
+            agents.write_text(
+                "## 默认读取顺序\n\n"
+                "1. `active/Context.md`\n"
+                "2. `rules/Always_Active.md`\n"
+                "3. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）\n\n"
+                "- 新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时，优先考虑 `acf new`。\n",
+                encoding="utf-8",
+            )
+            manual = target / "reference" / "System_Manual.md"
+            manual.write_text(
+                "## 14. CLI 辅助工具\n\n### 14.2 常用命令\n\n- `acf status`：查看状态。\n",
+                encoding="utf-8",
+            )
+            for rel in (
+                "active/Task_Plan.md",
+                "archive/Archive_Index.md",
+                "reference/Knowledge_Index.md",
+            ):
+                (target / rel).unlink()
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["upgrade", str(target), "--dry-run", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn(str(agents.resolve()), payload["changed_files"])
+            self.assertIn(str(manual.resolve()), payload["changed_files"])
+
+            self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
+            agents_text = agents.read_text(encoding="utf-8")
+            self.assertIn("3. `active/Task_Plan.md`", agents_text)
+            self.assertIn("4. `active/Current_Task.md`", agents_text)
+            self.assertIn("Knowledge 草案", agents_text)
+            manual_text = manual.read_text(encoding="utf-8")
+            self.assertIn("旧版本上下文升级", manual_text)
+            self.assertIn("acf plan init|add-task|set-task|focus|complete|status", manual_text)
+
+    def test_upgrade_dry_run_reports_no_changes_when_current(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["upgrade", str(target), "--dry-run", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["changed_files"], [])
+            self.assertEqual(payload["next_actions"], ["No changes needed."])
+
     def test_plan_and_task_commands_manage_subtask_flow(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
