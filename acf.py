@@ -20,7 +20,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.4"
+VERSION = "v0.0.3.5"
 
 
 def find_template_dir() -> Path:
@@ -2430,7 +2430,7 @@ def normalize_release_version(value: str) -> tuple[str, str]:
     if raw.startswith("v"):
         raw = raw[1:]
     if not re.fullmatch(r"\d+(?:\.\d+)+", raw):
-        raise SystemExit(f"invalid version `{value}`, expected for example v0.0.3.2")
+        raise SystemExit(f"invalid version `{value}`, expected for example v0.0.3.5")
     return f"v{raw}", raw
 
 
@@ -2723,14 +2723,14 @@ def render_knowledge_index() -> str:
 
 def upgrade_notes_block(target: str) -> str:
     if target == "agents":
-        body = """## ACF v0.0.3.2 Upgrade Notes
+        body = """## ACF Current Schema Upgrade Notes
 
 - 默认读取顺序应包含 `active/Feedback_Inbox.md` 和 `active/Task_Plan.md`，并位于 `active/Current_Task.md` 之前。
 - 结构化维护优先使用 `acf plan`、`acf task`、`acf archive` 和 `acf knowledge`。
 - Feedback_Inbox 已处理条目的长期归档位置是 `archive/feedback/`。
 - 旧任务或旧计划不会由 `acf upgrade` 自动移动；需要归档时显式运行 archive 命令。"""
     else:
-        body = """## ACF v0.0.3.2 Upgrade Notes
+        body = """## ACF Current Schema Upgrade Notes
 
 - `acf upgrade [target]` 只补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge 结构。
 - 推荐升级流程：`acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。
@@ -4132,7 +4132,7 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
         if not file_path.is_file():
             errors.append(f"missing file: {rel}")
             continue
-        if file_path.stat().st_size == 0:
+        if file_path.stat().st_size == 0 and file_path.name != ".gitkeep":
             errors.append(f"empty required file: {rel}")
 
     task_file = path / "active" / "Current_Task.md"
@@ -4450,7 +4450,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="non-destructively add missing files for the current context schema",
         description=(
             "Upgrade an existing AI context to the current schema by adding missing "
-            "Feedback_Inbox, Task_Plan, archive, and Knowledge files/directories. This command does "
+            "Feedback_Inbox, Task_Plan, archive, archive/feedback, and Knowledge files/directories. "
+            "This command does "
             "not move old content, archive active tasks, or overwrite an Active "
             "Current_Task.md. Use --dry-run --json first to review changed_files."
         ),
@@ -4513,7 +4514,7 @@ def build_parser() -> argparse.ArgumentParser:
     version_show_parser.set_defaults(func=version_show_command)
 
     version_set_parser = version_subparsers.add_parser("set", help="update CLI and package version files")
-    version_set_parser.add_argument("value", help="version value, for example v0.0.3.2")
+    version_set_parser.add_argument("value", help="version value, for example v0.0.3.5")
     add_write_arguments(version_set_parser)
     version_set_parser.set_defaults(func=version_set_command)
 

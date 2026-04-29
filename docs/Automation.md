@@ -11,7 +11,7 @@
 - `status`：输出项目根、上下文目录、profile、当前任务状态和检查结果。
 - AI 友好输出第一版：`status` 和 `check` 支持 `--json`；写命令支持 `--json`、`--dry-run`、`--check-after` 并输出 changed files。
 - `init`：生成标准或简化上下文模板，并在推断出的项目根目录生成缺失的薄入口 AGENTS.md；已有根入口默认不覆盖，需要 `--force-root-agent` 才覆盖。
-- `upgrade`：非破坏式补齐旧上下文缺失的 `active/Task_Plan.md`、archive 结构和 Knowledge 结构，不自动移动或覆盖 Active 当前任务。
+- `upgrade`：非破坏式补齐旧上下文缺失的 `active/Feedback_Inbox.md`、`active/Task_Plan.md`、archive、archive/feedback 和 Knowledge 结构，不自动移动或覆盖 Active 当前任务。
 - `simplify`：从已有上下文导出简化版本，保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径；`--strict` 会将占位符残留视为错误。
 - `plan init|add-task|set-task|focus|status`：维护当前大任务计划和轻量子任务板。

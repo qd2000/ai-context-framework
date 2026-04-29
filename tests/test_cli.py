@@ -239,7 +239,12 @@ class CliTests(unittest.TestCase):
             self.assertIn(str(manual.resolve()), payload["changed_files"])
             self.assertIn(str((target / "archive" / "feedback" / ".gitkeep").resolve()), payload["changed_files"])
 
-            self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["upgrade", str(target), "--check-after", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            apply_payload = json.loads(stdout)
+            self.assertTrue(apply_payload["check"]["ok"])
             agents_text = agents.read_text(encoding="utf-8")
             self.assertIn("3. `active/Feedback_Inbox.md`", agents_text)
             self.assertIn("4. `active/Task_Plan.md`", agents_text)
@@ -292,7 +297,7 @@ class CliTests(unittest.TestCase):
             self.assertIn(str(agents.resolve()), payload["changed_files"])
             self.assertIn(str(manual.resolve()), payload["changed_files"])
             self.assertTrue(any("append upgrade notes" in warning for warning in payload["warnings"]))
-            self.assertNotIn("ACF v0.0.3.2 Upgrade Notes", agents.read_text(encoding="utf-8"))
+            self.assertNotIn("ACF Current Schema Upgrade Notes", agents.read_text(encoding="utf-8"))
 
             self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
             self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
@@ -301,8 +306,8 @@ class CliTests(unittest.TestCase):
             manual_text = manual.read_text(encoding="utf-8")
             self.assertEqual(agents_text.count("<!-- ACF:UPGRADE-NOTES:START -->"), 1)
             self.assertEqual(manual_text.count("<!-- ACF:UPGRADE-NOTES:START -->"), 1)
-            self.assertIn("ACF v0.0.3.2 Upgrade Notes", agents_text)
-            self.assertIn("ACF v0.0.3.2 Upgrade Notes", manual_text)
+            self.assertIn("ACF Current Schema Upgrade Notes", agents_text)
+            self.assertIn("ACF Current Schema Upgrade Notes", manual_text)
 
     def test_plan_and_task_commands_manage_subtask_flow(self):
         with tempfile.TemporaryDirectory() as tmp:
