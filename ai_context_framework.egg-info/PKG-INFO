@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.1.0
+Version: 0.0.3
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -111,6 +111,7 @@ uv tool update-shell
 
 ```bash
 acf --help
+acf --version
 acf status --json
 ```
 
@@ -161,6 +162,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `upgrade`：非破坏式补齐新版本上下文结构，不自动移动或覆盖 Active 当前任务。
 - `plan init|add-task|set-task|focus|status`：维护 `active/Task_Plan.md` 中的大任务和子任务板。
+- `plan complete`：在子任务完成后将大任务计划标记为 Done。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引。
@@ -179,6 +181,8 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 `status`、`check` 和 `edit section get` 支持 `--json` 输出。写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
 
 `edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它提供的是 section/table 级确定性编辑原语，不做语义判断，也不是通用 Markdown 编辑器。
+
+PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`，避免命令行字符串被 shell 改写。
 
 `log` 命令默认写入用户级全局目录 `%USERPROFILE%\.acf\projects\<project-id>\`（Windows）或 `~/.acf/projects/<project-id>/`（macOS/Linux），也可通过 `ACF_HOME` 指定根目录。它不写入项目 `worklog/`，也不记录 `--text` 正文、stdin 内容、Markdown diff 或完整 stdout/stderr。日志写入失败不会改变原命令退出码。
 

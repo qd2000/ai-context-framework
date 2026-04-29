@@ -355,6 +355,7 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "path is a directory",
         "target already exists",
         "outside context root",
+        "context is locked",
     )
     if any(marker in message for marker in safety_markers):
         return "safety_refused", EXIT_SAFETY_REFUSED
@@ -473,10 +474,8 @@ def release_context_lock(lock_path: Path) -> None:
 
 def write_command_context_root(args: argparse.Namespace) -> Path | None:
     command = getattr(args, "command", None)
-    if command == "init":
-        return getattr(args, "target").resolve()
-    if command == "simplify":
-        return getattr(args, "target").resolve()
+    if command in {"init", "simplify"}:
+        return None
     if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "knowledge"}:
         return require_context_root(getattr(args, "path", None))
     if command == "edit":
@@ -490,7 +489,6 @@ def run_with_context_lock(args: argparse.Namespace) -> int:
     root = write_command_context_root(args)
     if root is None:
         return args.func(args)
-    root.mkdir(parents=True, exist_ok=True)
     lock_path = acquire_context_lock(root, command_label(args))
     try:
         return args.func(args)
@@ -2594,6 +2592,26 @@ def plan_focus_command(args: argparse.Namespace) -> int:
     return emit_write_result(args, "plan focus", f"{action} task plan on {args.id}", [plan_path], check_result)
 
 
+def plan_complete_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    rows = read_task_rows(plan_path)
+    unfinished = [
+        row.get("ID", "")
+        for row in rows
+        if row.get("状态") not in {"Done", "Skipped", "Superseded"}
+    ]
+    if unfinished and not args.force:
+        raise SystemExit(f"task plan has unfinished subtasks; use --force to complete anyway: {', '.join(unfinished)}")
+    if not dry_run:
+        set_plan_status(plan_path, "Done")
+        set_plan_focus(plan_path, "无。")
+    check_result = maybe_check_after(args, root)
+    action = "would complete" if dry_run else "completed"
+    return emit_write_result(args, "plan complete", f"{action} task plan {plan_path}", [plan_path], check_result)
+
+
 def plan_status_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     plan_path = task_plan_path(root)
@@ -2606,7 +2624,7 @@ def plan_status_command(args: argparse.Namespace) -> int:
         "title": extract_heading_value(plan_path, "## 大任务名称"),
         "focus": extract_heading_value(plan_path, "## 当前焦点"),
         "tasks": rows,
-        "next_task": next((row for row in rows if row.get("状态") == "Pending"), None),
+        "next_task": recommended_next_task(rows),
         "error_code": None,
         "next_actions": [],
     }
@@ -3341,6 +3359,8 @@ def check_knowledge(root: Path, errors: list[str], warnings: list[str], strict: 
             body = safe_section_body(path, heading)
             if body is None or not body.strip():
                 errors.append(f"{rel}: missing or empty required section `{heading}`")
+            elif strict and any(placeholder in body for placeholder in ("待补充", "未分类", "无。")):
+                errors.append(f"{rel}: section `{heading}` still contains placeholder-like draft content")
         status = extract_heading_value(path, "## 状态")
         if status and status not in VALID_KNOWLEDGE_STATUSES:
             errors.append(f"{rel}: invalid knowledge status `{status}`")
@@ -3804,6 +3824,12 @@ def build_parser() -> argparse.ArgumentParser:
     plan_focus_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
     add_write_arguments(plan_focus_parser)
     plan_focus_parser.set_defaults(func=plan_focus_command)
+
+    plan_complete_parser = plan_subparsers.add_parser("complete", help="mark the task plan Done")
+    plan_complete_parser.add_argument("path", nargs="?", type=Path)
+    plan_complete_parser.add_argument("--force", action="store_true", help="complete even when subtasks are unfinished")
+    add_write_arguments(plan_complete_parser)
+    plan_complete_parser.set_defaults(func=plan_complete_command)
 
     plan_status_parser = plan_subparsers.add_parser("status", help="show task plan status")
     plan_status_parser.add_argument("path", nargs="?", type=Path)

@@ -49,6 +49,11 @@ class CliTests(unittest.TestCase):
         self.assertFalse(result.errors)
         self.assertTrue(result.warnings)
 
+    def test_version_flag_prints_current_version(self):
+        exit_code, stdout, stderr = self.run_cli_output(["--version"])
+        self.assertEqual(exit_code, 0, stderr)
+        self.assertIn("v0.0.3", stdout)
+
     def test_strict_template_check_fails_on_placeholders(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=True)
         self.assertTrue(any("placeholder" in error for error in result.errors))
@@ -239,6 +244,41 @@ class CliTests(unittest.TestCase):
             self.assertIn("blocked evidence", plan_text)
             self.assertIn("wait", plan_text)
 
+    def test_plan_status_recommends_active_or_dependency_ready_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T002", "--title", "Second", "--depends", "T001"])
+
+            exit_code, stdout, stderr = self.run_cli_output(["plan", "status", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["next_task"]["ID"], "T001")
+
+            self.run_cli(["task", "start", str(target), "--id", "T002", "--force"])
+            exit_code, stdout, stderr = self.run_cli_output(["plan", "status", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["next_task"]["ID"], "T002")
+
+    def test_plan_complete_marks_done_after_subtasks_done(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--title", "First"])
+            self.run_cli(["task", "start", str(target), "--id", "T001"])
+            self.run_cli(["task", "done", str(target), "--id", "T001", "--evidence", "done"])
+
+            exit_code = self.run_cli(["plan", "complete", str(target)])
+
+            self.assertEqual(exit_code, 0)
+            plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
+            self.assertIn("## 大任务状态\n\nDone", plan_text)
+            self.assertIn("## 当前焦点\n\n无。", plan_text)
+
     def test_archive_current_task_and_task_plan_reset_active_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
@@ -289,6 +329,42 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "reference" / "knowledge" / "K001-markdown-editing-lesson.md").exists())
             index_text = (target / "reference" / "Knowledge_Index.md").read_text(encoding="utf-8")
             self.assertIn("| K001 | Markdown editing lesson | Draft |", index_text)
+
+    def test_knowledge_draft_uses_unicode_slug_and_strict_rejects_draft_placeholders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "knowledge",
+                    "draft",
+                    str(target),
+                    "--title",
+                    "上下文维护写命令需要串行化",
+                    "--source",
+                    "active/Context.md",
+                ]
+            )
+            draft = next((target / "worklog" / "knowledge-drafts").glob("*-上下文维护写命令需要串行化.md"))
+            self.run_cli(["knowledge", "apply", str(draft), str(target)])
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("placeholder-like draft content" in error for error in result.errors))
+
+    def test_write_command_refuses_existing_context_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / ".acf.lock").write_text("locked\n", encoding="utf-8")
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["plan", "init", str(target), "--title", "Large task", "--goal", "Goal", "--json"]
+            )
+
+            self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["error_code"], "safety_refused")
 
     def test_check_detects_invalid_plan_and_knowledge(self):
         with tempfile.TemporaryDirectory() as tmp:

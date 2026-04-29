@@ -245,6 +245,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - Windows：`where acf`
 - macOS/Linux：`which acf`
 - 通用：`acf --help`
+- 查看版本：`acf --version`
 
 请注意：能在任意目录运行 `acf`，不等于任意目录都有 AI 上下文。`acf status --json` 只有在当前目录位于某个包含 `docs/ai` 或上下文根目录的项目中时才会成功。否则应先进入项目目录、显式传入上下文路径，或运行 `acf init docs/ai` 初始化。
 
@@ -256,7 +257,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `acf simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `acf upgrade [target]`：非破坏式补齐当前版本需要的 Task_Plan、archive 和 Knowledge 结构。
-- `acf plan init|add-task|set-task|focus|status [target]`：维护当前大任务计划和子任务板。
+- `acf plan init|add-task|set-task|focus|complete|status [target]`：维护当前大任务计划和子任务板，并在完成后标记计划 Done。
 - `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务。
 - `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
 - `acf knowledge draft|apply|list|show|mark [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态。
@@ -314,6 +315,8 @@ uv run --project <ai-context-framework 路径> acf upgrade --dry-run --json
 JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。当检查失败时，`error_code` 为 `check_failed`，`next_actions` 给出后续处理建议。
 
 `edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它只提供 section/table 级确定性编辑，不做事实判断，也不是通用 Markdown 编辑器。
+
+PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`，避免 shell 改写正文。
 
 `log` 命令默认关闭，启用后写入用户级全局目录：Windows 为 `%USERPROFILE%\.acf\projects\<project-id>\`，macOS/Linux 为 `~/.acf/projects/<project-id>/`；也可通过 `ACF_HOME` 指定根目录。它只记录命令形态、结果、错误分类、耗时、dry-run 状态和 changed files 等元数据，不记录 `--text` 正文、stdin 内容、Markdown diff、模型对话或完整 stdout/stderr。usage event log 是评测和排障资料，不是权威上下文，也不应直接写入 `worklog/`。
 
