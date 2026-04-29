@@ -255,6 +255,82 @@ class CliTests(unittest.TestCase):
             self.assertIn("acf plan init|add-task|set-task|focus|complete|status", manual_text)
             self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
 
+    def test_upgrade_refreshes_existing_stale_template_sections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            agents = target / "AGENTS.md"
+            feedback = target / "active" / "Feedback_Inbox.md"
+            rules = target / "rules" / "Project_Rules.md"
+            manual = target / "reference" / "System_Manual.md"
+
+            agents.write_text(
+                "## 默认读取顺序\n\n"
+                "1. `active/Context.md`\n"
+                "2. `rules/Always_Active.md`\n"
+                "3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）\n"
+                "4. `active/Task_Plan.md`\n"
+                "5. `active/Current_Task.md`（仅当任务状态为 Active 时）\n\n"
+                "---\n\n"
+                "## 会话结束回写要求\n\n"
+                "每次重要协作结束时，AI 必须输出标准化的回写建议：\n\n"
+                "最终是否写入，由用户决定。\n",
+                encoding="utf-8",
+            )
+            feedback.write_text(
+                "## 状态说明\n\n"
+                "- Open：尚未整理。\n"
+                "- Done：已处理完成。\n\n"
+                "---\n\n"
+                "## 反馈条目\n\n"
+                "| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |\n"
+                "|---|---|---|---|---|---|\n"
+                "| F001 | Open | 需求 | Keep row | user | later |\n\n"
+                "---\n\n"
+                "## 使用规则\n\n"
+                "1. AI 不应把本文件中的随想直接当作已确认事实。\n",
+                encoding="utf-8",
+            )
+            rules.write_text("这些规则适用于本项目的大多数任务。\n", encoding="utf-8")
+            manual.write_text(
+                "本文件是上下文管理系统的详细使用手册。\n\n"
+                "## 1. active/ 使用规则\n\n"
+                "1. 默认优先读取 `active/Context.md`。\n\n"
+                "---\n\n"
+                "## 2. rules/ 读取策略\n\n"
+                "默认读取 rules。\n\n"
+                "---\n\n"
+                "## 13. 更新项目上下文的规则\n\n"
+                "每次重要协作结束后，AI 应输出标准化的回写建议（格式见 AGENTS.md）。\n\n"
+                "最终是否写入，由用户决定。\n\n"
+                "---\n\n"
+                "## 15. CLI 辅助工具\n\n"
+                "### 15.2 常用命令\n\n"
+                "- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive 和 Knowledge 结构。\n\n"
+                "### 15.3 旧版本上下文升级\n\n"
+                "`upgrade` 是非破坏式命令，只补齐当前 schema 缺失的 `active/Task_Plan.md`、archive 和 Knowledge 文件/目录。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["upgrade", str(target), "--dry-run", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn(str(agents.resolve()), payload["changed_files"])
+            self.assertIn(str(feedback.resolve()), payload["changed_files"])
+            self.assertIn(str(rules.resolve()), payload["changed_files"])
+            self.assertIn(str(manual.resolve()), payload["changed_files"])
+
+            self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
+            self.assertIn("不应默认重复打印完整回写建议清单", agents.read_text(encoding="utf-8"))
+            self.assertIn("## 会话结束回写建议", agents.read_text(encoding="utf-8"))
+            self.assertIn("Keep row", feedback.read_text(encoding="utf-8"))
+            self.assertIn("archive/feedback/", feedback.read_text(encoding="utf-8"))
+            self.assertIn("旧版本上下文", rules.read_text(encoding="utf-8"))
+            self.assertIn("Feedback_Inbox 生命周期", manual.read_text(encoding="utf-8"))
+            self.assertIn("archive、archive/feedback 和 Knowledge", manual.read_text(encoding="utf-8"))
+
     def test_upgrade_dry_run_reports_no_changes_when_current(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

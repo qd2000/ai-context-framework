@@ -20,7 +20,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.5"
+VERSION = "v0.0.3.6"
 
 
 def find_template_dir() -> Path:
@@ -234,7 +234,7 @@ rules/       核心规则
 reference/   长期背景、资料索引、知识索引和决策索引
 decisions/   重要决策详情
 worklog/     整理后的工作记录
-archive/     历史归档，默认不读取
+archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认不读取
 ```
 
 ---
@@ -2430,7 +2430,7 @@ def normalize_release_version(value: str) -> tuple[str, str]:
     if raw.startswith("v"):
         raw = raw[1:]
     if not re.fullmatch(r"\d+(?:\.\d+)+", raw):
-        raise SystemExit(f"invalid version `{value}`, expected for example v0.0.3.5")
+        raise SystemExit(f"invalid version `{value}`, expected for example v0.0.3.6")
     return f"v{raw}", raw
 
 
@@ -2744,8 +2744,37 @@ def append_upgrade_notes_if_needed(text: str, target: str) -> str:
     return text.rstrip() + upgrade_notes_block(target)
 
 
+def section_exists(text: str, heading: str) -> bool:
+    try:
+        find_section(text.splitlines(), heading)
+    except SystemExit:
+        return False
+    return True
+
+
+def template_section_body(rel_path: str, heading: str) -> str | None:
+    path = TEMPLATE_DIR / rel_path
+    if not path.exists():
+        return None
+    try:
+        section = find_section(read_text(path).splitlines(), heading)
+    except SystemExit:
+        return None
+    return section_body(read_text(path).splitlines(), section)
+
+
+def replace_section_from_template(text: str, rel_path: str, heading: str) -> str:
+    if not section_exists(text, heading):
+        return text
+    body = template_section_body(rel_path, heading)
+    if body is None:
+        return text
+    return replace_section_text(text, heading, body)
+
+
 def upgraded_agents_text(text: str) -> str:
     original = text
+    text = text.replace("## 会话结束回写要求", "## 会话结束回写建议")
     if "active/Task_Plan.md" not in text:
         replacements = (
             (
@@ -2777,6 +2806,12 @@ def upgraded_agents_text(text: str) -> str:
         "新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时",
         "新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时",
     )
+    if "不应默认重复打印完整回写建议清单" not in text and section_exists(text, "## 会话结束回写建议"):
+        text = replace_section_from_template(text, "AGENTS.md", "## 会话结束回写建议")
+    if "active/Feedback_Inbox.md" not in text and section_exists(text, "## 事实源优先级"):
+        text = replace_section_from_template(text, "AGENTS.md", "## 事实源优先级")
+    if "archive/feedback" not in text and section_exists(text, "## 目录结构"):
+        text = replace_section_from_template(text, "AGENTS.md", "## 目录结构")
     if "active/Task_Plan.md" not in text and UPGRADE_NOTES_START not in text:
         text = append_upgrade_notes_if_needed(text, "agents")
     elif text == original and "acf plan" not in text and UPGRADE_NOTES_START not in text:
@@ -2784,7 +2819,36 @@ def upgraded_agents_text(text: str) -> str:
     return text
 
 
+def upgraded_feedback_inbox_text(text: str) -> str:
+    if "archive/feedback/" in text and "只在近期或当前计划仍需引用时保留" in text:
+        return text
+    if section_exists(text, "## 状态说明"):
+        text = replace_section_from_template(text, "active/Feedback_Inbox.md", "## 状态说明")
+    if section_exists(text, "## 使用规则"):
+        text = replace_section_from_template(text, "active/Feedback_Inbox.md", "## 使用规则")
+    return text
+
+
+def upgraded_project_rules_text(text: str) -> str:
+    if "旧版本上下文" in text and "`acf upgrade`" in text and "init/upgrade" in text:
+        return text
+    addition = "- 修改模板目录结构、默认上下文结构或 `acf upgrade` 补齐逻辑时，必须评估旧版本上下文能否通过 `acf upgrade` 良好升级；新增结构应同步到 upgrade 文件清单、打包清单、文档和 init/upgrade 测试。"
+    return text.rstrip() + "\n" + addition + "\n"
+
+
 def upgraded_system_manual_text(text: str) -> str:
+    text = text.replace(
+        "每次重要协作结束后，AI 应输出标准化的回写建议（格式见 AGENTS.md）。\n\n最终是否写入，由用户决定。",
+        "重要协作结束后，AI 不应默认重复打印完整回写建议清单。应先判断哪些内容可以确定落盘，优先使用 `acf plan`、`acf task`、`acf edit`、`acf new worklog`、`acf knowledge draft`、`acf archive` 或 `acf writeback draft` 写入对应文件或草案。\n\n最终回复只报告实际修改的文件、生成的草案、执行的检查和仍需人工判断的风险。没有变化的类别不需要输出“无需更新”。",
+    )
+    text = text.replace(
+        "Feedback_Inbox、Task_Plan、archive 和 Knowledge",
+        "Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge",
+    )
+    text = text.replace(
+        "`active/Task_Plan.md`、archive 和 Knowledge",
+        "`active/Task_Plan.md`、archive、archive/feedback 和 Knowledge",
+    )
     if "acf upgrade [target]" not in text:
         marker = "### 14.2 常用命令"
         if marker not in text:
@@ -2804,6 +2868,15 @@ def upgraded_system_manual_text(text: str) -> str:
         text = text.rstrip() + insertion + "\n"
     if "PowerShell 中反引号是转义字符" not in text:
         text = text.rstrip() + "\n\nPowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。\n"
+    if "Feedback_Inbox 生命周期" not in text and section_exists(text, "## 1. active/ 使用规则"):
+        body = template_section_body("reference/System_Manual.md", "### 1.1 Feedback_Inbox 生命周期")
+        if body is not None:
+            marker = "\n---\n\n## 2. rules/ 读取策略"
+            insertion = f"\n### 1.1 Feedback_Inbox 生命周期\n\n{body}\n\n---\n\n## 2. rules/ 读取策略"
+            text = text.replace(marker, insertion)
+    if "修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为" not in text and "旧版本上下文升级" in text:
+        addition = "\n\n维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档和 init/upgrade 单元测试；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。\n"
+        text = text.rstrip() + addition
     if "acf upgrade [target]" not in text and UPGRADE_NOTES_START not in text:
         text = append_upgrade_notes_if_needed(text, "manual")
     return text
@@ -2823,6 +2896,8 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
     ]
     changed = [path for path in planned if not path.exists()]
     agents = root / "AGENTS.md"
+    feedback = root / "active" / "Feedback_Inbox.md"
+    project_rules = root / "rules" / "Project_Rules.md"
     manual = root / "reference" / "System_Manual.md"
     warnings: list[str] = []
     if agents.exists():
@@ -2832,6 +2907,16 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
             changed.append(agents)
             if UPGRADE_NOTES_START not in original_agents and UPGRADE_NOTES_START in updated_agents:
                 warnings.append(f"{agents}: append upgrade notes because no known AGENTS.md pattern matched")
+    if feedback.exists():
+        original_feedback = read_text(feedback)
+        updated_feedback = upgraded_feedback_inbox_text(original_feedback)
+        if updated_feedback != original_feedback:
+            changed.append(feedback)
+    if project_rules.exists():
+        original_rules = read_text(project_rules)
+        updated_rules = upgraded_project_rules_text(original_rules)
+        if updated_rules != original_rules:
+            changed.append(project_rules)
     if manual.exists():
         original_manual = read_text(manual)
         updated_manual = upgraded_system_manual_text(original_manual)
@@ -2864,6 +2949,18 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         updated = upgraded_agents_text(text)
         if updated != text:
             agents.write_text(updated, encoding="utf-8")
+
+    if feedback.exists():
+        text = read_text(feedback)
+        updated = upgraded_feedback_inbox_text(text)
+        if updated != text:
+            feedback.write_text(updated, encoding="utf-8")
+
+    if project_rules.exists():
+        text = read_text(project_rules)
+        updated = upgraded_project_rules_text(text)
+        if updated != text:
+            project_rules.write_text(updated, encoding="utf-8")
 
     if manual.exists():
         text = read_text(manual)
@@ -4514,7 +4611,7 @@ def build_parser() -> argparse.ArgumentParser:
     version_show_parser.set_defaults(func=version_show_command)
 
     version_set_parser = version_subparsers.add_parser("set", help="update CLI and package version files")
-    version_set_parser.add_argument("value", help="version value, for example v0.0.3.5")
+    version_set_parser.add_argument("value", help="version value, for example v0.0.3.6")
     add_write_arguments(version_set_parser)
     version_set_parser.set_defaults(func=version_set_command)
 

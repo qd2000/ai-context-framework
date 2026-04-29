@@ -33,7 +33,7 @@ rules/       规则系统，按 always / requested / manual 分层
 reference/   支持性资料、索引、摘要，按需读取
 decisions/   重要决策详情，通常通过 Decisions_Index.md 进入
 worklog/     整理后的工作记录，不是原始运行日志
-archive/     历史归档，默认不读取
+archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认不读取
 ```
 
 ---
