@@ -126,6 +126,7 @@ acf task start --id T001
 acf task done --id T001 --evidence "worklog/daily/YYYY-MM-DD.md"
 acf archive current-task --reason "任务已完成"
 acf knowledge draft --title "任务拆分经验" --source "worklog/daily/YYYY-MM-DD.md"
+acf knowledge apply worklog/knowledge-drafts/YYYY-MM-DD-task.md --allow-similar
 acf new task --title "实现一个维护任务" --goal "写清当前目标。"
 acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
 acf new worklog --summary "完成一次上下文维护。"
@@ -153,12 +154,12 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `init`：从 `template/` 生成标准或简化上下文目录。
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
-- `upgrade`：非破坏式补齐新版本上下文结构，不自动移动或覆盖 Active 当前任务。
+- `upgrade`：非破坏式补齐新版本上下文结构，不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
 - `plan init|add-task|set-task|focus|status`：维护 `active/Task_Plan.md` 中的大任务和子任务板。
 - `plan complete`：在子任务完成后将大任务计划标记为 Done。
-- `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务。
+- `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
-- `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引。
+- `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
@@ -166,7 +167,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `writeback draft`：把会话结束回写建议保存为可审阅草案，不直接修改权威上下文文件。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
-- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、archive、Knowledge 和占位符残留。
+- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、archive、Knowledge 占位符残留和疑似重复条目。
 - `log enable|disable|status|tail|summarize|prune`：管理本地使用状态日志，默认关闭，启用后记录命令结果元数据。
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
@@ -202,7 +203,7 @@ acf upgrade --check-after --json
 acf check --strict --json
 ```
 
-`upgrade` 只补齐当前 schema 缺失的 `Task_Plan`、archive 和 Knowledge 文件/目录，不移动旧内容、不自动归档任务、不覆盖 Active `Current_Task.md`。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。
+`upgrade` 只补齐当前 schema 缺失的 `Task_Plan`、archive 和 Knowledge 文件/目录，不移动旧内容、不自动归档任务、不覆盖 Active `Current_Task.md`。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
 
 如果全局 `acf` 未安装，可在本仓库源码环境中对其他项目运行：
 

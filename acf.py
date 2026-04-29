@@ -20,7 +20,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3"
+VERSION = "v0.0.3.1"
 
 
 def find_template_dir() -> Path:
@@ -131,6 +131,7 @@ MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
 TASK_ID_RE = re.compile(r"^T(\d{3})$")
+TASK_ID_TOKEN_RE = re.compile(r"\bT(\d{3})\b")
 KNOWLEDGE_ID_RE = re.compile(r"^K(\d{3})$")
 DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
@@ -147,6 +148,44 @@ ACF_HOME_ENV = "ACF_HOME"
 USAGE_LOG_CONFIG_NAME = "config.json"
 USAGE_LOG_FILE_REL = "logs/usage.jsonl"
 LOCK_FILE_REL = ".acf.lock"
+UPGRADE_NOTES_START = "<!-- ACF:UPGRADE-NOTES:START -->"
+UPGRADE_NOTES_END = "<!-- ACF:UPGRADE-NOTES:END -->"
+KNOWLEDGE_TITLE_SIMILARITY_THRESHOLD = 0.85
+KNOWLEDGE_BODY_SIMILARITY_THRESHOLD = 0.72
+KNOWLEDGE_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "be",
+    "for",
+    "from",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "with",
+    "一个",
+    "不是",
+    "不要",
+    "不能",
+    "为了",
+    "以及",
+    "使用",
+    "可以",
+    "如果",
+    "应该",
+    "当前",
+    "需要",
+    "通过",
+}
 
 MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本项目。
 
@@ -247,6 +286,16 @@ class ContextLocation:
     project_root: Path
     context_root: Path
     profile: str
+
+
+@dataclass
+class KnowledgeEntry:
+    knowledge_id: str
+    title: str
+    status: str
+    summary: str
+    conclusion: str
+    path: Path | None
 
 
 @dataclass
@@ -363,7 +412,9 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "already contains",
         "current task is Active",
         "path is a directory",
+        "similar knowledge",
         "target already exists",
+        "unfinished dependencies",
         "outside context root",
         "context is locked",
     )
@@ -413,6 +464,8 @@ def emit_write_result(
     message: str,
     changed_files: Sequence[Path],
     check_result: CheckResult | None = None,
+    extra_payload: dict[str, object] | None = None,
+    warnings: Sequence[str] = (),
 ) -> int:
     dry_run = dry_run_enabled(args)
     payload: dict[str, object] = {
@@ -424,6 +477,10 @@ def emit_write_result(
         "message": message,
         "next_actions": write_next_actions(dry_run, check_result, changed_files),
     }
+    if warnings:
+        payload["warnings"] = list(warnings)
+    if extra_payload:
+        payload.update(extra_payload)
     if check_result is not None:
         payload["check"] = check_payload(check_result)
     set_result_payload(args, payload)
@@ -441,6 +498,8 @@ def emit_write_result(
                 print(f"ERROR: {error}", file=sys.stderr)
             for warning in check_result.warnings:
                 print(f"WARN: {warning}", file=sys.stderr)
+        for warning in warnings:
+            print(f"WARN: {warning}", file=sys.stderr)
 
     return 0 if check_result is None or check_result.ok else 1
 
@@ -2383,7 +2442,30 @@ def render_knowledge_index() -> str:
 """
 
 
+def upgrade_notes_block(target: str) -> str:
+    if target == "agents":
+        body = """## ACF v0.0.3.1 Upgrade Notes
+
+- 默认读取顺序应包含 `active/Task_Plan.md`，并位于 `active/Current_Task.md` 之前。
+- 结构化维护优先使用 `acf plan`、`acf task`、`acf archive` 和 `acf knowledge`。
+- 旧任务或旧计划不会由 `acf upgrade` 自动移动；需要归档时显式运行 archive 命令。"""
+    else:
+        body = """## ACF v0.0.3.1 Upgrade Notes
+
+- `acf upgrade [target]` 只补齐 Task_Plan、archive 和 Knowledge 结构。
+- 推荐升级流程：`acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。
+- Active `active/Current_Task.md` 不会被覆盖，旧任务归档请显式使用 `acf archive current-task` 或 `acf archive task-plan`。"""
+    return f"\n\n{UPGRADE_NOTES_START}\n{body}\n{UPGRADE_NOTES_END}\n"
+
+
+def append_upgrade_notes_if_needed(text: str, target: str) -> str:
+    if UPGRADE_NOTES_START in text:
+        return text
+    return text.rstrip() + upgrade_notes_block(target)
+
+
 def upgraded_agents_text(text: str) -> str:
+    original = text
     if "active/Task_Plan.md" not in text:
         replacements = (
             (
@@ -2406,6 +2488,10 @@ def upgraded_agents_text(text: str) -> str:
         "新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时",
         "新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时",
     )
+    if "active/Task_Plan.md" not in text and UPGRADE_NOTES_START not in text:
+        text = append_upgrade_notes_if_needed(text, "agents")
+    elif text == original and "acf plan" not in text and UPGRADE_NOTES_START not in text:
+        text = append_upgrade_notes_if_needed(text, "agents")
     return text
 
 
@@ -2429,10 +2515,12 @@ def upgraded_system_manual_text(text: str) -> str:
         text = text.rstrip() + insertion + "\n"
     if "PowerShell 中反引号是转义字符" not in text:
         text = text.rstrip() + "\n\nPowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。\n"
+    if "acf upgrade [target]" not in text and UPGRADE_NOTES_START not in text:
+        text = append_upgrade_notes_if_needed(text, "manual")
     return text
 
 
-def ensure_upgrade_structure(root: Path, dry_run: bool) -> list[Path]:
+def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], list[str]]:
     planned = [
         root / "active" / "Task_Plan.md",
         root / "archive" / "Archive_Index.md",
@@ -2444,14 +2532,25 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> list[Path]:
     ]
     changed = [path for path in planned if not path.exists()]
     agents = root / "AGENTS.md"
-    if agents.exists() and upgraded_agents_text(read_text(agents)) != read_text(agents):
-        changed.append(agents)
     manual = root / "reference" / "System_Manual.md"
-    if manual.exists() and upgraded_system_manual_text(read_text(manual)) != read_text(manual):
-        changed.append(manual)
+    warnings: list[str] = []
+    if agents.exists():
+        original_agents = read_text(agents)
+        updated_agents = upgraded_agents_text(original_agents)
+        if updated_agents != original_agents:
+            changed.append(agents)
+            if UPGRADE_NOTES_START not in original_agents and UPGRADE_NOTES_START in updated_agents:
+                warnings.append(f"{agents}: append upgrade notes because no known AGENTS.md pattern matched")
+    if manual.exists():
+        original_manual = read_text(manual)
+        updated_manual = upgraded_system_manual_text(original_manual)
+        if updated_manual != original_manual:
+            changed.append(manual)
+            if UPGRADE_NOTES_START not in original_manual and UPGRADE_NOTES_START in updated_manual:
+                warnings.append(f"{manual}: append upgrade notes because no known System_Manual.md pattern matched")
 
     if dry_run:
-        return changed
+        return changed, warnings
 
     for path in planned:
         if path.exists():
@@ -2478,16 +2577,16 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> list[Path]:
         if updated != text:
             manual.write_text(updated, encoding="utf-8")
 
-    return changed
+    return changed, warnings
 
 
 def upgrade_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
-    changed_files = ensure_upgrade_structure(root, dry_run)
+    changed_files, warnings = ensure_upgrade_structure(root, dry_run)
     check_result = maybe_check_after(args, root)
     action = "would upgrade" if dry_run else "upgraded"
-    return emit_write_result(args, "upgrade", f"{action} context structure at {root}", changed_files, check_result)
+    return emit_write_result(args, "upgrade", f"{action} context structure at {root}", changed_files, check_result, warnings=warnings)
 
 
 def task_plan_path(root: Path) -> Path:
@@ -2548,10 +2647,96 @@ def task_dependencies_satisfied(row: dict[str, str], rows: Sequence[dict[str, st
     if not depends or depends in {"无。", "无", "None", "-"}:
         return True
     done_ids = {candidate.get("ID") for candidate in rows if candidate.get("状态") in {"Done", "Superseded", "Skipped"}}
-    dependency_ids = TASK_ID_RE.findall(depends)
+    dependency_ids = TASK_ID_TOKEN_RE.findall(depends)
     if not dependency_ids:
         return True
     return all(f"T{number}" in done_ids for number in dependency_ids)
+
+
+def dependency_task_ids(value: str) -> list[str]:
+    return [f"T{number}" for number in TASK_ID_TOKEN_RE.findall(value or "")]
+
+
+def blocked_dependency_ids(row: dict[str, str], rows: Sequence[dict[str, str]]) -> list[str]:
+    row_by_id = {candidate.get("ID", ""): candidate for candidate in rows}
+    blocked: list[str] = []
+    for task_id in dependency_task_ids(row.get("依赖", "")):
+        dependency = row_by_id.get(task_id)
+        if dependency is None or dependency.get("状态") not in {"Done", "Superseded", "Skipped"}:
+            blocked.append(task_id)
+    return blocked
+
+
+def meaningful_task_cell(value: str | None, fallback: str) -> str:
+    value = (value or "").strip()
+    if not value or value in {"无。", "无", "None", "-"}:
+        return fallback
+    return value
+
+
+def build_task_start_fields(
+    plan_path: Path,
+    row: dict[str, str],
+    rows: Sequence[dict[str, str]],
+    forced_with_blocked_dependencies: bool,
+) -> dict[str, object]:
+    task_id = row.get("ID", "无。")
+    title = meaningful_task_cell(row.get("子任务"), task_id)
+    plan_title = extract_heading_value(plan_path, "## 大任务名称") or "active/Task_Plan.md"
+    output = meaningful_task_cell(row.get("输出物"), "完成该子任务要求的输出物。")
+    next_action = meaningful_task_cell(row.get("下一步"), f"完成子任务 {task_id}。")
+    dependency_ids = dependency_task_ids(row.get("依赖", ""))
+    blocked = blocked_dependency_ids(row, rows)
+    dependency_summary = meaningful_task_cell(row.get("依赖"), "无明确依赖。")
+
+    inputs = ["`active/Task_Plan.md`。", "`active/Context.md`。"]
+    row_by_id = {candidate.get("ID", ""): candidate for candidate in rows}
+    for dependency_id in dependency_ids:
+        dependency = row_by_id.get(dependency_id)
+        if dependency is None:
+            inputs.append(f"依赖 {dependency_id}：任务板中未找到该依赖。")
+            continue
+        evidence = meaningful_task_cell(dependency.get("证据"), "尚无证据。")
+        inputs.append(f"依赖 {dependency_id} 证据：{evidence}")
+
+    failures = [
+        "依赖任务未完成或证据不足。",
+        "输出物无法通过检查或人工复核验证。",
+        "执行中发现用户当前需求与任务板记录冲突。",
+    ]
+    constraints = [
+        "遵守当前项目规则和默认读取顺序。",
+        "保持 `active/Task_Plan.md` 与 `active/Current_Task.md` 状态同步。",
+        "不要把一次性过程或当前事实直接写入 Knowledge。",
+    ]
+    if forced_with_blocked_dependencies:
+        constraints.append(f"`--force` 启动时仍存在未完成依赖：{', '.join(blocked)}。")
+
+    return {
+        "task_id": task_id,
+        "generated_title": title,
+        "blocked_dependencies": blocked,
+        "warnings": [f"blocked dependencies: {', '.join(blocked)}"] if blocked else [],
+        "content": render_current_task(
+            "Active",
+            title,
+            plan_title,
+            task_id,
+            [next_action, f"产出并验证输出物：{output}"],
+            f"该任务来自 `active/Task_Plan.md` 中的子任务 {task_id}，所属大任务为“{plan_title}”。依赖记录：{dependency_summary}",
+            inputs,
+            [output],
+            [
+                f"输出物已完成：{output}",
+                f"子任务 {task_id} 的完成证据已写回任务板。",
+                "`acf plan status` 能显示任务板可继续推进。",
+            ],
+            failures,
+            constraints,
+            ["无。"],
+            ["执行过程中是否发现应回写 Context、ADR、rules、Knowledge 或 archive 的内容？"],
+        ),
+    }
 
 
 def recommended_next_task(rows: Sequence[dict[str, str]]) -> dict[str, str] | None:
@@ -2732,36 +2917,34 @@ def task_start_command(args: argparse.Namespace) -> int:
         raise SystemExit(f"current task is Active; use --force to replace it: {task_path}")
     rows = read_task_rows(plan_path)
     row = find_task_row(rows, args.id)
+    blocked = blocked_dependency_ids(row, rows)
+    if blocked and not args.force and not dry_run:
+        raise SystemExit(f"task {args.id} has unfinished dependencies; use --force to start anyway: {', '.join(blocked)}")
+    fields = build_task_start_fields(plan_path, row, rows, bool(blocked and args.force))
     for candidate in rows:
         if candidate.get("状态") == "Active" and candidate.get("ID") != args.id:
             candidate["状态"] = "Pending"
     row["状态"] = "Active"
-    title = row.get("子任务", args.id)
     if not dry_run:
         write_task_rows(plan_path, rows)
         set_plan_focus(plan_path, args.id)
         set_plan_status(plan_path, "Active")
-        task_path.write_text(
-            render_current_task(
-                "Active",
-                title,
-                extract_heading_value(plan_path, "## 大任务名称") or "active/Task_Plan.md",
-                args.id,
-                [row.get("下一步") or f"完成子任务 {args.id}。"],
-                f"该任务来自 `active/Task_Plan.md` 中的子任务 {args.id}。",
-                ["`active/Task_Plan.md`。"],
-                [row.get("输出物") or "子任务输出物已完成。"],
-                [f"子任务 {args.id} 已完成并记录证据。"],
-                ["目标无法验证。"],
-                ["遵守当前项目规则。"],
-                ["无。"],
-                ["无。"],
-            ),
-            encoding="utf-8",
-        )
+        task_path.write_text(str(fields["content"]), encoding="utf-8")
     check_result = maybe_check_after(args, root)
     action = "would start" if dry_run else "started"
-    return emit_write_result(args, "task start", f"{action} task {args.id}", [plan_path, task_path], check_result)
+    return emit_write_result(
+        args,
+        "task start",
+        f"{action} task {args.id}",
+        [plan_path, task_path],
+        check_result,
+        extra_payload={
+            "task_id": fields["task_id"],
+            "generated_title": fields["generated_title"],
+            "blocked_dependencies": fields["blocked_dependencies"],
+        },
+        warnings=fields["warnings"] if isinstance(fields["warnings"], list) else [],
+    )
 
 
 def task_done_command(args: argparse.Namespace) -> int:
@@ -3033,17 +3216,166 @@ def resolve_knowledge_draft(root: Path, draft: Path) -> Path:
     raise SystemExit(f"knowledge draft does not exist: {draft}")
 
 
+def safe_section_body_from_text(text: str, heading: str) -> str:
+    try:
+        lines = text.splitlines()
+        return section_body(lines, find_section(lines, heading))
+    except SystemExit:
+        return ""
+
+
+def knowledge_title_from_text(text: str, fallback: str) -> str:
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if first_line.startswith("# K-草案："):
+        return first_line.replace("# K-草案：", "", 1).strip() or fallback
+    if first_line.startswith("# "):
+        title = re.sub(r"^#\s*K\d{3}[：:]\s*", "", first_line).strip()
+        return title or fallback
+    return fallback
+
+
+def knowledge_tokens(value: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", value).lower()
+    normalized = re.sub(r"`[^`]*`", " ", normalized)
+    raw_tokens = re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", normalized)
+    tokens: set[str] = set()
+    for token in raw_tokens:
+        if token in KNOWLEDGE_STOPWORDS:
+            continue
+        if re.fullmatch(r"[\u4e00-\u9fff]+", token) and len(token) > 2:
+            tokens.update(token[index : index + 2] for index in range(len(token) - 1))
+        else:
+            tokens.add(token)
+    return {token for token in tokens if token and token not in KNOWLEDGE_STOPWORDS}
+
+
+def jaccard_similarity(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def knowledge_entry_from_file(path: Path, knowledge_id: str, title: str, status: str, summary: str) -> KnowledgeEntry:
+    text = read_text(path)
+    file_title = knowledge_title_from_text(text, title)
+    return KnowledgeEntry(
+        knowledge_id=knowledge_id,
+        title=title or file_title,
+        status=extract_heading_value(path, "## 状态") or status,
+        summary=summary or safe_section_body_from_text(text, "## 摘要"),
+        conclusion=safe_section_body_from_text(text, "## 结论"),
+        path=path,
+    )
+
+
+def collect_knowledge_entries(root: Path) -> list[KnowledgeEntry]:
+    entries: list[KnowledgeEntry] = []
+    seen_paths: set[Path] = set()
+    index_path = knowledge_index_path(root)
+    if index_path.exists():
+        for cells in parse_markdown_table_rows(read_text(index_path)):
+            if len(cells) < 6 or cells[0] in {"ID", "暂无"}:
+                continue
+            knowledge_id, title, status, _tags, summary, detail = cells[:6]
+            if status not in {"Active", "Draft"}:
+                continue
+            ref = strip_code_ticks(detail)
+            if not ref:
+                continue
+            resolved = resolve_ref(root, index_path, ref) if should_check_ref(ref) else None
+            if resolved is not None:
+                seen_paths.add(resolved.resolve())
+                entries.append(knowledge_entry_from_file(resolved, knowledge_id, title, status, summary))
+
+    knowledge_dir = root / "reference" / "knowledge"
+    if knowledge_dir.exists():
+        for path in sorted(knowledge_dir.glob("K*.md")):
+            resolved = path.resolve()
+            if resolved in seen_paths:
+                continue
+            match = re.match(r"(K\d{3})-", path.name)
+            knowledge_id = match.group(1) if match else path.stem
+            status = extract_heading_value(path, "## 状态") or "Draft"
+            if status not in {"Active", "Draft"}:
+                continue
+            text = read_text(path)
+            entries.append(
+                KnowledgeEntry(
+                    knowledge_id=knowledge_id,
+                    title=knowledge_title_from_text(text, path.stem),
+                    status=status,
+                    summary=safe_section_body_from_text(text, "## 摘要"),
+                    conclusion=safe_section_body_from_text(text, "## 结论"),
+                    path=path,
+                )
+            )
+    return entries
+
+
+def similar_knowledge_entries(
+    candidate: KnowledgeEntry,
+    entries: Sequence[KnowledgeEntry],
+    exclude_ids: set[str] | None = None,
+) -> list[dict[str, object]]:
+    excluded = exclude_ids or set()
+    candidate_title_tokens = knowledge_tokens(candidate.title)
+    candidate_body_tokens = knowledge_tokens(f"{candidate.summary}\n{candidate.conclusion}")
+    similar: list[dict[str, object]] = []
+    for entry in entries:
+        if entry.knowledge_id in excluded:
+            continue
+        title_score = jaccard_similarity(candidate_title_tokens, knowledge_tokens(entry.title))
+        body_score = jaccard_similarity(candidate_body_tokens, knowledge_tokens(f"{entry.summary}\n{entry.conclusion}"))
+        if title_score >= KNOWLEDGE_TITLE_SIMILARITY_THRESHOLD or body_score >= KNOWLEDGE_BODY_SIMILARITY_THRESHOLD:
+            similar.append(
+                {
+                    "id": entry.knowledge_id,
+                    "title": entry.title,
+                    "status": entry.status,
+                    "detail": entry.path.as_posix() if entry.path else "",
+                    "title_similarity": round(title_score, 3),
+                    "body_similarity": round(body_score, 3),
+                }
+            )
+    return similar
+
+
+def knowledge_similarity_messages(root: Path) -> list[str]:
+    entries = collect_knowledge_entries(root)
+    messages: list[str] = []
+    for index, entry in enumerate(entries):
+        for similar in similar_knowledge_entries(entry, entries[index + 1 :]):
+            messages.append(
+                "reference/Knowledge_Index.md: similar Knowledge entries "
+                f"`{entry.knowledge_id}` and `{similar['id']}` "
+                f"(title={similar['title_similarity']}, body={similar['body_similarity']})"
+            )
+    return messages
+
+
 def knowledge_apply_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     draft_path = resolve_knowledge_draft(root, args.draft)
     text = read_text(draft_path)
-    title = text.splitlines()[0].replace("# K-草案：", "").replace("# ", "").strip() or draft_path.stem
+    title = knowledge_title_from_text(text, draft_path.stem)
     status = extract_heading_value(draft_path, "## 状态") or "Draft"
     if status not in VALID_KNOWLEDGE_STATUSES:
         raise SystemExit(f"invalid knowledge status: {status}")
     tags = extract_heading_value(draft_path, "## 标签") or "未分类"
     summary = extract_heading_value(draft_path, "## 摘要") or "无。"
+    candidate = KnowledgeEntry(
+        knowledge_id="KNEW",
+        title=title,
+        status=status,
+        summary=summary,
+        conclusion=safe_section_body_from_text(text, "## 结论"),
+        path=draft_path,
+    )
+    similar = similar_knowledge_entries(candidate, collect_knowledge_entries(root))
+    if similar and not args.allow_similar and not dry_run:
+        ids = ", ".join(str(item["id"]) for item in similar)
+        raise SystemExit(f"similar knowledge already exists; use --allow-similar to apply anyway: {ids}")
     knowledge_id = next_knowledge_id(root)
     destination = root / "reference" / "knowledge" / f"{knowledge_id}-{slugify_file_stem(title)}.md"
     if destination.exists():
@@ -3055,7 +3387,16 @@ def knowledge_apply_command(args: argparse.Namespace) -> int:
         update_knowledge_index(root, knowledge_id, title, status, tags, summary, destination.relative_to(root).as_posix())
     check_result = maybe_check_after(args, root)
     action = "would apply" if dry_run else "applied"
-    return emit_write_result(args, "knowledge apply", f"{action} knowledge {knowledge_id}", changed, check_result)
+    warnings = [f"similar knowledge detected: {item['id']} {item['title']}" for item in similar]
+    return emit_write_result(
+        args,
+        "knowledge apply",
+        f"{action} knowledge {knowledge_id}",
+        changed,
+        check_result,
+        extra_payload={"similar_knowledge": similar},
+        warnings=warnings,
+    )
 
 
 def knowledge_list_command(args: argparse.Namespace) -> int:
@@ -3442,6 +3783,11 @@ def check_knowledge(root: Path, errors: list[str], warnings: list[str], strict: 
                     errors.append(message)
                 else:
                     warnings.append(message)
+    for message in knowledge_similarity_messages(root):
+        if strict:
+            errors.append(message)
+        else:
+            warnings.append(message)
 
 
 def template_packaging_files_from_pyproject(pyproject_path: Path) -> set[str]:
@@ -3965,6 +4311,7 @@ def build_parser() -> argparse.ArgumentParser:
     knowledge_apply_parser = knowledge_subparsers.add_parser("apply", help="apply a knowledge draft")
     knowledge_apply_parser.add_argument("draft", type=Path, help="draft path")
     knowledge_apply_parser.add_argument("path", nargs="?", type=Path, help="context path")
+    knowledge_apply_parser.add_argument("--allow-similar", action="store_true", help="apply even when similar Knowledge exists")
     add_write_arguments(knowledge_apply_parser)
     knowledge_apply_parser.set_defaults(func=knowledge_apply_command)
 

@@ -83,11 +83,12 @@ Dogfooding MVP / 框架稳定化。
 38. 已完成一轮新版 CLI dogfooding 评测：本仓库 usage log 记录 33 个事件、临时新项目 usage log 记录 12 个事件，`init/status/check/upgrade/plan/task/archive/knowledge` 主路径均可跑通。
 39. 本轮评测发现的优先改进方向包括：`plan status` next_task 推荐逻辑、同文件写命令并发保护、Knowledge 草案质量检查、plan complete 体验、PowerShell 长 Markdown 输入提示和中文标题 slug 策略；详情见 `worklog/daily/2026-04-29.md`。
 
-40. `acf --version` 已支持版本输出，当前版本记为 `v0.0.3`，`pyproject.toml` 同步为 `0.0.3`。
+40. `acf --version` 已支持版本输出，当前版本记为 `v0.0.3.1`，`pyproject.toml` 同步为 `0.0.3.1`。
 41. P1/P2 dogfooding 改进已落地：`plan status` 推荐逻辑考虑 Active 与依赖，写命令增加 `.acf.lock` 互斥，Knowledge strict 检查拦截草案占位，新增 `plan complete`，中文标题 slug 保留安全 Unicode，文档补充 PowerShell `--input` 提示。
 
 42. `acf upgrade` 进一步增强旧文档兼容：可补旧 standard/minimal AGENTS 读取顺序，并为旧 System Manual 补充升级流程和相关命令说明。
 43. Windows 命令定位说明已修正：PowerShell 使用 `Get-Command acf`，CMD 使用 `where.exe acf`。
+44. P2 剩余改进已落地：`task start` 会生成更完整的 `Current_Task.md` 并默认拦截未完成依赖；Knowledge apply/check 增加确定性相似度去重；`upgrade` 对高度自定义旧文档会追加 `ACF:UPGRADE-NOTES` marker 块并保持幂等。
 
 ---
 

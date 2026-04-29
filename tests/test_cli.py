@@ -52,7 +52,7 @@ class CliTests(unittest.TestCase):
     def test_version_flag_prints_current_version(self):
         exit_code, stdout, stderr = self.run_cli_output(["--version"])
         self.assertEqual(exit_code, 0, stderr)
-        self.assertIn("v0.0.3", stdout)
+        self.assertIn("v0.0.3.1", stdout)
 
     def test_strict_template_check_fails_on_placeholders(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=True)
@@ -222,6 +222,35 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["changed_files"], [])
             self.assertEqual(payload["next_actions"], ["No changes needed."])
 
+    def test_upgrade_appends_marker_notes_for_custom_old_docs_idempotently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            agents = target / "AGENTS.md"
+            manual = target / "reference" / "System_Manual.md"
+            agents.write_text("Custom agent instructions without known ACF sections.\n", encoding="utf-8")
+            manual.write_text("Custom system manual without known ACF sections.\n", encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["upgrade", str(target), "--dry-run", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn(str(agents.resolve()), payload["changed_files"])
+            self.assertIn(str(manual.resolve()), payload["changed_files"])
+            self.assertTrue(any("append upgrade notes" in warning for warning in payload["warnings"]))
+            self.assertNotIn("ACF v0.0.3.1 Upgrade Notes", agents.read_text(encoding="utf-8"))
+
+            self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
+            self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
+
+            agents_text = agents.read_text(encoding="utf-8")
+            manual_text = manual.read_text(encoding="utf-8")
+            self.assertEqual(agents_text.count("<!-- ACF:UPGRADE-NOTES:START -->"), 1)
+            self.assertEqual(manual_text.count("<!-- ACF:UPGRADE-NOTES:START -->"), 1)
+            self.assertIn("ACF v0.0.3.1 Upgrade Notes", agents_text)
+            self.assertIn("ACF v0.0.3.1 Upgrade Notes", manual_text)
+
     def test_plan_and_task_commands_manage_subtask_flow(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
@@ -260,7 +289,11 @@ class CliTests(unittest.TestCase):
             self.assertIn("| T001 | Pending | First slice |", plan_text)
 
             self.assertEqual(self.run_cli(["task", "start", str(target), "--id", "T001"]), 0)
-            self.assertIn("T001", (target / "active" / "Current_Task.md").read_text(encoding="utf-8"))
+            task_text = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            self.assertIn("T001", task_text)
+            self.assertIn("产出并验证输出物：Slice output", task_text)
+            self.assertIn("`active/Context.md`", task_text)
+            self.assertIn("保持 `active/Task_Plan.md` 与 `active/Current_Task.md` 状态同步", task_text)
             self.assertIn("## 当前焦点\n\nT001", (target / "active" / "Task_Plan.md").read_text(encoding="utf-8"))
 
             self.assertEqual(
@@ -270,6 +303,33 @@ class CliTests(unittest.TestCase):
             plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
             self.assertIn("| T001 | Done | First slice |", plan_text)
             self.assertIn("## 当前任务状态\n\nDone", (target / "active" / "Current_Task.md").read_text(encoding="utf-8"))
+
+    def test_task_start_blocks_unfinished_dependencies_and_reports_dry_run_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T002", "--title", "Second", "--depends", "T001"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["task", "start", str(target), "--id", "T002", "--dry-run", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["task_id"], "T002")
+            self.assertEqual(payload["blocked_dependencies"], ["T001"])
+            self.assertIn("blocked dependencies", payload["warnings"][0])
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["task", "start", str(target), "--id", "T002", "--json"]
+            )
+            self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
+            self.assertIn("unfinished dependencies", stdout)
+
+            self.assertEqual(self.run_cli(["task", "start", str(target), "--id", "T002", "--force"]), 0)
+            task_text = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            self.assertIn("`--force` 启动时仍存在未完成依赖：T001", task_text)
 
     def test_plan_set_task_updates_evidence_and_next_action(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -407,6 +467,113 @@ class CliTests(unittest.TestCase):
             result = acf.check_context(target, "minimal", strict=True)
 
             self.assertTrue(any("placeholder-like draft content" in error for error in result.errors))
+
+    def test_knowledge_similarity_warns_and_strict_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            knowledge_dir = target / "reference" / "knowledge"
+            one = knowledge_dir / "K001-cli-write-lock.md"
+            two = knowledge_dir / "K002-cli-write-lock-copy.md"
+            body_template = """# {kid}：CLI write lock pattern
+
+## 状态
+
+Active
+
+## 摘要
+
+CLI write commands should serialize context updates.
+
+## 结论
+
+Use a context lock when CLI commands write shared context files.
+
+## 适用场景
+
+- Multiple write commands may update active context files.
+
+## 不适用场景
+
+- Read-only commands.
+
+## 来源
+
+- `active/Context.md`
+
+## 与现有事实源的关系
+
+- Current facts remain in `active/Context.md`.
+
+## 去重判断
+
+This records a reusable write-safety pattern instead of a current task fact.
+"""
+            one.write_text(body_template.format(kid="K001"), encoding="utf-8")
+            two.write_text(body_template.format(kid="K002"), encoding="utf-8")
+            (target / "reference" / "Knowledge_Index.md").write_text(
+                "## Knowledge 条目\n\n"
+                "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |\n"
+                "|---|---|---|---|---|---|\n"
+                "| K001 | CLI write lock pattern | Active | cli | serialize writes | `reference/knowledge/K001-cli-write-lock.md` |\n"
+                "| K002 | CLI write lock pattern | Active | cli | serialize writes | `reference/knowledge/K002-cli-write-lock-copy.md` |\n",
+                encoding="utf-8",
+            )
+
+            non_strict = acf.check_context(target, "minimal", strict=False)
+            strict = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("similar Knowledge entries" in warning for warning in non_strict.warnings))
+            self.assertTrue(any("similar Knowledge entries" in error for error in strict.errors))
+
+    def test_knowledge_apply_blocks_similar_unless_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "knowledge",
+                    "draft",
+                    str(target),
+                    "--title",
+                    "CLI write lock pattern",
+                    "--source",
+                    "active/Context.md",
+                    "--summary",
+                    "CLI write commands should serialize context updates.",
+                ]
+            )
+            first_draft = next((target / "worklog" / "knowledge-drafts").glob("*.md"))
+            self.assertEqual(self.run_cli(["knowledge", "apply", str(first_draft), str(target)]), 0)
+            first_draft.unlink()
+            self.run_cli(
+                [
+                    "knowledge",
+                    "draft",
+                    str(target),
+                    "--title",
+                    "CLI write lock pattern",
+                    "--source",
+                    "active/Context.md",
+                    "--summary",
+                    "CLI write commands should serialize context updates.",
+                ]
+            )
+            second_draft = next((target / "worklog" / "knowledge-drafts").glob("*.md"))
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["knowledge", "apply", str(second_draft), str(target), "--json"]
+            )
+            self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
+            self.assertIn("similar knowledge already exists", stdout)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["knowledge", "apply", str(second_draft), str(target), "--allow-similar", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["similar_knowledge"][0]["id"], "K001")
+            self.assertIn("similar knowledge detected", payload["warnings"][0])
 
     def test_write_command_refuses_existing_context_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
