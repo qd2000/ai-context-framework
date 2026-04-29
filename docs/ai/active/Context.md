@@ -73,8 +73,8 @@ Dogfooding MVP / 框架稳定化。
 29. README 和产品手册已补充安装到 PATH 的说明：开发期可用 `uv tool install -e .` 安装可执行命令，并用 `uv tool update-shell`、`where acf` 或 `which acf` 验证。
 30. 后续维护 `docs/ai/` 内上下文计划、规则、worklog 或索引时，应优先 dogfood `acf edit section` 或 `acf edit table upsert`，先用 `--dry-run --json` 预览高风险写入。
 31. `acf edit` 当前安全边界是 context-root 内已有 Markdown 文件；`../Automation.md` 等 `docs/ai/` 外仓库级文档暂时仍通过常规补丁维护，项目级安全编辑能力需单独设计。
-32. `acf log enable|disable|status|tail|summarize|prune` 已实现 opt-in 的用户级全局 usage event log，日志默认存放在 `%USERPROFILE%\.acf\projects\<project-id>\` 或 `~/.acf/projects/<project-id>/`，按项目子目录记录命令结果元数据用于 dogfooding 评测。
-33. usage event log 不写入项目目录或 `worklog/`，不记录正文输入、stdin 内容、Markdown diff 或完整 stdout/stderr；测试可用 `ACF_HOME` 指定隔离的日志根目录。
+32. `acf log enable|disable|status|tail|summarize|prune` 已实现默认开启的用户级全局 usage event log，日志默认存放在 `%USERPROFILE%\.acf\projects\<project-id>\` 或 `~/.acf/projects/<project-id>/`，按项目子目录记录命令结果元数据用于 dogfooding 评测。
+33. usage event log 不写入项目目录或 `worklog/`，不记录正文输入、stdin 内容、Markdown diff 或完整 stdout/stderr；测试可用 `ACF_HOME` 指定隔离的日志根目录；日志写入带用户级锁，配置和 prune 重写使用原子替换。
 34. `active/Task_Plan.md` 已成为当前大任务计划和轻量子任务板，默认读取但必须保持短、准、低噪音。
 35. `archive/Archive_Index.md`、`archive/tasks/` 和 `archive/plans/` 已成为旧当前任务和旧大任务计划的归档结构，archive 默认不读取。
 36. `reference/Knowledge_Index.md` 和 `reference/knowledge/` 已成为可复用经验层；Knowledge 不保存当前事实、不保存一次性过程、不重复 ADR 或 rules。
@@ -89,6 +89,7 @@ Dogfooding MVP / 框架稳定化。
 42. `acf upgrade` 进一步增强旧文档兼容：可补旧 standard/minimal AGENTS 读取顺序，并为旧 System Manual 补充升级流程和相关命令说明。
 43. Windows 命令定位说明已修正：PowerShell 使用 `Get-Command acf`，CMD 使用 `where.exe acf`。
 44. P2 剩余改进已落地：`task start` 会生成更完整的 `Current_Task.md` 并默认拦截未完成依赖；Knowledge apply/check 增加确定性相似度去重；`upgrade` 对高度自定义旧文档会追加 `ACF:UPGRADE-NOTES` marker 块并保持幂等。
+45. 开发调试阶段 usage event log 已改为默认开启；日志写入增加用户级锁，配置和 prune 重写使用原子替换，`log summarize` 支持 `--days`、`--since`、`--command` 和 `--errors-only` 过滤。
 
 ---
 

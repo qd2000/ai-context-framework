@@ -147,6 +147,7 @@ EXIT_RUNTIME_ERROR = 70
 ACF_HOME_ENV = "ACF_HOME"
 USAGE_LOG_CONFIG_NAME = "config.json"
 USAGE_LOG_FILE_REL = "logs/usage.jsonl"
+USAGE_LOCK_FILE_NAME = "usage.lock"
 LOCK_FILE_REL = ".acf.lock"
 UPGRADE_NOTES_START = "<!-- ACF:UPGRADE-NOTES:START -->"
 UPGRADE_NOTES_END = "<!-- ACF:UPGRADE-NOTES:END -->"
@@ -723,10 +724,55 @@ def usage_log_path(project_root: Path) -> Path:
     return usage_project_dir(project_root) / USAGE_LOG_FILE_REL
 
 
+def usage_lock_path(project_root: Path) -> Path:
+    return usage_project_dir(project_root) / USAGE_LOCK_FILE_NAME
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+    temp_path.write_text(text, encoding="utf-8")
+    os.replace(temp_path, path)
+
+
+def acquire_usage_lock(project_root: Path, timeout_seconds: float = 5.0) -> Path:
+    lock_path = usage_lock_path(project_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {
+                            "schema_version": JSON_SCHEMA_VERSION,
+                            "created_at": utc_now_iso(),
+                            "pid": os.getpid(),
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+            return lock_path
+        except FileExistsError as exc:
+            if time.monotonic() >= deadline:
+                raise SystemExit(f"usage log is locked: {lock_path}") from exc
+            time.sleep(0.05)
+
+
+def release_usage_lock(lock_path: Path) -> None:
+    try:
+        lock_path.unlink()
+    except FileNotFoundError:
+        return
+
+
 def read_usage_config(project_root: Path) -> dict[str, object]:
     config_path = usage_config_path(project_root)
     if not config_path.exists():
-        return {"enabled": False}
+        return {"usage_log_enabled": True}
     try:
         data = json.loads(read_text(config_path))
     except (OSError, json.JSONDecodeError):
@@ -736,20 +782,23 @@ def read_usage_config(project_root: Path) -> dict[str, object]:
 
 def write_usage_config(project_root: Path, enabled: bool) -> None:
     config_path = usage_config_path(project_root)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        json.dumps(
-            {
-                "schema_version": JSON_SCHEMA_VERSION,
-                "usage_log_enabled": enabled,
-            },
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
+    lock_path = acquire_usage_lock(project_root)
+    try:
+        atomic_write_text(
+            config_path,
+            json.dumps(
+                {
+                    "schema_version": JSON_SCHEMA_VERSION,
+                    "usage_log_enabled": enabled,
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
         )
-        + "\n",
-        encoding="utf-8",
-    )
+    finally:
+        release_usage_lock(lock_path)
 
 
 def usage_log_enabled(project_root: Path) -> bool:
@@ -792,16 +841,23 @@ def read_usage_events(project_root: Path) -> list[dict[str, object]]:
 
 def write_usage_events(project_root: Path, events: Sequence[dict[str, object]]) -> None:
     log_path = usage_log_path(project_root)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
     text = "".join(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n" for event in events)
-    log_path.write_text(text, encoding="utf-8")
+    lock_path = acquire_usage_lock(project_root)
+    try:
+        atomic_write_text(log_path, text)
+    finally:
+        release_usage_lock(lock_path)
 
 
 def append_usage_event(project_root: Path, event: dict[str, object]) -> None:
     log_path = usage_log_path(project_root)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+    lock_path = acquire_usage_lock(project_root)
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+    finally:
+        release_usage_lock(lock_path)
 
 
 def usage_log_status_payload(project_root: Path) -> dict[str, object]:
@@ -848,6 +904,39 @@ def summarize_usage_events(events: Sequence[dict[str, object]]) -> dict[str, obj
         "dry_run_count": dry_run_count,
         "changed_files_count": changed_files_count,
     }
+
+
+def parse_usage_since(value: str) -> datetime:
+    normalized = value.strip()
+    if not normalized:
+        raise SystemExit("--since cannot be empty")
+    try:
+        if DATE_RE.match(normalized):
+            return datetime.fromisoformat(normalized).replace(tzinfo=timezone.utc)
+        return parse_usage_timestamp(normalized) or datetime.fromisoformat(normalized).replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise SystemExit(f"invalid --since value `{value}`, expected YYYY-MM-DD or ISO timestamp") from exc
+
+
+def filter_usage_events(
+    events: Sequence[dict[str, object]],
+    since: datetime | None = None,
+    commands: Sequence[str] = (),
+    errors_only: bool = False,
+) -> list[dict[str, object]]:
+    command_set = {command.strip() for command in commands if command.strip()}
+    filtered: list[dict[str, object]] = []
+    for event in events:
+        if since is not None:
+            timestamp = parse_usage_timestamp(event.get("timestamp"))
+            if timestamp is None or timestamp < since:
+                continue
+        if command_set and str(event.get("command") or "") not in command_set:
+            continue
+        if errors_only and event.get("ok") is True:
+            continue
+        filtered.append(event)
+    return filtered
 
 
 def command_label(args: argparse.Namespace) -> str:
@@ -4032,14 +4121,28 @@ def log_tail_command(args: argparse.Namespace) -> int:
 
 
 def log_summarize_command(args: argparse.Namespace) -> int:
+    if args.days is not None and args.days < 0:
+        raise SystemExit("log summarize days cannot be negative")
     location = resolve_status_location(args.path)
     events = read_usage_events(location.project_root)
+    since = parse_usage_since(args.since) if args.since else None
+    if args.days is not None:
+        days_since = datetime.now(timezone.utc) - timedelta(days=args.days)
+        since = max(since, days_since) if since is not None else days_since
+    filtered_events = filter_usage_events(events, since=since, commands=args.command_filter or (), errors_only=args.errors_only)
     payload: dict[str, object] = {
         "command": "log summarize",
         "ok": True,
         "project_root": str(location.project_root),
         "log_path": str(usage_log_path(location.project_root)),
-        **summarize_usage_events(events),
+        "filters": {
+            "days": args.days,
+            "since": args.since,
+            "command": args.command_filter or [],
+            "errors_only": args.errors_only,
+        },
+        "total_event_count": len(events),
+        **summarize_usage_events(filtered_events),
     }
     if json_enabled(args):
         print_json(payload)
@@ -4184,6 +4287,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     log_summarize_parser = log_subparsers.add_parser("summarize", help="summarize usage events")
     log_summarize_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    log_summarize_parser.add_argument("--days", type=int, default=None, help="summarize events from this many recent days")
+    log_summarize_parser.add_argument("--since", default=None, help="summarize events since YYYY-MM-DD or ISO timestamp")
+    log_summarize_parser.add_argument("--command", dest="command_filter", action="append", default=None, help="only include an exact command label; can be repeated")
+    log_summarize_parser.add_argument("--errors-only", action="store_true", help="only include failed events")
     add_json_argument(log_summarize_parser)
     log_summarize_parser.set_defaults(func=log_summarize_command)
 

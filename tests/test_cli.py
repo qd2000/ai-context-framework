@@ -33,6 +33,18 @@ def isolated_acf_home(path):
 
 
 class CliTests(unittest.TestCase):
+    def setUp(self):
+        self._previous_acf_home = os.environ.get("ACF_HOME")
+        self._acf_home_dir = tempfile.TemporaryDirectory()
+        os.environ["ACF_HOME"] = self._acf_home_dir.name
+
+    def tearDown(self):
+        if self._previous_acf_home is None:
+            os.environ.pop("ACF_HOME", None)
+        else:
+            os.environ["ACF_HOME"] = self._previous_acf_home
+        self._acf_home_dir.cleanup()
+
     def run_cli(self, args):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             return acf.main(args)
@@ -798,7 +810,7 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(payload["error_code"], "input_error")
             self.assertTrue(payload["next_actions"])
 
-    def test_usage_log_is_disabled_by_default(self):
+    def test_usage_log_is_enabled_by_default_without_project_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             acf_home = Path(tmp) / "acf-home"
             project_root = Path(tmp) / "project"
@@ -810,11 +822,28 @@ This records a reusable write-safety pattern instead of a current task fact.
 
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertFalse(payload["enabled"])
+            self.assertTrue(payload["enabled"])
             self.assertEqual(payload["event_count"], 0)
             self.assertIn(str(acf_home.resolve()), payload["log_path"])
             self.assertFalse((project_root / ".acf").exists())
             self.assertFalse(acf_home.exists())
+
+    def test_usage_log_disable_stops_later_recording(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acf_home = Path(tmp) / "acf-home"
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            with isolated_acf_home(acf_home):
+                self.assertEqual(self.run_cli(["log", "disable", str(project_root)]), 0)
+                self.run_cli(["status", str(project_root)])
+                exit_code, stdout, stderr = self.run_cli_output(["log", "status", str(project_root), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["enabled"])
+            self.assertEqual(payload["event_count"], 0)
 
     def test_usage_log_enable_records_later_command_without_input_text(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -858,6 +887,8 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(event["context_rel"], "docs/ai")
             self.assertEqual(event["profile"], "minimal")
             self.assertEqual(event["changed_files"], ["docs/ai/active/Current_Task.md"])
+            with isolated_acf_home(acf_home):
+                self.assertFalse(acf.usage_lock_path(project_root).exists())
 
     def test_usage_log_records_failed_command(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -918,8 +949,35 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(exit_code, 0, stderr)
             summary_payload = json.loads(stdout)
             self.assertEqual(summary_payload["event_count"], 2)
+            self.assertEqual(summary_payload["total_event_count"], 2)
             self.assertEqual(summary_payload["command_counts"], {"check": 1, "status": 1})
             self.assertEqual(summary_payload["ok_count"], 2)
+
+            with isolated_acf_home(acf_home):
+                exit_code, stdout, stderr = self.run_cli_output(
+                    ["log", "summarize", str(project_root), "--command", "status", "--json"]
+                )
+            self.assertEqual(exit_code, 0, stderr)
+            filtered_payload = json.loads(stdout)
+            self.assertEqual(filtered_payload["event_count"], 1)
+            self.assertEqual(filtered_payload["command_counts"], {"status": 1})
+
+            with isolated_acf_home(acf_home):
+                exit_code, stdout, stderr = self.run_cli_output(
+                    ["log", "summarize", str(project_root), "--days", "1", "--json"]
+                )
+            self.assertEqual(exit_code, 0, stderr)
+            days_payload = json.loads(stdout)
+            self.assertEqual(days_payload["event_count"], 2)
+            self.assertEqual(days_payload["filters"]["days"], 1)
+
+            with isolated_acf_home(acf_home):
+                exit_code, stdout, stderr = self.run_cli_output(
+                    ["log", "summarize", str(project_root), "--errors-only", "--json"]
+                )
+            self.assertEqual(exit_code, 0, stderr)
+            errors_payload = json.loads(stdout)
+            self.assertEqual(errors_payload["event_count"], 0)
 
             with isolated_acf_home(acf_home):
                 log_lines = acf.usage_log_path(project_root).read_text(encoding="utf-8").splitlines()
