@@ -1,6 +1,6 @@
 本文件告诉 AI 助手如何进入、理解和协助本项目。
 
-本目录是简化版 AI 上下文根目录。默认只读取当前有效上下文和核心规则，其他资料按需读取。
+本目录是本仓库 dogfooding 的标准版 AI 上下文根目录。默认只读取当前有效上下文和核心规则，其他资料按需读取。
 
 ---
 
@@ -8,8 +8,9 @@
 
 1. `active/Context.md`
 2. `rules/Always_Active.md`
-3. `active/Task_Plan.md`
-4. `active/Current_Task.md`（仅当任务状态为 Active 时）
+3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）
+4. `active/Task_Plan.md`
+5. `active/Current_Task.md`（仅当任务状态为 Active 时）
 
 如果用户在当前消息中已给出明确任务，以用户当前消息为准。
 
@@ -30,9 +31,9 @@
 ## 目录结构
 
 ```text
-active/      当前阶段上下文、当前大任务计划和当前任务
-rules/       核心规则
-reference/   长期背景、资料索引、知识索引和决策索引
+active/      当前阶段上下文、人工反馈 inbox、当前大任务计划和当前任务
+rules/       核心规则和按需规则
+reference/   长期背景、架构、技术环境、资料索引、知识索引和决策索引
 decisions/   重要决策详情
 worklog/     整理后的工作记录
 archive/     历史归档，默认不读取
@@ -45,8 +46,14 @@ archive/     历史归档，默认不读取
 | 场景 | 读取文件 |
 |---|---|
 | 需要理解长期背景 | `reference/Project_Brief.md` |
+| 需要整理人工反馈、问题、需求和计划碎片 | `active/Feedback_Inbox.md` |
 | 需要追溯重要决策 | `reference/Decisions_Index.md` -> `decisions/ADR-*.md` |
+| 涉及架构设计 | `reference/Architecture.md` |
+| 涉及技术实现、运行环境 | `reference/Tech_Context.md` |
 | 涉及项目通用约束 | `rules/Project_Rules.md` |
+| 涉及代码实现 | `rules/Coding_Rules.md` |
+| 涉及写作输出 | `rules/Writing_Rules.md` |
+| 涉及方案评审 | `rules/Review_Rules.md` |
 | 需要了解近期进展 | `worklog/Worklog_Index.md` |
 | 涉及外部资料来源 | `reference/Sources_Index.md` |
 | 需要追溯可复用经验 | `reference/Knowledge_Index.md` -> `reference/knowledge/*.md` |
@@ -59,11 +66,12 @@ archive/     历史归档，默认不读取
 2. `active/Current_Task.md`
 3. `active/Task_Plan.md`
 4. `active/Context.md`
-5. `reference/Decisions_Index.md`
-6. ADR 文件
-7. `reference/Knowledge_Index.md`
-8. `worklog/`
-9. `archive/`
+5. `active/Feedback_Inbox.md`（只作为待整理信号，不作为已确认事实）
+6. `reference/Decisions_Index.md`
+7. ADR 文件
+8. `reference/Knowledge_Index.md`
+9. `worklog/`
+10. `archive/`
 
 Knowledge 是可复用经验层，不是当前事实源；worklog 是历史过程记录，不等于当前事实；archive 默认不读取。
 

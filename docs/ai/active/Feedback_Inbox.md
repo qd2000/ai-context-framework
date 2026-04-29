@@ -1,0 +1,33 @@
+本文件记录人工临时反馈、问题、需求和计划碎片。
+
+这里允许写得不规范。它的作用是先接住重要信号，再由人或 AI 后续整理到 `active/Task_Plan.md`、`active/Context.md`、ADR、worklog 或 Knowledge。
+
+---
+
+## 状态说明
+
+- Open：尚未整理。
+- Triaged：已判断归属，但尚未完全落盘。
+- Planned：已进入 `active/Task_Plan.md`。
+- Done：已处理完成。
+- Rejected：不采纳或不再适用。
+
+---
+
+## 反馈条目
+
+| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |
+|---|---|---|---|---|---|
+| F001 | Planned | 需求 | 需要一个人工可直接写入的地方，用于记录不规范但关键的问题、需求和计划碎片。 | 2026-04-29 用户反馈 | 已新增 `active/Feedback_Inbox.md`，并纳入模板与默认读取顺序。 |
+| F002 | Planned | 需求 | 当前 dogfooding 上下文应从 minimal 补齐为 standard。 | 2026-04-29 用户反馈 | 已补齐 standard 文档，但不把示例模板文件作为 strict 阻塞项。 |
+| F003 | Planned | 需求 | 每次改动需要判断是否更新 version number，并提供便捷工具一键更新。 | 2026-04-29 用户反馈 | 已增加版本规则和 `acf version show/set`。 |
+| F004 | Planned | 问题 | strict mode 不应因为标准模板中的 ADR/worklog 示例模板阻塞真实项目检查。 | 2026-04-29 用户反馈 | 已让真实项目 strict 忽略示例模板占位符，保留模板检查能力。 |
+
+---
+
+## 使用规则
+
+1. 人工可以直接追加粗糙描述，不要求一开始就结构化。
+2. AI 看到 Open 条目时，应先判断是否需要转入任务计划、当前事实、ADR、worklog、rules 或 Knowledge。
+3. AI 不应把本文件中的随想直接当作已确认事实。
+4. 对已处理条目，应更新状态和后续处理位置。

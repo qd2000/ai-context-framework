@@ -10,6 +10,7 @@ ai_context_framework.egg-info/top_level.txt
 template/AGENTS.md
 template/active/Context.md
 template/active/Current_Task.md
+template/active/Feedback_Inbox.md
 template/active/Task_Plan.md
 template/archive/.gitkeep
 template/archive/Archive_Index.md

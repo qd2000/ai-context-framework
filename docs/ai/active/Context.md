@@ -43,7 +43,7 @@ Dogfooding MVP / 框架稳定化。
 ## 当前有效事实
 
 1. 本仓库的核心产物是 `template/` 标准 AI 上下文模板。
-2. `docs/ai/` 是本仓库真实使用中的 dogfooding 上下文实例。
+2. `docs/ai/` 是本仓库真实使用中的 standard dogfooding 上下文实例。
 3. `acf` 是无第三方依赖的辅助 CLI，已支持 `status`、`init`、`simplify`、`check`、`new task`、`new source`、`new worklog`、`new adr`、`writeback draft`、`edit section`、`edit table upsert` 和 `log enable|disable|status|tail|summarize|prune`。
 4. `acf check --strict` 会把检查目标中的占位符残留视为错误。
 5. 本仓库已使用 `pyproject.toml` 和 `uv.lock` 建立最小 uv Python 环境，Python 版本约束为 `>=3.10`。
@@ -83,13 +83,17 @@ Dogfooding MVP / 框架稳定化。
 38. 已完成一轮新版 CLI dogfooding 评测：本仓库 usage log 记录 33 个事件、临时新项目 usage log 记录 12 个事件，`init/status/check/upgrade/plan/task/archive/knowledge` 主路径均可跑通。
 39. 本轮评测发现的优先改进方向包括：`plan status` next_task 推荐逻辑、同文件写命令并发保护、Knowledge 草案质量检查、plan complete 体验、PowerShell 长 Markdown 输入提示和中文标题 slug 策略；详情见 `worklog/daily/2026-04-29.md`。
 
-40. `acf --version` 已支持版本输出，当前版本记为 `v0.0.3.1`，`pyproject.toml` 同步为 `0.0.3.1`。
+40. `acf --version` 已支持版本输出，当前版本记为 `v0.0.3.2`，`pyproject.toml` 同步为 `0.0.3.2`。
 41. P1/P2 dogfooding 改进已落地：`plan status` 推荐逻辑考虑 Active 与依赖，写命令增加 `.acf.lock` 互斥，Knowledge strict 检查拦截草案占位，新增 `plan complete`，中文标题 slug 保留安全 Unicode，文档补充 PowerShell `--input` 提示。
 
 42. `acf upgrade` 进一步增强旧文档兼容：可补旧 standard/minimal AGENTS 读取顺序，并为旧 System Manual 补充升级流程和相关命令说明。
 43. Windows 命令定位说明已修正：PowerShell 使用 `Get-Command acf`，CMD 使用 `where.exe acf`。
 44. P2 剩余改进已落地：`task start` 会生成更完整的 `Current_Task.md` 并默认拦截未完成依赖；Knowledge apply/check 增加确定性相似度去重；`upgrade` 对高度自定义旧文档会追加 `ACF:UPGRADE-NOTES` marker 块并保持幂等。
 45. 开发调试阶段 usage event log 已改为默认开启；日志写入增加用户级锁，配置和 prune 重写使用原子替换，`log summarize` 支持 `--days`、`--since`、`--command` 和 `--errors-only` 过滤。
+46. 新增 `active/Feedback_Inbox.md` 作为人工临时反馈、问题、需求和计划碎片入口；AI 应先整理归属，不要把其中随想直接当作已确认事实。
+47. `docs/ai` 已从 minimal dogfooding 上下文补齐为 standard 上下文，包含 rules 按需规则、Architecture、Tech_Context 和 System_Manual。
+48. 版本号维护规则已进入项目规则：修改 CLI 对外行为、模板结构、打包文件、命令契约、默认策略或用户可见文档时，需要判断是否更新 version number；更新时优先使用 `uv run acf version set <version>`。
+49. 真实项目 strict 检查会忽略 ADR template 和 YYYY-MM-DD daily worklog 这两个示例模板文件的占位符，模板源自身仍通过 `acf check template` 暴露占位符 warning。
 
 ---
 
@@ -120,7 +124,7 @@ Dogfooding MVP / 框架稳定化。
 1. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
 2. 是否需要 writeback-curator subagent 生成更高质量的回写分类草案。
 3. 是否需要为 `docs/ai/` 外的仓库级维护文档设计安全的 project-root scoped edit 能力，还是继续保持常规补丁维护。
-4. `docs/ai/` 当前是 minimal profile，缺少 standard profile 的规则、参考文档和 ADR 模板不是 bug；真正待评估的是是否需要新增 `acf new rule`、`acf new reference` 等文件创建命令，让 AI 能安全创建新的上下文文档。
+4. 是否需要新增 `acf new rule`、`acf new reference` 等文件创建命令，让 AI 能安全创建新的上下文文档。
 
 ---
 

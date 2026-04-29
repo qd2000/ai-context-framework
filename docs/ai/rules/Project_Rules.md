@@ -16,7 +16,7 @@
 - 维护 `docs/ai/` 内已有 heading 或 table 的上下文文档时，优先先用 `uv run acf edit ... --dry-run --json` 预览，再执行正式写入。
 - `acf edit` 只做确定性结构化落盘，不裁决事实内容；写入前后仍需要由人或主代理审阅语义是否正确。
 - `acf edit` 当前只允许编辑上下文根目录内已有 `.md` 文件；`../Automation.md` 等 `docs/ai/` 外仓库级文档暂时使用常规补丁，直到项目级安全编辑边界完成设计。
-- 需要评估 CLI 实际使用效果时，可用 `uv run acf log enable` 启用用户级全局 usage event log；日志按项目子目录隔离，只记录状态元数据，不记录正文输入，不写入项目 `worklog/`。
+- usage event log 默认开启，用于开发调试阶段收集实际使用反馈；如需关闭当前项目日志，运行 `uv run acf log disable`。
 - usage event log 默认位于用户级 `.acf/projects/` 下；测试或隔离环境可用 `ACF_HOME` 指定日志根目录。
 - 维护当前大任务计划时优先使用 `uv run acf plan ...`；`active/Task_Plan.md` 只放轻量子任务板、证据和下一步。
 - 从大任务计划启动或完成当前小任务时优先使用 `uv run acf task ...`；旧的 `uv run acf new task ...` 保留为兼容入口。
@@ -30,3 +30,5 @@
 - 修改 `template/` 前先判断该内容是否属于可复用产品模板；本仓库 dogfooding 专属要求应写入根入口、`docs/ai/` 或维护文档。
 - 修改 `template/` 后必须同步检查 README、template 入口说明、System Manual 和 `../Automation.md` 是否一致。
 - 对可确定的重复维护动作，优先补 CLI 或 check 规则，而不是只补说明文字。
+- 修改 CLI 对外行为、模板结构、打包文件、命令契约、默认策略或用户可见文档时，必须判断是否需要更新 version number。
+- 需要更新 version number 时，优先使用 `uv run acf version set <version>`，再运行 `uv run acf version show --json` 确认同步。

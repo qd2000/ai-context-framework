@@ -20,7 +20,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.1"
+VERSION = "v0.0.3.2"
 
 
 def find_template_dir() -> Path:
@@ -61,6 +61,7 @@ STANDARD_FILES = (
     "AGENTS.md",
     "active/Context.md",
     "active/Current_Task.md",
+    "active/Feedback_Inbox.md",
     "active/Task_Plan.md",
     "rules/Always_Active.md",
     "rules/Project_Rules.md",
@@ -76,6 +77,7 @@ STANDARD_FILES = (
     "reference/Decisions_Index.md",
     "reference/Knowledge_Index.md",
     "reference/Sources_Index.md",
+    "reference/sources/.gitkeep",
     "reference/knowledge/.gitkeep",
     "reference/System_Manual.md",
     "decisions/ADR-0001-template.md",
@@ -105,6 +107,7 @@ MINIMAL_FILES = (
     "AGENTS.md",
     "active/Context.md",
     "active/Current_Task.md",
+    "active/Feedback_Inbox.md",
     "active/Task_Plan.md",
     "rules/Always_Active.md",
     "rules/Project_Rules.md",
@@ -149,6 +152,7 @@ USAGE_LOG_CONFIG_NAME = "config.json"
 USAGE_LOG_FILE_REL = "logs/usage.jsonl"
 USAGE_LOCK_FILE_NAME = "usage.lock"
 LOCK_FILE_REL = ".acf.lock"
+TEMPLATE_EXAMPLE_FILES = {"decisions/ADR-0001-template.md", "worklog/daily/YYYY-MM-DD.md"}
 UPGRADE_NOTES_START = "<!-- ACF:UPGRADE-NOTES:START -->"
 UPGRADE_NOTES_END = "<!-- ACF:UPGRADE-NOTES:END -->"
 KNOWLEDGE_TITLE_SIMILARITY_THRESHOLD = 0.85
@@ -198,8 +202,9 @@ MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本�
 
 1. `active/Context.md`
 2. `rules/Always_Active.md`
-3. `active/Task_Plan.md`
-4. `active/Current_Task.md`（仅当任务状态为 Active 时）
+3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）
+4. `active/Task_Plan.md`
+5. `active/Current_Task.md`（仅当任务状态为 Active 时）
 
 如果用户在当前消息中已给出明确任务，以用户当前消息为准。
 
@@ -235,6 +240,7 @@ archive/     历史归档，默认不读取
 | 场景 | 读取文件 |
 |---|---|
 | 需要理解长期背景 | `reference/Project_Brief.md` |
+| 需要整理人工反馈、问题、需求和计划碎片 | `active/Feedback_Inbox.md` |
 | 需要追溯重要决策 | `reference/Decisions_Index.md` -> `decisions/ADR-*.md` |
 | 涉及项目通用约束 | `rules/Project_Rules.md` |
 | 需要了解近期进展 | `worklog/Worklog_Index.md` |
@@ -578,6 +584,17 @@ def required_dirs(profile: str) -> tuple[str, ...]:
 
 def required_files(profile: str) -> tuple[str, ...]:
     return MINIMAL_FILES if profile == "minimal" else STANDARD_FILES
+
+
+def required_files_for_check(root: Path, profile: str) -> tuple[str, ...]:
+    files = required_files(profile)
+    if root.resolve() == TEMPLATE_DIR.resolve():
+        return files
+    return tuple(rel for rel in files if rel not in TEMPLATE_EXAMPLE_FILES)
+
+
+def skip_placeholder_check(root: Path, rel_file: str) -> bool:
+    return root.resolve() != TEMPLATE_DIR.resolve() and rel_file in TEMPLATE_EXAMPLE_FILES
 
 
 def infer_context_profile(root: Path) -> str:
@@ -953,6 +970,8 @@ def command_label(args: argparse.Namespace) -> str:
             return f"edit table {getattr(args, 'table_command', '')}".strip()
     if command == "log":
         return f"log {getattr(args, 'log_command', '')}".strip()
+    if command == "version":
+        return f"version {getattr(args, 'version_command', '')}".strip()
     if command == "plan":
         return f"plan {getattr(args, 'plan_command', '')}".strip()
     if command == "task":
@@ -2391,6 +2410,122 @@ def slugify_file_stem(value: str) -> str:
     return normalized or hashlib.sha1(value.encode("utf-8")).hexdigest()[:8]
 
 
+def normalize_release_version(value: str) -> tuple[str, str]:
+    raw = value.strip()
+    if raw.startswith("v"):
+        raw = raw[1:]
+    if not re.fullmatch(r"\d+(?:\.\d+)+", raw):
+        raise SystemExit(f"invalid version `{value}`, expected for example v0.0.3.2")
+    return f"v{raw}", raw
+
+
+def replace_regex_once(text: str, pattern: str, replacement: str, label: str) -> str:
+    updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+    if count != 1:
+        raise SystemExit(f"could not update {label}")
+    return updated
+
+
+def version_files() -> list[Path]:
+    files = [ROOT / "acf.py", ROOT / "pyproject.toml"]
+    pkg_info = ROOT / "ai_context_framework.egg-info" / "PKG-INFO"
+    uv_lock = ROOT / "uv.lock"
+    if pkg_info.exists():
+        files.append(pkg_info)
+    if uv_lock.exists():
+        files.append(uv_lock)
+    return files
+
+
+def read_project_versions() -> dict[str, str | None]:
+    versions: dict[str, str | None] = {
+        "cli": None,
+        "pyproject": None,
+        "pkg_info": None,
+        "uv_lock": None,
+    }
+    acf_path = ROOT / "acf.py"
+    pyproject_path = ROOT / "pyproject.toml"
+    pkg_info_path = ROOT / "ai_context_framework.egg-info" / "PKG-INFO"
+    uv_lock_path = ROOT / "uv.lock"
+    match = re.search(r'^VERSION = "([^"]+)"', read_text(acf_path), flags=re.MULTILINE)
+    if match:
+        versions["cli"] = match.group(1)
+    match = re.search(r'^version = "([^"]+)"', read_text(pyproject_path), flags=re.MULTILINE)
+    if match:
+        versions["pyproject"] = match.group(1)
+    if pkg_info_path.exists():
+        match = re.search(r"^Version: (.+)$", read_text(pkg_info_path), flags=re.MULTILINE)
+        if match:
+            versions["pkg_info"] = match.group(1).strip()
+    if uv_lock_path.exists():
+        match = re.search(r'(?ms)name = "ai-context-framework".*?^version = "([^"]+)"', read_text(uv_lock_path))
+        if match:
+            versions["uv_lock"] = match.group(1)
+    return versions
+
+
+def version_show_command(args: argparse.Namespace) -> int:
+    versions = read_project_versions()
+    payload: dict[str, object] = {
+        "command": "version show",
+        "ok": True,
+        "version": versions.get("cli"),
+        "versions": versions,
+        "error_code": None,
+        "next_actions": [],
+    }
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"version: {versions.get('cli')}")
+        for key, value in versions.items():
+            print(f"{key}: {value}")
+    return 0
+
+
+def version_set_command(args: argparse.Namespace) -> int:
+    dry_run = dry_run_enabled(args)
+    cli_version, package_version = normalize_release_version(args.value)
+    changed = version_files()
+    if not dry_run:
+        acf_path = ROOT / "acf.py"
+        pyproject_path = ROOT / "pyproject.toml"
+        acf_path.write_text(
+            replace_regex_once(read_text(acf_path), r'^VERSION = "[^"]+"', f'VERSION = "{cli_version}"', "acf.py VERSION"),
+            encoding="utf-8",
+        )
+        pyproject_path.write_text(
+            replace_regex_once(read_text(pyproject_path), r'^version = "[^"]+"', f'version = "{package_version}"', "pyproject.toml version"),
+            encoding="utf-8",
+        )
+        pkg_info_path = ROOT / "ai_context_framework.egg-info" / "PKG-INFO"
+        if pkg_info_path.exists():
+            pkg_info_path.write_text(
+                replace_regex_once(read_text(pkg_info_path), r"^Version: .+$", f"Version: {package_version}", "PKG-INFO version"),
+                encoding="utf-8",
+            )
+        uv_lock_path = ROOT / "uv.lock"
+        if uv_lock_path.exists():
+            uv_lock_path.write_text(
+                replace_regex_once(
+                    read_text(uv_lock_path),
+                    r'(?ms)(name = "ai-context-framework".*?^version = ")[^"]+(")',
+                    rf"\g<1>{package_version}\2",
+                    "uv.lock version",
+                ),
+                encoding="utf-8",
+            )
+    action = "would set" if dry_run else "set"
+    return emit_write_result(
+        args,
+        "version set",
+        f"{action} version to {cli_version}",
+        changed,
+        extra_payload={"version": cli_version, "package_version": package_version},
+    )
+
+
 def render_empty_task_plan() -> str:
     return render_task_plan(
         "Empty",
@@ -2400,6 +2535,40 @@ def render_empty_task_plan() -> str:
         "无。",
         [],
     )
+
+
+def render_feedback_inbox() -> str:
+    return """本文件记录人工临时反馈、问题、需求和计划碎片。
+
+这里允许写得不规范。它的作用是先接住重要信号，再由人或 AI 后续整理到 `active/Task_Plan.md`、`active/Context.md`、ADR、worklog 或 Knowledge。
+
+---
+
+## 状态说明
+
+- Open：尚未整理。
+- Triaged：已判断归属，但尚未完全落盘。
+- Planned：已进入 `active/Task_Plan.md`。
+- Done：已处理完成。
+- Rejected：不采纳或不再适用。
+
+---
+
+## 反馈条目
+
+| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |
+|---|---|---|---|---|---|
+| 暂无 |  |  |  |  |  |
+
+---
+
+## 使用规则
+
+1. 人工可以直接追加粗糙描述，不要求一开始就结构化。
+2. AI 看到 Open 条目时，应先判断是否需要转入任务计划、当前事实、ADR、worklog、rules 或 Knowledge。
+3. AI 不应把本文件中的随想直接当作已确认事实。
+4. 对已处理条目，应更新状态和后续处理位置。
+"""
 
 
 def render_task_plan(
@@ -2533,15 +2702,15 @@ def render_knowledge_index() -> str:
 
 def upgrade_notes_block(target: str) -> str:
     if target == "agents":
-        body = """## ACF v0.0.3.1 Upgrade Notes
+        body = """## ACF v0.0.3.2 Upgrade Notes
 
-- 默认读取顺序应包含 `active/Task_Plan.md`，并位于 `active/Current_Task.md` 之前。
+- 默认读取顺序应包含 `active/Feedback_Inbox.md` 和 `active/Task_Plan.md`，并位于 `active/Current_Task.md` 之前。
 - 结构化维护优先使用 `acf plan`、`acf task`、`acf archive` 和 `acf knowledge`。
 - 旧任务或旧计划不会由 `acf upgrade` 自动移动；需要归档时显式运行 archive 命令。"""
     else:
-        body = """## ACF v0.0.3.1 Upgrade Notes
+        body = """## ACF v0.0.3.2 Upgrade Notes
 
-- `acf upgrade [target]` 只补齐 Task_Plan、archive 和 Knowledge 结构。
+- `acf upgrade [target]` 只补齐 Feedback_Inbox、Task_Plan、archive 和 Knowledge 结构。
 - 推荐升级流程：`acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。
 - Active `active/Current_Task.md` 不会被覆盖，旧任务归档请显式使用 `acf archive current-task` 或 `acf archive task-plan`。"""
     return f"\n\n{UPGRADE_NOTES_START}\n{body}\n{UPGRADE_NOTES_END}\n"
@@ -2568,6 +2737,15 @@ def upgraded_agents_text(text: str) -> str:
         )
         for old, new in replacements:
             text = text.replace(old, new)
+    if "active/Feedback_Inbox.md" not in text and "active/Context.md" in text:
+        text = text.replace(
+            "2. `rules/Always_Active.md`\n3. `active/Task_Plan.md`",
+            "2. `rules/Always_Active.md`\n3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）\n4. `active/Task_Plan.md`",
+        )
+        text = text.replace(
+            "4. `active/Current_Task.md`",
+            "5. `active/Current_Task.md`",
+        )
 
     text = text.replace(
         "新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时",
@@ -2594,7 +2772,7 @@ def upgraded_system_manual_text(text: str) -> str:
                 marker,
                 marker
                 + "\n\n"
-                + "- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Task_Plan、archive 和 Knowledge 结构。\n"
+                + "- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive 和 Knowledge 结构。\n"
                 + "- `acf plan init|add-task|set-task|focus|complete|status [target]`：维护当前大任务计划和子任务板，并在完成后标记计划 Done。\n"
                 + "- `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务。\n"
                 + "- `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。\n",
@@ -2611,6 +2789,7 @@ def upgraded_system_manual_text(text: str) -> str:
 
 def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], list[str]]:
     planned = [
+        root / "active" / "Feedback_Inbox.md",
         root / "active" / "Task_Plan.md",
         root / "archive" / "Archive_Index.md",
         root / "reference" / "Knowledge_Index.md",
@@ -2647,6 +2826,9 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.name == "Task_Plan.md":
             path.write_text(render_empty_task_plan(), encoding="utf-8")
+        elif path.name == "Feedback_Inbox.md":
+            template_feedback = TEMPLATE_DIR / "active" / "Feedback_Inbox.md"
+            path.write_text(read_text(template_feedback) if template_feedback.exists() else render_feedback_inbox(), encoding="utf-8")
         elif path.name == "Archive_Index.md":
             path.write_text(render_archive_index(), encoding="utf-8")
         elif path.name == "Knowledge_Index.md":
@@ -3922,7 +4104,7 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
         if not (path / dirname).is_dir():
             errors.append(f"missing directory: {dirname}")
 
-    for rel in required_files(profile):
+    for rel in required_files_for_check(path, profile):
         file_path = path / rel
         if not file_path.is_file():
             errors.append(f"missing file: {rel}")
@@ -3958,7 +4140,7 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
         if "\ufffd" in text:
             errors.append(f"{rel_file}: contains Unicode replacement character")
 
-        placeholders = PLACEHOLDER_RE.findall(text)
+        placeholders = [] if skip_placeholder_check(path, rel_file) else PLACEHOLDER_RE.findall(text)
         if placeholders:
             message = f"{rel_file}: contains {len(placeholders)} placeholder(s)"
             if strict:
@@ -4245,7 +4427,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="non-destructively add missing files for the current context schema",
         description=(
             "Upgrade an existing AI context to the current schema by adding missing "
-            "Task_Plan, archive, and Knowledge files/directories. This command does "
+            "Feedback_Inbox, Task_Plan, archive, and Knowledge files/directories. This command does "
             "not move old content, archive active tasks, or overwrite an Active "
             "Current_Task.md. Use --dry-run --json first to review changed_files."
         ),
@@ -4299,6 +4481,18 @@ def build_parser() -> argparse.ArgumentParser:
     log_prune_parser.add_argument("--days", type=int, default=30, help="keep events from this many recent days")
     add_json_argument(log_prune_parser)
     log_prune_parser.set_defaults(func=log_prune_command)
+
+    version_parser = subparsers.add_parser("version", help="show or update project version metadata")
+    version_subparsers = version_parser.add_subparsers(dest="version_command", required=True)
+
+    version_show_parser = version_subparsers.add_parser("show", help="show version values from project files")
+    add_json_argument(version_show_parser)
+    version_show_parser.set_defaults(func=version_show_command)
+
+    version_set_parser = version_subparsers.add_parser("set", help="update CLI and package version files")
+    version_set_parser.add_argument("value", help="version value, for example v0.0.3.2")
+    add_write_arguments(version_set_parser)
+    version_set_parser.set_defaults(func=version_set_command)
 
     plan_parser = subparsers.add_parser("plan", help="manage active/Task_Plan.md")
     plan_subparsers = plan_parser.add_subparsers(dest="plan_command", required=True)

@@ -28,7 +28,7 @@
 ## 目录结构
 
 ```text
-active/      当前有效上下文，AI 默认优先读取
+active/      当前有效上下文、人工反馈 inbox、任务计划和当前任务
 rules/       规则系统，按 always / requested / manual 分层
 reference/   支持性资料、索引、摘要，按需读取
 decisions/   重要决策详情，通常通过 Decisions_Index.md 进入
@@ -44,8 +44,9 @@ archive/     历史归档，默认不读取
 
 1. `active/Context.md`
 2. `rules/Always_Active.md`
-3. `active/Task_Plan.md`
-4. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）
+3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）
+4. `active/Task_Plan.md`
+5. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）
 
 如果用户在当前消息中已给出明确任务，以用户当前消息为准，以上文件作为背景上下文。
 
@@ -68,6 +69,7 @@ archive/     历史归档，默认不读取
 | 场景 | 读取文件 |
 |------|----------|
 | 需要理解项目长期背景 | `reference/Project_Brief.md` |
+| 需要整理人工反馈、问题、需求和计划碎片 | `active/Feedback_Inbox.md` |
 | 需要追溯重要决策 | `reference/Decisions_Index.md` → `decisions/ADR-*.md` |
 | 涉及架构设计 | `reference/Architecture.md` |
 | 涉及技术实现、运行环境 | `reference/Tech_Context.md` |
@@ -92,11 +94,12 @@ archive/     历史归档，默认不读取
 2. `active/Current_Task.md`
 3. `active/Task_Plan.md`
 4. `active/Context.md`
-5. `reference/Decisions_Index.md`
-6. `decisions/` 中的 ADR 文件
-7. `reference/Knowledge_Index.md`
-8. `worklog/`
-9. `archive/`
+5. `active/Feedback_Inbox.md`（只作为待整理信号，不作为已确认事实）
+6. `reference/Decisions_Index.md`
+7. `decisions/` 中的 ADR 文件
+8. `reference/Knowledge_Index.md`
+9. `worklog/`
+10. `archive/`
 
 Knowledge 是可复用经验层，不是当前事实源；worklog 是历史过程记录，archive 是归档材料，均不等于当前事实。
 
@@ -108,6 +111,7 @@ Knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 
 - 长期目标 / 项目愿景：`reference/Project_Brief.md`
 - 当前阶段目标：`active/Context.md`
+- 人工反馈 / 问题 / 需求碎片：`active/Feedback_Inbox.md`
 - 当前大任务计划：`active/Task_Plan.md`
 - 当前具体任务：`active/Current_Task.md`
 - 当前用户临时需求：用户当前消息

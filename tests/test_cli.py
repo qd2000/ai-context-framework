@@ -64,7 +64,21 @@ class CliTests(unittest.TestCase):
     def test_version_flag_prints_current_version(self):
         exit_code, stdout, stderr = self.run_cli_output(["--version"])
         self.assertEqual(exit_code, 0, stderr)
-        self.assertIn("v0.0.3.1", stdout)
+        self.assertIn(acf.VERSION, stdout)
+
+    def test_version_show_and_set_dry_run(self):
+        exit_code, stdout, stderr = self.run_cli_output(["version", "show", "--json"])
+        self.assertEqual(exit_code, 0, stderr)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["version"], acf.VERSION)
+        self.assertEqual(payload["versions"]["pyproject"], acf.VERSION.removeprefix("v"))
+
+        exit_code, stdout, stderr = self.run_cli_output(["version", "set", "v0.0.3.3", "--dry-run", "--json"])
+        self.assertEqual(exit_code, 0, stderr)
+        payload = json.loads(stdout)
+        self.assertTrue(payload["dry_run"])
+        self.assertEqual(payload["version"], "v0.0.3.3")
+        self.assertEqual(payload["package_version"], "0.0.3.3")
 
     def test_strict_template_check_fails_on_placeholders(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=True)
@@ -76,6 +90,7 @@ class CliTests(unittest.TestCase):
             exit_code = self.run_cli(["init", str(target), "--profile", "minimal"])
             self.assertEqual(exit_code, 0)
             self.assertTrue((target / "active" / "Task_Plan.md").exists())
+            self.assertTrue((target / "active" / "Feedback_Inbox.md").exists())
             self.assertTrue((target / "archive" / "Archive_Index.md").exists())
             self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
             self.assertFalse((target / "decisions" / "ADR-0001-template.md").exists())
@@ -83,6 +98,7 @@ class CliTests(unittest.TestCase):
             agents_text = (target / "AGENTS.md").read_text(encoding="utf-8")
             self.assertIn("## CLI 辅助维护", agents_text)
             self.assertIn("active/Task_Plan.md", agents_text)
+            self.assertIn("active/Feedback_Inbox.md", agents_text)
             self.assertIn("acf status --json", agents_text)
             self.assertIn("acf --help", agents_text)
             result = acf.check_context(target, "minimal", strict=False)
@@ -94,6 +110,7 @@ class CliTests(unittest.TestCase):
             exit_code = self.run_cli(["init", str(target)])
             self.assertEqual(exit_code, 0)
             self.assertTrue((target / "active" / "Task_Plan.md").exists())
+            self.assertTrue((target / "active" / "Feedback_Inbox.md").exists())
             self.assertTrue((target / "archive" / "Archive_Index.md").exists())
             self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
 
@@ -213,8 +230,9 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
             agents_text = agents.read_text(encoding="utf-8")
-            self.assertIn("3. `active/Task_Plan.md`", agents_text)
-            self.assertIn("4. `active/Current_Task.md`", agents_text)
+            self.assertIn("3. `active/Feedback_Inbox.md`", agents_text)
+            self.assertIn("4. `active/Task_Plan.md`", agents_text)
+            self.assertIn("5. `active/Current_Task.md`", agents_text)
             self.assertIn("Knowledge 草案", agents_text)
             manual_text = manual.read_text(encoding="utf-8")
             self.assertIn("旧版本上下文升级", manual_text)
@@ -234,6 +252,17 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["changed_files"], [])
             self.assertEqual(payload["next_actions"], ["No changes needed."])
 
+    def test_strict_check_ignores_template_examples_in_real_standard_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target)])
+
+            result = acf.check_context(target, "standard", strict=True)
+
+            joined = "\n".join(result.errors)
+            self.assertNotIn("decisions/ADR-0001-template.md: contains", joined)
+            self.assertNotIn("worklog/daily/YYYY-MM-DD.md: contains", joined)
+
     def test_upgrade_appends_marker_notes_for_custom_old_docs_idempotently(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
@@ -251,7 +280,7 @@ class CliTests(unittest.TestCase):
             self.assertIn(str(agents.resolve()), payload["changed_files"])
             self.assertIn(str(manual.resolve()), payload["changed_files"])
             self.assertTrue(any("append upgrade notes" in warning for warning in payload["warnings"]))
-            self.assertNotIn("ACF v0.0.3.1 Upgrade Notes", agents.read_text(encoding="utf-8"))
+            self.assertNotIn("ACF v0.0.3.2 Upgrade Notes", agents.read_text(encoding="utf-8"))
 
             self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
             self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
@@ -260,8 +289,8 @@ class CliTests(unittest.TestCase):
             manual_text = manual.read_text(encoding="utf-8")
             self.assertEqual(agents_text.count("<!-- ACF:UPGRADE-NOTES:START -->"), 1)
             self.assertEqual(manual_text.count("<!-- ACF:UPGRADE-NOTES:START -->"), 1)
-            self.assertIn("ACF v0.0.3.1 Upgrade Notes", agents_text)
-            self.assertIn("ACF v0.0.3.1 Upgrade Notes", manual_text)
+            self.assertIn("ACF v0.0.3.2 Upgrade Notes", agents_text)
+            self.assertIn("ACF v0.0.3.2 Upgrade Notes", manual_text)
 
     def test_plan_and_task_commands_manage_subtask_flow(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1151,12 +1180,12 @@ This records a reusable write-safety pattern instead of a current task fact.
             result = acf.check_context(target, "minimal", strict=False)
             self.assertFalse(result.errors)
 
-            placeholder_file = target / "decisions" / "ADR-0001-template.md"
+            placeholder_file = target / "decisions" / "ADR-9999.md"
             placeholder_file.write_text("【占位内容】\n", encoding="utf-8")
             result = acf.check_context(target, "minimal", strict=True)
             self.assertTrue(
                 any(
-                    "decisions/ADR-0001-template.md: contains 1 placeholder(s)" in error
+                    "decisions/ADR-9999.md: contains 1 placeholder(s)" in error
                     for error in result.errors
                 )
             )

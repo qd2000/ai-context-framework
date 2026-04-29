@@ -20,6 +20,7 @@ template/
   AGENTS.md              # AI 入口文件（~115 行）
   active/                # 当前有效上下文（AI 默认读取）
     Context.md           # 当前阶段目标、事实、约束
+    Feedback_Inbox.md    # 人工反馈、问题、需求和计划碎片
     Task_Plan.md         # 当前大任务计划和轻量子任务板
     Current_Task.md      # 当前具体小任务
   rules/                 # 规则系统（分层加载）
@@ -66,7 +67,7 @@ template/
 
 | 层级 | 目录 | 读取时机 | 说明 |
 |------|------|----------|------|
-| 1 | active/ | 默认读取 | 当前阶段事实、当前大任务计划和当前小任务 |
+| 1 | active/ | 默认读取 | 当前阶段事实、人工反馈 inbox、当前大任务计划和当前小任务 |
 | 2 | rules/ | Always_Active 默认，其余按需 | 行为规则 |
 | 3 | reference/ | 按需 | 背景资料、知识和索引 |
 | 4 | decisions/ | 按需 | 决策详情 |
@@ -81,11 +82,12 @@ template/
 2. Current_Task.md
 3. Task_Plan.md
 4. Context.md
-5. Decisions_Index.md
-6. ADR 文件
-7. Knowledge_Index.md
-8. worklog
-9. archive
+5. Feedback_Inbox.md（只作为待整理信号，不作为已确认事实）
+6. Decisions_Index.md
+7. ADR 文件
+8. Knowledge_Index.md
+9. worklog
+10. archive
 
 ## 命令行工具
 
@@ -142,6 +144,8 @@ acf log tail --limit 20 --json
 acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
+acf version show --json
+acf version set v0.0.3.2 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -169,6 +173,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、archive、Knowledge 占位符残留和疑似重复条目。
 - `log enable|disable|status|tail|summarize|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭。
+- `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 

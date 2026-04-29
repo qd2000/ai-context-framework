@@ -17,17 +17,19 @@
 其中：
 
 - `active/Context.md`：当前阶段事实源，记录当前阶段目标、范围、约束、有效事实和开放问题。
+- `active/Feedback_Inbox.md`：人工临时反馈、问题、需求和计划碎片的入口，允许不规范描述，但不直接作为已确认事实。
 - `active/Task_Plan.md`：当前大任务计划和轻量子任务板，记录子任务状态、证据和下一步。
 - `active/Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源。
 
 使用规则：
 
 1. 默认优先读取 `active/Context.md`。
-2. 默认读取 `active/Task_Plan.md`，但该文件必须保持轻量。
-3. 如果 `active/Current_Task.md` 状态为 Active，则读取它。
-4. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
-5. `active/` 中的信息应保持短、准、当前有效。
-6. 不要把历史过程、旧方案、原始日志写入 `active/`。
+2. 有 Open 条目或需要整理人工反馈时读取 `active/Feedback_Inbox.md`。
+3. 默认读取 `active/Task_Plan.md`，但该文件必须保持轻量。
+4. 如果 `active/Current_Task.md` 状态为 Active，则读取它。
+5. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
+6. `active/` 中的信息应保持短、准、当前有效。
+7. 不要把历史过程、旧方案、原始日志写入 `active/`。
 
 ---
 
@@ -257,7 +259,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf init <target> --profile minimal`：生成简化模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `acf simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
-- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Task_Plan、archive 和 Knowledge 结构；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
+- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive 和 Knowledge 结构；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
 - `acf plan init|add-task|set-task|focus|complete|status [target]`：维护当前大任务计划和子任务板，并在完成后标记计划 Done。
 - `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
@@ -267,6 +269,8 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf new worklog [target] --summary "..."`：生成 daily worklog 并更新工作记录索引。
 - `acf new adr [target] --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `acf writeback draft [target] --text "..."`：生成会话回写草案，供人工审阅后再决定是否写入权威上下文。
+- `acf version show --json`：查看 CLI、包配置和锁文件中的版本号。
+- `acf version set v0.0.3.2 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
 - `acf edit section get <file> --heading "## 标题"`：读取上下文根目录内某个 Markdown section 的正文。
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。

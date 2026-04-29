@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-context-framework"
-version = "0.0.3.1"
+version = "0.0.3.2"
 description = "Model-independent AI context framework templates and CLI."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,6 +32,7 @@ include-package-data = true
 "share/ai-context-framework/template/active" = [
     "template/active/Context.md",
     "template/active/Current_Task.md",
+    "template/active/Feedback_Inbox.md",
     "template/active/Task_Plan.md",
 ]
 "share/ai-context-framework/template/decisions" = [
