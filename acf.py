@@ -20,7 +20,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.3"
+VERSION = "v0.0.3.4"
 
 
 def find_template_dir() -> Path:

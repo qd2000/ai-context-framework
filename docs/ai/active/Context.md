@@ -83,7 +83,7 @@ Dogfooding MVP / 框架稳定化。
 38. 已完成一轮新版 CLI dogfooding 评测：本仓库 usage log 记录 33 个事件、临时新项目 usage log 记录 12 个事件，`init/status/check/upgrade/plan/task/archive/knowledge` 主路径均可跑通。
 39. 本轮评测发现的优先改进方向包括：`plan status` next_task 推荐逻辑、同文件写命令并发保护、Knowledge 草案质量检查、plan complete 体验、PowerShell 长 Markdown 输入提示和中文标题 slug 策略；详情见 `worklog/daily/2026-04-29.md`。
 
-40. `acf --version` 已支持版本输出，当前版本记为 `v0.0.3.2`，`pyproject.toml` 同步为 `0.0.3.2`。
+40. `acf --version` 已支持版本输出，当前版本以最新版本事实为准。
 41. P1/P2 dogfooding 改进已落地：`plan status` 推荐逻辑考虑 Active 与依赖，写命令增加 `.acf.lock` 互斥，Knowledge strict 检查拦截草案占位，新增 `plan complete`，中文标题 slug 保留安全 Unicode，文档补充 PowerShell `--input` 提示。
 
 42. `acf upgrade` 进一步增强旧文档兼容：可补旧 standard/minimal AGENTS 读取顺序，并为旧 System Manual 补充升级流程和相关命令说明。
@@ -99,7 +99,8 @@ Dogfooding MVP / 框架稳定化。
 51. Feedback_Inbox 生命周期已明确：Open/Triaged/Planned/Done/Rejected 各有处理规则，Done/Rejected 需要证据位置或拒绝原因，长期已处理反馈归档到 `archive/feedback/`。
 52. `acf init` 和 `acf upgrade` 已补齐 `archive/feedback/` 目录；旧上下文升级会非破坏式补齐反馈归档结构。
 53. T002-T005 已完成验证：`uv run acf check template`、`uv run acf check docs/ai --strict --json`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf version show --json` 和 `uv run python -m unittest` 均通过。
-54. `acf --version` 当前版本记为 `v0.0.3.3`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.3`。
+54. `acf --version` 当前版本记为 `v0.0.3.4`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.4`。
+55. 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，必须评估旧版本上下文升级兼容性；新增结构应同步到 init 文件清单、upgrade 补齐清单、data-files、文档和 init/upgrade 测试。
 
 ---
 

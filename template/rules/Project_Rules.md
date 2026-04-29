@@ -8,3 +8,4 @@
 - 写入风险较高或需要先审阅变更范围时，优先使用 `--dry-run --json`；写入后可使用 `--check-after`。
 - `acf` 只负责确定性结构维护、检查和草案生成，不做事实裁决。
 - `active/Task_Plan.md` 只放轻量子任务板，旧任务和旧计划应归档，Knowledge 只保存可复用经验而不是当前事实。
+- 修改模板目录结构、默认上下文结构或 `acf upgrade` 补齐逻辑时，必须评估旧版本上下文能否通过 `acf upgrade` 良好升级；新增结构应同步到 upgrade 文件清单、打包清单、文档和 init/upgrade 测试。

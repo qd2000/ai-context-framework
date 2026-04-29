@@ -29,6 +29,7 @@
 - 规划或修改 acf 长期 CLI 能力时，以 `decisions/ADR-0004.md` 和 `../Automation.md` 的 AI-facing CLI 阶段计划为当前方向。
 - 修改 `template/` 前先判断该内容是否属于可复用产品模板；本仓库 dogfooding 专属要求应写入根入口、`docs/ai/` 或维护文档。
 - 修改 `template/` 后必须同步检查 README、template 入口说明、System Manual 和 `../Automation.md` 是否一致。
+- 修改 `template/`、模板目录结构、`acf upgrade` 补齐逻辑或本系统默认上下文结构时，必须评估旧版本上下文能否通过 `uv run acf upgrade ...` 良好升级；新增结构应同步到 upgrade 文件清单、打包清单、文档和 init/upgrade 测试。
 - 对可确定的重复维护动作，优先补 CLI 或 check 规则，而不是只补说明文字。
 - 修改 CLI 对外行为、模板结构、打包文件、命令契约、默认策略或用户可见文档时，必须判断是否需要更新 version number。
 - 需要更新 version number 时，优先使用 `uv run acf version set <version>`，再运行 `uv run acf version show --json` 确认同步。

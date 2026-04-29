@@ -227,4 +227,6 @@ uv run acf check --strict
 uv run python -m unittest
 ```
 
+修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，还必须评估旧版本上下文升级兼容性：新增结构同步到 init 文件清单、upgrade 补齐清单和 data-files，并用 init/upgrade 测试覆盖旧项目可非破坏式升级。
+
 自动化边界和后续路线见 `docs/Automation.md`。

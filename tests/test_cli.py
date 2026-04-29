@@ -84,6 +84,12 @@ class CliTests(unittest.TestCase):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=True)
         self.assertTrue(any("placeholder" in error for error in result.errors))
 
+    def test_template_project_rules_require_upgrade_compatibility(self):
+        text = (acf.TEMPLATE_DIR / "rules" / "Project_Rules.md").read_text(encoding="utf-8")
+        self.assertIn("acf upgrade", text)
+        self.assertIn("旧版本上下文", text)
+        self.assertIn("init/upgrade 测试", text)
+
     def test_init_minimal_creates_checkable_context(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
