@@ -92,6 +92,7 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "active" / "Task_Plan.md").exists())
             self.assertTrue((target / "active" / "Feedback_Inbox.md").exists())
             self.assertTrue((target / "archive" / "Archive_Index.md").exists())
+            self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
             self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
             self.assertFalse((target / "decisions" / "ADR-0001-template.md").exists())
             self.assertFalse((target / "worklog" / "daily" / "YYYY-MM-DD.md").exists())
@@ -112,6 +113,7 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "active" / "Task_Plan.md").exists())
             self.assertTrue((target / "active" / "Feedback_Inbox.md").exists())
             self.assertTrue((target / "archive" / "Archive_Index.md").exists())
+            self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
             self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
 
             agents_text = (target / "AGENTS.md").read_text(encoding="utf-8")
@@ -167,6 +169,7 @@ class CliTests(unittest.TestCase):
             for rel in (
                 "active/Task_Plan.md",
                 "archive/Archive_Index.md",
+                "archive/feedback/.gitkeep",
                 "reference/Knowledge_Index.md",
             ):
                 (target / rel).unlink()
@@ -216,6 +219,7 @@ class CliTests(unittest.TestCase):
             for rel in (
                 "active/Task_Plan.md",
                 "archive/Archive_Index.md",
+                "archive/feedback/.gitkeep",
                 "reference/Knowledge_Index.md",
             ):
                 (target / rel).unlink()
@@ -227,6 +231,7 @@ class CliTests(unittest.TestCase):
             payload = json.loads(stdout)
             self.assertIn(str(agents.resolve()), payload["changed_files"])
             self.assertIn(str(manual.resolve()), payload["changed_files"])
+            self.assertIn(str((target / "archive" / "feedback" / ".gitkeep").resolve()), payload["changed_files"])
 
             self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
             agents_text = agents.read_text(encoding="utf-8")
@@ -237,6 +242,7 @@ class CliTests(unittest.TestCase):
             manual_text = manual.read_text(encoding="utf-8")
             self.assertIn("旧版本上下文升级", manual_text)
             self.assertIn("acf plan init|add-task|set-task|focus|complete|status", manual_text)
+            self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
 
     def test_upgrade_dry_run_reports_no_changes_when_current(self):
         with tempfile.TemporaryDirectory() as tmp:

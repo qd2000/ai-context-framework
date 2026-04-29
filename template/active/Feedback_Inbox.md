@@ -13,11 +13,11 @@
 
 ## 状态说明
 
-- Open：尚未整理。
-- Triaged：已判断归属，但尚未完全落盘。
-- Planned：已进入 `active/Task_Plan.md`。
-- Done：已处理完成。
-- Rejected：不采纳或不再适用。
+- Open：尚未整理；AI 看到后应先判断归属，不直接视为当前事实。
+- Triaged：已判断归属，但尚未完全落盘；后续处理必须说明目标文件、计划项或草案位置。
+- Planned：已进入 `active/Task_Plan.md` 或当前任务，等待按计划完成。
+- Done：已处理完成，后续处理列必须给出证据位置；只在近期或当前计划仍需引用时保留在 active 表中。
+- Rejected：明确不采纳或不再适用，后续处理列必须说明拒绝原因或替代位置；只在近期仍有解释价值时保留。
 
 ---
 
@@ -32,6 +32,12 @@
 ## 使用规则
 
 1. 人工可以直接追加粗糙描述，不要求一开始就结构化。
-2. AI 看到 Open 条目时，应先判断是否需要转入任务计划、当前事实、ADR、worklog、rules 或 Knowledge。
-3. AI 不应把本文件中的随想直接当作已确认事实。
-4. 对已处理条目，应更新状态和后续处理位置。
+2. AI 看到 Open 条目时，应先判断是否需要转入任务计划、当前事实、ADR、worklog、rules、Knowledge 或 writeback 草案。
+3. AI 不应把本文件中的随想直接当作已确认事实；只有转入对应事实源或计划后，才按目标文件的事实源级别使用。
+4. 状态推进顺序通常是 Open -> Triaged -> Planned -> Done；不采纳时使用 Rejected，并在后续处理列说明原因。
+5. Planned 条目必须引用 `active/Task_Plan.md` 的任务 ID、`active/Current_Task.md` 的任务名称，或明确说明等待哪一类落盘动作。
+6. Done 或 Rejected 条目必须保留证据位置，例如计划任务、worklog、ADR、Context、Knowledge 草案或拒绝理由。
+7. active 表只长期保留 Open、Triaged、Planned，以及当前大任务仍需解释的 Done/Rejected 条目。
+8. 清理阈值：当 Done/Rejected 条目超过 10 条，或条目完成超过 30 天且不再支撑当前计划时，应整理到反馈归档。
+9. 反馈归档位置使用 `archive/feedback/`，归档文件按月份命名为 YYYY-MM.md；归档摘要应记录 ID、状态、类型、内容摘要、处理结果和证据位置，不复制长过程。
+10. AI 执行反馈清理时，应先确认条目已有证据位置，再移动或摘要归档；不能确定是否仍需保留时，生成 writeback 草案而不是删除。

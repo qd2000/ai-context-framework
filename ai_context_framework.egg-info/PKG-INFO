@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.2
+Version: 0.0.3.3
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -48,6 +48,7 @@ template/
   decisions/             # ADR 决策记录
   worklog/               # 工作日志
   archive/               # 历史归档
+    feedback/            # 已处理反馈归档
 ```
 
 ## 使用方法
@@ -165,7 +166,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `init`：从 `template/` 生成标准或简化上下文目录。
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
-- `upgrade`：非破坏式补齐新版本上下文结构，不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
+- `upgrade`：非破坏式补齐新版本上下文结构，包括反馈归档目录；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
 - `plan init|add-task|set-task|focus|status`：维护 `active/Task_Plan.md` 中的大任务和子任务板。
 - `plan complete`：在子任务完成后将大任务计划标记为 Done。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
@@ -175,7 +176,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
 - `new adr`：生成下一个 ADR 文件，并更新 `reference/Decisions_Index.md`。
-- `writeback draft`：把会话结束回写建议保存为可审阅草案，不直接修改权威上下文文件。
+- `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为可审阅草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、archive、Knowledge 占位符残留和疑似重复条目。
@@ -215,7 +216,7 @@ acf upgrade --check-after --json
 acf check --strict --json
 ```
 
-`upgrade` 只补齐当前 schema 缺失的 `Task_Plan`、archive 和 Knowledge 文件/目录，不移动旧内容、不自动归档任务、不覆盖 Active `Current_Task.md`。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
+`upgrade` 只补齐当前 schema 缺失的 `Task_Plan`、archive、archive/feedback 和 Knowledge 文件/目录，不移动旧内容、不自动归档任务、不覆盖 Active `Current_Task.md`。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
 
 如果全局 `acf` 未安装，可在本仓库源码环境中对其他项目运行：
 

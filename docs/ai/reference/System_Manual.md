@@ -41,6 +41,14 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 5. 重要决策进入 ADR。
 6. 历史过程进入 worklog。
 7. 可复用经验进入 Knowledge 草案流程。
+8. Done/Rejected 条目必须保留证据位置或拒绝原因；超过 10 条，或完成超过 30 天且不再支撑当前计划时，整理到 `archive/feedback/`。
+
+## 会话结束回写
+
+1. 不再默认打印完整“无需更新”清单。
+2. 可确定的计划、任务、Context、worklog、Knowledge、archive 或 ADR/rules 变化，优先用 `acf` 命令或结构化编辑落盘。
+3. 不能安全落盘但需要保留的判断，生成 `writeback draft` 草案。
+4. 最终回复只报告实际修改、草案路径、验证结果和仍需人工判断的风险。
 
 ---
 

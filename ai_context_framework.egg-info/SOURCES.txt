@@ -14,6 +14,7 @@ template/active/Feedback_Inbox.md
 template/active/Task_Plan.md
 template/archive/.gitkeep
 template/archive/Archive_Index.md
+template/archive/feedback/.gitkeep
 template/archive/plans/.gitkeep
 template/archive/tasks/.gitkeep
 template/decisions/ADR-0001-template.md

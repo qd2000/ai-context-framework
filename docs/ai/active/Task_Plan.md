@@ -39,7 +39,7 @@ Active
 
 ## 当前焦点
 
-T004
+T005
 
 ---
 
@@ -50,8 +50,9 @@ T004
 | T001 | Done | 规范化 Feedback_Inbox 新增人工反馈 | 无。 | F005/F006 条目编号、状态和后续处理明确 | active/Feedback_Inbox.md: F005/F006 已编号、标为 Planned，并映射到本计划。 | 无。 |
 | T002 | Done | 定义会话结束回写落盘协议 | T001 | 明确哪些会话结束内容应直接落盘、哪些生成草案、最终报告只包含实际变更和验证结果 | docs/ai/AGENTS.md: 会话结束回写建议已改为落盘优先协议，覆盖计划、Feedback、Context、worklog、Knowledge、Archive、ADR/rules 和最终回复规则。 | 无。 |
 | T003 | Done | 定义 Feedback_Inbox 生命周期与归档策略 | T001 | 明确 Open/Triaged/Planned/Done/Rejected 的处理规则、保留阈值、归档位置和 AI 清理责任 | active/Feedback_Inbox.md: 已定义 Open/Triaged/Planned/Done/Rejected 生命周期、Done/Rejected 保留阈值、archive/feedback/YYYY-MM.md 归档位置和 AI 清理责任；F001-F006 已更新为 Done。 | 无。 |
-| T004 | Pending | 实现文档与 CLI 支持 | T002, T003 | 模板、docs/ai、System Manual、必要 CLI/help/check 流程与测试同步更新 | 无。 | 按 T002/T003 的协议补齐模板和 acf 工具；若无需新增 CLI，则在证据中说明原因 |
+| T004 | Done | 实现文档与 CLI 支持 | T002, T003 | 模板、docs/ai、System Manual、必要 CLI/help/check 流程与测试同步更新 | template/AGENTS.md、template/active/Feedback_Inbox.md、template/reference/System_Manual.md、docs/ai/reference/System_Manual.md、README.md 已同步 T002/T003 协议；acf init/upgrade 文件清单补齐 archive/feedback；测试覆盖 init/upgrade；版本同步到 v0.0.3.3；验证：acf check template、acf check docs/ai --strict、acf upgrade docs/ai --dry-run、python -m unittest 均通过。 | 无。 |
 | T005 | Pending | 验证反馈驱动流程并记录 dogfooding 结果 | T004 | strict 检查、upgrade dry-run、相关单元测试和 worklog/Context 更新完成 | 无。 | 运行 docs/ai strict、upgrade dry-run、unittest/定向测试，并把发现写回 worklog 与 Context |
+| T006 | Pending | 补充升级兼容性开发要求 | T004 | 明确开发修改 template 或本系统时必须评估 acf upgrade 对旧版本上下文的兼容度，并保证旧版本可良好升级 | 无。 | 在项目规则、模板说明、System Manual 或检查/测试中补充 upgrade 兼容性要求 |
 
 ---
 

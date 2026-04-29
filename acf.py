@@ -20,7 +20,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.2"
+VERSION = "v0.0.3.3"
 
 
 def find_template_dir() -> Path:
@@ -55,6 +55,7 @@ STANDARD_DIRS = (
     "archive",
     "archive/tasks",
     "archive/plans",
+    "archive/feedback",
 )
 
 STANDARD_FILES = (
@@ -87,6 +88,7 @@ STANDARD_FILES = (
     "archive/Archive_Index.md",
     "archive/tasks/.gitkeep",
     "archive/plans/.gitkeep",
+    "archive/feedback/.gitkeep",
 )
 
 MINIMAL_DIRS = (
@@ -101,6 +103,7 @@ MINIMAL_DIRS = (
     "archive",
     "archive/tasks",
     "archive/plans",
+    "archive/feedback",
 )
 
 MINIMAL_FILES = (
@@ -121,6 +124,7 @@ MINIMAL_FILES = (
     "archive/Archive_Index.md",
     "archive/tasks/.gitkeep",
     "archive/plans/.gitkeep",
+    "archive/feedback/.gitkeep",
 )
 
 VALID_TASK_STATUSES = {"Active", "Paused", "Done", "Empty"}
@@ -225,7 +229,7 @@ MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本�
 ## 目录结构
 
 ```text
-active/      当前阶段上下文、当前大任务计划和当前任务
+active/      当前阶段上下文、人工反馈 inbox、当前大任务计划和当前任务
 rules/       核心规则
 reference/   长期背景、资料索引、知识索引和决策索引
 decisions/   重要决策详情
@@ -255,11 +259,12 @@ archive/     历史归档，默认不读取
 2. `active/Current_Task.md`
 3. `active/Task_Plan.md`
 4. `active/Context.md`
-5. `reference/Decisions_Index.md`
-6. ADR 文件
-7. `reference/Knowledge_Index.md`
-8. `worklog/`
-9. `archive/`
+5. `active/Feedback_Inbox.md`（只作为待整理信号，不作为已确认事实）
+6. `reference/Decisions_Index.md`
+7. ADR 文件
+8. `reference/Knowledge_Index.md`
+9. `worklog/`
+10. `archive/`
 
 knowledge 是可复用经验层，不是当前事实源；worklog 是历史过程记录，不等于当前事实；archive 默认不读取。
 
@@ -267,14 +272,24 @@ knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 
 ## 会话结束回写建议
 
-重要协作结束时，请给出以下建议，由用户决定是否写入：
+重要协作结束时，AI 不应默认重复打印完整回写建议清单。先判断是否存在可确定写入的内容；有则优先落盘或生成可审阅草案，最终报告只列出实际变更、草案路径、验证结果和仍需人工判断的风险。
 
-- `active/Context.md` 是否需要更新
-- `active/Current_Task.md` 状态是否需要变化
-- 是否需要新增 ADR 或更新 `reference/Decisions_Index.md`
-- 是否需要新增 worklog 条目
-- 是否存在 Knowledge 候选
-- 是否存在 Archive 候选
+处理规则：
+
+1. 当前任务或计划状态变化：优先使用 `acf task ...` 或 `acf plan ...` 更新 `active/Current_Task.md`、`active/Task_Plan.md`；工具不能表达时，再用 `acf edit ...` 精确更新相关 section 或表格。
+2. 新的人工反馈、问题、需求碎片：优先写入或更新 `active/Feedback_Inbox.md`；如果无法确定归属，生成 `acf writeback draft ...` 草案，不把反馈直接写成当前事实。
+3. 已验证的当前事实：只在与当前阶段仍相关、且证据明确时更新 `active/Context.md`；一次性过程不写入 Context。
+4. 今日工作记录：完成了可复述的工作或验证后，优先使用 `acf new worklog ...` 记录整理后的摘要；不要写入原始日志或大段命令输出。
+5. Knowledge 候选：优先使用 `acf knowledge draft ...` 生成草案；只有经审阅或任务明确要求时，才 apply 到 `reference/Knowledge_Index.md`。
+6. Archive 候选：旧当前任务或旧大任务计划优先使用 `acf archive ...`；其他归档建议先生成 writeback 草案，等待人工确认归档位置。
+7. ADR 或规则候选：已经形成稳定决策时使用 `acf new adr ...` 或更新 rules；只是建议或待确认事项时生成 writeback 草案。
+
+最终回复规则：
+
+- 只报告本轮实际修改的文件、生成的草案、执行的检查和检查结果。
+- 对没有变化的类别，不输出“无需更新”清单。
+- 如果存在应回写但本轮不能安全落盘的内容，只报告草案路径或明确的人工待确认项。
+- 不把 usage event log、原始测试输出、完整对话或 Feedback_Inbox 随想直接写入权威事实源。
 """
 
 
@@ -2546,11 +2561,11 @@ def render_feedback_inbox() -> str:
 
 ## 状态说明
 
-- Open：尚未整理。
-- Triaged：已判断归属，但尚未完全落盘。
-- Planned：已进入 `active/Task_Plan.md`。
-- Done：已处理完成。
-- Rejected：不采纳或不再适用。
+- Open：尚未整理；AI 看到后应先判断归属，不直接视为当前事实。
+- Triaged：已判断归属，但尚未完全落盘；后续处理必须说明目标文件、计划项或草案位置。
+- Planned：已进入 `active/Task_Plan.md` 或当前任务，等待按计划完成。
+- Done：已处理完成，后续处理列必须给出证据位置；只在近期或当前计划仍需引用时保留在 active 表中。
+- Rejected：明确不采纳或不再适用，后续处理列必须说明拒绝原因或替代位置；只在近期仍有解释价值时保留。
 
 ---
 
@@ -2565,9 +2580,15 @@ def render_feedback_inbox() -> str:
 ## 使用规则
 
 1. 人工可以直接追加粗糙描述，不要求一开始就结构化。
-2. AI 看到 Open 条目时，应先判断是否需要转入任务计划、当前事实、ADR、worklog、rules 或 Knowledge。
-3. AI 不应把本文件中的随想直接当作已确认事实。
-4. 对已处理条目，应更新状态和后续处理位置。
+2. AI 看到 Open 条目时，应先判断是否需要转入任务计划、当前事实、ADR、worklog、rules、Knowledge 或 writeback 草案。
+3. AI 不应把本文件中的随想直接当作已确认事实；只有转入对应事实源或计划后，才按目标文件的事实源级别使用。
+4. 状态推进顺序通常是 Open -> Triaged -> Planned -> Done；不采纳时使用 Rejected，并在后续处理列说明原因。
+5. Planned 条目必须引用 `active/Task_Plan.md` 的任务 ID、`active/Current_Task.md` 的任务名称，或明确说明等待哪一类落盘动作。
+6. Done 或 Rejected 条目必须保留证据位置，例如计划任务、worklog、ADR、Context、Knowledge 草案或拒绝理由。
+7. active 表只长期保留 Open、Triaged、Planned，以及当前大任务仍需解释的 Done/Rejected 条目。
+8. 清理阈值：当 Done/Rejected 条目超过 10 条，或条目完成超过 30 天且不再支撑当前计划时，应整理到反馈归档。
+9. 反馈归档位置使用 `archive/feedback/`，归档文件按月份命名为 YYYY-MM.md；归档摘要应记录 ID、状态、类型、内容摘要、处理结果和证据位置，不复制长过程。
+10. AI 执行反馈清理时，应先确认条目已有证据位置，再移动或摘要归档；不能确定是否仍需保留时，生成 writeback 草案而不是删除。
 """
 
 
@@ -2706,11 +2727,12 @@ def upgrade_notes_block(target: str) -> str:
 
 - 默认读取顺序应包含 `active/Feedback_Inbox.md` 和 `active/Task_Plan.md`，并位于 `active/Current_Task.md` 之前。
 - 结构化维护优先使用 `acf plan`、`acf task`、`acf archive` 和 `acf knowledge`。
+- Feedback_Inbox 已处理条目的长期归档位置是 `archive/feedback/`。
 - 旧任务或旧计划不会由 `acf upgrade` 自动移动；需要归档时显式运行 archive 命令。"""
     else:
         body = """## ACF v0.0.3.2 Upgrade Notes
 
-- `acf upgrade [target]` 只补齐 Feedback_Inbox、Task_Plan、archive 和 Knowledge 结构。
+- `acf upgrade [target]` 只补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge 结构。
 - 推荐升级流程：`acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。
 - Active `active/Current_Task.md` 不会被覆盖，旧任务归档请显式使用 `acf archive current-task` 或 `acf archive task-plan`。"""
     return f"\n\n{UPGRADE_NOTES_START}\n{body}\n{UPGRADE_NOTES_END}\n"
@@ -2772,13 +2794,13 @@ def upgraded_system_manual_text(text: str) -> str:
                 marker,
                 marker
                 + "\n\n"
-                + "- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive 和 Knowledge 结构。\n"
+                + "- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge 结构。\n"
                 + "- `acf plan init|add-task|set-task|focus|complete|status [target]`：维护当前大任务计划和子任务板，并在完成后标记计划 Done。\n"
                 + "- `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务。\n"
                 + "- `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。\n",
             )
     if "旧版本上下文升级" not in text and "CLI 辅助工具" in text:
-        insertion = """\n\n### 旧版本上下文升级\n\n推荐流程：`acf status --json` -> `acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。\n\n`upgrade` 只补齐缺失结构，不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。旧任务或旧计划需要归档时，升级后显式运行 `acf archive current-task` 或 `acf archive task-plan`。\n"""
+        insertion = """\n\n### 旧版本上下文升级\n\n推荐流程：`acf status --json` -> `acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。\n\n`upgrade` 只补齐缺失结构，不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。旧任务或旧计划需要归档时，升级后显式运行 `acf archive current-task` 或 `acf archive task-plan`；已处理反馈需要长期保存时整理到 `archive/feedback/`。\n"""
         text = text.rstrip() + insertion + "\n"
     if "PowerShell 中反引号是转义字符" not in text:
         text = text.rstrip() + "\n\nPowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。\n"
@@ -2795,6 +2817,7 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         root / "reference" / "Knowledge_Index.md",
         root / "archive" / "tasks" / ".gitkeep",
         root / "archive" / "plans" / ".gitkeep",
+        root / "archive" / "feedback" / ".gitkeep",
         root / "reference" / "knowledge" / ".gitkeep",
         root / "worklog" / "knowledge-drafts" / ".gitkeep",
     ]

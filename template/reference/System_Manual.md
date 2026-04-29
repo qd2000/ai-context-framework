@@ -31,6 +31,27 @@
 6. `active/` 中的信息应保持短、准、当前有效。
 7. 不要把历史过程、旧方案、原始日志写入 `active/`。
 
+### 1.1 Feedback_Inbox 生命周期
+
+`active/Feedback_Inbox.md` 用于接住尚未整理的人工反馈，不是最终事实源。
+
+状态含义：
+
+- Open：尚未整理。
+- Triaged：已判断归属，但尚未完全落盘。
+- Planned：已进入 `active/Task_Plan.md` 或当前任务。
+- Done：已处理完成，并已有证据位置。
+- Rejected：明确不采纳或不再适用，并已有原因说明。
+
+处理规则：
+
+1. Open 条目先判断归属，不直接写成当前事实。
+2. Planned 条目必须引用任务计划、当前任务或明确的落盘动作。
+3. Done / Rejected 条目必须保留证据位置或拒绝原因。
+4. active 表长期只保留 Open、Triaged、Planned，以及当前大任务仍需解释的 Done / Rejected 条目。
+5. 当 Done / Rejected 条目超过 10 条，或完成超过 30 天且不再支撑当前计划时，应整理到 `archive/feedback/`。
+6. 反馈归档文件按月份命名为 YYYY-MM.md，摘要记录 ID、状态、类型、内容摘要、处理结果和证据位置，不复制长过程。
+
 ---
 
 ## 2. rules/ 读取策略
@@ -144,6 +165,7 @@
 2. archive 中的内容不能直接视为当前事实。
 3. 只有在用户要求追溯历史、比较旧版本时，才读取 archive。
 4. 如果 archive 中的内容重新变得重要，应先经过确认，再同步到 `active/` 或 `reference/`。
+5. 已处理反馈的长期归档放在 `archive/feedback/`，默认不读取。
 
 ---
 
@@ -209,9 +231,9 @@ AI 使用日志时：
 
 AI 可以提出项目文件更新建议，但不要擅自把内容写入长期上下文。
 
-每次重要协作结束后，AI 应输出标准化的回写建议（格式见 AGENTS.md）。
+重要协作结束后，AI 不应默认重复打印完整回写建议清单。应先判断哪些内容可以确定落盘，优先使用 `acf plan`、`acf task`、`acf edit`、`acf new worklog`、`acf knowledge draft`、`acf archive` 或 `acf writeback draft` 写入对应文件或草案。
 
-最终是否写入，由用户决定。
+最终回复只报告实际修改的文件、生成的草案、执行的检查和仍需人工判断的风险。没有变化的类别不需要输出“无需更新”。
 
 ---
 
@@ -259,7 +281,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf init <target> --profile minimal`：生成简化模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `acf simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
-- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive 和 Knowledge 结构；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
+- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge 结构；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
 - `acf plan init|add-task|set-task|focus|complete|status [target]`：维护当前大任务计划和子任务板，并在完成后标记计划 Done。
 - `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
@@ -297,7 +319,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 4. `acf upgrade --check-after --json`：正式补齐结构并检查。
 5. `acf check --strict --json`：在正式项目中确认占位符和结构问题。
 
-`upgrade` 是非破坏式命令，只补齐当前 schema 缺失的 `active/Task_Plan.md`、archive 和 Knowledge 文件/目录；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
+`upgrade` 是非破坏式命令，只补齐当前 schema 缺失的 `active/Task_Plan.md`、archive、archive/feedback 和 Knowledge 文件/目录；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
 
 如果旧任务或旧计划需要归档，升级后再显式运行：
 
