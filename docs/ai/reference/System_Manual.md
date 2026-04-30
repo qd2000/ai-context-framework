@@ -33,7 +33,7 @@
 - `uv run acf plan status docs/ai --json`
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf version show --json`
-- `uv run acf version set v0.0.3.13 --dry-run --json`
+- `uv run acf version set v0.0.3.14 --dry-run --json`
 
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。
 

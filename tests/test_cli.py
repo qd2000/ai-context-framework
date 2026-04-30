@@ -105,6 +105,39 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload["version"], "v0.0.3.3")
         self.assertEqual(payload["package_version"], "0.0.3.3")
 
+    def test_version_show_works_without_source_checkout(self):
+        previous_root = acf.ROOT
+        with tempfile.TemporaryDirectory() as install_dir, tempfile.TemporaryDirectory() as cwd:
+            acf.ROOT = Path(install_dir)
+            try:
+                with pushd(Path(cwd)):
+                    exit_code, stdout, stderr = self.run_cli_output(["version", "show", "--json"])
+            finally:
+                acf.ROOT = previous_root
+
+        self.assertEqual(exit_code, 0, stderr)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["version"], acf.VERSION)
+        self.assertEqual(payload["versions"]["cli"], acf.VERSION)
+        self.assertIsNone(payload["versions"]["pyproject"])
+        self.assertIsNone(payload["versions"]["uv_lock"])
+
+    def test_version_set_requires_source_checkout(self):
+        previous_root = acf.ROOT
+        with tempfile.TemporaryDirectory() as install_dir, tempfile.TemporaryDirectory() as cwd:
+            acf.ROOT = Path(install_dir)
+            try:
+                with pushd(Path(cwd)):
+                    exit_code, stdout, stderr = self.run_cli_output(["version", "set", "v0.0.3.3", "--dry-run", "--json"])
+            finally:
+                acf.ROOT = previous_root
+
+        self.assertEqual(exit_code, 2, stderr)
+        payload = json.loads(stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error_code"], "input_error")
+        self.assertIn("source checkout", payload["message"])
+
     def test_front_matter_parse_valid_subset_and_preserves_body(self):
         text = (
             "---\n"

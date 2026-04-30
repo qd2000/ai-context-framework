@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.13` 是当前推荐的真实项目接入/升级版本，已通过旧上下文升级、已合规上下文 no-op upgrade、新项目 init 三类真实项目试点。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.14` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.13 的真实项目试点结论，并修复了非 editable 安装态下 `acf version show --json` 误读安装目录 `pyproject.toml` 的问题。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -167,7 +167,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.13 --dry-run --json
+acf version set v0.0.3.14 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```

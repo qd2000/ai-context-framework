@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 import json
 import os
 import re
@@ -20,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.13"
+VERSION = "v0.0.3.14"
 
 
 def find_template_dir() -> Path:
@@ -2929,9 +2930,10 @@ def replace_regex_once(text: str, pattern: str, replacement: str, label: str) ->
 
 
 def version_files() -> list[Path]:
-    files = [ROOT / "acf.py", ROOT / "pyproject.toml"]
-    pkg_info = ROOT / "ai_context_framework.egg-info" / "PKG-INFO"
-    uv_lock = ROOT / "uv.lock"
+    root = require_source_project_root()
+    files = [root / "acf.py", root / "pyproject.toml"]
+    pkg_info = root / "ai_context_framework.egg-info" / "PKG-INFO"
+    uv_lock = root / "uv.lock"
     if pkg_info.exists():
         files.append(pkg_info)
     if uv_lock.exists():
@@ -2939,27 +2941,69 @@ def version_files() -> list[Path]:
     return files
 
 
+def is_source_project_root(path: Path) -> bool:
+    pyproject_path = path / "pyproject.toml"
+    acf_path = path / "acf.py"
+    if not pyproject_path.exists() or not acf_path.exists():
+        return False
+    return 'name = "ai-context-framework"' in read_text(pyproject_path)
+
+
+def discover_source_project_root(start: Path | None = None) -> Path | None:
+    candidates: list[Path] = []
+    if start is not None:
+        candidates.extend([start.resolve(), *start.resolve().parents])
+    candidates.append(ROOT)
+    for candidate in candidates:
+        if is_source_project_root(candidate):
+            return candidate
+    return None
+
+
+def require_source_project_root() -> Path:
+    root = discover_source_project_root(Path.cwd())
+    if root is None:
+        raise SystemExit("version set requires an ai-context-framework source checkout")
+    return root
+
+
+def installed_package_version() -> str | None:
+    try:
+        return importlib.metadata.version("ai-context-framework")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
 def read_project_versions() -> dict[str, str | None]:
     versions: dict[str, str | None] = {
-        "cli": None,
+        "cli": VERSION,
         "pyproject": None,
         "pkg_info": None,
         "uv_lock": None,
     }
-    acf_path = ROOT / "acf.py"
-    pyproject_path = ROOT / "pyproject.toml"
-    pkg_info_path = ROOT / "ai_context_framework.egg-info" / "PKG-INFO"
-    uv_lock_path = ROOT / "uv.lock"
-    match = re.search(r'^VERSION = "([^"]+)"', read_text(acf_path), flags=re.MULTILINE)
-    if match:
-        versions["cli"] = match.group(1)
-    match = re.search(r'^version = "([^"]+)"', read_text(pyproject_path), flags=re.MULTILINE)
-    if match:
-        versions["pyproject"] = match.group(1)
+    source_root = discover_source_project_root(Path.cwd())
+    if source_root is None:
+        versions["pkg_info"] = installed_package_version()
+        return versions
+
+    acf_path = source_root / "acf.py"
+    pyproject_path = source_root / "pyproject.toml"
+    pkg_info_path = source_root / "ai_context_framework.egg-info" / "PKG-INFO"
+    uv_lock_path = source_root / "uv.lock"
+    if acf_path.exists():
+        match = re.search(r'^VERSION = "([^"]+)"', read_text(acf_path), flags=re.MULTILINE)
+        if match:
+            versions["cli"] = match.group(1)
+    if pyproject_path.exists():
+        match = re.search(r'^version = "([^"]+)"', read_text(pyproject_path), flags=re.MULTILINE)
+        if match:
+            versions["pyproject"] = match.group(1)
     if pkg_info_path.exists():
         match = re.search(r"^Version: (.+)$", read_text(pkg_info_path), flags=re.MULTILINE)
         if match:
             versions["pkg_info"] = match.group(1).strip()
+    else:
+        versions["pkg_info"] = installed_package_version()
     if uv_lock_path.exists():
         match = re.search(r'(?ms)name = "ai-context-framework".*?^version = "([^"]+)"', read_text(uv_lock_path))
         if match:
@@ -2989,10 +3033,11 @@ def version_show_command(args: argparse.Namespace) -> int:
 def version_set_command(args: argparse.Namespace) -> int:
     dry_run = dry_run_enabled(args)
     cli_version, package_version = normalize_release_version(args.value)
+    root = require_source_project_root()
     changed = version_files()
     if not dry_run:
-        acf_path = ROOT / "acf.py"
-        pyproject_path = ROOT / "pyproject.toml"
+        acf_path = root / "acf.py"
+        pyproject_path = root / "pyproject.toml"
         acf_path.write_text(
             replace_regex_once(read_text(acf_path), r'^VERSION = "[^"]+"', f'VERSION = "{cli_version}"', "acf.py VERSION"),
             encoding="utf-8",
@@ -3001,13 +3046,13 @@ def version_set_command(args: argparse.Namespace) -> int:
             replace_regex_once(read_text(pyproject_path), r'^version = "[^"]+"', f'version = "{package_version}"', "pyproject.toml version"),
             encoding="utf-8",
         )
-        pkg_info_path = ROOT / "ai_context_framework.egg-info" / "PKG-INFO"
+        pkg_info_path = root / "ai_context_framework.egg-info" / "PKG-INFO"
         if pkg_info_path.exists():
             pkg_info_path.write_text(
                 replace_regex_once(read_text(pkg_info_path), r"^Version: .+$", f"Version: {package_version}", "PKG-INFO version"),
                 encoding="utf-8",
             )
-        uv_lock_path = ROOT / "uv.lock"
+        uv_lock_path = root / "uv.lock"
         if uv_lock_path.exists():
             uv_lock_path.write_text(
                 replace_regex_once(
