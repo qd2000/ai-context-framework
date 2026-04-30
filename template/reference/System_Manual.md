@@ -288,13 +288,14 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
 - `acf knowledge draft|apply|list|show|mark [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
+- `acf workstream init|status|list [target]` / `acf workstream show WS001 [target]`：显式启用可选 Workstream 层，并读取并行目标线索引与详情 metadata；`upgrade` 和旧项目默认不启用 Workstream。
 - `acf new task [target] --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
 - `acf new source [target] --title "..." --type "..." --location "..." --relation "..."`：添加或更新资料索引行；重复资料标题需传入 `--force` 才能覆盖。
 - `acf new worklog [target] --summary "..."`：生成 daily worklog 并更新工作记录索引。
 - `acf new adr [target] --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `acf writeback draft [target] --text "..."`：生成会话回写草案，供人工审阅后再决定是否写入权威上下文。
 - `acf version show --json`：查看 CLI、包配置和锁文件中的版本号。
-- `acf version set v0.0.3.6 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
+- `acf version set v0.0.3.8 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
 - `acf edit section get <file> --heading "## 标题"`：读取上下文根目录内某个 Markdown section 的正文。
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。
@@ -340,6 +341,7 @@ uv run --project <ai-context-framework 路径> acf upgrade --dry-run --json
 
 - `acf status --json`：获取机器可读的上下文位置、profile、当前任务状态和检查结果。
 - `acf check --json --strict`：获取机器可读的检查结果。
+- `acf workstream status|list|show --json`：获取机器可读的 Workstream 初始化状态、索引行和详情 metadata。
 - `acf edit section get ... --json`：获取机器可读的 section 正文和行号信息。
 - 写命令可追加 `--dry-run --json`：只预览 changed files，不实际落盘。
 - 写命令可追加 `--check-after`：落盘后自动运行 context check。

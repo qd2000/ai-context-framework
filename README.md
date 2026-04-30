@@ -130,6 +130,10 @@ acf task done --id T001 --evidence "worklog/daily/YYYY-MM-DD.md"
 acf archive current-task --reason "任务已完成"
 acf knowledge draft --title "任务拆分经验" --source "worklog/daily/YYYY-MM-DD.md"
 acf knowledge apply worklog/knowledge-drafts/YYYY-MM-DD-task.md --allow-similar
+acf workstream status --json
+acf workstream init --dry-run --json
+acf workstream list
+acf workstream show WS001
 acf new task --title "实现一个维护任务" --goal "写清当前目标。"
 acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
 acf new worklog --summary "完成一次上下文维护。"
@@ -146,7 +150,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.6 --dry-run --json
+acf version set v0.0.3.8 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -165,6 +169,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
+- `workstream init|status|list|show`：显式启用可选 Workstream 层，并读取并行目标线索引与详情 metadata；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
@@ -178,7 +183,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 
-`status`、`check` 和 `edit section get` 支持 `--json` 输出。写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
+`status`、`check`、`workstream status|list|show` 和 `edit section get` 支持 `--json` 输出。写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
 
 `edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它提供的是 section/table 级确定性编辑原语，不做语义判断，也不是通用 Markdown 编辑器。
 

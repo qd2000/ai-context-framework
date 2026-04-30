@@ -205,6 +205,114 @@ class CliTests(unittest.TestCase):
         self.assertIn("front_matter_path_not_normalized", codes)
         self.assertIn("front_matter_path_missing_extension", codes)
 
+    def test_workstream_status_and_init_are_optional(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertFalse((target / "active" / "Workstreams.md").exists())
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(json.loads(stdout)["ok"])
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "status", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["initialized"])
+            self.assertEqual(payload["state"], "NotInitialized")
+            self.assertTrue(payload["next_actions"])
+
+            exit_code, stdout, _stderr = self.run_cli_output(["workstream", "list", str(target), "--json"])
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_not_initialized")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "init", str(target), "--json", "--check-after"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["initialized"])
+            self.assertTrue((target / "active" / "Workstreams.md").exists())
+            self.assertTrue((target / "active" / "workstreams").is_dir())
+            self.assertTrue((target / "archive" / "workstreams").is_dir())
+            self.assertTrue(payload["changed_files"])
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "init", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["changed_files"], [])
+
+    def test_workstream_list_and_show_parse_front_matter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(
+                acf.render_workstream_index().replace(
+                    "| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |",
+                    "| WS001 | Open | 并行线 | 主 agent | owned: active/workstreams/WS001.md | 无。 | 输出摘要 | active/workstreams/WS001.md |",
+                ),
+                encoding="utf-8",
+            )
+            detail_path = target / "active" / "workstreams" / "WS001.md"
+            detail_path.write_text(
+                "---\n"
+                "id: WS001\n"
+                "status: Open\n"
+                "owner: 主 agent\n"
+                "title: 并行线\n"
+                "depends_on: []\n"
+                "read_scope:\n"
+                "  - active/Context.md\n"
+                "write_scope:\n"
+                "  - owned: active/workstreams/WS001.md\n"
+                "---\n"
+                "\n"
+                "# WS001 - 并行线\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "list", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["workstreams"][0]["id"], "WS001")
+            self.assertEqual(payload["counts"]["Open"], 1)
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "show", "WS001", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["metadata"]["id"], "WS001")
+            self.assertEqual(payload["normalized_read_scope"], ["active/Context.md"])
+            self.assertEqual(payload["normalized_write_scope"], ["owned: active/workstreams/WS001.md"])
+
+    def test_workstream_show_reports_schema_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            (target / "active" / "Workstreams.md").write_text(
+                acf.render_workstream_index().replace(
+                    "| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |",
+                    "| WS001 | Open | 并行线 | 主 agent | owned: active/workstreams/WS001.md | 无。 | 输出摘要 | active/workstreams/WS001.md |",
+                ),
+                encoding="utf-8",
+            )
+            (target / "active" / "workstreams" / "WS001.md").write_text(
+                "---\n"
+                "id: WS001\n"
+                "status: Invalid\n"
+                "owner: 主 agent\n"
+                "title: 并行线\n"
+                "read_scope: []\n"
+                "---\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(["workstream", "show", "WS001", str(target), "--json"])
+            self.assertEqual(exit_code, 2)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["error_code"], "workstream_schema_failed")
+
     def test_strict_template_check_fails_on_placeholders(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=True)
         self.assertTrue(any("placeholder" in error for error in result.errors))

@@ -24,10 +24,12 @@
 - `uv run acf upgrade docs/ai --dry-run --json`
 - 通用升级形式：`acf upgrade [target]`
 - `uv run acf check --strict`
+- `uv run acf workstream status docs/ai --json`
+- `uv run acf workstream show WS001 docs/ai --json`
 - `uv run acf plan status docs/ai --json`
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf version show --json`
-- `uv run acf version set v0.0.3.6 --dry-run --json`
+- `uv run acf version set v0.0.3.8 --dry-run --json`
 
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。
 

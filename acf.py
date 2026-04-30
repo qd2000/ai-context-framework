@@ -20,7 +20,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.7"
+VERSION = "v0.0.3.8"
 
 
 def find_template_dir() -> Path:
@@ -133,6 +133,8 @@ VALID_SUBTASK_STATUSES = {"Pending", "Active", "Done", "Blocked", "Skipped", "Su
 VALID_DECISION_STATUSES = {"Active", "Proposed", "Superseded", "Rejected", "Deprecated"}
 VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Rejected"}
 VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
+VALID_WORKSTREAM_STATUSES = {"Open", "Active", "Blocked", "ReadyToMerge", "Done", "Cancelled"}
+ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge"}
 PLACEHOLDER_RE = re.compile(r"【[^】]+】")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -140,12 +142,26 @@ ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
 TASK_ID_RE = re.compile(r"^T(\d{3})$")
 TASK_ID_TOKEN_RE = re.compile(r"\bT(\d{3})\b")
 KNOWLEDGE_ID_RE = re.compile(r"^K(\d{3})$")
+WORKSTREAM_ID_RE = re.compile(r"^WS(\d{3})$")
 DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
 TASK_TABLE_HEADER = "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |"
 KNOWLEDGE_TABLE_HEADER = "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |"
 ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | 标题 | 原因 | 详情 |"
+WORKSTREAM_TABLE_HEADER = "| ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |"
+WORKSTREAM_INDEX_REL = "active/Workstreams.md"
+WORKSTREAM_DIR_REL = "active/workstreams"
+WORKSTREAM_ARCHIVE_DIR_REL = "archive/workstreams"
+WORKSTREAM_METADATA_FIELDS = (
+    "id",
+    "status",
+    "owner",
+    "title",
+    "depends_on",
+    "read_scope",
+    "write_scope",
+)
 JSON_SCHEMA_VERSION = 1
 EXIT_CHECK_FAILED = 1
 EXIT_INPUT_ERROR = 2
@@ -321,6 +337,27 @@ class KnowledgeEntry:
 
 
 @dataclass
+class WorkstreamEntry:
+    workstream_id: str
+    status: str
+    title: str
+    owner: str
+    write_scope: str
+    depends_on: str
+    output: str
+    detail: str
+
+
+@dataclass
+class WorkstreamDetail:
+    workstream_id: str
+    path: Path
+    metadata: dict[str, str | list[str]]
+    body: str
+    diagnostics: list[FrontMatterDiagnostic]
+
+
+@dataclass
 class SectionRange:
     heading_index: int
     body_start: int
@@ -353,6 +390,7 @@ class FrontMatterSchema:
     scalar_fields: tuple[str, ...] = ()
     list_fields: tuple[str, ...] = ()
     enum_fields: dict[str, set[str]] = field(default_factory=dict)
+    scope_fields: tuple[str, ...] = ()
     typed_scope_fields: tuple[str, ...] = ()
     scope_types: set[str] = field(
         default_factory=lambda: {"authority", "draft", "owned", "assigned", "evidence"}
@@ -643,6 +681,22 @@ def validate_front_matter(
                 )
             )
 
+    for field_name in schema.scope_fields:
+        value = metadata.get(field_name)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            diagnostics.append(
+                FrontMatterDiagnostic(
+                    "front_matter_schema_failed",
+                    f"scope field must be a list: {field_name}",
+                    field=field_name,
+                )
+            )
+            continue
+        for item in value:
+            diagnostics.extend(validate_scope_path(item, field_name))
+
     for field_name, allowed_values in schema.enum_fields.items():
         value = metadata.get(field_name)
         if isinstance(value, str) and value not in allowed_values:
@@ -764,6 +818,12 @@ def write_next_actions(dry_run: bool, check_result: CheckResult | None, changed_
 
 
 def error_next_actions(error_code: str) -> list[str]:
+    if error_code == "workstream_not_initialized":
+        return ["Run `acf workstream init` for this context before using Workstream detail commands."]
+    if error_code == "workstream_not_found":
+        return ["Run `acf workstream list` to see available Workstream IDs."]
+    if error_code == "workstream_schema_failed":
+        return ["Fix the Workstream detail front matter, then rerun the command."]
     if error_code == "input_error":
         return [
             "Check command arguments and paths.",
@@ -783,6 +843,14 @@ def error_next_actions(error_code: str) -> list[str]:
 
 
 def classify_cli_error(message: str) -> tuple[str, int]:
+    workstream_codes = (
+        "workstream_not_initialized",
+        "workstream_not_found",
+        "workstream_schema_failed",
+    )
+    for code in workstream_codes:
+        if message.startswith(f"{code}:"):
+            return code, EXIT_INPUT_ERROR
     safety_markers = (
         "already exists",
         "already contains",
@@ -920,6 +988,10 @@ def release_context_lock(lock_path: Path) -> None:
 def write_command_context_root(args: argparse.Namespace) -> Path | None:
     command = getattr(args, "command", None)
     if command in {"init", "simplify"}:
+        return None
+    if command == "workstream":
+        if getattr(args, "workstream_command", None) == "init":
+            return require_context_root(getattr(args, "path", None))
         return None
     if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "knowledge"}:
         return require_context_root(getattr(args, "path", None))
@@ -1349,6 +1421,8 @@ def command_label(args: argparse.Namespace) -> str:
         return f"archive {getattr(args, 'archive_command', '')}".strip()
     if command == "knowledge":
         return f"knowledge {getattr(args, 'knowledge_command', '')}".strip()
+    if command == "workstream":
+        return f"workstream {getattr(args, 'workstream_command', '')}".strip()
     return command
 
 
@@ -1374,7 +1448,7 @@ def context_location_for_args(args: argparse.Namespace) -> ContextLocation:
         return make_context_location(require_context_root(getattr(args, "path", None)))
     if command == "edit":
         return make_context_location(require_context_root(getattr(args, "context", None)))
-    if command in {"plan", "task", "archive", "knowledge"}:
+    if command in {"plan", "task", "archive", "knowledge", "workstream"}:
         return make_context_location(require_context_root(getattr(args, "path", None)))
     raise SystemExit("usage log is not available for this command")
 
@@ -1760,6 +1834,12 @@ def validate_task_id(value: str) -> str:
 def validate_knowledge_id(value: str) -> str:
     if not KNOWLEDGE_ID_RE.match(value):
         raise argparse.ArgumentTypeError("knowledge id must use K001 format")
+    return value
+
+
+def validate_workstream_id(value: str) -> str:
+    if not WORKSTREAM_ID_RE.match(value):
+        raise argparse.ArgumentTypeError("workstream id must use WS001 format")
     return value
 
 
@@ -3833,6 +3913,320 @@ def archive_list_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def workstream_index_path(root: Path) -> Path:
+    return root / WORKSTREAM_INDEX_REL
+
+
+def workstream_details_dir(root: Path) -> Path:
+    return root / WORKSTREAM_DIR_REL
+
+
+def workstream_archive_dir(root: Path) -> Path:
+    return root / WORKSTREAM_ARCHIVE_DIR_REL
+
+
+def workstream_initialized(root: Path) -> bool:
+    return workstream_index_path(root).is_file()
+
+
+def workstream_front_matter_schema() -> FrontMatterSchema:
+    return FrontMatterSchema(
+        required_fields=("id", "status", "owner", "title", "read_scope", "write_scope"),
+        allowed_fields=WORKSTREAM_METADATA_FIELDS,
+        scalar_fields=("id", "status", "owner", "title"),
+        list_fields=("depends_on", "read_scope", "write_scope"),
+        enum_fields={"status": VALID_WORKSTREAM_STATUSES},
+        scope_fields=("read_scope",),
+        typed_scope_fields=("write_scope",),
+    )
+
+
+def normalize_scope_path(path_value: str) -> str:
+    normalized = path_value.strip().replace("\\", "/")
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized.rstrip("/")
+
+
+def normalize_scope_values(values: str | list[str] | None) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [normalize_scope_path(value) for value in values]
+
+
+def normalize_typed_scope_values(values: str | list[str] | None) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    normalized: list[str] = []
+    for value in values:
+        scope_type, scope_path = split_typed_scope(value)
+        if scope_type and scope_path:
+            normalized.append(f"{scope_type}: {normalize_scope_path(scope_path)}")
+        else:
+            normalized.append(value)
+    return normalized
+
+
+def diagnostic_payload(diagnostic: FrontMatterDiagnostic) -> dict[str, object]:
+    return {
+        "code": diagnostic.code,
+        "message": diagnostic.message,
+        "field": diagnostic.field,
+        "line": diagnostic.line,
+        "severity": diagnostic.severity,
+    }
+
+
+def render_workstream_index() -> str:
+    return f"""本文件记录显式启用的并行 Workstream 索引。
+
+Workstream 是可选并行目标线协议，不是 agent runtime、调度器或权限系统。
+
+默认读取规则：只有存在 Active、Blocked 或 ReadyToMerge workstream，或当前任务需要整理并行协作时，才读取本文件。没有这些状态时，本文件不进入默认上下文。
+
+---
+
+## Workstream 状态
+
+Inactive
+
+说明：当前没有 Active、Blocked 或 ReadyToMerge workstream。
+
+---
+
+## Workstreams
+
+{WORKSTREAM_TABLE_HEADER}
+|---|---|---|---|---|---|---|---|
+| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |
+
+---
+
+## 使用规则
+
+1. 本索引只保留低噪音摘要。
+2. 单个 Workstream 详情文件是该 Workstream 的事实源。
+3. Done / Cancelled workstream 只在当前计划仍需解释时保留在 active 区域。
+4. 当前计划结束后，Done / Cancelled workstream 应归档到 archive/workstreams。
+"""
+
+
+def parse_workstream_index(root: Path) -> list[WorkstreamEntry]:
+    index_path = workstream_index_path(root)
+    if not index_path.exists():
+        raise SystemExit(f"workstream_not_initialized: {WORKSTREAM_INDEX_REL} does not exist")
+
+    lines = read_text(index_path).splitlines()
+    try:
+        table = find_table(lines, WORKSTREAM_TABLE_HEADER)
+    except SystemExit as exc:
+        raise SystemExit(f"workstream_schema_failed: {WORKSTREAM_INDEX_REL}: {exc}") from exc
+
+    entries: list[WorkstreamEntry] = []
+    for line in lines[table.body_start : table.body_end]:
+        cells = split_table_line(line)
+        if not cells or cells[0] in {"ID", "暂无"}:
+            continue
+        if len(cells) < 8:
+            raise SystemExit(f"workstream_schema_failed: {WORKSTREAM_INDEX_REL} has a malformed Workstream row")
+        entries.append(
+            WorkstreamEntry(
+                workstream_id=cells[0],
+                status=cells[1],
+                title=cells[2],
+                owner=cells[3],
+                write_scope=cells[4],
+                depends_on=cells[5],
+                output=cells[6],
+                detail=strip_code_ticks(cells[7]),
+            )
+        )
+    return entries
+
+
+def workstream_index_state(root: Path, entries: Sequence[WorkstreamEntry]) -> str:
+    status = extract_heading_value(workstream_index_path(root), "## Workstream 状态")
+    if status:
+        return status
+    if any(entry.status in ACTIVE_WORKSTREAM_STATUSES for entry in entries):
+        return "Active"
+    return "Inactive"
+
+
+def workstream_counts(entries: Sequence[WorkstreamEntry]) -> dict[str, int]:
+    counts = {status: 0 for status in sorted(VALID_WORKSTREAM_STATUSES)}
+    for entry in entries:
+        counts[entry.status] = counts.get(entry.status, 0) + 1
+    return counts
+
+
+def workstream_entry_payload(entry: WorkstreamEntry) -> dict[str, object]:
+    return {
+        "id": entry.workstream_id,
+        "status": entry.status,
+        "title": entry.title,
+        "owner": entry.owner,
+        "write_scope": entry.write_scope,
+        "depends_on": entry.depends_on,
+        "output": entry.output,
+        "detail": entry.detail,
+    }
+
+
+def resolve_workstream_detail_path(root: Path, workstream_id: str, entries: Sequence[WorkstreamEntry]) -> Path:
+    resolved: Path
+    for entry in entries:
+        if entry.workstream_id == workstream_id:
+            detail = entry.detail.strip()
+            if detail and detail != "无。":
+                resolved = (root / detail).resolve()
+                break
+    else:
+        resolved = (workstream_details_dir(root) / f"{workstream_id}.md").resolve()
+    if not is_relative_to(resolved, root):
+        raise SystemExit(f"workstream_schema_failed: detail path is outside context root for {workstream_id}")
+    return resolved
+
+
+def read_workstream_detail(root: Path, workstream_id: str) -> WorkstreamDetail:
+    entries = parse_workstream_index(root)
+    detail_path = resolve_workstream_detail_path(root, workstream_id, entries)
+    if not detail_path.exists():
+        raise SystemExit(f"workstream_not_found: {workstream_id}")
+
+    metadata, body, diagnostics = parse_front_matter(read_text(detail_path))
+    diagnostics.extend(validate_front_matter(metadata, workstream_front_matter_schema()))
+    metadata_id = metadata.get("id")
+    if isinstance(metadata_id, str) and metadata_id != workstream_id:
+        diagnostics.append(
+            FrontMatterDiagnostic(
+                "front_matter_schema_failed",
+                f"workstream id mismatch: expected {workstream_id}, got {metadata_id}",
+                field="id",
+            )
+        )
+    if diagnostics:
+        raise SystemExit(
+            "workstream_schema_failed: "
+            + "; ".join(
+                f"{diagnostic.field + ': ' if diagnostic.field else ''}{diagnostic.message}"
+                for diagnostic in diagnostics
+            )
+        )
+    return WorkstreamDetail(workstream_id, detail_path, metadata, body, diagnostics)
+
+
+def workstream_init_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    index_path = workstream_index_path(root)
+    details_dir = workstream_details_dir(root)
+    archive_dir = workstream_archive_dir(root)
+    changed = [path for path in (index_path, details_dir, archive_dir) if not path.exists()]
+
+    if not dry_run:
+        details_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        if not index_path.exists():
+            index_path.parent.mkdir(parents=True, exist_ok=True)
+            index_path.write_text(render_workstream_index(), encoding="utf-8")
+
+    check_result = maybe_check_after(args, root)
+    action = "would initialize" if dry_run else "initialized"
+    return emit_write_result(
+        args,
+        "workstream init",
+        f"{action} Workstream layer",
+        changed,
+        check_result,
+        extra_payload={
+            "initialized": True,
+            "index": str(index_path),
+            "details_dir": str(details_dir),
+            "archive_dir": str(archive_dir),
+        },
+    )
+
+
+def workstream_status_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    initialized = workstream_initialized(root)
+    entries = parse_workstream_index(root) if initialized else []
+    payload: dict[str, object] = {
+        "command": "workstream status",
+        "context": str(root),
+        "initialized": initialized,
+        "index": str(workstream_index_path(root)),
+        "details_dir": str(workstream_details_dir(root)),
+        "archive_dir": str(workstream_archive_dir(root)),
+        "state": workstream_index_state(root, entries) if initialized else "NotInitialized",
+        "counts": workstream_counts(entries),
+        "ok": True,
+        "next_actions": [] if initialized else error_next_actions("workstream_not_initialized"),
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"workstream initialized: {initialized}")
+        print(f"state: {payload['state']}")
+        if not initialized:
+            print("next action: acf workstream init")
+    return 0
+
+
+def workstream_list_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    entries = parse_workstream_index(root)
+    payload: dict[str, object] = {
+        "command": "workstream list",
+        "context": str(root),
+        "initialized": True,
+        "state": workstream_index_state(root, entries),
+        "counts": workstream_counts(entries),
+        "workstreams": [workstream_entry_payload(entry) for entry in entries],
+        "ok": True,
+        "next_actions": [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        for entry in entries:
+            print(f"{entry.workstream_id}\t{entry.status}\t{entry.title}")
+        if not entries:
+            print("no workstreams")
+    return 0
+
+
+def workstream_show_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    detail = read_workstream_detail(root, args.id)
+    payload: dict[str, object] = {
+        "command": "workstream show",
+        "context": str(root),
+        "id": args.id,
+        "detail": str(detail.path),
+        "metadata": detail.metadata,
+        "normalized_read_scope": normalize_scope_values(detail.metadata.get("read_scope")),
+        "normalized_write_scope": normalize_typed_scope_values(detail.metadata.get("write_scope")),
+        "diagnostics": [diagnostic_payload(diagnostic) for diagnostic in detail.diagnostics],
+        "ok": True,
+        "next_actions": [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"id: {args.id}")
+        print(f"detail: {detail.path}")
+        print(f"status: {detail.metadata.get('status', 'Unknown')}")
+        print(f"title: {detail.metadata.get('title', 'Unknown')}")
+    return 0
+
+
 def resolve_context_existing_path(root: Path, value: str) -> Path:
     candidate = Path(strip_code_ticks(value))
     resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
@@ -4968,6 +5362,30 @@ def build_parser() -> argparse.ArgumentParser:
     version_set_parser.add_argument("value", help="version value, for example v0.0.3.6")
     add_write_arguments(version_set_parser)
     version_set_parser.set_defaults(func=version_set_command)
+
+    workstream_parser = subparsers.add_parser("workstream", help="manage optional parallel Workstream metadata")
+    workstream_subparsers = workstream_parser.add_subparsers(dest="workstream_command", required=True)
+
+    workstream_init_parser = workstream_subparsers.add_parser("init", help="enable the optional Workstream layer")
+    workstream_init_parser.add_argument("path", nargs="?", type=Path)
+    add_write_arguments(workstream_init_parser)
+    workstream_init_parser.set_defaults(func=workstream_init_command)
+
+    workstream_status_parser = workstream_subparsers.add_parser("status", help="show Workstream layer status")
+    workstream_status_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(workstream_status_parser)
+    workstream_status_parser.set_defaults(func=workstream_status_command)
+
+    workstream_list_parser = workstream_subparsers.add_parser("list", help="list Workstream index entries")
+    workstream_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(workstream_list_parser)
+    workstream_list_parser.set_defaults(func=workstream_list_command)
+
+    workstream_show_parser = workstream_subparsers.add_parser("show", help="show a Workstream detail file")
+    workstream_show_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_show_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(workstream_show_parser)
+    workstream_show_parser.set_defaults(func=workstream_show_command)
 
     plan_parser = subparsers.add_parser("plan", help="manage active/Task_Plan.md")
     plan_subparsers = plan_parser.add_subparsers(dest="plan_command", required=True)

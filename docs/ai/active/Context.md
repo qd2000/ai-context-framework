@@ -99,13 +99,14 @@ Dogfooding MVP / 框架稳定化。
 51. Feedback_Inbox 生命周期已明确：Open/Triaged/Planned/Done/Rejected 各有处理规则，Done/Rejected 需要证据位置或拒绝原因，长期已处理反馈归档到 `archive/feedback/`。
 52. `acf init` 和 `acf upgrade` 已补齐 `archive/feedback/` 目录；旧上下文升级会非破坏式补齐反馈归档结构。
 53. T002-T005 已完成验证：`uv run acf check template`、`uv run acf check docs/ai --strict --json`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf version show --json` 和 `uv run python -m unittest` 均通过。
-54. `acf --version` 当前版本记为 `v0.0.3.7`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.7`。
+54. `acf --version` 当前版本记为 `v0.0.3.8`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.8`。
 55. 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，必须评估旧版本上下文升级兼容性；新增结构应同步到 init 文件清单、upgrade 补齐清单、data-files、文档和 init/upgrade 测试。
 56. `acf upgrade --help` 已明确当前 schema 会补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge；旧上下文升级演练已验证 dry-run、正式 upgrade --check-after 和 check 均可通过。
 57. `acf upgrade` 已支持对已存在但内容过期的 ACF 模板文件做保守 section 级迁移：AGENTS、Feedback_Inbox、Project_Rules 和 System_Manual 会在识别到旧段落时更新；无法识别的自定义文档仍通过 marker notes 非破坏式提示。
 58. Workstream 可选层的 T002 读取规则已通过 dogfooding 明确：`init`/`upgrade` 默认不启用 Workstream；仅当存在 Active、Blocked 或 ReadyToMerge workstream，或需要整理并行协作时，才按需读取 Workstreams 索引。
 59. 已完成最小 Workstream dogfooding gate：`Workstreams.md` 和 `workstreams/WS001.md` 记录 WS001 从 Open 到 Done 的试运行、ReadyToMerge 合并请求和 evidence；当前 Workstream 索引状态为 Inactive。
 60. `decisions/ADR-0005.md` 已作为 Proposed ADR 记录可选 Workstream 层的稳定取舍；T004 实现并验证后再评估是否改为 Active。
+61. T004 第一刀已完成：`acf workstream init/status/list/show` 可用；实现范围限定为 Workstream 数据模型、front matter schema 校验、scope normalize、initialized 判断和最小查询/初始化命令，尚未实现 add/set/block/cancel/claim/note/merge-request/ready/done 或 Workstream check 语义规则。
 
 ---
 
