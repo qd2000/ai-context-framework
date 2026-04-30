@@ -46,8 +46,12 @@ T002
 |---|---|---|---|---|---|---|
 | T001 | Done | 沉淀 Workstream 设计方案 | F007 用户反馈。 | reference/Workstream_Design.md | reference/Workstream_Design.md 已沉淀设计原则、状态机、合并契约、写入类型、front matter 判断和落地顺序；Feedback_Inbox F007 已映射到本计划。 | 无。 |
 | T002 | Pending | 设计可选模板与读取规则 | T001 | template 与 docs/ai 的可选 Workstreams 结构变更方案 | 无。 | 决定是否新增 active/Workstreams.md 与 active/workstreams/，并更新 AGENTS 默认读取规则。 |
-| T003 | Pending | 规划 acf workstream 命令与检查规则 | T001,T002 | acf workstream init/add/list/show/set/ready/done 与 check 规则设计 | 无。 | 先做结构维护和一致性检查，不做语义判断或调度。 |
-| T004 | Pending | 实现与验证 Workstream 可选层 | T002,T003 | 模板、CLI、测试、文档和版本更新 | 无。 | 实现时同步 README、System Manual、Automation、data-files、init/upgrade/check 测试和版本号。 |
+| T003 | Pending | 规划 acf workstream 命令与检查规则 | T001,T002 | acf workstream 命令接口、JSON 输出、状态转换、scope claim 和 check/error code 规则 | 无。 | 按 reference/Workstream_Design.md 的接口细节实现 init/list/show/add/set/claim/note/merge-request/ready/done，并保持无 runtime 调度。 |
+| T004 | Pending | 实现与验证 Workstream 可选层 | T002,T003,T005,T006 | 模板、CLI、测试、文档和版本更新 | 无。 | 实现时先满足模板/读取规则、workstream 接口、front matter parser/schema、upgrade 迁移矩阵，再同步 README、System Manual、Automation、data-files、init/upgrade/check 测试和版本号。 |
+| T005 | Pending | 规划 front matter metadata 支持 | T001,T002 | reference/Front_Matter_Metadata_Plan.md 中的极小 YAML 子集、解析器接口、schema 校验和迁移工具计划 | 无。 | 先实现 parse/format/validate front matter 无依赖基础能力，再接入 Workstream metadata schema。 |
+| T006 | Pending | 规划 upgrade 迁移与兼容性矩阵 | T002,T005 | reference/Upgrade_Migration_Plan.md | 无。 | 实现 Workstream 或 front matter 前，先按迁移矩阵补齐 init/upgrade/check/data-files/测试规划。 |
+| T007 | Pending | 执行 Workstream dogfooding gate | T002,T003,T005,T006 | docs/ai 最小 Workstream 试运行记录与验收结论 | 无。 | 在不依赖完整 CLI 的情况下手动启用一个最小 Workstream，验证读取噪音、ReadyToMerge 合并请求、Done evidence 和旧上下文 check 兼容性。 |
+| T008 | Pending | 生成 Workstream 设计 ADR 候选 | T001,T002 | decisions/ADR-0005.md 或对应 ADR 草案 | 无。 | 记录为什么使用可选 Workstream 层、为什么不做 runtime、为什么默认不启用、ReadyToMerge/Done 分离和写入范围协作契约。 |
 
 ---
 

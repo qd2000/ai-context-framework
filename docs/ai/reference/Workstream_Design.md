@@ -67,6 +67,42 @@ active/workstreams/WS002.md
 
 ---
 
+## 命名与 Metadata Schema 决议
+
+实现和生成文件时必须统一使用 `.md` 后缀：
+
+1. Workstreams 索引：active/Workstreams dot md。
+2. Workstream 详情：active/workstreams/WS001 dot md。
+3. 所有索引、metadata、JSON 输出和 check 规则都应使用同一套规范化路径。
+
+Workstream 详情 front matter 第一版统一使用以下字段：
+
+```yaml
+---
+id: WS001
+status: Open
+owner: 主 agent
+title: 并行任务治理模型
+depends_on: []
+read_scope:
+  - active/Context dot md
+  - active/Task_Plan dot md
+write_scope:
+  - owned: active/workstreams/WS001 dot md
+  - draft: worklog/writeback-drafts/WS001-*
+---
+```
+
+字段要求：
+
+1. `id` 必须匹配 `WS` 加三位数字。
+2. `status` 必须属于 Workstream 状态机。
+3. `depends_on`、`read_scope`、`write_scope` 使用字符串列表。
+4. `write_scope` 使用 typed string，格式为 `type: path`。
+5. 第一版不支持复杂对象、嵌套 YAML 或未带类型的写入范围。
+
+---
+
 ## Workstreams 索引
 
 计划中的 Workstreams 索引文件只保留低噪音字段：
@@ -74,7 +110,7 @@ active/workstreams/WS002.md
 ```markdown
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS001 | Active | 并行任务治理模型 | 主 agent | owned: active/workstreams/WS001; draft: writeback-drafts/WS001-* | 无 | Workstream_Design | active/workstreams/WS001 |
+| WS001 | Active | 并行任务治理模型 | 主 agent | owned: active/workstreams/WS001 dot md; draft: writeback-drafts/WS001-* | 无 | Workstream_Design | active/workstreams/WS001 dot md |
 ```
 
 不建议在总表维护“下一步”“当前发现”“证据”等易过期字段；这些内容应进入详情文件。
@@ -88,12 +124,15 @@ active/workstreams/WS002.md
 ```markdown
 ---
 id: WS001
-status: Active
+status: Open
 owner: 主 agent
 title: 并行任务治理模型
 depends_on: []
+read_scope:
+  - active/Context dot md
+  - active/Task_Plan dot md
 write_scope:
-  - active/workstreams/WS001
+  - owned: active/workstreams/WS001 dot md
   - worklog/writeback-drafts/WS001-*
 ---
 
@@ -177,6 +216,18 @@ Open/Active/Blocked/ReadyToMerge -> Cancelled
 
 ---
 
+## 归档与清理
+
+Done / Cancelled workstream 不应长期堆积在 active 区域。
+
+1. 当前计划仍需要解释的 Done / Cancelled 可以暂留在 active 索引和详情目录。
+2. 当前计划结束后，Done / Cancelled workstream 应归档到 archive/workstreams。
+3. active/Workstreams dot md 只长期保留 Open、Active、Blocked、ReadyToMerge，以及当前计划仍需解释的 Done / Cancelled。
+4. 归档摘要应保留 ID、最终状态、标题、owner、处理结果、证据位置和原详情文件位置。
+5. 归档不应复制冗长过程；过程发现应已进入 worklog、ADR、Context 或 Knowledge 草案。
+
+---
+
 ## ReadyToMerge 合并契约
 
 `ReadyToMerge` 不是“我做完了”，而是“我给出了可审查、可落盘、可验证的合并输入”。
@@ -203,11 +254,27 @@ Workstream 的写入范围按类型声明：
 |---|---|---|
 | authority | `../active/Context.md`、`../active/Task_Plan.md`、ADR、rules | 默认只能主 agent 写；多个 Active workstream 不应同时声明同一 authority 文件为可写 |
 | draft | worklog/writeback-drafts/WS001-context | 可并行；文件名应包含 Workstream ID |
-| owned | active/workstreams/WS001 | 仅对应 Workstream 写 |
+| owned | active/workstreams/WS001 dot md | 仅对应 Workstream 写 |
 | assigned | src/foo、docs/Feature | 同一时间只分配给一个 Active Workstream |
 | evidence | 测试结果、日志、worklog、产物引用 | 可引用，不代表拥有 |
 
 第一版检查应先覆盖 authority、owned、assigned 的明显冲突。draft 和 evidence 允许并行，但 draft 文件名应可追溯到 Workstream ID。
+
+---
+
+## Scope Path 规范
+
+Scope path 是协作契约，不是权限沙箱。为了让冲突检查稳定，第一版采用以下规则：
+
+1. `authority`、`owned` 和 `draft` 默认相对 context root。
+2. `assigned` 和 `evidence` 默认相对 project root，除非路径明确以 context 内目录开头。
+3. 比较前统一将分隔符 normalize 为 `/`。
+4. Windows 下路径冲突判断默认大小写不敏感。
+5. 目录 claim 覆盖其所有子路径。
+6. glob 第一版只允许用于 `draft` 和 `evidence`。
+7. `authority` 和 `assigned` 第一版不支持复杂 glob。
+8. 实际生成文件必须带 `.md` 后缀；如果输入缺少后缀，parser 应规范化或报错，不能静默产生两个不同目标。
+9. 规范化后的路径用于 metadata、索引、JSON 输出和 check 规则。
 
 ---
 
@@ -240,6 +307,142 @@ uv run acf workstream changed WS001
 
 ---
 
+## 接口细节
+
+### 命令分层
+
+第一版命令分为四类：
+
+1. 初始化：`init`
+2. 查询：`list`、`show`、`status`
+3. 状态维护：`add`、`set`、`claim`、`block`、`ready`、`done`、`cancel`
+4. 内容追加：`note`、`merge-request`
+
+命令必须继承现有写命令契约：`--json`、`--dry-run`、`--check-after`、`--strict`、changed files 和统一 error code。
+
+### init
+
+```bash
+uv run acf workstream init --json --check-after
+```
+
+行为：
+
+1. 创建计划中的 Workstreams 索引和详情目录。
+2. 如果索引已存在，保持幂等。
+3. 不创建任何 Active workstream。
+4. 不修改 `Task_Plan` 或 `Current_Task`。
+
+### add
+
+```bash
+uv run acf workstream add --id WS001 --title "并行任务治理模型" --owner "主 agent" --json
+```
+
+行为：
+
+1. 创建详情文件。
+2. 写入 front matter。
+3. 在索引中追加摘要行。
+4. 默认状态为 `Open`，除非显式传入 `--status Active`。
+
+### set / 状态命令
+
+```bash
+uv run acf workstream set WS001 --status Active --json
+uv run acf workstream block WS001 --reason "等待人工判断" --json
+uv run acf workstream ready WS001 --summary "候选变更已整理" --json
+uv run acf workstream done WS001 --evidence "worklog/daily/2026-04-30" --json
+```
+
+行为：
+
+1. 校验状态转换是否合法。
+2. 更新详情 front matter。
+3. 同步索引摘要。
+4. `ready` 必须校验合并请求 section 存在。
+5. `done` 必须要求 evidence。
+
+### claim
+
+```bash
+uv run acf workstream claim WS001 --read "docs/ai/AGENTS" --write "assigned: src/foo" --json
+```
+
+行为：
+
+1. 追加读取范围或写入范围。
+2. 写入范围必须带类型前缀：`authority:`、`draft:`、`owned:`、`assigned:`、`evidence:`。
+3. 对 `authority` 和 `assigned` 检查 Active workstream 冲突。
+4. 冲突时默认拒绝，未来可考虑显式 override 并记录原因。
+
+### note
+
+```bash
+uv run acf workstream note WS001 --section "当前发现" --text "..." --json
+```
+
+行为：
+
+1. 只允许追加到详情文件的白名单 section。
+2. 不写入权威上下文。
+3. 支持 `--input`，避免 PowerShell 多行文本问题。
+
+### merge-request
+
+```bash
+uv run acf workstream merge-request WS001 --target Context --summary "..." --json
+```
+
+行为：
+
+1. 更新详情文件的合并请求 section。
+2. 可重复追加 target。
+3. 不直接修改目标权威文件。
+
+### JSON 输出
+
+查询命令输出：
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "workstream show",
+  "id": "WS001",
+  "status": "Active",
+  "owner": "主 agent",
+  "title": "并行任务治理模型",
+  "read_scope": [],
+  "write_scope": [],
+  "merge_request": {
+    "targets": [],
+    "summary": "",
+    "open_questions": [],
+    "conflicts": [],
+    "verification": ""
+  },
+  "next_actions": []
+}
+```
+
+写命令输出应包含 `changed_files`，失败时包含 `error_code`、`message` 和 `next_actions`。
+
+建议 error code：
+
+```text
+workstream_not_initialized
+workstream_not_found
+workstream_duplicate_id
+workstream_invalid_transition
+workstream_missing_merge_request
+workstream_missing_evidence
+workstream_scope_conflict
+workstream_schema_failed
+```
+
+---
+
 ## Check 规则计划
 
 Workstream 层是 optional：
@@ -261,6 +464,22 @@ Workstream 层是 optional：
 9. Cancelled workstream 必须有取消原因。
 10. 多个 Active workstream 不得声明同一 authority 或 assigned 文件为可写。
 11. Feedback Planned 条目必须引用 Task ID、Workstream ID 或草案位置。
+
+### Check Severity 矩阵
+
+| 规则 | 普通 check | strict |
+|---|---|---|
+| Workstreams 索引存在但详情目录缺失 | error | error |
+| 总表详情链接不存在 | error | error |
+| 详情存在但总表缺行 | warning | error |
+| 总表状态与详情 metadata 不一致 | warning | error |
+| Active 缺 owner / 目标 / 输出物 | error | error |
+| ReadyToMerge 缺合并请求 | error | error |
+| Done 缺 evidence | error | error |
+| Cancelled 缺取消原因 | error | error |
+| 多个 Active claim 同一 authority / assigned | error | error |
+| draft 文件名不含 Workstream ID | warning | error |
+| scope path 无法规范化 | error | error |
 
 ---
 
@@ -307,6 +526,33 @@ Workstream 层是 optional：
 5. 增加 optional check 规则。
 6. 同步 README、System Manual、Automation、template data-files、init/upgrade/check 测试。
 7. 根据对外行为变化判断版本号；若保持完全可选且旧项目无新增错误，bump patch；若默认 init/check 行为影响旧项目，考虑 minor 或 migration note。
+
+---
+
+## Dogfooding Gate
+
+在 T002 和 T004 之间，应先做一次手工 dogfooding gate，不依赖完整 CLI：
+
+1. 在 `docs/ai` 显式启用一个最小 Workstream。
+2. 确认 `AGENTS` 默认读取不明显变重。
+3. 确认 `ReadyToMerge` 合并请求足够指导主 agent 合并。
+4. 确认 `Done` 后 evidence 可追溯。
+5. 确认无 Workstream 的旧上下文 check 不报错。
+6. 确认 Done / Cancelled 的归档规则不会让 active 长期膨胀。
+
+---
+
+## ADR 候选
+
+后续应生成 ADR 候选：ADR-0005，主题为“使用可选 Workstream 层管理并行目标线”。
+
+ADR 应只记录稳定取舍：
+
+1. 为什么需要 Workstream。
+2. 为什么不做 agent runtime。
+3. 为什么默认不启用。
+4. 为什么 `ReadyToMerge` 和 `Done` 分开。
+5. 为什么写入范围是协作契约，不是安全沙箱。
 
 ---
 
