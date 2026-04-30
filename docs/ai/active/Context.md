@@ -105,6 +105,7 @@ Dogfooding MVP / 框架稳定化。
 57. `acf upgrade` 已支持对已存在但内容过期的 ACF 模板文件做保守 section 级迁移：AGENTS、Feedback_Inbox、Project_Rules 和 System_Manual 会在识别到旧段落时更新；无法识别的自定义文档仍通过 marker notes 非破坏式提示。
 58. Workstream 可选层的 T002 读取规则已通过 dogfooding 明确：`init`/`upgrade` 默认不启用 Workstream；仅当存在 Active、Blocked 或 ReadyToMerge workstream，或需要整理并行协作时，才按需读取 Workstreams 索引。
 59. 已完成最小 Workstream dogfooding gate：`Workstreams.md` 和 `workstreams/WS001.md` 记录 WS001 从 Open 到 Done 的试运行、ReadyToMerge 合并请求和 evidence；当前 Workstream 索引状态为 Inactive。
+60. `decisions/ADR-0005.md` 已作为 Proposed ADR 记录可选 Workstream 层的稳定取舍；T004 实现并验证后再评估是否改为 Active。
 
 ---
 

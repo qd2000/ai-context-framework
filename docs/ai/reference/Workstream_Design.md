@@ -223,6 +223,22 @@ Open/Active/Blocked/ReadyToMerge -> Cancelled
 
 `Done` 和 `Cancelled` 是终态。若终态后需要继续推进，应新建 Workstream，而不是随意改回 Active。
 
+### 状态转换表
+
+| From | To | 命令 | 必需输入 | 说明 |
+|---|---|---|---|---|
+| Open | Active | `set --status Active` | 无 | 开始推进目标线。 |
+| Active | Blocked | `block` | reason | 记录阻塞原因。 |
+| Blocked | Active | `set --status Active` | 无 | 阻塞解除后继续。 |
+| Active | ReadyToMerge | `ready` | 合并请求、summary | 必须已有合并请求和候选变更摘要。 |
+| ReadyToMerge | Active | `set --status Active` | 无 | 合并审查发现需要返工。 |
+| ReadyToMerge | Done | `done` | evidence | 结论已合并、归档或明确不需要合并。 |
+| Open/Active/Blocked/ReadyToMerge | Cancelled | `cancel` | reason | 明确取消，不再推进。 |
+| Done | 任意 | 禁止 | 无 | 终态，不允许复活。 |
+| Cancelled | 任意 | 禁止 | 无 | 终态，不允许复活。 |
+
+非法状态转换返回 `workstream_invalid_transition`。
+
 ---
 
 ## ID 规则
@@ -342,10 +358,36 @@ uv run acf workstream changed WS001
 
 命令必须继承现有写命令契约：`--json`、`--dry-run`、`--check-after`、`--strict`、changed files 和统一 error code。
 
+### 通用命令契约
+
+所有写命令必须支持：
+
+1. `--json`：输出机器可读 payload。
+2. `--dry-run`：报告将修改的文件，不写入。
+3. `--check-after`：写入后运行 context check。
+4. `--strict`：配合 `--check-after` 使用 strict check。
+5. context 自动发现；显式 path 优先。
+
+写命令 payload 必须包含：
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "workstream add",
+  "dry_run": false,
+  "changed_files": [],
+  "check": {},
+  "next_actions": []
+}
+```
+
+失败 payload 必须包含 `error_code`、`message` 和 `next_actions`。
+
 ### init
 
 ```bash
-uv run acf workstream init --json --check-after
+uv run acf workstream init [path] --json --check-after
 ```
 
 行为：
@@ -356,10 +398,20 @@ uv run acf workstream init --json --check-after
 4. 不创建任何 Active workstream。
 5. 不修改 `Task_Plan` 或 `Current_Task`。
 
+修改文件：
+
+1. active/Workstreams dot md
+2. active/workstreams/
+3. archive/workstreams/
+
+错误码：
+
+1. `workstream_schema_failed`：已有索引结构无法识别。
+
 ### add
 
 ```bash
-uv run acf workstream add --id WS001 --title "并行任务治理模型" --owner "主 agent" --json
+uv run acf workstream add [path] --id WS001 --title "并行任务治理模型" --owner "主 agent" --json
 ```
 
 行为：
@@ -369,14 +421,36 @@ uv run acf workstream add --id WS001 --title "并行任务治理模型" --owner 
 3. 在索引中追加摘要行。
 4. 默认状态为 `Open`，除非显式传入 `--status Active`。
 
+参数：
+
+1. `--id` 可选；省略时扫描 active/workstreams 和 archive/workstreams 自动分配下一个 ID。
+2. `--title` 必填。
+3. `--owner` 必填。
+4. `--depends` 可重复，默认空列表。
+5. `--read` 可重复，写入 read_scope。
+6. `--write` 可重复，写入 typed write_scope。
+7. `--status` 可选，仅允许 Open 或 Active。
+
+修改文件：
+
+1. active/Workstreams dot md
+2. active/workstreams/WSxxx dot md
+
+错误码：
+
+1. `workstream_not_initialized`
+2. `workstream_duplicate_id`
+3. `workstream_schema_failed`
+4. `workstream_scope_conflict`
+
 ### set / 状态命令
 
 ```bash
-uv run acf workstream set WS001 --status Active --json
-uv run acf workstream block WS001 --reason "等待人工判断" --json
-uv run acf workstream cancel WS001 --reason "不再适用" --json
-uv run acf workstream ready WS001 --summary "候选变更已整理" --json
-uv run acf workstream done WS001 --evidence "worklog/daily/2026-04-30" --json
+uv run acf workstream set [path] WS001 --status Active --json
+uv run acf workstream block [path] WS001 --reason "等待人工判断" --json
+uv run acf workstream cancel [path] WS001 --reason "不再适用" --json
+uv run acf workstream ready [path] WS001 --summary "候选变更已整理" --json
+uv run acf workstream done [path] WS001 --evidence "worklog/daily/2026-04-30" --json
 ```
 
 行为：
@@ -390,10 +464,24 @@ uv run acf workstream done WS001 --evidence "worklog/daily/2026-04-30" --json
 
 第一版提供 `block` 和 `cancel` 语义命令，不只依赖通用 `set`，避免漏填 blocker 或取消原因。`status` 作为查询命令返回索引摘要和当前 Active/Blocked/ReadyToMerge 数量。
 
+修改文件：
+
+1. active/Workstreams dot md
+2. active/workstreams/WSxxx dot md
+
+错误码：
+
+1. `workstream_not_initialized`
+2. `workstream_not_found`
+3. `workstream_invalid_transition`
+4. `workstream_missing_merge_request`
+5. `workstream_missing_evidence`
+6. `workstream_schema_failed`
+
 ### claim
 
 ```bash
-uv run acf workstream claim WS001 --read "docs/ai/AGENTS" --write "assigned: src/foo" --json
+uv run acf workstream claim [path] WS001 --read "docs/ai/AGENTS" --write "assigned: src/foo" --json
 ```
 
 行为：
@@ -403,10 +491,27 @@ uv run acf workstream claim WS001 --read "docs/ai/AGENTS" --write "assigned: src
 3. 对 `authority` 和 `assigned` 检查 Active workstream 冲突。
 4. 冲突时默认拒绝，未来可考虑显式 override 并记录原因。
 
+参数：
+
+1. `--read` 可重复。
+2. `--write` 可重复，必须使用 `type: path`。
+
+修改文件：
+
+1. active/Workstreams dot md
+2. active/workstreams/WSxxx dot md
+
+错误码：
+
+1. `workstream_not_initialized`
+2. `workstream_not_found`
+3. `workstream_scope_conflict`
+4. `workstream_schema_failed`
+
 ### note
 
 ```bash
-uv run acf workstream note WS001 --section "当前发现" --text "..." --json
+uv run acf workstream note [path] WS001 --section "当前发现" --text "..." --json
 ```
 
 行为：
@@ -415,10 +520,27 @@ uv run acf workstream note WS001 --section "当前发现" --text "..." --json
 2. 不写入权威上下文。
 3. 支持 `--input`，避免 PowerShell 多行文本问题。
 
+白名单 section：
+
+1. 当前发现
+2. 待合并结论
+3. 冲突风险
+4. 证据
+
+修改文件：
+
+1. active/workstreams/WSxxx dot md
+
+错误码：
+
+1. `workstream_not_initialized`
+2. `workstream_not_found`
+3. `workstream_section_not_allowed`
+
 ### merge-request
 
 ```bash
-uv run acf workstream merge-request WS001 --target Context --summary "..." --json
+uv run acf workstream merge-request [path] WS001 --target Context --summary "..." --json
 ```
 
 行为：
@@ -426,6 +548,47 @@ uv run acf workstream merge-request WS001 --target Context --summary "..." --jso
 1. 更新详情文件的合并请求 section。
 2. 可重复追加 target。
 3. 不直接修改目标权威文件。
+
+参数：
+
+1. `--target` 可重复，允许 Context、Task_Plan、ADR、rules、README、docs、worklog、Knowledge。
+2. `--summary` 必填。
+3. `--question` 可重复。
+4. `--conflict` 可重复。
+5. `--verification` 可选。
+6. `--method` 可选。
+
+修改文件：
+
+1. active/workstreams/WSxxx dot md
+
+错误码：
+
+1. `workstream_not_initialized`
+2. `workstream_not_found`
+3. `workstream_schema_failed`
+
+### list / show / status
+
+```bash
+uv run acf workstream list [path] --json
+uv run acf workstream show [path] WS001 --json
+uv run acf workstream status [path] --json
+```
+
+行为：
+
+1. `list` 返回索引摘要，不读取所有详情正文；可读取 metadata 校验状态。
+2. `show` 返回单个 Workstream 的 metadata、关键 section 和合并请求。
+3. `status` 返回 Workstream 层是否 initialized、索引状态、Active/Blocked/ReadyToMerge 数量和 next actions。
+
+查询命令不修改文件，不支持 `--dry-run` 或 `--check-after`。
+
+错误码：
+
+1. `workstream_not_initialized`
+2. `workstream_not_found`
+3. `workstream_schema_failed`
 
 ### JSON 输出
 
@@ -466,7 +629,28 @@ workstream_missing_merge_request
 workstream_missing_evidence
 workstream_scope_conflict
 workstream_schema_failed
+workstream_section_not_allowed
 ```
+
+### 命令实现测试计划
+
+| 场景 | 预期 |
+|---|---|
+| 未 init 时运行 add/list/show/status 以外需要结构的命令 | 返回 `workstream_not_initialized` 和 next action |
+| init 首次执行 | 创建索引、详情目录、归档目录 |
+| init 重复执行 | 幂等，无重复内容 |
+| add 无 ID | 自动分配未使用 ID，扫描 active 和 archive |
+| add 重复 ID | `workstream_duplicate_id` |
+| add 写入详情 front matter 和索引行 | 两处一致 |
+| set 非法状态转换 | `workstream_invalid_transition` |
+| block / cancel 缺 reason | argparse 或 input error |
+| ready 缺合并请求或 summary | `workstream_missing_merge_request` |
+| done 缺 evidence | `workstream_missing_evidence` |
+| claim authority / assigned 冲突 | `workstream_scope_conflict` |
+| claim draft 并行且文件名含 WS ID | 允许 |
+| note 写入非白名单 section | `workstream_section_not_allowed` |
+| show 返回 metadata 和合并请求 | JSON 字段稳定 |
+| status 在仅 Done/Cancelled 且 Inactive 时 | 返回 initialized=true，active_count=0，默认读取可跳过 |
 
 ---
 

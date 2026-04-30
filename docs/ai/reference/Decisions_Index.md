@@ -29,7 +29,7 @@
 
 | ID | 标题 | 状态 | 摘要 | 需要确认的问题 |
 |---|---|---|---|---|
-| 暂无 |  |  |  |
+| ADR-0005 | 使用可选 Workstream 层管理并行目标线 | Proposed | 引入可选 Workstream 层表达多 agent 并行目标线，但不做 runtime、调度器或权限系统。 | 详情：`decisions/ADR-0005.md` |
 
 ---
 
