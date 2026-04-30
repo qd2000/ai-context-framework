@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.15"
+VERSION = "v0.0.3.16"
 
 
 def find_template_dir() -> Path:
@@ -1390,12 +1390,15 @@ def usage_log_status_payload(project_root: Path) -> dict[str, object]:
 def summarize_usage_events(events: Sequence[dict[str, object]]) -> dict[str, object]:
     command_counts: dict[str, int] = {}
     error_counts: dict[str, int] = {}
+    event_kind_counts: dict[str, int] = {}
     dry_run_count = 0
     changed_files_count = 0
     ok_count = 0
     for event in events:
         command = str(event.get("command") or "unknown")
         command_counts[command] = command_counts.get(command, 0) + 1
+        event_kind = str(event.get("event_kind") or "usage")
+        event_kind_counts[event_kind] = event_kind_counts.get(event_kind, 0) + 1
         if event.get("ok") is True:
             ok_count += 1
         error_code = event.get("error_code")
@@ -1413,6 +1416,8 @@ def summarize_usage_events(events: Sequence[dict[str, object]]) -> dict[str, obj
         "failed_count": len(events) - ok_count,
         "command_counts": command_counts,
         "error_counts": error_counts,
+        "event_kind_counts": event_kind_counts,
+        "feedback_count": event_kind_counts.get("feedback", 0),
         "dry_run_count": dry_run_count,
         "changed_files_count": changed_files_count,
     }
@@ -6203,6 +6208,66 @@ def log_summarize_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def read_log_feedback_input(args: argparse.Namespace) -> str:
+    if args.text and args.input:
+        raise SystemExit("use either --text or --input, not both")
+    if args.text:
+        return args.text
+    if args.input:
+        input_path = args.input.resolve()
+        if not input_path.is_file():
+            raise SystemExit(f"log feedback input file does not exist: {input_path}")
+        return input_path.read_text(encoding="utf-8")
+    if not sys.stdin.isatty():
+        return sys.stdin.read()
+    raise SystemExit("log feedback requires --text, --input, or stdin")
+
+
+def log_feedback_command(args: argparse.Namespace) -> int:
+    location = resolve_status_location(args.path)
+    if not usage_log_enabled(location.project_root):
+        raise SystemExit("usage log is disabled for this project")
+    text = read_log_feedback_input(args).strip()
+    if not text:
+        raise SystemExit("log feedback text cannot be empty")
+    feedback_type = (args.type or "Feedback").strip() or "Feedback"
+    source = (args.source or "manual").strip() or "manual"
+    event: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "timestamp": utc_now_iso(),
+        "event_kind": "feedback",
+        "command": "log feedback",
+        "cwd_rel": relative_display_path(Path.cwd().resolve(), location.project_root),
+        "context_rel": relative_display_path(location.context_root, location.project_root),
+        "profile": location.profile,
+        "ok": True,
+        "exit_code": 0,
+        "error_code": None,
+        "feedback_type": feedback_type,
+        "source": source,
+        "text": text,
+    }
+    if args.related_command:
+        event["related_command"] = args.related_command.strip()
+    append_usage_event(location.project_root, event)
+    payload: dict[str, object] = {
+        "command": "log feedback",
+        "ok": True,
+        "project_root": str(location.project_root),
+        "log_path": str(usage_log_path(location.project_root)),
+        "feedback_type": feedback_type,
+        "source": source,
+        "message": "recorded feedback event",
+        "event": event,
+    }
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"recorded feedback: {feedback_type}")
+        print(f"log path: {payload['log_path']}")
+    return 0
+
+
 def log_prune_command(args: argparse.Namespace) -> int:
     if args.days < 0:
         raise SystemExit("log prune days cannot be negative")
@@ -6335,6 +6400,16 @@ def build_parser() -> argparse.ArgumentParser:
     log_summarize_parser.add_argument("--errors-only", action="store_true", help="only include failed events")
     add_json_argument(log_summarize_parser)
     log_summarize_parser.set_defaults(func=log_summarize_command)
+
+    log_feedback_parser = log_subparsers.add_parser("feedback", help="record explicit user feedback in the usage log")
+    log_feedback_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    log_feedback_parser.add_argument("--text", default=None, help="feedback text to record explicitly")
+    log_feedback_parser.add_argument("--input", type=Path, default=None, help="file containing feedback text")
+    log_feedback_parser.add_argument("--type", default="Feedback", help="feedback type, for example Problem, Request, or UX")
+    log_feedback_parser.add_argument("--source", default="manual", help="feedback source label")
+    log_feedback_parser.add_argument("--related-command", default=None, help="optional related command label")
+    add_json_argument(log_feedback_parser)
+    log_feedback_parser.set_defaults(func=log_feedback_command)
 
     log_prune_parser = log_subparsers.add_parser("prune", help="remove old usage events")
     log_prune_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")

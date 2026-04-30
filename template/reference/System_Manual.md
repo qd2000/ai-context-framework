@@ -295,7 +295,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf new adr [target] --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `acf writeback draft [target] --text "..."`：生成会话回写草案，供人工审阅后再决定是否写入权威上下文。
 - `acf version show --json`：查看 CLI、包配置和锁文件中的版本号。
-- `acf version set v0.0.3.15 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
+- `acf version set v0.0.3.16 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
 - `acf edit section get <file> --heading "## 标题"`：读取上下文根目录内某个 Markdown section 的正文。
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。
@@ -308,6 +308,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf log tail [target] --limit 20 --json`：读取最近 usage event。
 - `acf log summarize [target] --json`：统计命令次数、成功率、错误类型、dry-run 次数和 changed files 数量。
 - `acf log summarize [target] --days 7 --errors-only --json`：按时间窗口和失败状态筛选统计。
+- `acf log feedback [target] --text "..." --type Problem --source manual --json`：显式记录实际使用反馈正文，写入用户级 usage log；普通命令不会自动记录正文。
 - `acf log prune [target] --days 30`：删除旧 usage event。
 
 `target` 省略时，CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录；显式传入 `target` 时，以显式路径为准。CLI 的检查结果不能替代人工判断，但可以自动发现维护成本高、容易遗忘的结构性问题。
@@ -352,7 +353,7 @@ JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_a
 
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`，避免 shell 改写正文。
 
-`log` 命令默认开启，写入用户级全局目录：Windows 为 `%USERPROFILE%\.acf\projects\<project-id>\`，macOS/Linux 为 `~/.acf/projects/<project-id>/`；也可通过 `ACF_HOME` 指定根目录。它只记录命令形态、结果、错误分类、耗时、dry-run 状态和 changed files 等元数据，不记录 `--text` 正文、stdin 内容、Markdown diff、模型对话或完整 stdout/stderr。usage event log 是评测和排障资料，不是权威上下文，也不应直接写入 `worklog/`。日志写入带用户级锁，配置和 prune 重写使用原子替换；如需关闭某项目日志，运行 `acf log disable [target]`。
+`log` 命令默认开启，写入用户级全局目录：Windows 为 `%USERPROFILE%\.acf\projects\<project-id>\`，macOS/Linux 为 `~/.acf/projects/<project-id>/`；也可通过 `ACF_HOME` 指定根目录。自动 usage event 只记录命令形态、结果、错误分类、耗时、dry-run 状态和 changed files 等元数据，不记录 `--text` 正文、stdin 内容、Markdown diff、模型对话或完整 stdout/stderr。需要保存实际使用反馈时，显式运行 `acf log feedback --text ...` 或 `--input <file>`，该命令会把反馈正文作为 `event_kind=feedback` 事件写入同一日志。usage event log 是评测和排障资料，不是权威上下文，也不应直接写入 `worklog/`。日志写入带用户级锁，配置和 prune 重写使用原子替换；如需关闭某项目日志，运行 `acf log disable [target]`。
 
 退出码约定：
 

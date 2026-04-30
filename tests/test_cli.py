@@ -2315,6 +2315,74 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(failed["exit_code"], acf.EXIT_SAFETY_REFUSED)
             self.assertEqual(failed["error_code"], "safety_refused")
 
+    def test_usage_log_feedback_records_explicit_feedback_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acf_home = Path(tmp) / "acf-home"
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            with isolated_acf_home(acf_home):
+                exit_code, stdout, stderr = self.run_cli_output(
+                    [
+                        "log",
+                        "feedback",
+                        str(project_root),
+                        "--type",
+                        "Problem",
+                        "--source",
+                        "manual-test",
+                        "--related-command",
+                        "workstream add",
+                        "--text",
+                        "Workstream add needs a goal option.",
+                        "--json",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["command"], "log feedback")
+            self.assertEqual(payload["event"]["event_kind"], "feedback")
+            self.assertEqual(payload["event"]["feedback_type"], "Problem")
+            self.assertEqual(payload["event"]["related_command"], "workstream add")
+            self.assertEqual(payload["event"]["text"], "Workstream add needs a goal option.")
+
+            with isolated_acf_home(acf_home):
+                exit_code, stdout, stderr = self.run_cli_output(["log", "tail", str(project_root), "--limit", "1", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            tail_payload = json.loads(stdout)
+            self.assertEqual(tail_payload["events"][0]["event_kind"], "feedback")
+            self.assertEqual(tail_payload["events"][0]["text"], "Workstream add needs a goal option.")
+
+            with isolated_acf_home(acf_home):
+                exit_code, stdout, stderr = self.run_cli_output(["log", "summarize", str(project_root), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            summary_payload = json.loads(stdout)
+            self.assertEqual(summary_payload["feedback_count"], 1)
+            self.assertEqual(summary_payload["event_kind_counts"], {"feedback": 1})
+
+    def test_usage_log_feedback_respects_disabled_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acf_home = Path(tmp) / "acf-home"
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            with isolated_acf_home(acf_home):
+                self.assertEqual(self.run_cli(["log", "disable", str(project_root)]), 0)
+                exit_code, stdout, _stderr = self.run_cli_output(
+                    ["log", "feedback", str(project_root), "--text", "Should not be recorded.", "--json"]
+                )
+
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["error_code"], "input_error")
+            with isolated_acf_home(acf_home):
+                log_path = acf.usage_log_path(project_root)
+            self.assertFalse(log_path.exists())
+
     def test_usage_log_tail_and_summarize_do_not_record_themselves(self):
         with tempfile.TemporaryDirectory() as tmp:
             acf_home = Path(tmp) / "acf-home"

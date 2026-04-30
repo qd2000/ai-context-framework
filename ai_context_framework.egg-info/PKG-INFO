@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.15
+Version: 0.0.3.16
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.15` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.14 的安装态版本命令修复，并补强 Workstream 目标维护体验：`workstream add/set` 支持 `--goal`，且 `add` 会在写入前校验 typed `--write-scope`。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.16` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.15 的 Workstream 目标维护改进，并补强使用反馈记录：普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -170,12 +170,13 @@ acf edit table upsert reference/Sources_Index.md --key-column "资料" --key "�
 acf check
 acf check --strict
 acf log status --json
+acf log feedback --type Problem --source manual --related-command "workstream add" --text "实际使用反馈。" --json
 acf log tail --limit 20 --json
 acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.15 --dry-run --json
+acf version set v0.0.3.16 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -203,7 +204,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、archive、Knowledge 和显式启用的 Workstream；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
-- `log enable|disable|status|tail|summarize|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭。
+- `log enable|disable|status|tail|summarize|feedback|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭；普通 usage event 不记录正文，显式 `log feedback --text/--input` 才记录人工反馈正文。
 - `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
@@ -214,7 +215,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`，避免命令行字符串被 shell 改写。
 
-`log` 命令默认开启并写入用户级全局目录 `%USERPROFILE%\.acf\projects\<project-id>\`（Windows）或 `~/.acf/projects/<project-id>/`（macOS/Linux），也可通过 `ACF_HOME` 指定根目录。它不写入项目 `worklog/`，也不记录 `--text` 正文、stdin 内容、Markdown diff 或完整 stdout/stderr。日志写入带用户级锁，配置和 prune 重写使用原子替换；日志写入失败不会改变原命令退出码。
+`log` 命令默认开启并写入用户级全局目录 `%USERPROFILE%\.acf\projects\<project-id>\`（Windows）或 `~/.acf/projects/<project-id>/`（macOS/Linux），也可通过 `ACF_HOME` 指定根目录。自动 usage event 不写入项目 `worklog/`，也不记录 `--text` 正文、stdin 内容、Markdown diff 或完整 stdout/stderr；需要保存实际使用反馈时，显式运行 `acf log feedback --text ...` 或 `--input <file>`，该命令会把反馈正文作为 `event_kind=feedback` 事件写入同一日志。日志写入带用户级锁，配置和 prune 重写使用原子替换；自动日志写入失败不会改变原命令退出码。
 
 JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。检查失败时 `error_code` 为 `check_failed`，`next_actions` 给出 AI 可直接读取的后续动作。
 

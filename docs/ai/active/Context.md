@@ -73,8 +73,8 @@ Dogfooding MVP / 框架稳定化。
 29. README 和产品手册已补充安装到 PATH 的说明：开发期可用 `uv tool install -e .` 安装可执行命令，并用 `uv tool update-shell`、`where acf` 或 `which acf` 验证。
 30. 后续维护 `docs/ai/` 内上下文计划、规则、worklog 或索引时，应优先 dogfood `acf edit section` 或 `acf edit table upsert`，先用 `--dry-run --json` 预览高风险写入。
 31. `acf edit` 当前安全边界是 context-root 内已有 Markdown 文件；`../Automation.md` 等 `docs/ai/` 外仓库级文档暂时仍通过常规补丁维护，项目级安全编辑能力需单独设计。
-32. `acf log enable|disable|status|tail|summarize|prune` 已实现默认开启的用户级全局 usage event log，日志默认存放在 `%USERPROFILE%\.acf\projects\<project-id>\` 或 `~/.acf/projects/<project-id>/`，按项目子目录记录命令结果元数据用于 dogfooding 评测。
-33. usage event log 不写入项目目录或 `worklog/`，不记录正文输入、stdin 内容、Markdown diff 或完整 stdout/stderr；测试可用 `ACF_HOME` 指定隔离的日志根目录；日志写入带用户级锁，配置和 prune 重写使用原子替换。
+32. `acf log enable|disable|status|tail|summarize|feedback|prune` 已实现默认开启的用户级全局 usage event log，日志默认存放在 `%USERPROFILE%\.acf\projects\<project-id>\` 或 `~/.acf/projects/<project-id>/`，按项目子目录记录命令结果元数据和显式反馈事件用于 dogfooding 评测。
+33. 自动 usage event 不写入项目目录或 `worklog/`，不记录正文输入、stdin 内容、Markdown diff 或完整 stdout/stderr；实际使用反馈正文只能通过显式 `acf log feedback --text/--input` 记录；测试可用 `ACF_HOME` 指定隔离的日志根目录；日志写入带用户级锁，配置和 prune 重写使用原子替换。
 34. `active/Task_Plan.md` 已成为当前大任务计划和轻量子任务板，默认读取但必须保持短、准、低噪音。
 35. `archive/Archive_Index.md`、`archive/tasks/` 和 `archive/plans/` 已成为旧当前任务和旧大任务计划的归档结构，archive 默认不读取。
 36. `reference/Knowledge_Index.md` 和 `reference/knowledge/` 已成为可复用经验层；Knowledge 不保存当前事实、不保存一次性过程、不重复 ADR 或 rules。
@@ -89,7 +89,7 @@ Dogfooding MVP / 框架稳定化。
 42. `acf upgrade` 进一步增强旧文档兼容：可补旧 standard/minimal AGENTS 读取顺序，并为旧 System Manual 补充升级流程和相关命令说明。
 43. Windows 命令定位说明已修正：PowerShell 使用 `Get-Command acf`，CMD 使用 `where.exe acf`。
 44. P2 剩余改进已落地：`task start` 会生成更完整的 `Current_Task.md` 并默认拦截未完成依赖；Knowledge apply/check 增加确定性相似度去重；`upgrade` 对高度自定义旧文档会追加 `ACF:UPGRADE-NOTES` marker 块并保持幂等。
-45. 开发调试阶段 usage event log 已改为默认开启；日志写入增加用户级锁，配置和 prune 重写使用原子替换，`log summarize` 支持 `--days`、`--since`、`--command` 和 `--errors-only` 过滤。
+45. 开发调试阶段 usage event log 已改为默认开启；日志写入增加用户级锁，配置和 prune 重写使用原子替换，`log summarize` 支持 `--days`、`--since`、`--command`、`--errors-only` 和 feedback_count 统计。
 46. 新增 `active/Feedback_Inbox.md` 作为人工临时反馈、问题、需求和计划碎片入口；AI 应先整理归属，不要把其中随想直接当作已确认事实。
 47. `docs/ai` 已从 minimal dogfooding 上下文补齐为 standard 上下文，包含 rules 按需规则、Architecture、Tech_Context 和 System_Manual。
 48. 版本号维护规则已进入项目规则：修改 CLI 对外行为、模板结构、打包文件、命令契约、默认策略或用户可见文档时，需要判断是否更新 version number；更新时优先使用 `uv run acf version set <version>`。
@@ -99,7 +99,7 @@ Dogfooding MVP / 框架稳定化。
 51. Feedback_Inbox 生命周期已明确：Open/Triaged/Planned/Done/Rejected 各有处理规则，Done/Rejected 需要证据位置或拒绝原因，长期已处理反馈归档到 `archive/feedback/`。
 52. `acf init` 和 `acf upgrade` 已补齐 `archive/feedback/` 目录；旧上下文升级会非破坏式补齐反馈归档结构。
 53. T002-T005 已完成验证：`uv run acf check template`、`uv run acf check docs/ai --strict --json`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf version show --json` 和 `uv run python -m unittest` 均通过。
-54. `acf --version` 当前版本记为 `v0.0.3.15`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.15`。
+54. `acf --version` 当前版本记为 `v0.0.3.16`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.16`。
 55. 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，必须评估旧版本上下文升级兼容性；新增结构应同步到 init 文件清单、upgrade 补齐清单、data-files、文档和 init/upgrade 测试。
 56. `acf upgrade --help` 已明确当前 schema 会补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge；旧上下文升级演练已验证 dry-run、正式 upgrade --check-after 和 check 均可通过。
 57. `acf upgrade` 已支持对已存在但内容过期的 ACF 模板文件做保守 section 级迁移：AGENTS、Feedback_Inbox、Project_Rules 和 System_Manual 会在识别到旧段落时更新；无法识别的自定义文档仍通过 marker notes 非破坏式提示。
