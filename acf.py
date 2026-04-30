@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.14"
+VERSION = "v0.0.3.15"
 
 
 def find_template_dir() -> Path:
@@ -4303,6 +4303,7 @@ def render_workstream_detail(
     read_scope: Sequence[str],
     write_scope: Sequence[str],
     output: str,
+    goal: str = "待补充。",
 ) -> str:
     metadata: dict[str, str | list[str]] = {
         "id": workstream_id,
@@ -4323,7 +4324,7 @@ def render_workstream_detail(
 
 ## 目标
 
-待补充。
+{goal or "待补充。"}
 
 ---
 
@@ -4619,10 +4620,11 @@ def workstream_add_command(args: argparse.Namespace) -> int:
 
     dry_run = dry_run_enabled(args)
     detail_path = workstream_details_dir(root) / f"{args.id}.md"
-    read_scope = args.read_scope or ["active/Context.md", "active/Task_Plan.md"]
-    write_scope = args.write_scope or [workstream_write_scope(args.id)]
+    read_scope = [normalized_read_claim(value) for value in (args.read_scope or ["active/Context.md", "active/Task_Plan.md"])]
+    write_scope = [normalized_write_claim(value, args.id)[2] for value in (args.write_scope or [workstream_write_scope(args.id)])]
     depends_on = args.depends_on or []
     output = args.output.strip() if args.output else "待补充。"
+    goal = args.goal.strip() if args.goal else "待补充。"
     entry = WorkstreamEntry(
         workstream_id=args.id,
         status="Open",
@@ -4645,6 +4647,7 @@ def workstream_add_command(args: argparse.Namespace) -> int:
                 read_scope,
                 write_scope,
                 output,
+                goal,
             ),
             encoding="utf-8",
         )
@@ -4665,18 +4668,38 @@ def workstream_add_command(args: argparse.Namespace) -> int:
 def workstream_set_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
+    goal = args.goal.strip() if args.goal is not None else None
+    if args.status is None and goal is None:
+        raise SystemExit("workstream_update_required: set requires --status or --goal")
+    if goal == "":
+        raise SystemExit("workstream_update_required: --goal cannot be empty")
     if args.status in {"ReadyToMerge", "Done"}:
         raise SystemExit(f"workstream_invalid_transition: use workstream {'ready' if args.status == 'ReadyToMerge' else 'done'} for {args.status}")
-    changed = update_workstream_status(root, args.id, args.status, None, dry_run)
+    if args.status is not None:
+        section_updates = {"## 目标": goal} if goal is not None else None
+        changed = update_workstream_status(root, args.id, args.status, section_updates, dry_run)
+        status = args.status
+    else:
+        detail = read_workstream_detail(root, args.id)
+        updated_text = format_front_matter(
+            detail.metadata,
+            replace_or_append_section(detail.body, "## 目标", goal or ""),
+            WORKSTREAM_METADATA_FIELDS,
+        )
+        changed = [detail.path]
+        if not dry_run:
+            detail.path.write_text(updated_text, encoding="utf-8")
+        status = workstream_detail_metadata_value(detail, "status", "Unknown")
     check_result = maybe_check_after(args, root)
     action = "would set" if dry_run else "set"
+    message_target = f"to {status}" if args.status is not None else "goal"
     return emit_write_result(
         args,
         "workstream set",
-        f"{action} Workstream {args.id} to {args.status}",
+        f"{action} Workstream {args.id} {message_target}",
         changed,
         check_result,
-        extra_payload={"id": args.id, "status": args.status},
+        extra_payload={"id": args.id, "status": status, "goal": goal},
     )
 
 
@@ -6362,15 +6385,17 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_add_parser.add_argument("--owner", required=True, help="Workstream owner")
     workstream_add_parser.add_argument("--depends-on", action="append", default=None, help="dependency id; can be repeated")
     workstream_add_parser.add_argument("--read-scope", action="append", default=None, help="recommended read scope; can be repeated")
-    workstream_add_parser.add_argument("--write-scope", action="append", default=None, help="typed write scope; can be repeated")
+    workstream_add_parser.add_argument("--write-scope", action="append", default=None, help="typed write scope, for example `assigned: active/Current_Task.md`; can be repeated")
     workstream_add_parser.add_argument("--output", default="待补充。", help="expected output summary")
+    workstream_add_parser.add_argument("--goal", default=None, help="goal text written to the Workstream detail")
     add_write_arguments(workstream_add_parser)
     workstream_add_parser.set_defaults(func=workstream_add_command)
 
     workstream_set_parser = workstream_subparsers.add_parser("set", help="set Workstream status through allowed transitions")
     workstream_set_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
     workstream_set_parser.add_argument("path", nargs="?", type=Path)
-    workstream_set_parser.add_argument("--status", choices=tuple(sorted(VALID_WORKSTREAM_STATUSES)), required=True)
+    workstream_set_parser.add_argument("--status", choices=tuple(sorted(VALID_WORKSTREAM_STATUSES)), default=None)
+    workstream_set_parser.add_argument("--goal", default=None, help="replace the Workstream goal section")
     add_write_arguments(workstream_set_parser)
     workstream_set_parser.set_defaults(func=workstream_set_command)
 

@@ -25,7 +25,8 @@
 - 通用升级形式：`acf upgrade [target]`
 - `uv run acf check --strict`
 - `uv run acf workstream status docs/ai --json`
-- `uv run acf workstream add docs/ai --id WS002 --title "并行线" --owner "主 agent" --dry-run --json`
+- `uv run acf workstream add docs/ai --id WS002 --title "并行线" --owner "主 agent" --goal "验证并行目标线。" --output "验证记录" --dry-run --json`
+- `uv run acf workstream set WS002 docs/ai --goal "补充或替换目标。" --dry-run --json`
 - `uv run acf workstream merge-request WS001 docs/ai --target Context --summary "候选摘要" --verification "测试通过" --dry-run --json`
 - `uv run acf workstream claim WS001 docs/ai --read reference/Architecture.md --write "draft: worklog/writeback-drafts/WS001-note.md" --dry-run --json`
 - `uv run acf workstream note WS001 docs/ai --section 当前发现 --text "记录一个局部发现。" --dry-run --json`
@@ -33,7 +34,7 @@
 - `uv run acf plan status docs/ai --json`
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf version show --json`
-- `uv run acf version set v0.0.3.14 --dry-run --json`
+- `uv run acf version set v0.0.3.15 --dry-run --json`
 
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。
 

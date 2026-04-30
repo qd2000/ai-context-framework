@@ -390,8 +390,12 @@ class CliTests(unittest.TestCase):
                     "主 agent",
                     "--depends-on",
                     "T004",
+                    "--write-scope",
+                    "assigned: active/Current_Task.md",
                     "--output",
                     "状态机实现",
+                    "--goal",
+                    "实现 Workstream 状态机。",
                     "--json",
                 ]
             )
@@ -407,7 +411,92 @@ class CliTests(unittest.TestCase):
             payload = json.loads(stdout)
             self.assertEqual(payload["metadata"]["status"], "Open")
             self.assertEqual(payload["metadata"]["depends_on"], ["T004"])
-            self.assertEqual(payload["normalized_write_scope"], ["owned: active/workstreams/WS002.md"])
+            self.assertEqual(payload["normalized_write_scope"], ["assigned: active/Current_Task.md"])
+            detail_text = (target / "active" / "workstreams" / "WS002.md").read_text(encoding="utf-8")
+            self.assertIn("实现 Workstream 状态机。", detail_text)
+
+    def test_workstream_add_rejects_invalid_write_scope_before_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "add",
+                    str(target),
+                    "--id",
+                    "WS002",
+                    "--title",
+                    "无效范围",
+                    "--owner",
+                    "主 agent",
+                    "--write-scope",
+                    "active/Current_Task.md",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 2)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["error_code"], "workstream_scope_invalid")
+            self.assertFalse((target / "active" / "workstreams" / "WS002.md").exists())
+
+    def test_workstream_add_goal_supports_active_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS002",
+                        "--title",
+                        "可激活目标线",
+                        "--owner",
+                        "主 agent",
+                        "--goal",
+                        "验证 Active 状态所需目标可由 add 写入。",
+                        "--output",
+                        "验证记录",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "set", "WS002", str(target), "--status", "Active"]), 0)
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(json.loads(stdout)["ok"])
+
+    def test_workstream_set_goal_replaces_goal_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.add_workstream(target, "WS002")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "set",
+                    "WS002",
+                    str(target),
+                    "--goal",
+                    "补齐已有 Workstream 目标。",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["status"], "Open")
+            detail_text = (target / "active" / "workstreams" / "WS002.md").read_text(encoding="utf-8")
+            self.assertIn("补齐已有 Workstream 目标。", detail_text)
+            self.assertNotIn("待补充。\n\n---\n\n## 当前发现", detail_text)
 
     def test_workstream_add_rejects_duplicate_and_dry_run_does_not_write(self):
         with tempfile.TemporaryDirectory() as tmp:
