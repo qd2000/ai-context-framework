@@ -146,6 +146,7 @@ uv run acf workstream init --json --check-after
 ```text
 active/Workstreams.md
 active/workstreams/
+archive/workstreams/
 ```
 
 启用后 check 才校验 Workstream 一致性。

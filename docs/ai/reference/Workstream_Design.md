@@ -133,7 +133,7 @@ read_scope:
   - active/Task_Plan dot md
 write_scope:
   - owned: active/workstreams/WS001 dot md
-  - worklog/writeback-drafts/WS001-*
+  - draft: worklog/writeback-drafts/WS001-*
 ---
 
 # WS001 - 并行任务治理模型
@@ -216,6 +216,17 @@ Open/Active/Blocked/ReadyToMerge -> Cancelled
 
 ---
 
+## ID 规则
+
+1. Workstream ID 格式为 `WS001`、`WS002`，即 `WS` 加三位数字。
+2. ID 一旦创建不应复用，即使原 Workstream 已 Done、Cancelled 或归档。
+3. 自动分配 ID 时，应同时扫描 active/workstreams 和 archive/workstreams。
+4. 重命名 Workstream 只能修改 title，不能修改 ID。
+5. 删除 Workstream 详情文件应视为高风险操作；优先使用 Cancelled 或归档。
+6. 索引、详情 metadata、JSON 输出和 evidence 引用必须保持同一 ID。
+
+---
+
 ## 归档与清理
 
 Done / Cancelled workstream 不应长期堆积在 active 区域。
@@ -225,6 +236,8 @@ Done / Cancelled workstream 不应长期堆积在 active 区域。
 3. active/Workstreams dot md 只长期保留 Open、Active、Blocked、ReadyToMerge，以及当前计划仍需解释的 Done / Cancelled。
 4. 归档摘要应保留 ID、最终状态、标题、owner、处理结果、证据位置和原详情文件位置。
 5. 归档不应复制冗长过程；过程发现应已进入 worklog、ADR、Context 或 Knowledge 草案。
+
+archive/workstreams 应由 `acf workstream init` 创建空目录；如果旧上下文缺少该目录，也可以由首次 workstream archive/done 归档时惰性创建。
 
 ---
 
@@ -329,9 +342,10 @@ uv run acf workstream init --json --check-after
 行为：
 
 1. 创建计划中的 Workstreams 索引和详情目录。
-2. 如果索引已存在，保持幂等。
-3. 不创建任何 Active workstream。
-4. 不修改 `Task_Plan` 或 `Current_Task`。
+2. 创建 archive/workstreams 空目录。
+3. 如果索引已存在，保持幂等。
+4. 不创建任何 Active workstream。
+5. 不修改 `Task_Plan` 或 `Current_Task`。
 
 ### add
 
@@ -351,6 +365,7 @@ uv run acf workstream add --id WS001 --title "并行任务治理模型" --owner 
 ```bash
 uv run acf workstream set WS001 --status Active --json
 uv run acf workstream block WS001 --reason "等待人工判断" --json
+uv run acf workstream cancel WS001 --reason "不再适用" --json
 uv run acf workstream ready WS001 --summary "候选变更已整理" --json
 uv run acf workstream done WS001 --evidence "worklog/daily/2026-04-30" --json
 ```
@@ -362,6 +377,9 @@ uv run acf workstream done WS001 --evidence "worklog/daily/2026-04-30" --json
 3. 同步索引摘要。
 4. `ready` 必须校验合并请求 section 存在。
 5. `done` 必须要求 evidence。
+6. `block` 和 `cancel` 必须要求 reason。
+
+第一版提供 `block` 和 `cancel` 语义命令，不只依赖通用 `set`，避免漏填 blocker 或取消原因。`status` 作为查询命令返回索引摘要和当前 Active/Blocked/ReadyToMerge 数量。
 
 ### claim
 
@@ -474,7 +492,10 @@ Workstream 层是 optional：
 | 详情存在但总表缺行 | warning | error |
 | 总表状态与详情 metadata 不一致 | warning | error |
 | Active 缺 owner / 目标 / 输出物 | error | error |
+| Active 缺读取范围 / 写入范围 | error | error |
+| Blocked 缺 blocker | error | error |
 | ReadyToMerge 缺合并请求 | error | error |
+| ReadyToMerge 缺候选变更摘要 | error | error |
 | Done 缺 evidence | error | error |
 | Cancelled 缺取消原因 | error | error |
 | 多个 Active claim 同一 authority / assigned | error | error |

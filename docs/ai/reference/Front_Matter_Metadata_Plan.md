@@ -42,7 +42,7 @@ read_scope:
   - active/Task_Plan dot md
 write_scope:
   - owned: active/workstreams/WS001 dot md
-  - worklog/writeback-drafts/WS001-*
+  - draft: worklog/writeback-drafts/WS001-*
 ---
 ```
 
@@ -77,13 +77,16 @@ write_scope:
 ```yaml
 ---
 id: WS001
-status: Active
+status: Open
 owner: 主 agent
 title: 并行任务治理模型
 depends_on: []
+read_scope:
+  - active/Context dot md
+  - active/Task_Plan dot md
 write_scope:
-  - active/workstreams/WS001
-  - worklog/writeback-drafts/WS001-*
+  - owned: active/workstreams/WS001 dot md
+  - draft: worklog/writeback-drafts/WS001-*
 ---
 ```
 
