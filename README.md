@@ -8,6 +8,8 @@
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
+稳定入口和开发入口需要分开：真实项目中使用非 editable 安装的稳定 `acf`；在本仓库开发时使用 `uv run acf` 或 `uv run python acf.py`。不要把全局 `acf` 作为 editable install 指向开发工作区。
+
 ## 设计理念
 
 人与 AI 的协作中，人作为最高决策层，AI 同时作为执行者和策略建议者。项目知识不应随 AI 工具更换或人员离开而丢失。

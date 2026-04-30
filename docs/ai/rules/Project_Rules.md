@@ -6,6 +6,7 @@
 - 不依赖某个特定 AI 模型。
 - 本仓库运行 Python 代码时，优先使用项目 uv 环境：`uv run python ...`。
 - 本仓库运行 acf CLI 时，优先使用项目 uv 入口：`uv run acf ...`；需要直接调试脚本时再使用 `uv run python acf.py ...`。
+- 全局 `acf` 应作为真实项目稳定入口，使用非 editable 的稳定 tag 安装；不要让全局 `acf` editable 指向当前开发工作区。
 - 当前项目使用 `pyproject.toml` 和 `uv.lock` 固定 uv 解析结果，不新增第三方依赖。
 - AI 需要稳定读取命令结果时，优先给 acf 命令追加 `--json`。
 - 解析 acf JSON 输出时，优先依赖 `schema_version`、`ok`、`error_code`、`next_actions` 和 changed files 字段。
