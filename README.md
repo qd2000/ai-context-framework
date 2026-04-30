@@ -132,6 +132,15 @@ acf knowledge draft --title "任务拆分经验" --source "worklog/daily/YYYY-MM
 acf knowledge apply worklog/knowledge-drafts/YYYY-MM-DD-task.md --allow-similar
 acf workstream status --json
 acf workstream init --dry-run --json
+acf workstream add --id WS002 --title "并行线" --owner "主 agent"
+acf workstream set WS002 --status Active
+acf workstream merge-request WS002 --target Context --summary "候选变更摘要" --verification "测试通过"
+acf workstream ready WS002
+acf workstream done WS002 --evidence "worklog/daily/YYYY-MM-DD.md"
+acf workstream claim WS002 --read reference/Architecture.md --write "assigned: src/foo.py"
+acf workstream note WS002 --section 当前发现 --text "记录一个局部发现。"
+acf workstream block WS002 --reason "等待依赖"
+acf workstream cancel WS002 --reason "方向取消"
 acf workstream list
 acf workstream show WS001
 acf new task --title "实现一个维护任务" --goal "写清当前目标。"
@@ -150,7 +159,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.8 --dry-run --json
+acf version set v0.0.3.12 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -169,7 +178,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
-- `workstream init|status|list|show`：显式启用可选 Workstream 层，并读取并行目标线索引与详情 metadata；`upgrade` 和旧项目默认不启用 Workstream。
+- `workstream init|status|list|show|add|set|block|cancel|merge-request|ready|done|claim|note`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
@@ -177,7 +186,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为可审阅草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
-- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、archive、Knowledge 占位符残留和疑似重复条目。
+- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、archive、Knowledge 和显式启用的 Workstream；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
 - `log enable|disable|status|tail|summarize|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭。
 - `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
 

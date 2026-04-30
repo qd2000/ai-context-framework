@@ -99,14 +99,19 @@ Dogfooding MVP / 框架稳定化。
 51. Feedback_Inbox 生命周期已明确：Open/Triaged/Planned/Done/Rejected 各有处理规则，Done/Rejected 需要证据位置或拒绝原因，长期已处理反馈归档到 `archive/feedback/`。
 52. `acf init` 和 `acf upgrade` 已补齐 `archive/feedback/` 目录；旧上下文升级会非破坏式补齐反馈归档结构。
 53. T002-T005 已完成验证：`uv run acf check template`、`uv run acf check docs/ai --strict --json`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf version show --json` 和 `uv run python -m unittest` 均通过。
-54. `acf --version` 当前版本记为 `v0.0.3.8`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.8`。
+54. `acf --version` 当前版本记为 `v0.0.3.12`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.12`。
 55. 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，必须评估旧版本上下文升级兼容性；新增结构应同步到 init 文件清单、upgrade 补齐清单、data-files、文档和 init/upgrade 测试。
 56. `acf upgrade --help` 已明确当前 schema 会补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge；旧上下文升级演练已验证 dry-run、正式 upgrade --check-after 和 check 均可通过。
 57. `acf upgrade` 已支持对已存在但内容过期的 ACF 模板文件做保守 section 级迁移：AGENTS、Feedback_Inbox、Project_Rules 和 System_Manual 会在识别到旧段落时更新；无法识别的自定义文档仍通过 marker notes 非破坏式提示。
 58. Workstream 可选层的 T002 读取规则已通过 dogfooding 明确：`init`/`upgrade` 默认不启用 Workstream；仅当存在 Active、Blocked 或 ReadyToMerge workstream，或需要整理并行协作时，才按需读取 Workstreams 索引。
 59. 已完成最小 Workstream dogfooding gate：`Workstreams.md` 和 `workstreams/WS001.md` 记录 WS001 从 Open 到 Done 的试运行、ReadyToMerge 合并请求和 evidence；当前 Workstream 索引状态为 Inactive。
 60. `decisions/ADR-0005.md` 已作为 Proposed ADR 记录可选 Workstream 层的稳定取舍；T004 实现并验证后再评估是否改为 Active。
-61. T004 第一刀已完成：`acf workstream init/status/list/show` 可用；实现范围限定为 Workstream 数据模型、front matter schema 校验、scope normalize、initialized 判断和最小查询/初始化命令，尚未实现 add/set/block/cancel/claim/note/merge-request/ready/done 或 Workstream check 语义规则。
+61. T004 第一刀已完成：`acf workstream init/status/list/show` 可用；实现范围限定为 Workstream 数据模型、front matter schema 校验、scope normalize、initialized 判断和最小查询/初始化命令。
+62. T004 第二刀已完成：`acf workstream add/set/block/cancel` 可用；`add` 需要显式 `--id`，会生成详情文件并同步索引；`set` 只允许基础状态转换；`block` 和 `cancel` 必须提供 reason 并写入详情文件。
+63. T004 第三刀已完成：`acf workstream merge-request/ready/done` 可用；`merge-request` 只覆盖详情文件的合并请求 section，不改权威上下文；`ready` 要求 Active 状态且合并请求含 target 和候选摘要；`done` 要求 ReadyToMerge 状态和 evidence，并把证据写入详情文件。
+64. T004 第四刀已完成：`acf workstream claim/note` 可用；`claim` 追加 read_scope/write_scope，typed write_scope 做命令内有限冲突检查，draft 缺 WS ID 只给 warning；`note` 只允许追加到白名单详情 section，缺失 section 自动创建；尚未实现 archive 或全局 Workstream check。
+65. T004 第五刀已完成并闭环：`acf check` 已接入 optional Workstream 检查；没有 `active/Workstreams.md` 时不检查、不 warning；存在索引时检查详情目录、索引链接、front matter schema、状态必填内容、索引/详情一致性、authority/assigned 冲突和 draft 文件名 warning/strict error。
+66. `decisions/ADR-0005.md` 已从 Proposed 升为 Active；可选 Workstream 层第一版实现、模板读取规则、CLI、check 和验证均已落地。
 
 ---
 

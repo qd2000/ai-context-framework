@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
@@ -55,6 +56,30 @@ class CliTests(unittest.TestCase):
         with redirect_stdout(stdout), redirect_stderr(stderr):
             exit_code = acf.main(args)
         return exit_code, stdout.getvalue(), stderr.getvalue()
+
+    def init_minimal_workstream_context(self, target):
+        self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+        self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+
+    def add_workstream(self, target, workstream_id, title=None):
+        self.assertEqual(
+            self.run_cli(
+                [
+                    "workstream",
+                    "add",
+                    str(target),
+                    "--id",
+                    workstream_id,
+                    "--title",
+                    title or workstream_id,
+                    "--owner",
+                    "主 agent",
+                    "--output",
+                    "输出物",
+                ]
+            ),
+            0,
+        )
 
     def test_standard_template_check_passes_with_placeholder_warnings(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=False)
@@ -312,6 +337,882 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 2)
             payload = json.loads(stdout)
             self.assertEqual(payload["error_code"], "workstream_schema_failed")
+
+    def test_workstream_add_creates_detail_and_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "add",
+                    str(target),
+                    "--id",
+                    "WS002",
+                    "--title",
+                    "创建状态机",
+                    "--owner",
+                    "主 agent",
+                    "--depends-on",
+                    "T004",
+                    "--output",
+                    "状态机实现",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["id"], "WS002")
+            self.assertTrue((target / "active" / "workstreams" / "WS002.md").exists())
+            index_text = (target / "active" / "Workstreams.md").read_text(encoding="utf-8")
+            self.assertIn("| WS002 | Open | 创建状态机 | 主 agent |", index_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "show", "WS002", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["metadata"]["status"], "Open")
+            self.assertEqual(payload["metadata"]["depends_on"], ["T004"])
+            self.assertEqual(payload["normalized_write_scope"], ["owned: active/workstreams/WS002.md"])
+
+    def test_workstream_add_rejects_duplicate_and_dry_run_does_not_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+
+            dry_args = [
+                "workstream",
+                "add",
+                str(target),
+                "--id",
+                "WS002",
+                "--title",
+                "预览",
+                "--owner",
+                "主 agent",
+                "--dry-run",
+                "--json",
+            ]
+            exit_code, stdout, stderr = self.run_cli_output(dry_args)
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn(str(target / "active" / "workstreams" / "WS002.md"), payload["changed_files"])
+            self.assertFalse((target / "active" / "workstreams" / "WS002.md").exists())
+
+            add_args = [
+                "workstream",
+                "add",
+                str(target),
+                "--id",
+                "WS002",
+                "--title",
+                "创建",
+                "--owner",
+                "主 agent",
+            ]
+            self.assertEqual(self.run_cli(add_args), 0)
+            exit_code, stdout, _stderr = self.run_cli_output(add_args + ["--json"])
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_duplicate_id")
+
+    def test_workstream_set_and_block_state_transitions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS002",
+                        "--title",
+                        "状态机",
+                        "--owner",
+                        "主 agent",
+                    ]
+                ),
+                0,
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "set", "WS002", str(target), "--status", "Active", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["status"], "Active")
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "block", "WS002", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_reason_required")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "block", "WS002", str(target), "--reason", "等待 T005 输出", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["status"], "Blocked")
+            detail_text = (target / "active" / "workstreams" / "WS002.md").read_text(encoding="utf-8")
+            self.assertIn("status: Blocked", detail_text)
+            self.assertIn("等待 T005 输出", detail_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "set", "WS002", str(target), "--status", "Active", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["status"], "Active")
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "set", "WS002", str(target), "--status", "Done", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_invalid_transition")
+
+    def test_workstream_cancel_requires_reason_and_is_terminal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS002",
+                        "--title",
+                        "取消线",
+                        "--owner",
+                        "主 agent",
+                    ]
+                ),
+                0,
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "cancel", "WS002", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_reason_required")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "cancel", "WS002", str(target), "--reason", "方向取消", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["status"], "Cancelled")
+            detail_text = (target / "active" / "workstreams" / "WS002.md").read_text(encoding="utf-8")
+            self.assertIn("status: Cancelled", detail_text)
+            self.assertIn("方向取消", detail_text)
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "set", "WS002", str(target), "--status", "Active", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_invalid_transition")
+
+    def test_workstream_done_status_is_terminal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS002",
+                        "--title",
+                        "终态",
+                        "--owner",
+                        "主 agent",
+                    ]
+                ),
+                0,
+            )
+            detail_path = target / "active" / "workstreams" / "WS002.md"
+            detail_path.write_text(detail_path.read_text(encoding="utf-8").replace("status: Open", "status: Done"), encoding="utf-8")
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS002 | Open |", "| WS002 | Done |"), encoding="utf-8")
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "set", "WS002", str(target), "--status", "Active", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_invalid_transition")
+
+    def test_workstream_merge_request_writes_section_and_dry_run_does_not_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS002",
+                        "--title",
+                        "合并请求",
+                        "--owner",
+                        "主 agent",
+                    ]
+                ),
+                0,
+            )
+            detail_path = target / "active" / "workstreams" / "WS002.md"
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "merge-request",
+                    "WS002",
+                    str(target),
+                    "--target",
+                    "Context",
+                    "--summary",
+                    "候选摘要",
+                    "--verification",
+                    "单元测试通过",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn(str(detail_path), payload["changed_files"])
+            self.assertNotIn("候选摘要", detail_path.read_text(encoding="utf-8"))
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "merge-request",
+                    "WS002",
+                    str(target),
+                    "--target",
+                    "Context",
+                    "--target",
+                    "Task_Plan",
+                    "--summary",
+                    "候选摘要",
+                    "--verification",
+                    "单元测试通过",
+                    "--question",
+                    "是否同步 ADR",
+                    "--conflict",
+                    "无代码冲突",
+                    "--strategy",
+                    "人工审阅后合并",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            detail_text = detail_path.read_text(encoding="utf-8")
+            self.assertIn("### 需要合并到哪里", detail_text)
+            self.assertIn("- Context", detail_text)
+            self.assertIn("- Task_Plan", detail_text)
+            self.assertIn("候选摘要", detail_text)
+
+    def test_workstream_ready_requires_merge_request_and_active_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS002",
+                        "--title",
+                        "Ready",
+                        "--owner",
+                        "主 agent",
+                    ]
+                ),
+                0,
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "ready", "WS002", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_invalid_transition")
+
+            self.assertEqual(self.run_cli(["workstream", "set", "WS002", str(target), "--status", "Active"]), 0)
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "ready", "WS002", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_missing_merge_request")
+
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS002",
+                        str(target),
+                        "--target",
+                        "Context",
+                        "--summary",
+                        "候选摘要",
+                        "--verification",
+                        "测试通过",
+                    ]
+                ),
+                0,
+            )
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "ready", "WS002", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["status"], "ReadyToMerge")
+            detail_text = (target / "active" / "workstreams" / "WS002.md").read_text(encoding="utf-8")
+            self.assertIn("status: ReadyToMerge", detail_text)
+            index_text = (target / "active" / "Workstreams.md").read_text(encoding="utf-8")
+            self.assertIn("| WS002 | ReadyToMerge |", index_text)
+
+    def test_workstream_done_requires_ready_and_evidence_then_is_terminal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS002",
+                        "--title",
+                        "Done",
+                        "--owner",
+                        "主 agent",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "set", "WS002", str(target), "--status", "Active"]), 0)
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "done", "WS002", str(target), "--evidence", "tests", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_invalid_transition")
+
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS002",
+                        str(target),
+                        "--target",
+                        "Context",
+                        "--summary",
+                        "候选摘要",
+                        "--verification",
+                        "测试通过",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS002", str(target)]), 0)
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "done", "WS002", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_missing_evidence")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "done",
+                    "WS002",
+                    str(target),
+                    "--evidence",
+                    "tests/test_cli.py",
+                    "--summary",
+                    "已合并并验证",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["status"], "Done")
+            detail_text = (target / "active" / "workstreams" / "WS002.md").read_text(encoding="utf-8")
+            self.assertIn("status: Done", detail_text)
+            self.assertIn("tests/test_cli.py", detail_text)
+            self.assertIn("已合并并验证", detail_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "list", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["workstreams"][0]["status"], "Done")
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "show", "WS002", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["metadata"]["status"], "Done")
+            self.assertIn("tests/test_cli.py", payload["evidence"])
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "ready", "WS002", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_invalid_transition")
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "set", "WS002", str(target), "--status", "Active", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_invalid_transition")
+
+    def test_workstream_note_appends_to_allowed_sections_and_creates_missing_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            note_input = Path(tmp) / "note.md"
+            note_input.write_text("输入文件结论", encoding="utf-8")
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS002",
+                        "--title",
+                        "Note",
+                        "--owner",
+                        "主 agent",
+                    ]
+                ),
+                0,
+            )
+            detail_path = target / "active" / "workstreams" / "WS002.md"
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "note",
+                    "WS002",
+                    str(target),
+                    "--section",
+                    "当前发现",
+                    "--text",
+                    "新的发现",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertIn(str(detail_path), json.loads(stdout)["changed_files"])
+            self.assertNotIn("新的发现", detail_path.read_text(encoding="utf-8"))
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "note",
+                    "WS002",
+                    str(target),
+                    "--section",
+                    "当前发现",
+                    "--text",
+                    "新的发现",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertIn("新的发现", detail_path.read_text(encoding="utf-8"))
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "note",
+                    "WS002",
+                    str(target),
+                    "--section",
+                    "待合并结论",
+                    "--input",
+                    str(note_input),
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            detail_text = detail_path.read_text(encoding="utf-8")
+            self.assertIn("## 待合并结论", detail_text)
+            self.assertIn("输入文件结论", detail_text)
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "note",
+                    "WS002",
+                    str(target),
+                    "--section",
+                    "Context",
+                    "--text",
+                    "不允许",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_section_not_allowed")
+
+    def test_workstream_claim_appends_scopes_and_reports_draft_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS002",
+                        "--title",
+                        "Claim",
+                        "--owner",
+                        "主 agent",
+                    ]
+                ),
+                0,
+            )
+            detail_path = target / "active" / "workstreams" / "WS002.md"
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "claim",
+                    "WS002",
+                    str(target),
+                    "--read",
+                    "reference/Architecture.md",
+                    "--write",
+                    "assigned: src/foo.py",
+                    "--write",
+                    "draft: worklog/writeback-drafts/draft.md",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn(str(detail_path), payload["changed_files"])
+            self.assertTrue(payload["warnings"])
+            self.assertNotIn("reference/Architecture.md", detail_path.read_text(encoding="utf-8"))
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "claim",
+                    "WS002",
+                    str(target),
+                    "--read",
+                    "reference/Architecture.md",
+                    "--write",
+                    "assigned: src/foo.py",
+                    "--write",
+                    "draft: worklog/writeback-drafts/draft.md",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn("reference/Architecture.md", payload["read_scope"])
+            self.assertIn("assigned: src/foo.py", payload["write_scope"])
+            self.assertIn("draft: worklog/writeback-drafts/draft.md", payload["write_scope"])
+            index_text = (target / "active" / "Workstreams.md").read_text(encoding="utf-8")
+            self.assertIn("assigned: src/foo.py", index_text)
+
+    def test_workstream_claim_rejects_invalid_owned_and_conflicting_write_scopes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            for workstream_id in ("WS002", "WS003"):
+                self.assertEqual(
+                    self.run_cli(
+                        [
+                            "workstream",
+                            "add",
+                            str(target),
+                            "--id",
+                            workstream_id,
+                            "--title",
+                            workstream_id,
+                            "--owner",
+                            "主 agent",
+                        ]
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    self.run_cli(["workstream", "set", workstream_id, str(target), "--status", "Active"]),
+                    0,
+                )
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "claim", "WS002", str(target), "--write", "src/foo.py", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_scope_invalid")
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "claim",
+                    "WS002",
+                    str(target),
+                    "--write",
+                    "owned: active/workstreams/WS003.md",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_owned_scope_invalid")
+
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "claim",
+                        "WS002",
+                        str(target),
+                        "--write",
+                        "authority: active/Context.md",
+                    ]
+                ),
+                0,
+            )
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "claim",
+                    "WS003",
+                    str(target),
+                    "--write",
+                    "authority: active/Context.md",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_claim_conflict")
+
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "claim",
+                        "WS002",
+                        str(target),
+                        "--write",
+                        "assigned: src/bar.py",
+                    ]
+                ),
+                0,
+            )
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "claim",
+                    "WS003",
+                    str(target),
+                    "--write",
+                    "assigned: src/bar.py",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_claim_conflict")
+
+    def test_workstream_check_is_optional_when_index_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["ok"])
+            self.assertFalse(any("Workstream" in warning or "workstreams" in warning for warning in payload["check"]["warnings"]))
+
+    def test_workstream_check_requires_detail_directory_and_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            (target / "active" / "workstreams").rmdir()
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 1)
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertTrue(any("active/workstreams" in error for error in errors))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(
+                acf.render_workstream_index().replace(
+                    "| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |",
+                    "| WS002 | Open | Broken | 主 agent | owned: active/workstreams/WS002.md | 无。 | 输出物 | active/workstreams/WS002.md |",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 1)
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertTrue(any("broken Workstream detail" in error for error in errors))
+
+    def test_workstream_check_unindexed_detail_and_status_mismatch_severity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            detail_path = target / "active" / "workstreams" / "WS999.md"
+            detail_path.write_text(
+                acf.render_workstream_detail(
+                    "WS999",
+                    "未索引",
+                    "主 agent",
+                    [],
+                    ["active/Context.md"],
+                    ["owned: active/workstreams/WS999.md"],
+                    "输出物",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            warnings = json.loads(stdout)["check"]["warnings"]
+            self.assertTrue(any("missing from active/Workstreams.md" in warning for warning in warnings))
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--strict", "--json"])
+            self.assertEqual(exit_code, 1)
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertTrue(any("missing from active/Workstreams.md" in error for error in errors))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            detail_path = target / "active" / "workstreams" / "WS002.md"
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS002 | Open |", "| WS002 | Cancelled |"), encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            warnings = json.loads(stdout)["check"]["warnings"]
+            self.assertTrue(any("status mismatch" in warning for warning in warnings))
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--strict", "--json"])
+            self.assertEqual(exit_code, 1)
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertTrue(any("status mismatch" in error for error in errors))
+
+    def test_workstream_check_state_required_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            detail_path = target / "active" / "workstreams" / "WS002.md"
+            text = detail_path.read_text(encoding="utf-8")
+            text = text.replace("status: Open", "status: Active")
+            text = re.sub(r"read_scope:\n  - active/Context\.md\n  - active/Task_Plan\.md\n", "", text)
+            text = re.sub(r"write_scope:\n  - owned: active/workstreams/WS002\.md\n", "", text)
+            detail_path.write_text(text, encoding="utf-8")
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS002 | Open |", "| WS002 | Active |"), encoding="utf-8")
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 1)
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertTrue(any("read_scope" in error for error in errors))
+            self.assertTrue(any("write_scope" in error for error in errors))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            self.assertEqual(self.run_cli(["workstream", "set", "WS002", str(target), "--status", "Active"]), 0)
+            detail_path = target / "active" / "workstreams" / "WS002.md"
+            detail_path.write_text(detail_path.read_text(encoding="utf-8").replace("status: Active", "status: ReadyToMerge"), encoding="utf-8")
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS002 | Active |", "| WS002 | ReadyToMerge |"), encoding="utf-8")
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 1)
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertTrue(any("ReadyToMerge" in error and "merge" in error for error in errors))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            detail_path = target / "active" / "workstreams" / "WS002.md"
+            detail_path.write_text(detail_path.read_text(encoding="utf-8").replace("status: Open", "status: Done"), encoding="utf-8")
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS002 | Open |", "| WS002 | Done |"), encoding="utf-8")
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 1)
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertTrue(any("Done" in error and "evidence" in error for error in errors))
+
+    def test_workstream_check_scope_conflict_and_draft_severity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            for workstream_id in ("WS002", "WS003"):
+                self.add_workstream(target, workstream_id)
+                self.assertEqual(self.run_cli(["workstream", "set", workstream_id, str(target), "--status", "Active"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "claim",
+                        "WS002",
+                        str(target),
+                        "--write",
+                        "authority: active/Context.md",
+                    ]
+                ),
+                0,
+            )
+            detail_path = target / "active" / "workstreams" / "WS003.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "  - owned: active/workstreams/WS003.md\n",
+                    "  - owned: active/workstreams/WS003.md\n  - authority: active/Context.md\n  - draft: worklog/writeback-drafts/draft.md\n",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 1)
+            payload = json.loads(stdout)
+            self.assertTrue(any("write scope conflict" in error for error in payload["check"]["errors"]))
+            self.assertTrue(any("draft write_scope" in warning for warning in payload["check"]["warnings"]))
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--strict", "--json"])
+            self.assertEqual(exit_code, 1)
+            payload = json.loads(stdout)
+            self.assertTrue(any("draft write_scope" in error for error in payload["check"]["errors"]))
 
     def test_strict_template_check_fails_on_placeholders(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=True)

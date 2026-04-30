@@ -20,7 +20,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.8"
+VERSION = "v0.0.3.12"
 
 
 def find_template_dir() -> Path:
@@ -135,6 +135,21 @@ VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Re
 VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
 VALID_WORKSTREAM_STATUSES = {"Open", "Active", "Blocked", "ReadyToMerge", "Done", "Cancelled"}
 ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge"}
+WORKSTREAM_NOTE_SECTIONS = {
+    "当前发现": "## 当前发现",
+    "待合并结论": "## 待合并结论",
+    "冲突风险": "## 冲突风险",
+    "完成标准": "## 完成标准",
+    "证据": "## 证据",
+}
+WORKSTREAM_STATE_TRANSITIONS = {
+    "Open": {"Active", "Cancelled"},
+    "Active": {"Blocked", "ReadyToMerge", "Cancelled"},
+    "Blocked": {"Active", "Cancelled"},
+    "ReadyToMerge": {"Done", "Cancelled"},
+    "Done": set(),
+    "Cancelled": set(),
+}
 PLACEHOLDER_RE = re.compile(r"【[^】]+】")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -824,6 +839,24 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Run `acf workstream list` to see available Workstream IDs."]
     if error_code == "workstream_schema_failed":
         return ["Fix the Workstream detail front matter, then rerun the command."]
+    if error_code == "workstream_duplicate_id":
+        return ["Choose an unused Workstream ID."]
+    if error_code == "workstream_invalid_transition":
+        return ["Review the Workstream state machine and use the next valid state."]
+    if error_code == "workstream_reason_required":
+        return ["Provide `--reason` so the blocker or cancellation is written to the detail file."]
+    if error_code == "workstream_missing_merge_request":
+        return ["Run `acf workstream merge-request ...` with target and summary before `ready`."]
+    if error_code == "workstream_missing_evidence":
+        return ["Provide `--evidence` so completion remains traceable."]
+    if error_code == "workstream_section_not_allowed":
+        return ["Use one of the allowed Workstream note sections."]
+    if error_code == "workstream_scope_invalid":
+        return ["Use a normalized relative scope path and typed write scopes such as `assigned: src/foo.py`."]
+    if error_code == "workstream_claim_conflict":
+        return ["Choose a different write scope or resolve the conflicting active Workstream first."]
+    if error_code == "workstream_owned_scope_invalid":
+        return ["Use `owned:` only for the current Workstream detail file."]
     if error_code == "input_error":
         return [
             "Check command arguments and paths.",
@@ -847,6 +880,15 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_not_initialized",
         "workstream_not_found",
         "workstream_schema_failed",
+        "workstream_duplicate_id",
+        "workstream_invalid_transition",
+        "workstream_reason_required",
+        "workstream_missing_merge_request",
+        "workstream_missing_evidence",
+        "workstream_section_not_allowed",
+        "workstream_scope_invalid",
+        "workstream_claim_conflict",
+        "workstream_owned_scope_invalid",
     )
     for code in workstream_codes:
         if message.startswith(f"{code}:"):
@@ -990,7 +1032,18 @@ def write_command_context_root(args: argparse.Namespace) -> Path | None:
     if command in {"init", "simplify"}:
         return None
     if command == "workstream":
-        if getattr(args, "workstream_command", None) == "init":
+        if getattr(args, "workstream_command", None) in {
+            "init",
+            "add",
+            "set",
+            "block",
+            "cancel",
+            "merge-request",
+            "ready",
+            "done",
+            "claim",
+            "note",
+        }:
             return require_context_root(getattr(args, "path", None))
         return None
     if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "knowledge"}:
@@ -4118,6 +4171,227 @@ def read_workstream_detail(root: Path, workstream_id: str) -> WorkstreamDetail:
     return WorkstreamDetail(workstream_id, detail_path, metadata, body, diagnostics)
 
 
+def workstream_detail_rel(workstream_id: str) -> str:
+    return f"{WORKSTREAM_DIR_REL}/{workstream_id}.md"
+
+
+def workstream_write_scope(workstream_id: str) -> str:
+    return f"owned: {workstream_detail_rel(workstream_id)}"
+
+
+def workstream_id_exists(root: Path, workstream_id: str, entries: Sequence[WorkstreamEntry]) -> bool:
+    if any(entry.workstream_id == workstream_id for entry in entries):
+        return True
+    candidates = [
+        workstream_details_dir(root) / f"{workstream_id}.md",
+        workstream_archive_dir(root) / f"{workstream_id}.md",
+    ]
+    return any(candidate.exists() for candidate in candidates)
+
+
+def render_workstream_detail(
+    workstream_id: str,
+    title: str,
+    owner: str,
+    depends_on: Sequence[str],
+    read_scope: Sequence[str],
+    write_scope: Sequence[str],
+    output: str,
+) -> str:
+    metadata: dict[str, str | list[str]] = {
+        "id": workstream_id,
+        "status": "Open",
+        "owner": owner,
+        "title": title,
+        "depends_on": list(depends_on),
+        "read_scope": list(read_scope),
+        "write_scope": list(write_scope),
+    }
+    body = f"""# {workstream_id} - {title}
+
+## 边界说明
+
+本 Workstream 的读取范围是推荐上下文，不是权限隔离。所有 agent 仍必须遵守项目级 AGENTS、rules 和人工指令。允许修改范围是协作契约，用于避免并行写入冲突。
+
+---
+
+## 目标
+
+待补充。
+
+---
+
+## 当前发现
+
+无。
+
+---
+
+## 阻塞原因
+
+无。
+
+---
+
+## 取消原因
+
+无。
+
+---
+
+## 合并请求
+
+无。
+
+---
+
+## 证据
+
+无。
+
+---
+
+## 完成记录
+
+无。
+
+---
+
+## 输出物
+
+{output or "待补充。"}
+"""
+    return format_front_matter(metadata, body, WORKSTREAM_METADATA_FIELDS)
+
+
+def replace_or_append_section(text: str, heading: str, replacement: str) -> str:
+    try:
+        return replace_section_text(text, heading, replacement)
+    except SystemExit:
+        return text.rstrip() + f"\n\n---\n\n{heading}\n\n{replacement.strip()}\n"
+
+
+def append_or_create_section(text: str, heading: str, addition: str) -> str:
+    try:
+        return append_section_text(text, heading, addition)
+    except SystemExit:
+        return text.rstrip() + f"\n\n---\n\n{heading}\n\n{addition.strip()}\n"
+
+
+def update_workstream_index_state_text(text: str, entries: Sequence[WorkstreamEntry]) -> str:
+    state = "Active" if any(entry.status in ACTIVE_WORKSTREAM_STATUSES for entry in entries) else "Inactive"
+    explanation = (
+        "说明：存在 Active、Blocked 或 ReadyToMerge workstream。"
+        if state == "Active"
+        else "说明：当前没有 Active、Blocked 或 ReadyToMerge workstream。"
+    )
+    return replace_or_append_section(text, "## Workstream 状态", f"{state}\n\n{explanation}")
+
+
+def write_workstream_index(root: Path, entries: Sequence[WorkstreamEntry]) -> None:
+    index_path = workstream_index_path(root)
+    text = read_text(index_path) if index_path.exists() else render_workstream_index()
+    lines = text.splitlines()
+    table = find_table(lines, WORKSTREAM_TABLE_HEADER)
+    rows = [render_table_row([
+        entry.workstream_id,
+        entry.status,
+        entry.title,
+        entry.owner,
+        entry.write_scope,
+        entry.depends_on,
+        entry.output,
+        entry.detail,
+    ]) for entry in entries]
+    if not rows:
+        rows = [render_table_row(["暂无", "Empty", "无。", "无。", "无。", "无。", "无。", "无。"])]
+    updated = "\n".join(lines[: table.body_start] + rows + lines[table.body_end :]).rstrip() + "\n"
+    index_path.write_text(update_workstream_index_state_text(updated, entries), encoding="utf-8")
+
+
+def replace_workstream_entry(entries: Sequence[WorkstreamEntry], updated_entry: WorkstreamEntry) -> list[WorkstreamEntry]:
+    replaced = False
+    updated: list[WorkstreamEntry] = []
+    for entry in entries:
+        if entry.workstream_id == updated_entry.workstream_id:
+            updated.append(updated_entry)
+            replaced = True
+        else:
+            updated.append(entry)
+    if not replaced:
+        updated.append(updated_entry)
+    return updated
+
+
+def workstream_detail_metadata_value(detail: WorkstreamDetail, field_name: str, fallback: str) -> str:
+    value = detail.metadata.get(field_name)
+    return value if isinstance(value, str) and value.strip() else fallback
+
+
+def update_workstream_status(root: Path, workstream_id: str, status: str, section_updates: dict[str, str] | None, dry_run: bool) -> list[Path]:
+    entries = parse_workstream_index(root)
+    detail = read_workstream_detail(root, workstream_id)
+    current_status = workstream_detail_metadata_value(detail, "status", "")
+    allowed = WORKSTREAM_STATE_TRANSITIONS.get(current_status, set())
+    if status == current_status:
+        return []
+    if status not in allowed:
+        raise SystemExit(f"workstream_invalid_transition: {workstream_id} {current_status} -> {status}")
+
+    metadata = dict(detail.metadata)
+    metadata["status"] = status
+    body = detail.body
+    for heading, replacement in (section_updates or {}).items():
+        body = replace_or_append_section(body, heading, replacement)
+    updated_text = format_front_matter(metadata, body, WORKSTREAM_METADATA_FIELDS)
+
+    existing_entry = next((entry for entry in entries if entry.workstream_id == workstream_id), None)
+    updated_entry = WorkstreamEntry(
+        workstream_id=workstream_id,
+        status=status,
+        title=workstream_detail_metadata_value(detail, "title", existing_entry.title if existing_entry else workstream_id),
+        owner=workstream_detail_metadata_value(detail, "owner", existing_entry.owner if existing_entry else "未分配"),
+        write_scope=", ".join(normalize_typed_scope_values(metadata.get("write_scope"))) or (existing_entry.write_scope if existing_entry else workstream_write_scope(workstream_id)),
+        depends_on=",".join(metadata.get("depends_on", [])) if isinstance(metadata.get("depends_on"), list) else (existing_entry.depends_on if existing_entry else "无。"),
+        output=existing_entry.output if existing_entry else "待补充。",
+        detail=existing_entry.detail if existing_entry else workstream_detail_rel(workstream_id),
+    )
+    changed = [detail.path, workstream_index_path(root)]
+    if not dry_run:
+        detail.path.write_text(updated_text, encoding="utf-8")
+        write_workstream_index(root, replace_workstream_entry(entries, updated_entry))
+    return changed
+
+
+def update_workstream_detail_metadata(
+    root: Path,
+    detail: WorkstreamDetail,
+    metadata: dict[str, str | list[str]],
+    dry_run: bool,
+    sync_index_write_scope: bool = False,
+) -> list[Path]:
+    changed = [detail.path]
+    if sync_index_write_scope:
+        changed.append(workstream_index_path(root))
+    if not dry_run:
+        detail.path.write_text(format_front_matter(metadata, detail.body, WORKSTREAM_METADATA_FIELDS), encoding="utf-8")
+        if sync_index_write_scope:
+            entries = parse_workstream_index(root)
+            existing_entry = next((entry for entry in entries if entry.workstream_id == detail.workstream_id), None)
+            updated_entry = WorkstreamEntry(
+                workstream_id=detail.workstream_id,
+                status=workstream_detail_metadata_value(detail, "status", existing_entry.status if existing_entry else "Open"),
+                title=workstream_detail_metadata_value(detail, "title", existing_entry.title if existing_entry else detail.workstream_id),
+                owner=workstream_detail_metadata_value(detail, "owner", existing_entry.owner if existing_entry else "未分配"),
+                write_scope=", ".join(normalize_typed_scope_values(metadata.get("write_scope"))),
+                depends_on=",".join(metadata.get("depends_on", [])) if isinstance(metadata.get("depends_on"), list) else (existing_entry.depends_on if existing_entry else "无。"),
+                output=existing_entry.output if existing_entry else "待补充。",
+                detail=existing_entry.detail if existing_entry else workstream_detail_rel(detail.workstream_id),
+            )
+            write_workstream_index(root, replace_workstream_entry(entries, updated_entry))
+    return changed
+
+
 def workstream_init_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
@@ -4204,6 +4478,8 @@ def workstream_list_command(args: argparse.Namespace) -> int:
 def workstream_show_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     detail = read_workstream_detail(root, args.id)
+    merge_request = safe_section_body_from_text(detail.body, "## 合并请求")
+    evidence = safe_section_body_from_text(detail.body, "## 证据")
     payload: dict[str, object] = {
         "command": "workstream show",
         "context": str(root),
@@ -4212,6 +4488,8 @@ def workstream_show_command(args: argparse.Namespace) -> int:
         "metadata": detail.metadata,
         "normalized_read_scope": normalize_scope_values(detail.metadata.get("read_scope")),
         "normalized_write_scope": normalize_typed_scope_values(detail.metadata.get("write_scope")),
+        "merge_request": merge_request,
+        "evidence": evidence,
         "diagnostics": [diagnostic_payload(diagnostic) for diagnostic in detail.diagnostics],
         "ok": True,
         "next_actions": [],
@@ -4225,6 +4503,431 @@ def workstream_show_command(args: argparse.Namespace) -> int:
         print(f"status: {detail.metadata.get('status', 'Unknown')}")
         print(f"title: {detail.metadata.get('title', 'Unknown')}")
     return 0
+
+
+def workstream_add_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    entries = parse_workstream_index(root)
+    if workstream_id_exists(root, args.id, entries):
+        raise SystemExit(f"workstream_duplicate_id: {args.id}")
+
+    dry_run = dry_run_enabled(args)
+    detail_path = workstream_details_dir(root) / f"{args.id}.md"
+    read_scope = args.read_scope or ["active/Context.md", "active/Task_Plan.md"]
+    write_scope = args.write_scope or [workstream_write_scope(args.id)]
+    depends_on = args.depends_on or []
+    output = args.output.strip() if args.output else "待补充。"
+    entry = WorkstreamEntry(
+        workstream_id=args.id,
+        status="Open",
+        title=args.title.strip(),
+        owner=args.owner.strip(),
+        write_scope=", ".join(write_scope),
+        depends_on=",".join(depends_on) if depends_on else "无。",
+        output=output,
+        detail=workstream_detail_rel(args.id),
+    )
+    changed = [detail_path, workstream_index_path(root)]
+    if not dry_run:
+        detail_path.parent.mkdir(parents=True, exist_ok=True)
+        detail_path.write_text(
+            render_workstream_detail(
+                args.id,
+                args.title.strip(),
+                args.owner.strip(),
+                depends_on,
+                read_scope,
+                write_scope,
+                output,
+            ),
+            encoding="utf-8",
+        )
+        write_workstream_index(root, [*entries, entry])
+
+    check_result = maybe_check_after(args, root)
+    action = "would add" if dry_run else "added"
+    return emit_write_result(
+        args,
+        "workstream add",
+        f"{action} Workstream {args.id}",
+        changed,
+        check_result,
+        extra_payload={"id": args.id, "status": "Open", "detail": str(detail_path)},
+    )
+
+
+def workstream_set_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    if args.status in {"ReadyToMerge", "Done"}:
+        raise SystemExit(f"workstream_invalid_transition: use workstream {'ready' if args.status == 'ReadyToMerge' else 'done'} for {args.status}")
+    changed = update_workstream_status(root, args.id, args.status, None, dry_run)
+    check_result = maybe_check_after(args, root)
+    action = "would set" if dry_run else "set"
+    return emit_write_result(
+        args,
+        "workstream set",
+        f"{action} Workstream {args.id} to {args.status}",
+        changed,
+        check_result,
+        extra_payload={"id": args.id, "status": args.status},
+    )
+
+
+def required_workstream_reason(args: argparse.Namespace, command: str) -> str:
+    reason = (args.reason or "").strip()
+    if not reason:
+        raise SystemExit(f"workstream_reason_required: {command} requires --reason")
+    return reason
+
+
+def workstream_block_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    reason = required_workstream_reason(args, "block")
+    changed = update_workstream_status(root, args.id, "Blocked", {"## 阻塞原因": reason}, dry_run)
+    check_result = maybe_check_after(args, root)
+    action = "would block" if dry_run else "blocked"
+    return emit_write_result(
+        args,
+        "workstream block",
+        f"{action} Workstream {args.id}",
+        changed,
+        check_result,
+        extra_payload={"id": args.id, "status": "Blocked", "reason": reason},
+    )
+
+
+def workstream_cancel_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    reason = required_workstream_reason(args, "cancel")
+    changed = update_workstream_status(root, args.id, "Cancelled", {"## 取消原因": reason}, dry_run)
+    check_result = maybe_check_after(args, root)
+    action = "would cancel" if dry_run else "cancelled"
+    return emit_write_result(
+        args,
+        "workstream cancel",
+        f"{action} Workstream {args.id}",
+        changed,
+        check_result,
+        extra_payload={"id": args.id, "status": "Cancelled", "reason": reason},
+    )
+
+
+def read_workstream_merge_summary(args: argparse.Namespace) -> str:
+    summary = (args.summary or "").strip()
+    input_path = getattr(args, "input", None)
+    if summary and input_path is not None:
+        raise SystemExit("use either --summary or --input, not both")
+    if input_path is not None:
+        resolved = input_path.resolve()
+        if not resolved.is_file():
+            raise SystemExit(f"merge-request input file does not exist: {resolved}")
+        summary = resolved.read_text(encoding="utf-8").strip()
+    if not summary:
+        raise SystemExit("workstream_missing_merge_request: merge-request requires --summary or --input")
+    return summary
+
+
+def render_workstream_merge_request(
+    targets: Sequence[str],
+    summary: str,
+    verification: str,
+    questions: Sequence[str],
+    conflicts: Sequence[str],
+    strategy: str,
+) -> str:
+    target_lines = "\n".join(f"- {target}" for target in targets)
+    question_lines = "\n".join(f"- {question}" for question in questions) if questions else "无。"
+    conflict_lines = "\n".join(f"- {conflict}" for conflict in conflicts) if conflicts else "无。"
+    return f"""### 需要合并到哪里
+
+{target_lines}
+
+### 候选变更摘要
+
+{summary}
+
+### 需要人工判断的问题
+
+{question_lines}
+
+### 已知冲突
+
+{conflict_lines}
+
+### 验证结果
+
+{verification}
+
+### 建议合并方式
+
+{strategy or "人工审阅后合并到对应权威上下文。"}"""
+
+
+def subsection_body(text: str, heading: str) -> str:
+    lines = text.splitlines()
+    heading_index = next((index for index, line in enumerate(lines) if line.strip() == heading), None)
+    if heading_index is None:
+        return ""
+    body_start = heading_index + 1
+    body_end = len(lines)
+    for index in range(body_start, len(lines)):
+        if heading_level(lines[index]) is not None and heading_level(lines[index]) <= 3:
+            body_end = index
+            break
+    return "\n".join(lines[body_start:body_end]).strip()
+
+
+def merge_request_has_required_fields(body: str) -> bool:
+    merge_request = safe_section_body_from_text(body, "## 合并请求")
+    if not merge_request or merge_request.strip() == "无。":
+        return False
+    targets = [
+        line.strip()[2:].strip()
+        for line in subsection_body(merge_request, "### 需要合并到哪里").splitlines()
+        if line.strip().startswith("- ")
+    ]
+    summary = subsection_body(merge_request, "### 候选变更摘要").strip()
+    return bool([target for target in targets if target]) and bool(summary and summary != "无。")
+
+
+def workstream_merge_request_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    detail = read_workstream_detail(root, args.id)
+    targets = [target.strip() for target in (args.target or []) if target.strip()]
+    if not targets:
+        raise SystemExit("workstream_missing_merge_request: merge-request requires at least one --target")
+    verification = (args.verification or "").strip()
+    if not verification:
+        raise SystemExit("workstream_missing_merge_request: merge-request requires --verification")
+    summary = read_workstream_merge_summary(args)
+    section = render_workstream_merge_request(
+        targets,
+        summary,
+        verification,
+        args.question or [],
+        args.conflict or [],
+        (args.strategy or "").strip(),
+    )
+    updated_text = format_front_matter(
+        detail.metadata,
+        replace_or_append_section(detail.body, "## 合并请求", section),
+        WORKSTREAM_METADATA_FIELDS,
+    )
+    changed = [detail.path]
+    if not dry_run:
+        detail.path.write_text(updated_text, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would update" if dry_run else "updated"
+    return emit_write_result(
+        args,
+        "workstream merge-request",
+        f"{action} merge request for Workstream {args.id}",
+        changed,
+        check_result,
+        extra_payload={"id": args.id, "targets": targets, "summary": summary},
+    )
+
+
+def workstream_ready_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    detail = read_workstream_detail(root, args.id)
+    current_status = workstream_detail_metadata_value(detail, "status", "")
+    if "ReadyToMerge" not in WORKSTREAM_STATE_TRANSITIONS.get(current_status, set()):
+        raise SystemExit(f"workstream_invalid_transition: {args.id} {current_status} -> ReadyToMerge")
+    if not merge_request_has_required_fields(detail.body):
+        raise SystemExit(f"workstream_missing_merge_request: {args.id}")
+    changed = update_workstream_status(root, args.id, "ReadyToMerge", None, dry_run)
+    check_result = maybe_check_after(args, root)
+    action = "would mark" if dry_run else "marked"
+    return emit_write_result(
+        args,
+        "workstream ready",
+        f"{action} Workstream {args.id} ReadyToMerge",
+        changed,
+        check_result,
+        extra_payload={"id": args.id, "status": "ReadyToMerge"},
+    )
+
+
+def required_workstream_evidence(args: argparse.Namespace) -> str:
+    evidence = (args.evidence or "").strip()
+    if not evidence:
+        raise SystemExit("workstream_missing_evidence: done requires --evidence")
+    return evidence
+
+
+def workstream_done_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    detail = read_workstream_detail(root, args.id)
+    current_status = workstream_detail_metadata_value(detail, "status", "")
+    if "Done" not in WORKSTREAM_STATE_TRANSITIONS.get(current_status, set()):
+        raise SystemExit(f"workstream_invalid_transition: {args.id} {current_status} -> Done")
+    evidence = required_workstream_evidence(args)
+    section_updates = {"## 证据": evidence}
+    completion = (args.summary or "").strip()
+    if completion:
+        section_updates["## 完成记录"] = completion
+    changed = update_workstream_status(root, args.id, "Done", section_updates, dry_run)
+    check_result = maybe_check_after(args, root)
+    action = "would mark" if dry_run else "marked"
+    return emit_write_result(
+        args,
+        "workstream done",
+        f"{action} Workstream {args.id} Done",
+        changed,
+        check_result,
+        extra_payload={"id": args.id, "status": "Done", "evidence": evidence},
+    )
+
+
+def canonical_workstream_note_heading(section: str) -> str:
+    normalized = section.strip().removeprefix("##").strip()
+    heading = WORKSTREAM_NOTE_SECTIONS.get(normalized)
+    if heading is None:
+        allowed = ", ".join(sorted(WORKSTREAM_NOTE_SECTIONS))
+        raise SystemExit(f"workstream_section_not_allowed: {section}; allowed: {allowed}")
+    return heading
+
+
+def workstream_note_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    detail = read_workstream_detail(root, args.id)
+    heading = canonical_workstream_note_heading(args.section)
+    note_text = read_edit_input(args).strip()
+    if not note_text:
+        raise SystemExit("workstream_section_not_allowed: note text cannot be empty")
+    updated_text = format_front_matter(
+        detail.metadata,
+        append_or_create_section(detail.body, heading, note_text),
+        WORKSTREAM_METADATA_FIELDS,
+    )
+    changed = [detail.path]
+    if not dry_run:
+        detail.path.write_text(updated_text, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would append" if dry_run else "appended"
+    return emit_write_result(
+        args,
+        "workstream note",
+        f"{action} note to {heading} for Workstream {args.id}",
+        changed,
+        check_result,
+        extra_payload={"id": args.id, "section": heading},
+    )
+
+
+def normalized_write_claim(value: str, workstream_id: str) -> tuple[str, str, str]:
+    scope_type, scope_path = split_typed_scope(value)
+    if not scope_type or not scope_path:
+        raise SystemExit(f"workstream_scope_invalid: write scope must use TYPE: PATH: {value}")
+    if scope_type not in {"authority", "draft", "owned", "assigned", "evidence"}:
+        raise SystemExit(f"workstream_scope_invalid: unsupported write scope type: {scope_type}")
+    normalized_path = normalize_scope_path(scope_path)
+    diagnostics = validate_scope_path(normalized_path, "write_scope")
+    if diagnostics:
+        raise SystemExit(f"workstream_scope_invalid: {diagnostics[0].message}: {value}")
+    if scope_type == "owned" and normalized_path != workstream_detail_rel(workstream_id):
+        raise SystemExit(f"workstream_owned_scope_invalid: {value}")
+    return scope_type, normalized_path, f"{scope_type}: {normalized_path}"
+
+
+def normalized_read_claim(value: str) -> str:
+    normalized = normalize_scope_path(value)
+    diagnostics = validate_scope_path(normalized, "read_scope")
+    if diagnostics:
+        raise SystemExit(f"workstream_scope_invalid: {diagnostics[0].message}: {value}")
+    return normalized
+
+
+def scope_paths_conflict(left: str, right: str) -> bool:
+    left = normalize_scope_path(left)
+    right = normalize_scope_path(right)
+    if left == right:
+        return True
+    if "*" in left or "*" in right:
+        return False
+    return left.startswith(right.rstrip("/") + "/") or right.startswith(left.rstrip("/") + "/")
+
+
+def check_workstream_write_claim_conflicts(
+    root: Path,
+    workstream_id: str,
+    claims: Sequence[tuple[str, str, str]],
+) -> None:
+    exclusive_claims = [(scope_type, scope_path) for scope_type, scope_path, _item in claims if scope_type in {"authority", "assigned"}]
+    if not exclusive_claims:
+        return
+    entries = parse_workstream_index(root)
+    for entry in entries:
+        if entry.workstream_id == workstream_id or entry.status not in ACTIVE_WORKSTREAM_STATUSES:
+            continue
+        detail = read_workstream_detail(root, entry.workstream_id)
+        existing_scopes = detail.metadata.get("write_scope")
+        if not isinstance(existing_scopes, list):
+            continue
+        for existing in existing_scopes:
+            existing_type, existing_path = split_typed_scope(existing)
+            if existing_type not in {"authority", "assigned"} or not existing_path:
+                continue
+            existing_path = normalize_scope_path(existing_path)
+            for _claim_type, claim_path in exclusive_claims:
+                if scope_paths_conflict(claim_path, existing_path):
+                    raise SystemExit(
+                        f"workstream_claim_conflict: {workstream_id} conflicts with {entry.workstream_id} on {claim_path}"
+                    )
+
+
+def append_unique_values(existing: str | list[str] | None, additions: Sequence[str]) -> tuple[list[str], bool]:
+    values = list(existing) if isinstance(existing, list) else []
+    changed = False
+    for addition in additions:
+        if addition not in values:
+            values.append(addition)
+            changed = True
+    return values, changed
+
+
+def workstream_claim_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    read_claims = [normalized_read_claim(value) for value in (args.read or [])]
+    write_claims = [normalized_write_claim(value, args.id) for value in (args.write or [])]
+    if not read_claims and not write_claims:
+        raise SystemExit("workstream_scope_invalid: claim requires --read or --write")
+    check_workstream_write_claim_conflicts(root, args.id, write_claims)
+    warnings: list[str] = []
+    for scope_type, scope_path, _item in write_claims:
+        if scope_type == "draft" and args.id not in Path(scope_path).name:
+            warnings.append(f"draft write scope should include {args.id} in the file name: {scope_path}")
+
+    detail = read_workstream_detail(root, args.id)
+    metadata = dict(detail.metadata)
+    read_scope, read_changed = append_unique_values(metadata.get("read_scope"), read_claims)
+    write_scope, write_changed = append_unique_values(metadata.get("write_scope"), [item for _scope_type, _scope_path, item in write_claims])
+    metadata["read_scope"] = read_scope
+    metadata["write_scope"] = write_scope
+    if not read_changed and not write_changed:
+        changed = []
+    else:
+        changed = update_workstream_detail_metadata(root, detail, metadata, dry_run, sync_index_write_scope=write_changed)
+    check_result = maybe_check_after(args, root)
+    action = "would update" if dry_run else "updated"
+    return emit_write_result(
+        args,
+        "workstream claim",
+        f"{action} scope claims for Workstream {args.id}",
+        changed,
+        check_result,
+        extra_payload={"id": args.id, "read_scope": read_scope, "write_scope": write_scope},
+        warnings=warnings,
+    )
 
 
 def resolve_context_existing_path(root: Path, value: str) -> Path:
@@ -4929,6 +5632,164 @@ def check_knowledge(root: Path, errors: list[str], warnings: list[str], strict: 
             warnings.append(message)
 
 
+def check_warn_or_error(message: str, errors: list[str], warnings: list[str], strict: bool) -> None:
+    if strict:
+        errors.append(message)
+    else:
+        warnings.append(message)
+
+
+def parse_workstream_detail_for_check(root: Path, workstream_id: str, detail_path: Path, errors: list[str]) -> WorkstreamDetail | None:
+    rel = detail_path.relative_to(root).as_posix() if is_relative_to(detail_path, root) else str(detail_path)
+    try:
+        metadata, body, diagnostics = parse_front_matter(read_text(detail_path))
+    except UnicodeDecodeError as exc:
+        errors.append(f"{rel}: not valid UTF-8 ({exc})")
+        return None
+    diagnostics.extend(validate_front_matter(metadata, workstream_front_matter_schema()))
+    metadata_id = metadata.get("id")
+    if isinstance(metadata_id, str) and metadata_id != workstream_id:
+        diagnostics.append(
+            FrontMatterDiagnostic(
+                "front_matter_schema_failed",
+                f"workstream id mismatch: expected {workstream_id}, got {metadata_id}",
+                field="id",
+            )
+        )
+    for diagnostic in diagnostics:
+        suffix = f" ({diagnostic.field})" if diagnostic.field else ""
+        errors.append(f"{rel}: {diagnostic.code}{suffix}: {diagnostic.message}")
+    return WorkstreamDetail(workstream_id, detail_path, metadata, body, diagnostics)
+
+
+def workstream_section_missing(body: str, heading: str) -> bool:
+    value = safe_section_body_from_text(body, heading).strip()
+    return not value or value in {"无。", "待补充。", "None", "Empty"}
+
+
+def check_workstream_state_requirements(root: Path, detail: WorkstreamDetail, entry: WorkstreamEntry | None, errors: list[str]) -> None:
+    rel = detail.path.relative_to(root).as_posix()
+    status = detail.metadata.get("status")
+    if not isinstance(status, str):
+        return
+    if status == "Active":
+        for field_name in ("owner", "title", "read_scope", "write_scope"):
+            if required_field_missing(detail.metadata.get(field_name)):
+                errors.append(f"{rel}: Active workstream missing `{field_name}`")
+        if workstream_section_missing(detail.body, "## 目标"):
+            errors.append(f"{rel}: Active workstream missing `目标`")
+        output_missing = required_field_missing(entry.output if entry else None) or (entry is not None and entry.output in {"无。", "待补充。"})
+        if output_missing and workstream_section_missing(detail.body, "## 输出物"):
+            errors.append(f"{rel}: Active workstream missing `输出物`")
+    elif status == "Blocked":
+        if workstream_section_missing(detail.body, "## 阻塞原因"):
+            errors.append(f"{rel}: Blocked workstream missing blocker reason")
+    elif status == "ReadyToMerge":
+        if not merge_request_has_required_fields(detail.body):
+            errors.append(f"{rel}: ReadyToMerge workstream missing merge target or candidate summary")
+    elif status == "Done":
+        if workstream_section_missing(detail.body, "## 证据"):
+            errors.append(f"{rel}: Done workstream missing evidence")
+    elif status == "Cancelled":
+        if workstream_section_missing(detail.body, "## 取消原因"):
+            errors.append(f"{rel}: Cancelled workstream missing cancellation reason")
+
+
+def check_workstream_scope_claims(root: Path, details: Sequence[WorkstreamDetail], errors: list[str], warnings: list[str], strict: bool) -> None:
+    exclusive_claims: list[tuple[str, str, str, str]] = []
+    for detail in details:
+        status = detail.metadata.get("status")
+        write_scope = detail.metadata.get("write_scope")
+        if not isinstance(write_scope, list):
+            continue
+        rel = detail.path.relative_to(root).as_posix()
+        for item in write_scope:
+            scope_type, scope_path = split_typed_scope(item)
+            if not scope_type or not scope_path or scope_type not in {"authority", "draft", "owned", "assigned", "evidence"}:
+                errors.append(f"{rel}: invalid write_scope `{item}`")
+                continue
+            normalized_path = normalize_scope_path(scope_path)
+            diagnostics = validate_scope_path(normalized_path, "write_scope")
+            for diagnostic in diagnostics:
+                errors.append(f"{rel}: {diagnostic.code} (write_scope): {diagnostic.message}")
+            if scope_type == "owned" and normalized_path != workstream_detail_rel(detail.workstream_id):
+                errors.append(f"{rel}: owned write_scope must point to its own detail file")
+            if scope_type == "draft" and detail.workstream_id not in Path(normalized_path).name:
+                check_warn_or_error(
+                    f"{rel}: draft write_scope should include {detail.workstream_id} in the file name: {normalized_path}",
+                    errors,
+                    warnings,
+                    strict,
+                )
+            if isinstance(status, str) and status in ACTIVE_WORKSTREAM_STATUSES and scope_type in {"authority", "assigned"}:
+                exclusive_claims.append((detail.workstream_id, rel, scope_type, normalized_path))
+    for index, (left_id, left_rel, left_type, left_path) in enumerate(exclusive_claims):
+        for right_id, right_rel, right_type, right_path in exclusive_claims[index + 1 :]:
+            if scope_paths_conflict(left_path, right_path):
+                errors.append(
+                    "active/Workstreams.md: write scope conflict "
+                    f"{left_id} {left_type}:{left_path} vs {right_id} {right_type}:{right_path} "
+                    f"({left_rel}, {right_rel})"
+                )
+
+
+def check_workstreams(root: Path, errors: list[str], warnings: list[str], strict: bool) -> None:
+    index_path = workstream_index_path(root)
+    if not index_path.exists():
+        return
+    details_dir = workstream_details_dir(root)
+    if not details_dir.is_dir():
+        errors.append(f"{WORKSTREAM_INDEX_REL}: active/workstreams/ directory is missing")
+
+    try:
+        entries = parse_workstream_index(root)
+    except SystemExit as exc:
+        errors.append(str(exc))
+        return
+
+    entry_by_id: dict[str, WorkstreamEntry] = {}
+    details: list[WorkstreamDetail] = []
+    for entry in entries:
+        if entry.workstream_id in entry_by_id:
+            errors.append(f"{WORKSTREAM_INDEX_REL}: duplicate Workstream id `{entry.workstream_id}`")
+            continue
+        entry_by_id[entry.workstream_id] = entry
+        if not WORKSTREAM_ID_RE.match(entry.workstream_id):
+            errors.append(f"{WORKSTREAM_INDEX_REL}: invalid Workstream id `{entry.workstream_id}`")
+        if entry.status not in VALID_WORKSTREAM_STATUSES:
+            errors.append(f"{WORKSTREAM_INDEX_REL}: invalid Workstream status `{entry.status}` for {entry.workstream_id}")
+        try:
+            detail_path = resolve_workstream_detail_path(root, entry.workstream_id, entries)
+        except SystemExit as exc:
+            errors.append(str(exc))
+            continue
+        if not detail_path.exists():
+            errors.append(f"{WORKSTREAM_INDEX_REL}: broken Workstream detail `{entry.detail}` for {entry.workstream_id}")
+            continue
+        detail = parse_workstream_detail_for_check(root, entry.workstream_id, detail_path, errors)
+        if detail is None:
+            continue
+        details.append(detail)
+        detail_status = detail.metadata.get("status")
+        if isinstance(detail_status, str) and detail_status != entry.status:
+            check_warn_or_error(
+                f"{WORKSTREAM_INDEX_REL}: status mismatch for {entry.workstream_id} ({entry.status}) vs detail ({detail_status})",
+                errors,
+                warnings,
+                strict,
+            )
+        check_workstream_state_requirements(root, detail, entry, errors)
+
+    if details_dir.is_dir():
+        for path in sorted(details_dir.glob("WS*.md")):
+            match = WORKSTREAM_ID_RE.match(path.stem)
+            if match and path.stem not in entry_by_id:
+                message = f"{path.relative_to(root).as_posix()}: Workstream detail is missing from {WORKSTREAM_INDEX_REL}"
+                check_warn_or_error(message, errors, warnings, strict)
+
+    check_workstream_scope_claims(root, details, errors, warnings, strict)
+
+
 def template_packaging_files_from_pyproject(pyproject_path: Path) -> set[str]:
     if not pyproject_path.exists():
         return set()
@@ -4995,6 +5856,7 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
     check_task_plan(path, errors)
     check_archive(path, errors)
     check_knowledge(path, errors, warnings, strict)
+    check_workstreams(path, errors, warnings, strict)
     check_template_packaging(path, errors)
 
     for md_file in iter_markdown_files(path):
@@ -5386,6 +6248,83 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_show_parser.add_argument("path", nargs="?", type=Path)
     add_json_argument(workstream_show_parser)
     workstream_show_parser.set_defaults(func=workstream_show_command)
+
+    workstream_add_parser = workstream_subparsers.add_parser("add", help="create a Workstream detail and index row")
+    workstream_add_parser.add_argument("path", nargs="?", type=Path)
+    workstream_add_parser.add_argument("--id", type=validate_workstream_id, required=True, help="Workstream id, for example WS002")
+    workstream_add_parser.add_argument("--title", required=True, help="Workstream title")
+    workstream_add_parser.add_argument("--owner", required=True, help="Workstream owner")
+    workstream_add_parser.add_argument("--depends-on", action="append", default=None, help="dependency id; can be repeated")
+    workstream_add_parser.add_argument("--read-scope", action="append", default=None, help="recommended read scope; can be repeated")
+    workstream_add_parser.add_argument("--write-scope", action="append", default=None, help="typed write scope; can be repeated")
+    workstream_add_parser.add_argument("--output", default="待补充。", help="expected output summary")
+    add_write_arguments(workstream_add_parser)
+    workstream_add_parser.set_defaults(func=workstream_add_command)
+
+    workstream_set_parser = workstream_subparsers.add_parser("set", help="set Workstream status through allowed transitions")
+    workstream_set_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_set_parser.add_argument("path", nargs="?", type=Path)
+    workstream_set_parser.add_argument("--status", choices=tuple(sorted(VALID_WORKSTREAM_STATUSES)), required=True)
+    add_write_arguments(workstream_set_parser)
+    workstream_set_parser.set_defaults(func=workstream_set_command)
+
+    workstream_block_parser = workstream_subparsers.add_parser("block", help="mark a Workstream blocked")
+    workstream_block_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_block_parser.add_argument("path", nargs="?", type=Path)
+    workstream_block_parser.add_argument("--reason", default=None, help="blocker reason")
+    add_write_arguments(workstream_block_parser)
+    workstream_block_parser.set_defaults(func=workstream_block_command)
+
+    workstream_cancel_parser = workstream_subparsers.add_parser("cancel", help="cancel a Workstream")
+    workstream_cancel_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_cancel_parser.add_argument("path", nargs="?", type=Path)
+    workstream_cancel_parser.add_argument("--reason", default=None, help="cancellation reason")
+    add_write_arguments(workstream_cancel_parser)
+    workstream_cancel_parser.set_defaults(func=workstream_cancel_command)
+
+    workstream_merge_parser = workstream_subparsers.add_parser("merge-request", help="write a reviewable merge request section")
+    workstream_merge_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_merge_parser.add_argument("path", nargs="?", type=Path)
+    workstream_merge_parser.add_argument("--target", action="append", required=True, help="merge target; can be repeated")
+    workstream_merge_parser.add_argument("--summary", default=None, help="candidate change summary")
+    workstream_merge_parser.add_argument("--verification", required=True, help="verification result")
+    workstream_merge_parser.add_argument("--question", action="append", default=None, help="open question; can be repeated")
+    workstream_merge_parser.add_argument("--conflict", action="append", default=None, help="known conflict; can be repeated")
+    workstream_merge_parser.add_argument("--strategy", default="", help="suggested merge strategy")
+    workstream_merge_parser.add_argument("--input", type=Path, default=None, help="file containing candidate change summary")
+    add_write_arguments(workstream_merge_parser)
+    workstream_merge_parser.set_defaults(func=workstream_merge_request_command)
+
+    workstream_ready_parser = workstream_subparsers.add_parser("ready", help="mark a Workstream ReadyToMerge")
+    workstream_ready_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_ready_parser.add_argument("path", nargs="?", type=Path)
+    add_write_arguments(workstream_ready_parser)
+    workstream_ready_parser.set_defaults(func=workstream_ready_command)
+
+    workstream_done_parser = workstream_subparsers.add_parser("done", help="mark a ReadyToMerge Workstream done")
+    workstream_done_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_done_parser.add_argument("path", nargs="?", type=Path)
+    workstream_done_parser.add_argument("--evidence", default=None, help="completion evidence")
+    workstream_done_parser.add_argument("--summary", default=None, help="optional completion record")
+    add_write_arguments(workstream_done_parser)
+    workstream_done_parser.set_defaults(func=workstream_done_command)
+
+    workstream_claim_parser = workstream_subparsers.add_parser("claim", help="append Workstream read/write scope claims")
+    workstream_claim_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_claim_parser.add_argument("path", nargs="?", type=Path)
+    workstream_claim_parser.add_argument("--read", action="append", default=None, help="read scope path; can be repeated")
+    workstream_claim_parser.add_argument("--write", action="append", default=None, help="typed write scope; can be repeated")
+    add_write_arguments(workstream_claim_parser)
+    workstream_claim_parser.set_defaults(func=workstream_claim_command)
+
+    workstream_note_parser = workstream_subparsers.add_parser("note", help="append a note to a Workstream detail section")
+    workstream_note_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_note_parser.add_argument("path", nargs="?", type=Path)
+    workstream_note_parser.add_argument("--section", required=True, help="allowed note section")
+    workstream_note_parser.add_argument("--text", default=None, help="note text")
+    workstream_note_parser.add_argument("--input", type=Path, default=None, help="file containing note text")
+    add_write_arguments(workstream_note_parser)
+    workstream_note_parser.set_defaults(func=workstream_note_command)
 
     plan_parser = subparsers.add_parser("plan", help="manage active/Task_Plan.md")
     plan_subparsers = plan_parser.add_subparsers(dest="plan_command", required=True)
