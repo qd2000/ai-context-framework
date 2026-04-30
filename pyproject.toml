@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-context-framework"
-version = "0.0.3.12"
+version = "0.0.3.13"
 description = "Model-independent AI context framework templates and CLI."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -14,23 +14,25 @@ Done
 
 ## 大任务名称
 
-真实项目接入与旧上下文升级验证
+真实项目试点审查问题修复
 
 ---
 
 ## 大任务目标
 
-1. 验证 ACF v0.0.3.12 在真实项目中的旁路接入和旧 ACF 上下文非破坏式升级路径。
-2. 确认默认不启用 Workstream、旧文件不批量添加 front matter、旧项目 check 不被新结构打扰。
-3. 沉淀可复用的真实项目升级验收表和推广前判断标准。
+1. 修复三项目审查中发现的上下文语义问题。
+2. 补强真实项目审查包和 playbook。
+3. 对齐 upgrade JSON 输出契约与实际实现。
 
 ---
 
 ## 成功标准
 
-1. 至少完成一个低风险真实项目的 dry-run 接入或升级审查记录。
-2. 试点流程包含 status/check/upgrade dry-run、planned_changes 审查、正式升级或暂缓结论、strict check 和 git diff 人工审查要求。
-3. Workstream/front matter 保持 optional，没有被默认启用或批量迁移。
+1. knowledgeConnector 的重复回写协议已移除。
+2. papers 的文件命名规则与中文原始资料现实一致。
+3. Real_Project_Upgrade_Playbook 已说明 committed diff、untracked init 文件和 UTF-8 输出要求。
+4. upgrade --dry-run --json 的字段契约已实现或文档已修正。
+5. ACF 仓库 strict check、template check 和相关测试通过。
 
 ---
 
@@ -44,10 +46,10 @@ Done
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | 确定试点项目与验收表 | 无。 | 试点选择标准、风险边界和 ACF v0.0.3.12 Upgrade Acceptance 模板 | reference/Real_Project_Upgrade_Playbook.md 与 worklog/daily/2026-04-30.md 已记录试点项目、验收表和三类真实项目验证结果。 | 无。 |
-| T002 | Done | 验证无 ACF 项目的旁路接入 | T001 | 新建 docs/ai 旁路接入 dry-run/正式 init/check 记录 | papers：无 ACF 上下文，执行 standard init 并补齐最小 docs/ai 事实后 strict check 通过；未启用 Workstream，未修改论文、脚本或数据文件；详见 worklog/daily/2026-04-30.md。 | 无。 |
-| T003 | Done | 验证旧 ACF 上下文升级路径 | T001 | 旧上下文 status/check/upgrade dry-run/planned_changes 审查和正式升级或暂缓结论 | knowledgeConnector：旧 ACF upgrade 正式执行并通过 strict check；register：upgrade dry-run changed_files 为空且 strict check 通过；详见 worklog/daily/2026-04-30.md。 | 无。 |
-| T004 | Done | 记录试点验收与推广判断 | T002,T003 | worklog 中的 Upgrade Acceptance 记录、推广/暂缓结论和后续候选清单 | worklog/daily/2026-04-30.md 已记录三类试点：knowledgeConnector 旧上下文升级、register no-op upgrade、papers 新项目 init；均验证 Workstream/front matter optional 边界。 | 无。 |
+| T001 | Done | 修复 knowledgeConnector 旧回写协议残留 | F008 | knowledgeConnector docs/ai/AGENTS.md 小修 | knowledgeConnector 分支 test/acf-v0.0.3.12 已提交 9018be9 Remove stale ACF writeback checklist；strict check 通过，upgrade dry-run 无变更。 | 无。 |
+| T002 | Done | 修复 papers 命名规则冲突 | F009 | papers AGENTS.md、Project_Rules.md 与 Context 小修 | papers 分支 test/acf-v0.0.3.12-init 已修正 AGENTS.md、docs/ai/rules/Project_Rules.md 和 active/Context.md；strict check 通过，upgrade dry-run 无变更。 | 无。 |
+| T003 | Done | 更新真实项目审查包 playbook | F010,F012 | Real_Project_Upgrade_Playbook.md | reference/Real_Project_Upgrade_Playbook.md 已补充 committed diff、untracked/staged diff 和 PowerShell UTF-8 输出要求；strict check 通过。 | 无。 |
+| T004 | Done | 对齐 upgrade JSON 契约 | F011 | CLI 或文档修正 | acf upgrade --dry-run --json 已新增 detected_features、planned_changes、skipped_changes；README 和 template System_Manual 已同步；版本升至 v0.0.3.13；相关 upgrade 单元测试通过。 | 无。 |
 
 ---
 

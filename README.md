@@ -159,7 +159,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.12 --dry-run --json
+acf version set v0.0.3.13 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -223,7 +223,7 @@ acf upgrade --check-after --json
 acf check --strict --json
 ```
 
-`upgrade` 只补齐当前 schema 缺失的 `Task_Plan`、archive、archive/feedback 和 Knowledge 文件/目录，不移动旧内容、不自动归档任务、不覆盖 Active `Current_Task.md`。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
+`upgrade` 只补齐当前 schema 缺失的 `Task_Plan`、archive、archive/feedback 和 Knowledge 文件/目录，不移动旧内容、不自动归档任务、不覆盖 Active `Current_Task.md`。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
 
 如果全局 `acf` 未安装，可在本仓库源码环境中对其他项目运行：
 

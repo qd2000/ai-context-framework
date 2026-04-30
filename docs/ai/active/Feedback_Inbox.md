@@ -24,7 +24,12 @@
 | F004 | Done | 问题 | strict mode 不应因为标准模板中的 ADR/worklog 示例模板阻塞真实项目检查。 | 2026-04-29 用户反馈 | 已让真实项目 strict 忽略 ADR/worklog 示例模板占位符，模板源自身仍保留检查能力。 |
 | F005 | Done | 需求 | 会话结束回写建议不应每轮只重复打印建议；应优先直接落盘或生成明确草案，并只报告实际写入或修改的内容，未变更部分不输出，减少 token 浪费。 | 2026-04-29 用户反馈 | 已进入 active/Task_Plan.md T002，并通过 docs/ai/AGENTS.md 的会话结束回写落盘协议处理。 |
 | F006 | Done | 问题 | Feedback_Inbox 需要已解决条目的归档、删除或隐藏约束，避免长期污染上下文。 | 2026-04-29 用户反馈 | 已进入 active/Task_Plan.md T003，并通过本文件状态说明、使用规则和 archive/feedback/ 归档位置处理。 |
-| F007 | Planned | 需求 | 目前系统没有考虑到多个 agents 在同一个项目中并行处理不同目标的情况，需要针对并行场景设计任务和信息管理方案。 | 2026-04-29 用户反馈；2026-04-30 用户确认方案方向 | 已进入 active/Task_Plan.md T001-T004；设计方案落入 reference/Workstream_Design.md。 |
+| F007 | Done | 需求 | 目前系统没有考虑到多个 agents 在同一个项目中并行处理不同目标的情况，需要针对并行场景设计任务和信息管理方案。 | 2026-04-29 用户反馈；2026-04-30 用户确认方案方向 | 已完成 Workstream optional layer v1；证据见 reference/Workstream_Design.md、decisions/ADR-0005.md 和 worklog/daily/2026-04-30.md。 |
+| F008 | Done | 问题 | 三项目审查发现旧项目 upgrade 后可能残留旧版 `AGENTS.md` 回写协议块，例如 knowledgeConnector 出现重复 `## 会话结束回写建议`，strict check 未捕获该语义重复。 | 2026-04-30 三项目 ACF v0.0.3.12 审查 | 已在 knowledgeConnector 分支删除重复旧块并提交 `9018be9 Remove stale ACF writeback checklist`；后续可评估 check 语义增强。 |
+| F009 | Done | 问题 | papers 新项目 init 暴露模板默认规则“文件名和目录名使用英文”与真实项目中文原始资料文件名冲突；应区分 ACF 结构文件命名和既有原始资料命名。 | 2026-04-30 三项目 ACF v0.0.3.12 审查 | 已修正 papers 的 AGENTS.md、docs/ai/rules/Project_Rules.md 和 Context，明确既有中文原始资料保留原名。 |
+| F010 | Done | 改进 | 三项目审查包对已提交 upgrade 和未跟踪 init 文件的 diff 覆盖不足：knowledgeConnector 需要包含 `git show`，papers 需要显式包含 untracked 文件清单或 staged diff。 | 2026-04-30 三项目 ACF v0.0.3.12 审查 | 已在 reference/Real_Project_Upgrade_Playbook.md 增加 committed diff、untracked/staged diff 审查包要求；证据见 active/Task_Plan.md T003。 |
+| F011 | Done | 改进 | `acf upgrade --dry-run --json` 当前未输出设计契约中提到的 `detected_features`、`planned_changes`、`skipped_changes` 字段，降低 AI 审查可解释性。 | 2026-04-30 三项目 ACF v0.0.3.12 审查 | 已补 CLI JSON 字段并同步 README/template System Manual，版本升至 v0.0.3.13；证据见 active/Task_Plan.md T004。 |
+| F012 | Done | 改进 | 审查包中的中文 JSON 输出存在 mojibake，影响 AI 读取 `acf plan status --json` 等命令结果。 | 2026-04-30 三项目 ACF v0.0.3.12 审查 | 已在 reference/Real_Project_Upgrade_Playbook.md 增加 PowerShell UTF-8 输出设置；证据见 active/Task_Plan.md T003。 |
 
 ---
 

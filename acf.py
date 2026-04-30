@@ -20,7 +20,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.12"
+VERSION = "v0.0.3.13"
 
 
 def find_template_dir() -> Path:
@@ -3458,13 +3458,74 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
     return changed, warnings
 
 
+def upgrade_managed_paths(root: Path) -> list[Path]:
+    return [
+        root / "active" / "Feedback_Inbox.md",
+        root / "active" / "Task_Plan.md",
+        root / "archive" / "Archive_Index.md",
+        root / "reference" / "Knowledge_Index.md",
+        root / "archive" / "tasks" / ".gitkeep",
+        root / "archive" / "plans" / ".gitkeep",
+        root / "archive" / "feedback" / ".gitkeep",
+        root / "reference" / "knowledge" / ".gitkeep",
+        root / "worklog" / "knowledge-drafts" / ".gitkeep",
+        root / "AGENTS.md",
+        root / "rules" / "Project_Rules.md",
+        root / "reference" / "System_Manual.md",
+    ]
+
+
+def upgrade_detected_features(root: Path) -> list[str]:
+    features: list[str] = []
+    feature_paths = [
+        ("context_agents", root / "AGENTS.md"),
+        ("task_plan", root / "active" / "Task_Plan.md"),
+        ("feedback_inbox", root / "active" / "Feedback_Inbox.md"),
+        ("archive", root / "archive" / "Archive_Index.md"),
+        ("feedback_archive", root / "archive" / "feedback"),
+        ("knowledge", root / "reference" / "Knowledge_Index.md"),
+        ("system_manual", root / "reference" / "System_Manual.md"),
+        ("workstreams", root / "active" / "Workstreams.md"),
+    ]
+    for name, path in feature_paths:
+        if path.exists():
+            features.append(name)
+    return features
+
+
+def upgrade_contract_payload(root: Path, changed_files: Sequence[Path]) -> dict[str, object]:
+    changed_resolved = {path.resolve() for path in changed_files}
+    planned_changes = [
+        {"path": str(path.resolve()), "action": "create_or_update"}
+        for path in changed_files
+    ]
+    skipped_changes = [
+        {"path": str(path.resolve()), "reason": "already_current"}
+        for path in upgrade_managed_paths(root)
+        if path.resolve() not in changed_resolved and path.exists()
+    ]
+    return {
+        "detected_features": upgrade_detected_features(root),
+        "planned_changes": planned_changes,
+        "skipped_changes": skipped_changes,
+    }
+
+
 def upgrade_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     changed_files, warnings = ensure_upgrade_structure(root, dry_run)
     check_result = maybe_check_after(args, root)
     action = "would upgrade" if dry_run else "upgraded"
-    return emit_write_result(args, "upgrade", f"{action} context structure at {root}", changed_files, check_result, warnings=warnings)
+    return emit_write_result(
+        args,
+        "upgrade",
+        f"{action} context structure at {root}",
+        changed_files,
+        check_result,
+        extra_payload=upgrade_contract_payload(root, changed_files),
+        warnings=warnings,
+    )
 
 
 def task_plan_path(root: Path) -> Path:

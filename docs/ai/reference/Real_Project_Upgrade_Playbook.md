@@ -143,6 +143,58 @@ git diff -- docs/ai
 
 ---
 
+## 审查包覆盖要求
+
+真实项目试点不应只保存当前 `git diff`。不同项目状态需要不同证据：
+
+1. 已正式提交 upgrade 的项目，应包含最近提交的摘要和内容，例如：
+
+```powershell
+git show --stat HEAD
+git show HEAD -- AGENTS.md docs/ai
+```
+
+2. 尚未提交但已有工作树变更的项目，应包含：
+
+```powershell
+git status --short
+git diff --stat
+git diff -- AGENTS.md docs/ai
+```
+
+3. 新 init 项目如果文件仍是 untracked，`git diff` 可能为空，应额外包含：
+
+```powershell
+git ls-files --others --exclude-standard
+Get-ChildItem docs/ai -Recurse -File
+```
+
+或者先 staged 后再生成 staged diff：
+
+```powershell
+git add AGENTS.md docs/ai
+git diff --cached --stat
+git diff --cached -- AGENTS.md docs/ai
+```
+
+审查包必须能回答：改了哪些文件、这些文件是已提交/未提交/未跟踪、是否有业务代码被修改。
+
+---
+
+## PowerShell UTF-8 输出
+
+如果用 PowerShell 生成审查包，先设置 UTF-8 输出，避免中文 JSON 或 Markdown 内容 mojibake：
+
+```powershell
+$env:PYTHONUTF8 = "1"
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+```
+
+审查包中的 JSON 输出应保留原始 UTF-8 文本，不应经过会破坏中文的重定向或转码流程。
+
+---
+
 ## Workstream 启用规则
 
 第一轮真实项目接入默认不要启用 Workstream。

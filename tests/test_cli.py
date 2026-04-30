@@ -1321,7 +1321,14 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
             self.assertTrue(payload["dry_run"])
+            self.assertIn("detected_features", payload)
+            self.assertIn("planned_changes", payload)
+            self.assertIn("skipped_changes", payload)
             self.assertIn(str((target / "active" / "Task_Plan.md").resolve()), payload["changed_files"])
+            self.assertIn(
+                str((target / "active" / "Task_Plan.md").resolve()),
+                [item["path"] for item in payload["planned_changes"]],
+            )
             self.assertFalse((target / "active" / "Task_Plan.md").exists())
 
     def test_upgrade_does_not_replace_active_current_task(self):
@@ -1477,6 +1484,9 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
             self.assertEqual(payload["changed_files"], [])
+            self.assertEqual(payload["planned_changes"], [])
+            self.assertIn("task_plan", payload["detected_features"])
+            self.assertTrue(payload["skipped_changes"])
             self.assertEqual(payload["next_actions"], ["No changes needed."])
 
     def test_strict_check_ignores_template_examples_in_real_standard_context(self):
