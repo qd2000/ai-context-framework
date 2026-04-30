@@ -21,6 +21,7 @@
 |---|---|---|---|---|---|---|
 | Front Matter Metadata Plan | 设计计划 | reference/Front_Matter_Metadata_Plan.md | Useful | 高 | 记录轻量 YAML front matter 的适用文档清单、字段建议、实施阶段、check 规则和兼容性策略。 | 作为 Workstream 可选层和后续 metadata 支持的设计依据；实现前按需读取。 |
 | Python argparse documentation | 文档 | https://docs.python.org/3/library/argparse.html | Useful | 高 | 用于维护 acf.py CLI 子命令、参数和帮助文本行为。 | 按需查阅，不默认读取全文。 |
+| Real Project Upgrade Playbook | 操作手册 | reference/Real_Project_Upgrade_Playbook.md | Useful | 高 | 记录 ACF v0.0.3.12 应用到真实项目时的旁路接入、旧上下文升级、Workstream optional 边界和验收表。 | 执行真实项目接入或旧上下文升级试点前按需读取；试点结果写入 worklog。 |
 | Upgrade Migration Plan | 设计计划 | reference/Upgrade_Migration_Plan.md | Useful | 高 | 记录旧版本上下文升级到新版本的阶段、兼容性原则、Workstream/front matter 可选启用策略、测试矩阵和 JSON 输出契约。 | 实现 Workstream、front matter 或模板结构变化前必须读取，并同步 init/upgrade/check 测试。 |
 | Workstream Design | 设计文档 | reference/Workstream_Design.md | Useful | 高 | 记录多 agent 并行目标线治理方案、front matter 取舍、状态机、合并契约和后续 CLI/check 计划。 | 作为 T001 设计依据；后续实现 Workstream 可选层时按需读取。 |
 

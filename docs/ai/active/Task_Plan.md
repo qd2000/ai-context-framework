@@ -14,23 +14,23 @@ Done
 
 ## 大任务名称
 
-并行 Workstream 任务与信息管理方案
+真实项目接入与旧上下文升级验证
 
 ---
 
 ## 大任务目标
 
-1. 为多个 agents 在同一项目中并行处理不同目标定义可选的目标线治理协议。
-2. 明确 Workstream 与 Task、Feedback、权威上下文和草案的关系。
-3. 规划后续模板、检查规则和 CLI 支持，同时保持旧项目兼容。
+1. 验证 ACF v0.0.3.12 在真实项目中的旁路接入和旧 ACF 上下文非破坏式升级路径。
+2. 确认默认不启用 Workstream、旧文件不批量添加 front matter、旧项目 check 不被新结构打扰。
+3. 沉淀可复用的真实项目升级验收表和推广前判断标准。
 
 ---
 
 ## 成功标准
 
-1. F007 已编号并映射到本计划。
-2. Workstream 设计原则、状态机、合并契约、写入类型和 optional 兼容规则已落入 docs/ai。
-3. 后续实现任务有明确拆分，且不把 ACF 扩展为 agent runtime。
+1. 至少完成一个低风险真实项目的 dry-run 接入或升级审查记录。
+2. 试点流程包含 status/check/upgrade dry-run、planned_changes 审查、正式升级或暂缓结论、strict check 和 git diff 人工审查要求。
+3. Workstream/front matter 保持 optional，没有被默认启用或批量迁移。
 
 ---
 
@@ -44,14 +44,10 @@ Done
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | 沉淀 Workstream 设计方案 | F007 用户反馈。 | reference/Workstream_Design.md | reference/Workstream_Design.md 已沉淀设计原则、状态机、合并契约、写入类型、front matter 判断和落地顺序；Feedback_Inbox F007 已映射到本计划。 | 无。 |
-| T002 | Done | 设计可选模板与读取规则 | T001 | template 与 docs/ai 的可选 Workstreams 结构变更方案 | docs/ai/AGENTS.md、template/AGENTS.md、docs/ai/reference/System_Manual.md、template/reference/System_Manual.md 已明确 Workstream 可选读取规则；reference/Workstream_Design.md 已记录 T002 决议：init/upgrade 默认不启用，按需读取。 | 无。 |
-| T003 | Done | 规划 acf workstream 命令与检查规则 | T001,T002 | acf workstream 命令接口、JSON 输出、状态转换、scope claim 和 check/error code 规则 | reference/Workstream_Design.md 已补齐 T003 CLI/check 实现规格：命令范围、通用写命令契约、每个命令的参数/改动文件/dry-run/check-after/error_code、机器可执行状态转换表、scope claim 规则、check severity 和命令测试计划；未实现 CLI 代码。 | 无。 |
-| T004 | Done | 实现与验证 Workstream 可选层 | T002,T003,T005,T006,T007 | 模板、CLI、测试、文档和版本更新 | `acf workstream init/status/list/show/add/set/block/cancel/merge-request/ready/done/claim/note` 已实现；`acf check` 已接入 optional Workstream severity 矩阵；无 `active/Workstreams.md` 的旧项目不触发 Workstream 检查；版本已升至 v0.0.3.12；ADR-0005 已升为 Active。 | 无。 |
-| T005 | Done | 规划 front matter metadata 支持 | T001,T002 | reference/Front_Matter_Metadata_Plan.md 中的极小 YAML 子集、解析器接口、schema 校验和迁移工具计划 | acf.py 已新增无依赖 front matter 基础能力：parse_front_matter、format_front_matter、validate_front_matter、FrontMatterSchema 和诊断码；tests/test_cli.py 新增 5 个单元测试覆盖合法/非法语法、稳定 format、required/enum/list、typed write_scope 和路径诊断；验证：acf check template、acf check docs/ai --strict、python -m unittest、py_compile 均通过。 | 无。 |
-| T006 | Done | 规划 upgrade 迁移与兼容性矩阵 | T002,T005 | reference/Upgrade_Migration_Plan.md | reference/Upgrade_Migration_Plan.md 已钉死 upgrade 默认不启用 Workstream、显式 workstream init 启用路径、front matter 检查触发条件、upgrade JSON 字段语义和测试矩阵；保持旧 ADR/worklog/Knowledge 无 front matter 不报错。 | 无。 |
-| T007 | Done | 执行 Workstream dogfooding gate | T002,T003,T005,T006 | docs/ai 最小 Workstream 试运行记录与验收结论 | active/Workstreams.md 与 active/workstreams/WS001.md 已完成最小 Workstream dogfooding；WS001 记录 Open -> Active -> ReadyToMerge -> Done、合并请求、evidence 和 Inactive 索引状态；docs/ai strict check 通过。 | 无。 |
-| T008 | Done | 生成 Workstream 设计 ADR 候选 | T001,T002 | decisions/ADR-0005.md 或对应 ADR 草案 | decisions/ADR-0005.md 已从 Proposed 升为 Active，reference/Decisions_Index.md 已同步；ADR 只记录稳定取舍，不复制 Workstream_Design 细节。 | 无。 |
+| T001 | Done | 确定试点项目与验收表 | 无。 | 试点选择标准、风险边界和 ACF v0.0.3.12 Upgrade Acceptance 模板 | reference/Real_Project_Upgrade_Playbook.md 与 worklog/daily/2026-04-30.md 已记录试点项目、验收表和三类真实项目验证结果。 | 无。 |
+| T002 | Done | 验证无 ACF 项目的旁路接入 | T001 | 新建 docs/ai 旁路接入 dry-run/正式 init/check 记录 | papers：无 ACF 上下文，执行 standard init 并补齐最小 docs/ai 事实后 strict check 通过；未启用 Workstream，未修改论文、脚本或数据文件；详见 worklog/daily/2026-04-30.md。 | 无。 |
+| T003 | Done | 验证旧 ACF 上下文升级路径 | T001 | 旧上下文 status/check/upgrade dry-run/planned_changes 审查和正式升级或暂缓结论 | knowledgeConnector：旧 ACF upgrade 正式执行并通过 strict check；register：upgrade dry-run changed_files 为空且 strict check 通过；详见 worklog/daily/2026-04-30.md。 | 无。 |
+| T004 | Done | 记录试点验收与推广判断 | T002,T003 | worklog 中的 Upgrade Acceptance 记录、推广/暂缓结论和后续候选清单 | worklog/daily/2026-04-30.md 已记录三类试点：knowledgeConnector 旧上下文升级、register no-op upgrade、papers 新项目 init；均验证 Workstream/front matter optional 边界。 | 无。 |
 
 ---
 
