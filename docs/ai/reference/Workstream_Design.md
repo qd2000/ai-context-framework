@@ -245,7 +245,7 @@ Open/Active/Blocked/ReadyToMerge -> Cancelled
 
 1. Workstream ID 格式为 `WS001`、`WS002`，即 `WS` 加三位数字。
 2. ID 一旦创建不应复用，即使原 Workstream 已 Done、Cancelled 或归档。
-3. 自动分配 ID 时，应同时扫描 active/workstreams 和 archive/workstreams。
+3. 当前 v1 要求 `add --id WSxxx` 显式传入 ID；未来如果引入自动分配，应同时扫描 active/workstreams 和 archive/workstreams。
 4. 重命名 Workstream 只能修改 title，不能修改 ID。
 5. 删除 Workstream 详情文件应视为高风险操作；优先使用 Cancelled 或归档。
 6. 索引、详情 metadata、JSON 输出和 evidence 引用必须保持同一 ID。
@@ -262,7 +262,7 @@ Done / Cancelled workstream 不应长期堆积在 active 区域。
 4. 归档摘要应保留 ID、最终状态、标题、owner、处理结果、证据位置和原详情文件位置。
 5. 归档不应复制冗长过程；过程发现应已进入 worklog、ADR、Context 或 Knowledge 草案。
 
-archive/workstreams 应由 `acf workstream init` 创建空目录；如果旧上下文缺少该目录，也可以由首次 workstream archive/done 归档时惰性创建。
+archive/workstreams 应由 `acf workstream init` 创建空目录；如果旧上下文缺少该目录，也可以在未来 archive 命令或人工归档时惰性创建。当前 v1 的 `done` 不自动移动详情文件。
 
 ---
 
@@ -423,7 +423,7 @@ uv run acf workstream add [path] --id WS001 --title "并行任务治理模型" -
 
 参数：
 
-1. `--id` 可选；省略时扫描 active/workstreams 和 archive/workstreams 自动分配下一个 ID。
+1. `--id` 必填；自动分配 ID 是后续候选能力，不属于当前 v1。
 2. `--title` 必填。
 3. `--owner` 必填。
 4. `--depends` 可重复，默认空列表。
@@ -639,7 +639,7 @@ workstream_section_not_allowed
 | 未 init 时运行 add/list/show/status 以外需要结构的命令 | 返回 `workstream_not_initialized` 和 next action |
 | init 首次执行 | 创建索引、详情目录、归档目录 |
 | init 重复执行 | 幂等，无重复内容 |
-| add 无 ID | 自动分配未使用 ID，扫描 active 和 archive |
+| add 无 ID | 参数错误；自动分配 ID 留作后续候选能力 |
 | add 重复 ID | `workstream_duplicate_id` |
 | add 写入详情 front matter 和索引行 | 两处一致 |
 | set 非法状态转换 | `workstream_invalid_transition` |
