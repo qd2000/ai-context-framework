@@ -36,7 +36,7 @@ Active
 
 ## 当前焦点
 
-T006
+T003
 
 ---
 
@@ -49,7 +49,7 @@ T006
 | T003 | Pending | 规划 acf workstream 命令与检查规则 | T001,T002 | acf workstream 命令接口、JSON 输出、状态转换、scope claim 和 check/error code 规则 | 无。 | 第一版明确包含 init/list/show/status/add/set/claim/block/cancel/note/merge-request/ready/done；block/cancel 必须记录 reason，并保持无 runtime 调度。 |
 | T004 | Pending | 实现与验证 Workstream 可选层 | T002,T003,T005,T006,T007 | 模板、CLI、测试、文档和版本更新 | 无。 | 实现时先满足模板/读取规则、workstream 接口、front matter parser/schema、upgrade 迁移矩阵，并通过 dogfooding gate，再同步 README、System Manual、Automation、data-files、init/upgrade/check 测试和版本号。 |
 | T005 | Done | 规划 front matter metadata 支持 | T001,T002 | reference/Front_Matter_Metadata_Plan.md 中的极小 YAML 子集、解析器接口、schema 校验和迁移工具计划 | acf.py 已新增无依赖 front matter 基础能力：parse_front_matter、format_front_matter、validate_front_matter、FrontMatterSchema 和诊断码；tests/test_cli.py 新增 5 个单元测试覆盖合法/非法语法、稳定 format、required/enum/list、typed write_scope 和路径诊断；验证：acf check template、acf check docs/ai --strict、python -m unittest、py_compile 均通过。 | 无。 |
-| T006 | Pending | 规划 upgrade 迁移与兼容性矩阵 | T002,T005 | reference/Upgrade_Migration_Plan.md | 无。 | 实现 Workstream 或 front matter 前，先按迁移矩阵补齐 init/upgrade/check/data-files/测试规划。 |
+| T006 | Done | 规划 upgrade 迁移与兼容性矩阵 | T002,T005 | reference/Upgrade_Migration_Plan.md | reference/Upgrade_Migration_Plan.md 已钉死 upgrade 默认不启用 Workstream、显式 workstream init 启用路径、front matter 检查触发条件、upgrade JSON 字段语义和测试矩阵；保持旧 ADR/worklog/Knowledge 无 front matter 不报错。 | 无。 |
 | T007 | Done | 执行 Workstream dogfooding gate | T002,T003,T005,T006 | docs/ai 最小 Workstream 试运行记录与验收结论 | active/Workstreams.md 与 active/workstreams/WS001.md 已完成最小 Workstream dogfooding；WS001 记录 Open -> Active -> ReadyToMerge -> Done、合并请求、evidence 和 Inactive 索引状态；docs/ai strict check 通过。 | 无。 |
 | T008 | Pending | 生成 Workstream 设计 ADR 候选 | T001,T002 | decisions/ADR-0005.md 或对应 ADR 草案 | 无。 | 记录为什么使用可选 Workstream 层、为什么不做 runtime、为什么默认不启用、ReadyToMerge/Done 分离和写入范围协作契约。 |
 

@@ -132,8 +132,11 @@ Workstream 是 optional layer。
 
 1. 不创建 Workstreams 索引。
 2. 不创建 Workstream 详情目录。
-3. 不要求旧项目存在 Workstream 文件。
-4. 不修改默认读取顺序，除非模板入口需要补“有 Active workstream 时按需读取”的说明。
+3. 不创建 archive/workstreams。
+4. 不要求旧项目存在 Workstream 文件。
+5. 不因缺少 Workstream 结构产生 warning 或 error。
+6. 不修改默认读取顺序，除非模板入口需要补“有 Active workstream 时按需读取”的说明。
+7. 只在 `next_actions` 中提示可选启用路径。
 
 显式启用行为：
 
@@ -151,6 +154,16 @@ archive/workstreams/
 
 启用后 check 才校验 Workstream 一致性。
 
+Workstream check 触发条件：
+
+| 条件 | 行为 |
+|---|---|
+| 没有 Workstreams 索引 | 不运行 Workstream check，不报错，不 warning |
+| 存在 Workstreams 索引 | 校验索引、详情目录、详情文件和状态一致性 |
+| 存在详情目录但无索引 | warning；strict 下 error |
+| 存在 Active/Blocked/ReadyToMerge | AGENTS 允许按需读取索引和对应详情 |
+| 只有 Done/Cancelled 且索引状态 Inactive | 不应增加默认读取噪音 |
+
 ---
 
 ## Front Matter 升级策略
@@ -162,6 +175,16 @@ Front matter 是新增文件优先能力。
 1. 不给旧 ADR、旧 worklog、旧 Knowledge 草案批量添加 front matter。
 2. 不因为旧文件缺少 front matter 报错。
 3. 只在 System Manual 或相关参考文档中补充 metadata 规则说明。
+
+Front matter check 触发条件：
+
+| 文件状态 | 行为 |
+|---|---|
+| 旧 ADR / 旧 worklog / 旧 Knowledge 没有 front matter | 不报错，不 warning |
+| 新 Workstream 详情文件 | 必须有 metadata |
+| 文件有 front matter | 解析极小 YAML 子集，报告语法诊断 |
+| 文件有 metadata 且声明了 schema | 校验 required、enum、list/scalar、typed scope 和路径规范 |
+| metadata 与索引冲突 | 普通 check warning；strict 可升级为 error，具体以对应文档类型规则为准 |
 
 未来可选迁移：
 
@@ -227,13 +250,23 @@ Workstream 结构若保持 optional，`init` 是否默认生成空索引需要�
 | 旧 minimal context upgrade dry-run | 只报告计划变更 |
 | 旧 minimal context upgrade 正式执行 | 补齐缺失结构，check 通过 |
 | 旧 standard context upgrade dry-run | 幂等，无重复 marker |
+| 旧 standard context upgrade 正式执行两次 | 第二次 no changes needed，不重复 marker |
 | 自定义 AGENTS / System Manual | 不覆盖正文，追加或更新 marker notes |
 | 缺少 Feedback Inbox | 补文件 |
 | 缺少 archive/feedback | 补目录 |
 | 无 Workstream 结构 | check 不报错 |
 | 显式 workstream init 后 | Workstream check 生效 |
+| 仅有 Done/Cancelled workstream 且索引 Inactive | 默认读取不变重，check 通过 |
+| Workstreams 索引存在但详情目录缺失 | check error |
+| 详情存在但索引缺行 | 普通 check warning，strict error |
 | 旧 ADR 无 front matter | check 不报错 |
+| 旧 worklog 无 front matter | check 不报错 |
+| 旧 Knowledge 无 front matter | check 不报错 |
 | 新 ADR 有 front matter | index 一致性可检查 |
+| 新 Workstream 详情无 front matter | check error |
+| 新 metadata 文件缺 required 字段 | check error |
+| 新 metadata 文件 enum 不合法 | check error |
+| typed write_scope 缺类型或路径不规范 | check error |
 | 重复运行 upgrade | changed files 稳定，不重复追加内容 |
 
 ---
@@ -256,6 +289,18 @@ upgrade JSON 应包含：
 ```
 
 失败时应包含 `error_code`、`message` 和 `next_actions`。
+
+字段语义：
+
+| 字段 | 语义 |
+|---|---|
+| `detected_features` | 结构探测结果，例如 feedback_inbox、task_plan、knowledge、workstream、front_matter、custom_agents |
+| `planned_changes` | dry-run 或执行前确定会写入的结构、section 或 marker notes |
+| `changed_files` | 实际写入或 dry-run 将写入的文件路径 |
+| `skipped_changes` | 因 optional、已存在、无法安全迁移或用户自定义而跳过的动作 |
+| `next_actions` | 用户或 AI 可选后续动作，例如运行 workstream init、metadata preview 或 strict check |
+
+`upgrade --dry-run --json` 必须填充 `planned_changes` 和 `changed_files`，但不得写入文件。正式 upgrade 后若无变化，应返回 ok，并在 `next_actions` 中说明无后续必需动作。
 
 ---
 
