@@ -11,6 +11,7 @@
 3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）
 4. `active/Task_Plan.md`
 5. `active/Current_Task.md`（仅当任务状态为 Active 时）
+6. `active/Workstreams.md`（仅当存在 Active、Blocked 或 ReadyToMerge workstream，或需要整理并行协作时）
 
 如果用户在当前消息中已给出明确任务，以用户当前消息为准。
 
@@ -47,6 +48,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 |---|---|
 | 需要理解长期背景 | `reference/Project_Brief.md` |
 | 需要整理人工反馈、问题、需求和计划碎片 | `active/Feedback_Inbox.md` |
+| 需要处理多个并行目标线 | `active/Workstreams.md` -> 对应 `active/workstreams/*.md` |
 | 需要追溯重要决策 | `reference/Decisions_Index.md` -> `decisions/ADR-*.md` |
 | 涉及架构设计 | `reference/Architecture.md` |
 | 涉及技术实现、运行环境 | `reference/Tech_Context.md` |

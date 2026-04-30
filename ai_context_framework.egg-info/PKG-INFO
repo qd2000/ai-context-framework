@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.6
+Version: 0.0.3.7
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -153,7 +153,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.5 --dry-run --json
+acf version set v0.0.3.6 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```

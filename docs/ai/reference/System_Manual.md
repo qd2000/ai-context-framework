@@ -10,10 +10,11 @@
 2. `active/Feedback_Inbox.md`：人工临时反馈、问题、需求和计划碎片。
 3. `active/Task_Plan.md`：当前大任务计划和子任务板。
 4. `active/Current_Task.md`：当前具体任务。
-5. `rules/`：默认和按需规则。
-6. `reference/`：长期背景、架构、技术环境、决策和 Knowledge 索引。
-7. `worklog/`：历史工作记录。
-8. `archive/`：旧任务和旧计划归档。
+5. `active/Workstreams.md`：可选并行目标线索引，仅在显式启用且存在 Active、Blocked 或 ReadyToMerge workstream 时按需读取。
+6. `rules/`：默认和按需规则。
+7. `reference/`：长期背景、架构、技术环境、决策和 Knowledge 索引。
+8. `worklog/`：历史工作记录。
+9. `archive/`：旧任务和旧计划归档。
 
 ---
 

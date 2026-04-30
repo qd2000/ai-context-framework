@@ -12,7 +12,7 @@
 
 | 日期 | 摘要 | 关键结论 | 详情 |
 |---|---|---|---|
-| 2026-04-30 | 沉淀多 agent 并行 Workstream 设计计划 | Workstream 应定位为可选并行目标线协作契约，不是 agent runtime；轻量 front matter 适合新增状态型文档局部试用，不适合全量迁移现有叙述型文档。 | `worklog/daily/2026-04-30.md` |
+| 2026-04-30 | 沉淀 Workstream 设计计划，完成 dogfooding gate，并实现 front matter 基础设施 | Workstream 应定位为可选并行目标线协作契约；默认不启用，仅在 Active/Blocked/ReadyToMerge 或并行协作整理时按需读取；front matter parser 独立于 Workstream，schema 由调用方传入。 | `worklog/daily/2026-04-30.md` |
 | 2026-04-29 | 实现任务规划、归档、升级、Knowledge 层增强，并完成反馈入口、回写流程、upgrade 兼容性规则和已有文件迁移修复。 | upgrade 不应只补缺失文件；对已存在但内容过期的 ACF 模板文件，需要保守 section 级迁移并用 dry-run/check-after 验证。 | worklog/daily/2026-04-29.md |
 | 2026-04-27 | 实现 acf.py new task、new source、new worklog、new adr、writeback draft，引入 uv dogfooding 环境，清理 minimal 模板残留，修复 init 根薄入口生成，写入 AI-facing CLI 长期阶段计划，实现阶段 1/2/3，补充 CLI 渐进式披露入口、PATH 安装验收说明、acf edit dogfooding 规则、新增 opt-in 使用状态日志，并修复 Context 后切换到跨项目 dogfooding 评测任务。 | 当前任务、资料索引、worklog、ADR、根薄入口生成、会话回写草案、可安装入口、上下文自动发现、status、JSON 输出、dry-run、changed files、错误分类、section/table 编辑、CLI 发现提示、PATH 安装说明、docs/ai 结构化编辑规则、usage event log 和跨项目 dogfooding 评测任务已进入确定性流程。 | `worklog/daily/2026-04-27.md` |
 | 2026-04-26 | 初始化本仓库的 `docs/ai` dogfooding 上下文。 | 采用 minimal 实例和根薄入口，`template/` 继续作为产品模板。 | `worklog/daily/2026-04-26.md` |

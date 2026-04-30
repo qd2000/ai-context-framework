@@ -80,6 +80,131 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload["version"], "v0.0.3.3")
         self.assertEqual(payload["package_version"], "0.0.3.3")
 
+    def test_front_matter_parse_valid_subset_and_preserves_body(self):
+        text = (
+            "---\n"
+            "id: WS001\n"
+            "status: Open\n"
+            "depends_on: []\n"
+            "read_scope:\n"
+            "  - active/Context.md\n"
+            "  - active/Task_Plan.md\n"
+            "---\n"
+            "\n"
+            "# Body\n"
+            "\n"
+            "正文。\n"
+        )
+
+        metadata, body, diagnostics = acf.parse_front_matter(text)
+
+        self.assertFalse(diagnostics)
+        self.assertEqual(metadata["id"], "WS001")
+        self.assertEqual(metadata["status"], "Open")
+        self.assertEqual(metadata["depends_on"], [])
+        self.assertEqual(metadata["read_scope"], ["active/Context.md", "active/Task_Plan.md"])
+        self.assertEqual(body, "\n# Body\n\n正文。\n")
+
+    def test_front_matter_parse_reports_invalid_subset(self):
+        cases = {
+            "front_matter_unclosed": "---\nid: WS001\n# Body\n",
+            "front_matter_duplicate_key": "---\nid: WS001\nid: WS002\n---\n",
+            "front_matter_unsupported_syntax": "---\nflag: true\ncount: 1\nnested: {a: b}\ntext: |\n---\n",
+            "front_matter_invalid_list_item": "---\n  - orphan\n---\n",
+        }
+
+        for expected_code, text in cases.items():
+            with self.subTest(expected_code=expected_code):
+                _metadata, _body, diagnostics = acf.parse_front_matter(text)
+                self.assertIn(expected_code, acf.diagnostic_codes(diagnostics))
+
+    def test_front_matter_format_uses_stable_order_without_rewriting_body(self):
+        metadata = {
+            "write_scope": ["owned: active/workstreams/WS001.md"],
+            "id": "WS001",
+            "status": "Open",
+        }
+        body = "# WS001\n\nBody.\n"
+
+        rendered = acf.format_front_matter(metadata, body, field_order=("id", "status"))
+
+        self.assertEqual(
+            rendered,
+            "---\n"
+            "id: WS001\n"
+            "status: Open\n"
+            "write_scope:\n"
+            "  - owned: active/workstreams/WS001.md\n"
+            "---\n"
+            "# WS001\n"
+            "\n"
+            "Body.\n",
+        )
+
+    def test_front_matter_schema_validates_required_enum_lists_and_scope_paths(self):
+        schema = acf.FrontMatterSchema(
+            required_fields=("id", "status", "owner", "title", "read_scope", "write_scope"),
+            allowed_fields=(
+                "id",
+                "status",
+                "owner",
+                "title",
+                "depends_on",
+                "read_scope",
+                "write_scope",
+            ),
+            scalar_fields=("id", "status", "owner", "title"),
+            list_fields=("depends_on", "read_scope", "write_scope"),
+            enum_fields={"status": {"Open", "Active", "Blocked", "ReadyToMerge", "Done", "Cancelled"}},
+            typed_scope_fields=("write_scope",),
+        )
+        metadata = {
+            "id": "WS001",
+            "status": "Open",
+            "owner": "主 agent",
+            "title": "Workstream",
+            "depends_on": [],
+            "read_scope": ["active/Context.md"],
+            "write_scope": [
+                "owned: active/workstreams/WS001.md",
+                "draft: worklog/writeback-drafts/WS001-*",
+            ],
+        }
+
+        diagnostics = acf.validate_front_matter(metadata, schema)
+
+        self.assertFalse(diagnostics)
+
+    def test_front_matter_schema_reports_missing_enum_typed_scope_and_path_diagnostics(self):
+        schema = acf.FrontMatterSchema(
+            required_fields=("id", "status", "owner", "title", "read_scope", "write_scope"),
+            allowed_fields=("id", "status", "owner", "title", "read_scope", "write_scope"),
+            scalar_fields=("id", "status", "owner", "title"),
+            list_fields=("read_scope", "write_scope"),
+            enum_fields={"status": {"Open", "Active"}},
+            typed_scope_fields=("write_scope",),
+        )
+        metadata = {
+            "id": "WS001",
+            "status": "Invalid",
+            "owner": "主 agent",
+            "title": "Workstream",
+            "read_scope": [],
+            "write_scope": [
+                "active/workstreams/WS001.md",
+                "owned: active\\workstreams\\WS001.md",
+                "owned: active/workstreams/WS001",
+            ],
+        }
+
+        diagnostics = acf.validate_front_matter(metadata, schema)
+        codes = acf.diagnostic_codes(diagnostics)
+
+        self.assertIn("front_matter_schema_failed", codes)
+        self.assertIn("front_matter_scope_invalid", codes)
+        self.assertIn("front_matter_path_not_normalized", codes)
+        self.assertIn("front_matter_path_missing_extension", codes)
+
     def test_strict_template_check_fails_on_placeholders(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=True)
         self.assertTrue(any("placeholder" in error for error in result.errors))

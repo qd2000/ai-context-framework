@@ -65,6 +65,15 @@ active/workstreams/WS002.md
 
 计划中的单个 Workstream 详情文件是该 Workstream 的事实源；计划中的 Workstreams 索引文件是索引和摘要。若二者冲突，应以详情文件为准，并由 `acf check` 报 warning。
 
+T002 模板与读取规则决议：
+
+1. 旧项目 `upgrade` 默认不生成 Workstream 结构。
+2. 新项目 `init` 第一版也不默认生成 Workstream 结构，保持单线项目轻量。
+3. Workstream 结构通过 `acf workstream init` 或明确的人工 dogfooding 操作显式启用。
+4. `AGENTS` 默认读取顺序只在存在 Active、Blocked、ReadyToMerge workstream，或当前任务需要整理并行协作时读取 Workstreams 索引。
+5. 没有 Active/Blocked/ReadyToMerge workstream 时，不应因为存在历史 Done/Cancelled workstream 增加默认读取噪音。
+6. Workstreams 索引只引导读取对应详情文件，不要求默认读取所有 workstream 详情。
+
 ---
 
 ## 命名与 Metadata Schema 决议

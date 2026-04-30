@@ -20,6 +20,7 @@
 - `active/Feedback_Inbox.md`：人工临时反馈、问题、需求和计划碎片的入口，允许不规范描述，但不直接作为已确认事实。
 - `active/Task_Plan.md`：当前大任务计划和轻量子任务板，记录子任务状态、证据和下一步。
 - `active/Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源。
+- Workstreams 索引：可选并行目标线索引，仅在显式启用 Workstream 层且存在 Active、Blocked 或 ReadyToMerge workstream 时按需读取。
 
 使用规则：
 
@@ -27,9 +28,10 @@
 2. 有 Open 条目或需要整理人工反馈时读取 `active/Feedback_Inbox.md`。
 3. 默认读取 `active/Task_Plan.md`，但该文件必须保持轻量。
 4. 如果 `active/Current_Task.md` 状态为 Active，则读取它。
-5. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
-6. `active/` 中的信息应保持短、准、当前有效。
-7. 不要把历史过程、旧方案、原始日志写入 `active/`。
+5. 如果存在 Active、Blocked 或 ReadyToMerge workstream，或当前任务需要整理并行协作，则读取 Workstreams 索引，再按需读取对应详情文件。
+6. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
+7. `active/` 中的信息应保持短、准、当前有效。
+8. 不要把历史过程、旧方案、原始日志写入 `active/`。
 
 ### 1.1 Feedback_Inbox 生命周期
 
