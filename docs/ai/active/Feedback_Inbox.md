@@ -30,7 +30,7 @@
 | F010 | Done | 改进 | 三项目审查包对已提交 upgrade 和未跟踪 init 文件的 diff 覆盖不足：knowledgeConnector 需要包含 `git show`，papers 需要显式包含 untracked 文件清单或 staged diff。 | 2026-04-30 三项目 ACF v0.0.3.12 审查 | 已在 reference/Real_Project_Upgrade_Playbook.md 增加 committed diff、untracked/staged diff 审查包要求；证据见 active/Task_Plan.md T003。 |
 | F011 | Done | 改进 | `acf upgrade --dry-run --json` 当前未输出设计契约中提到的 `detected_features`、`planned_changes`、`skipped_changes` 字段，降低 AI 审查可解释性。 | 2026-04-30 三项目 ACF v0.0.3.12 审查 | 已补 CLI JSON 字段并同步 README/template System Manual，版本升至 v0.0.3.13；证据见 active/Task_Plan.md T004。 |
 | F012 | Done | 改进 | 审查包中的中文 JSON 输出存在 mojibake，影响 AI 读取 `acf plan status --json` 等命令结果。 | 2026-04-30 三项目 ACF v0.0.3.12 审查 | 已在 reference/Real_Project_Upgrade_Playbook.md 增加 PowerShell UTF-8 输出设置；证据见 active/Task_Plan.md T003。 |
-|  |  |  | 需要检查一下现在的相关工具功能是否可以支持追加写入，而不是只能新创建，如果有些工具不支持，具体有哪些工具，是否有必要修改让其支持？ |  |  |
+| F013 | Triaged | 改进 | 需要检查现有 acf 相关写命令是否支持追加写入，而不是只能新建或整体替换；若不支持，需要明确具体命令和是否值得新增追加能力。 | 2026-05-02 用户反馈 | 已完成命令面初步评估；建议优先考虑 worklog 追加能力，次级评估 writeback draft 追加；其他命令多数已有 edit/plan/task/workstream/knowledge mark 覆盖，或不宜默认追加。 |
 
 ---
 
