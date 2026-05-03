@@ -14,3 +14,4 @@
 | 2026-04-30 | Plan | 反馈入口与回写流程 dogfooding 改进 | 反馈入口与回写流程 dogfooding 改进已完成，切换到并行 Workstream 任务与信息管理方案 | `archive/plans/2026-04-30-反馈入口与回写流程-dogfooding-改进.md` |
 | 2026-04-30 | Plan | 并行 Workstream 任务与信息管理方案 | Workstream optional layer v1 已完成并验证，转入真实项目接入与旧上下文升级试点计划。 | `archive/plans/2026-04-30-并行-workstream-任务与信息管理方案.md` |
 | 2026-04-30 | Plan | 真实项目接入与旧上下文升级验证 | 三类真实项目 init/upgrade 试点已完成，转入审查问题修复计划。 | `archive/plans/2026-04-30-真实项目接入与旧上下文升级验证.md` |
+| 2026-05-03 | Plan | 真实项目试点审查问题修复 | 旧大任务已完成，准备开启 v0.0.3.17 稳定安装与跨项目评测计划。 | `archive/plans/2026-05-03-真实项目试点审查问题修复.md` |

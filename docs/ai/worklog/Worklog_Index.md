@@ -12,7 +12,7 @@
 
 | 日期 | 摘要 | 关键结论 | 详情 |
 |---|---|---|---|
-| 2026-05-03 | 实现 acf new worklog --append 的 AI-safe 定点补记能力，补齐稳定 JSON/error_code、dry-run preview、repo-relative POSIX 路径、结构化 warnings 和 anchor 缺失失败契约。; 追加：补充 worklog append anchor 守护测试，确保 render_worklog_daily 与模板示例保留 ## 今日完成 和 ## 有价值的结论。 | append 能力限定在 daily worklog，并通过 --append 参数与 --force 替换语义区分，避免引入全局 append 语义。; 追加：worklog append 的模板 anchor 依赖已由专门测试显式守护。 | `worklog/daily/2026-05-03.md` |
+| 2026-05-03 | 实现 acf new worklog --append 的 AI-safe 定点补记能力，补齐稳定 JSON/error_code、dry-run preview、repo-relative POSIX 路径、结构化 warnings 和 anchor 缺失失败契约。; 追加：补充 worklog append anchor 守护测试，确保 render_worklog_daily 与模板示例保留 ## 今日完成 和 ## 有价值的结论。; 追加：完成 v0.0.3.17 第二轮有效性评测补证：本仓库基线、临时新项目主路径、worklog append 分支和 3 个真实项目只读升级/严格检查均通过；KnowledgeConnector 暴露 schema 已齐但内容状态漂移的诊断样本；当前剩余主要缺口是稳定安装入口仍停留在 v0.0.3.16。; 追加：根据用户反馈将下一轮 v0.0.3.17 验证整理为正式任务计划：覆盖稳定安装最小环境、真实项目写入闭环、worklog append/force 边界、跨项目健康/漂移样本和用户旅程摩擦点；旧 Done 计划已归档，新计划聚焦 T001。 | append 能力限定在 daily worklog，并通过 --append 参数与 --force 替换语义区分，避免引入全局 append 语义。; 追加：worklog append 的模板 anchor 依赖已由专门测试显式守护。 | `worklog/daily/2026-05-03.md` |
 | 2026-05-01 | 补强 usage log 反馈记录能力：确认自动 usage event 只适合记录命令元数据，新增显式 acf log feedback 用于记录实际使用反馈正文，并同步文档、版本和测试。 | 无。 | `worklog/daily/2026-05-01.md` |
 | 2026-04-30 | 沉淀 Workstream 设计计划，完成 dogfooding gate、front matter 基础设施、upgrade 兼容矩阵、CLI/check 规格和 ADR 候选 | Workstream 应定位为可选并行目标线协作契约；front matter parser 独立于 Workstream；upgrade/check 必须 optional first；ADR-0005 先保持 Proposed，待 T004 实现验证后再评估 Active。 | `worklog/daily/2026-04-30.md` |
 | 2026-04-29 | 实现任务规划、归档、升级、Knowledge 层增强，并完成反馈入口、回写流程、upgrade 兼容性规则和已有文件迁移修复。 | upgrade 不应只补缺失文件；对已存在但内容过期的 ACF 模板文件，需要保守 section 级迁移并用 dry-run/check-after 验证。 | worklog/daily/2026-04-29.md |

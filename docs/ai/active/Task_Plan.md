@@ -8,37 +8,35 @@
 
 ## 大任务状态
 
-Done
+Active
 
 ---
 
 ## 大任务名称
 
-真实项目试点审查问题修复
+v0.0.3.17 稳定安装与跨项目评测
 
 ---
 
 ## 大任务目标
 
-1. 修复三项目审查中发现的上下文语义问题。
-2. 补强真实项目审查包和 playbook。
-3. 对齐 upgrade JSON 输出契约与实际实现。
+1. 验证稳定安装入口升级到 v0.0.3.17 后，在最小环境和真实项目中的安装、升级、配置与恢复路径。
+2. 验证真实项目写入闭环、多次状态流转、worklog append/force 边界与跨项目复杂性。
 
 ---
 
 ## 成功标准
 
-1. knowledgeConnector 的重复回写协议已移除。
-2. papers 的文件命名规则与中文原始资料现实一致。
-3. Real_Project_Upgrade_Playbook 已说明 committed diff、untracked init 文件和 UTF-8 输出要求。
-4. upgrade --dry-run --json 的字段契约已实现或文档已修正。
-5. ACF 仓库 strict check、template check 和相关测试通过。
+1. 稳定安装 acf v0.0.3.17 可在最小标准项目和至少一个真实项目完成 status、upgrade dry-run、strict check。
+2. 至少一个真实项目完成轻写入闭环，并记录是否需要跳出 CLI 手工修复。
+3. new worklog --append/--force 的关键边界和错误码可由 AI 根据 JSON 输出恢复。
+4. 跨项目样本区分健康项目和 schema 当前但内容漂移项目，并形成后续产品化建议。
 
 ---
 
 ## 当前焦点
 
-无。
+T001
 
 ---
 
@@ -46,10 +44,11 @@ Done
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | 修复 knowledgeConnector 旧回写协议残留 | F008 | knowledgeConnector docs/ai/AGENTS.md 小修 | knowledgeConnector 分支 test/acf-v0.0.3.12 已提交 9018be9 Remove stale ACF writeback checklist；strict check 通过，upgrade dry-run 无变更。 | 无。 |
-| T002 | Done | 修复 papers 命名规则冲突 | F009 | papers AGENTS.md、Project_Rules.md 与 Context 小修 | papers 分支 test/acf-v0.0.3.12-init 已修正 AGENTS.md、docs/ai/rules/Project_Rules.md 和 active/Context.md；strict check 通过，upgrade dry-run 无变更。 | 无。 |
-| T003 | Done | 更新真实项目审查包 playbook | F010,F012 | Real_Project_Upgrade_Playbook.md | reference/Real_Project_Upgrade_Playbook.md 已补充 committed diff、untracked/staged diff 和 PowerShell UTF-8 输出要求；strict check 通过。 | 无。 |
-| T004 | Done | 对齐 upgrade JSON 契约 | F011 | CLI 或文档修正 | acf upgrade --dry-run --json 已新增 detected_features、planned_changes、skipped_changes；README 和 template System_Manual 已同步；版本升至 v0.0.3.13；相关 upgrade 单元测试通过。 | 无。 |
+| T001 | Pending | 稳定安装 v0.0.3.17 最小环境验证 | 无 | 稳定安装版本、最小标准项目 status/upgrade/check 证据 | 无。 | 更新或隔离安装 acf v0.0.3.17，并在最小标准项目运行 status/upgrade dry-run/check |
+| T002 | Pending | 真实项目轻写入闭环验证 | T001 | 一个健康真实项目的 new worklog 或 plan/task 写入闭环记录 | 无。 | 选择健康真实项目，先 dry-run，再执行最小写入并 strict check |
+| T003 | Pending | worklog append/force 边界与恢复验证 | T001 | append、force、重复创建、冲突、异常输入和 AI next_actions 评测摘要 | 无。 | 在隔离项目中组合验证 create/append/force/error_code 分支，记录恢复路径 |
+| T004 | Pending | 跨项目健康与漂移样本评测 | T001 | 健康项目与内容漂移项目的分类评测记录 | 无。 | 扩展真实项目 status/upgrade dry-run/check 样本，单独标注 KnowledgeConnector 类漂移诊断样本 |
+| T005 | Pending | 用户旅程摩擦点整理 | T002,T003,T004 | AI 友好性、错误恢复和不常见场景摩擦清单 | 无。 | 从真实操作记录和 usage log 中整理重复摩擦点，判断是否进入 smoke runner 或新命令设计 |
 
 ---
 
