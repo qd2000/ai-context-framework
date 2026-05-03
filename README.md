@@ -291,6 +291,14 @@ uv run acf check --strict
 uv run python -m unittest
 ```
 
+发布前可额外运行本地最小 smoke runner：
+
+```bash
+uv run python scripts/minimal_smoke.py --acf uv run acf
+```
+
+该脚本只使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code` 和 Workstream 最小 happy path。它不做真实项目批量评测、漂移样本诊断或复杂 upgrade 审查。
+
 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，还必须评估旧版本上下文升级兼容性：新增结构同步到 init 文件清单、upgrade 补齐清单和 data-files，并用 init/upgrade 测试覆盖旧项目可非破坏式升级。
 
 自动化边界和后续路线见 `docs/Automation.md`。

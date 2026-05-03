@@ -119,6 +119,8 @@ Dogfooding MVP / 框架稳定化。
 70. `new worklog --append/--force` 错误码恢复矩阵已验证：`TARGET_EXISTS_APPEND_REQUIRED` 可按 `next_actions` 加 `--append` 恢复；`APPEND_FORCE_CONFLICT` 和 `ANCHOR_NOT_FOUND` 会安全拒绝且不写入；dry-run 不改变文件 hash；JSON 路径和 `warnings` 契约满足 AI 解析需求。
 71. 跨项目评测已区分 healthy 与 diagnostic 样本：`fcc_workspace`、`papers`、`register` 为健康样本；`KnowledgeConnector` 属于 schema 已齐但内容状态漂移的诊断样本，`upgrade --dry-run` no-op，strict check 暴露 27 个一致性错误。
 
+72. 已新增本地最小 smoke runner `scripts/minimal_smoke.py`：使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code` 和 Workstream 最小 happy path；不覆盖真实项目批量评测、漂移样本诊断或复杂 upgrade 审查。
+
 ---
 
 ## 当前关键约束
@@ -149,9 +151,7 @@ Dogfooding MVP / 框架稳定化。
 2. 是否需要 writeback-curator subagent 生成更高质量的回写分类草案。
 3. 是否需要为 `docs/ai/` 外的仓库级维护文档设计安全的 project-root scoped edit 能力，还是继续保持常规补丁维护。
 4. 是否需要新增 `acf new rule`、`acf new reference` 等文件创建命令，让 AI 能安全创建新的上下文文档。
-
-5. 是否需要将最小 scenario smoke runner 产品化，并覆盖 `init -> nested status/check`、`new worklog create/append/error branches` 和 Workstream happy path。
-6. 并发读写撞锁后观察到疑似 `.acf.lock` 运行态残留，需要确认是否属于异常退出残留、是否应自动清理、加入 gitignore 或补充文档提示。
+5. 异常硬中断持锁进程会留下 `.acf.lock`；正常串行读写和正常并发撞锁拒绝后未复现残留。后续仅需判断是否补充清理提示、`.gitignore` 或仓库卫生说明。
 
 ---
 

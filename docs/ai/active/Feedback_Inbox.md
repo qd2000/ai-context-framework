@@ -31,7 +31,7 @@
 | F011 | Done | 改进 | `acf upgrade --dry-run --json` 当前未输出设计契约中提到的 `detected_features`、`planned_changes`、`skipped_changes` 字段，降低 AI 审查可解释性。 | 2026-04-30 三项目 ACF v0.0.3.12 审查 | 已补 CLI JSON 字段并同步 README/template System Manual，版本升至 v0.0.3.13；证据见 active/Task_Plan.md T004。 |
 | F012 | Done | 改进 | 审查包中的中文 JSON 输出存在 mojibake，影响 AI 读取 `acf plan status --json` 等命令结果。 | 2026-04-30 三项目 ACF v0.0.3.12 审查 | 已在 reference/Real_Project_Upgrade_Playbook.md 增加 PowerShell UTF-8 输出设置；证据见 active/Task_Plan.md T003。 |
 | F013 | Done | 改进 | 需要检查现有 acf 相关写命令是否支持追加写入，而不是只能新建或整体替换；若不支持，需要明确具体命令和是否值得新增追加能力。 | 2026-05-02 用户反馈 | 已实现 acf new worklog --append；证据：新增 AI-safe JSON 契约测试和实现，uv run python -m unittest、uv run acf check template、uv run acf check docs/ai --strict --json、uv run acf version show --json 均通过，append dry-run smoke 输出 repo-relative POSIX target/changed_files 和 1-based insert_after_line。 |
-| F014 | Triaged | 问题 | .acf.lock 并发撞锁后残留需要后续复现分类：区分异常退出残留、正常并发拒绝后残留，还是本轮手动中断副作用。 | 2026-05-03 T005 摩擦点决策矩阵 | 归属为后续改进候选，下一步只做复现分类，不先修复：若只有异常中断才残留，归类为运行态副作用，记录即可或补清理提示；若正常并发拒绝后也残留，归类为 CLI 清理 bug 并进入修复任务；若只是工作区噪音风险，归类为仓库卫生问题，考虑 .gitignore 或 check 忽略规则。 |
+| F014 | Done | 问题 | .acf.lock 并发撞锁后残留需要后续复现分类：区分异常退出残留、正常并发拒绝后残留，还是本轮手动中断副作用。 | 2026-05-03 T005 摩擦点决策矩阵 | 复现分类已完成，证据见 archive/tasks/2026-05-03-复现分类-.acf.lock-残留.md：正常串行读写和正常并发撞锁拒绝后未复现残留；只有持锁进程被硬中断时残留 .acf.lock。归类为异常中断运行态副作用，不开立即修复任务；后续可选补清理提示、.gitignore 或仓库卫生说明。 |
 
 ---
 

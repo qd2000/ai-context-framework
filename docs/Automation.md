@@ -27,6 +27,7 @@
 - `edit table upsert`：按 key column 更新或追加上下文根目录内 Markdown 表格行。
 - 使用状态日志：`log enable|disable|status|tail|summarize|prune` 管理默认开启的用户级全局 usage event log，按项目子目录记录命令结果元数据，支撑跨项目 dogfooding 评测。
 - CLI 渐进式披露入口：模板和 minimal init 产物会在 AGENTS.md 中提示 `acf status --json`、`acf --help` 和系统手册发现路径，但不在默认入口列完整命令手册。
+- 最小 smoke runner：`scripts/minimal_smoke.py` 使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code` 和 Workstream 最小 happy path；不覆盖真实项目批量评测、漂移样本诊断或复杂 upgrade 审查。
 
 这些检查不需要模型判断，适合作为每次模板修改后的基础验证。
 
@@ -174,14 +175,15 @@ subagent 适合处理需要语义判断、但不应静默修改权威文件的�
 
 1. Python 代码优先通过项目 uv 环境运行：`uv run python ...`。
 2. acf CLI 优先通过项目 uv 入口运行：`uv run acf ...`；需要调试脚本入口时再使用 `uv run python acf.py ...`。
-3. 模板结构变化后运行 `uv run acf check template`。
-4. CLI 行为变化后运行 `uv run acf check --strict`、`uv run python -m unittest` 和 `uv run python -m py_compile acf.py tests\test_cli.py`。
-5. minimal 实例不保留 ADR 和 worklog 的占位模板文件，真实条目通过 `new adr` 和 `new worklog` 生成。
-6. 新增或重置当前任务时优先使用 `new task`，新增资料索引时优先使用 `new source`，重要设计决策优先使用 `new adr`，当天工作记录优先使用 `new worklog`。
-7. 会话结束回写建议需要暂存时，优先使用 `writeback draft`，再由人或主代理审阅后决定是否写入权威上下文。
-8. 维护 `docs/ai/` 内已有 section 或 table 时，优先使用 `edit section` 或 `edit table upsert`，高风险写入先用 `--dry-run --json`。
-9. 修改 `docs/Automation.md` 等 `docs/ai/` 外仓库级文档时，当前仍使用常规补丁；是否提供项目级安全编辑能力应作为独立设计处理。
-10. 需要评估 CLI 实际使用效果时，可用默认开启的 usage event log；日志是运行态元数据，不是 worklog。如需关闭某项目日志，运行 `acf log disable`。
-11. 修改 `template/` 前先确认该变更属于通用产品模板需求，而不是本仓库 dogfooding 特例。
-12. 如果发现跨文件同步问题，优先考虑补充 `acf.py check` 规则，而不是只补文档说明。
-13. 如果某项维护动作重复出现两次以上，评估是否应新增 CLI 子命令或 subagent 草案流程。
+3. 发布前快速回归可运行 `uv run python scripts/minimal_smoke.py --acf uv run acf`；该脚本只验证三条最小主路径，不替代真实项目评测矩阵。
+4. 模板结构变化后运行 `uv run acf check template`。
+5. CLI 行为变化后运行 `uv run acf check --strict`、`uv run python -m unittest` 和 `uv run python -m py_compile acf.py tests\test_cli.py scripts\minimal_smoke.py`。
+6. minimal 实例不保留 ADR 和 worklog 的占位模板文件，真实条目通过 `new adr` 和 `new worklog` 生成。
+7. 新增或重置当前任务时优先使用 `new task`，新增资料索引时优先使用 `new source`，重要设计决策优先使用 `new adr`，当天工作记录优先使用 `new worklog`。
+8. 会话结束回写建议需要暂存时，优先使用 `writeback draft`，再由人或主代理审阅后决定是否写入权威上下文。
+9. 维护 `docs/ai/` 内已有 section 或 table 时，优先使用 `edit section` 或 `edit table upsert`，高风险写入先用 `--dry-run --json`。
+10. 修改 `docs/Automation.md` 等 `docs/ai/` 外仓库级文档时，当前仍使用常规补丁；是否提供项目级安全编辑能力应作为独立设计处理。
+11. 需要评估 CLI 实际使用效果时，可用默认开启的 usage event log；日志是运行态元数据，不是 worklog。如需关闭某项目日志，运行 `acf log disable`。
+12. 修改 `template/` 前先确认该变更属于通用产品模板需求，而不是本仓库 dogfooding 特例。
+13. 如果发现跨文件同步问题，优先考虑补充 `acf.py check` 规则，而不是只补文档说明。
+14. 如果某项维护动作重复出现两次以上，评估是否应新增 CLI 子命令或 subagent 草案流程。
