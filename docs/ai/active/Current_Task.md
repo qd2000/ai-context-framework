@@ -10,74 +10,76 @@
 
 ## 当前任务状态
 
-Empty
-
-说明：
-
-- Active：当前任务正在进行
-- Paused：当前任务暂停
-- Done：当前任务已完成
-- Empty：暂无需要写入文件的当前任务
+Done
 
 ---
 
 ## 任务名称
 
-无。
+真实项目轻写入闭环验证
 
 ---
 
 ## 所属大任务
 
-无。
+v0.0.3.17 稳定安装与跨项目评测
 
 ---
 
 ## 子任务 ID
 
-无。
+T002
 
 ---
 
 ## 本次任务目标
 
-1. 无。
+1. 选择健康真实项目，先 dry-run，再执行最小写入并 strict check
+2. 产出并验证输出物：一个健康真实项目的 new worklog 或 plan/task 写入闭环记录
 
 ---
 
 ## 任务背景
 
-暂无当前任务。
+该任务来自 `active/Task_Plan.md` 中的子任务 T002，所属大任务为“v0.0.3.17 稳定安装与跨项目评测”。依赖记录：T001
 
 ---
 
 ## 输入材料
 
-- 无。
+- `active/Task_Plan.md`。
+- `active/Context.md`。
+- 依赖 T001 证据：稳定安装入口已从 v0.0.3.16 更新到 v0.0.3.17；最小标准项目 init/status/upgrade dry-run/check 通过，strict 因模板占位符按预期失败；fcc_workspace、papers、register 使用全局 acf v0.0.3.17 的 status/upgrade dry-run/check --strict 均通过。
 
 ---
 
 ## 输出要求
 
-- 无。
+- 一个健康真实项目的 new worklog 或 plan/task 写入闭环记录
 
 ---
 
 ## 成功标准
 
-1. 无。
+1. 输出物已完成：一个健康真实项目的 new worklog 或 plan/task 写入闭环记录
+2. 子任务 T002 的完成证据已写回任务板。
+3. `acf plan status` 能显示任务板可继续推进。
 
 ---
 
 ## 失败信号
 
-1. 无。
+1. 依赖任务未完成或证据不足。
+2. 输出物无法通过检查或人工复核验证。
+3. 执行中发现用户当前需求与任务板记录冲突。
 
 ---
 
 ## 约束条件
 
-1. 遵守当前项目规则。
+1. 遵守当前项目规则和默认读取顺序。
+2. 保持 `active/Task_Plan.md` 与 `active/Current_Task.md` 状态同步。
+3. 不要把一次性过程或当前事实直接写入 Knowledge。
 
 ---
 
@@ -89,7 +91,7 @@ Empty
 
 ## 需要 AI 协助判断的问题
 
-1. 无。
+1. 执行过程中是否发现应回写 Context、ADR、rules、Knowledge 或 archive 的内容？
 
 ---
 

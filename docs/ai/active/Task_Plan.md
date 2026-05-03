@@ -36,7 +36,7 @@ v0.0.3.17 稳定安装与跨项目评测
 
 ## 当前焦点
 
-T001
+T003
 
 ---
 
@@ -44,8 +44,8 @@ T001
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Pending | 稳定安装 v0.0.3.17 最小环境验证 | 无 | 稳定安装版本、最小标准项目 status/upgrade/check 证据 | 无。 | 更新或隔离安装 acf v0.0.3.17，并在最小标准项目运行 status/upgrade dry-run/check |
-| T002 | Pending | 真实项目轻写入闭环验证 | T001 | 一个健康真实项目的 new worklog 或 plan/task 写入闭环记录 | 无。 | 选择健康真实项目，先 dry-run，再执行最小写入并 strict check |
+| T001 | Done | 稳定安装 v0.0.3.17 最小环境验证 | 无 | 稳定安装版本、最小标准项目 status/upgrade/check 证据 | 稳定安装入口已从 v0.0.3.16 更新到 v0.0.3.17；最小标准项目 init/status/upgrade dry-run/check 通过，strict 因模板占位符按预期失败；fcc_workspace、papers、register 使用全局 acf v0.0.3.17 的 status/upgrade dry-run/check --strict 均通过。 | 无。 |
+| T002 | Done | 真实项目轻写入闭环验证 | T001 | 一个健康真实项目的 new worklog 或 plan/task 写入闭环记录 | 使用稳定入口 acf v0.0.3.17 在健康真实项目 E:\Codes\TempCodes\register 完成 worklog create + append 轻写入闭环；写入前 dry-run 可解释，写后 acf check docs/ai --strict --json 通过；目标项目仅出现预期 docs/ai/worklog/Worklog_Index.md 修改和 docs/ai/worklog/daily/2026-05-03.md 新文件。 | 无。 |
 | T003 | Pending | worklog append/force 边界与恢复验证 | T001 | append、force、重复创建、冲突、异常输入和 AI next_actions 评测摘要 | 无。 | 在隔离项目中组合验证 create/append/force/error_code 分支，记录恢复路径 |
 | T004 | Pending | 跨项目健康与漂移样本评测 | T001 | 健康项目与内容漂移项目的分类评测记录 | 无。 | 扩展真实项目 status/upgrade dry-run/check 样本，单独标注 KnowledgeConnector 类漂移诊断样本 |
 | T005 | Pending | 用户旅程摩擦点整理 | T002,T003,T004 | AI 友好性、错误恢复和不常见场景摩擦清单 | 无。 | 从真实操作记录和 usage log 中整理重复摩擦点，判断是否进入 smoke runner 或新命令设计 |
