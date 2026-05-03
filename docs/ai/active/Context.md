@@ -114,6 +114,11 @@ Dogfooding MVP / 框架稳定化。
 66. `decisions/ADR-0005.md` 已从 Proposed 升为 Active；可选 Workstream 层第一版实现、模板读取规则、CLI、check 和验证均已落地。
 67. `acf new worklog --append` 已提供 AI-safe 的同日 daily worklog 定点补记能力：仅追加到稳定 anchor，JSON 使用稳定 error_code、repo-relative POSIX 路径、结构化 warnings、dry-run preview 和 1-based `insert_after_line`；`writeback draft --append` 暂缓。
 
+68. `v0.0.3.17` 已完成稳定安装与跨项目评测主链路：全局 `acf v0.0.3.17`、最小标准项目 `init/status/upgrade dry-run/check`、3 个健康真实项目 `status/upgrade dry-run/check --strict` 均通过；新 init 项目 strict 因模板占位符失败属于预期的内容未填充状态。
+69. 稳定入口已在真实项目 `E:\Codes\TempCodes\register` 完成 worklog create + append 轻写入闭环，写后 strict check 通过，diff 限定在 daily worklog 与 Worklog_Index。
+70. `new worklog --append/--force` 错误码恢复矩阵已验证：`TARGET_EXISTS_APPEND_REQUIRED` 可按 `next_actions` 加 `--append` 恢复；`APPEND_FORCE_CONFLICT` 和 `ANCHOR_NOT_FOUND` 会安全拒绝且不写入；dry-run 不改变文件 hash；JSON 路径和 `warnings` 契约满足 AI 解析需求。
+71. 跨项目评测已区分 healthy 与 diagnostic 样本：`fcc_workspace`、`papers`、`register` 为健康样本；`KnowledgeConnector` 属于 schema 已齐但内容状态漂移的诊断样本，`upgrade --dry-run` no-op，strict check 暴露 27 个一致性错误。
+
 ---
 
 ## 当前关键约束
@@ -144,6 +149,9 @@ Dogfooding MVP / 框架稳定化。
 2. 是否需要 writeback-curator subagent 生成更高质量的回写分类草案。
 3. 是否需要为 `docs/ai/` 外的仓库级维护文档设计安全的 project-root scoped edit 能力，还是继续保持常规补丁维护。
 4. 是否需要新增 `acf new rule`、`acf new reference` 等文件创建命令，让 AI 能安全创建新的上下文文档。
+
+5. 是否需要将最小 scenario smoke runner 产品化，并覆盖 `init -> nested status/check`、`new worklog create/append/error branches` 和 Workstream happy path。
+6. 并发读写撞锁后观察到疑似 `.acf.lock` 运行态残留，需要确认是否属于异常退出残留、是否应自动清理、加入 gitignore 或补充文档提示。
 
 ---
 

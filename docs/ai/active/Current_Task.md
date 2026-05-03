@@ -16,7 +16,7 @@ Done
 
 ## 任务名称
 
-跨项目健康与漂移样本评测
+用户旅程摩擦点整理
 
 ---
 
@@ -28,20 +28,20 @@ v0.0.3.17 稳定安装与跨项目评测
 
 ## 子任务 ID
 
-T004
+T005
 
 ---
 
 ## 本次任务目标
 
-1. 扩展真实项目 status/upgrade dry-run/check 样本，单独标注 KnowledgeConnector 类漂移诊断样本
-2. 产出并验证输出物：健康项目与内容漂移项目的分类评测记录
+1. 整理 T001-T004 使用旅程摩擦点，包括并发读写撞锁后疑似 .acf.lock 运行态残留的观察；判断是否需要自动清理、gitignore 或文档提示，并评估是否进入最小 smoke runner。
+2. 产出并验证输出物：AI 友好性、错误恢复和不常见场景摩擦清单
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T004，所属大任务为“v0.0.3.17 稳定安装与跨项目评测”。依赖记录：T001
+该任务来自 `active/Task_Plan.md` 中的子任务 T005，所属大任务为“v0.0.3.17 稳定安装与跨项目评测”。依赖记录：T002,T003,T004
 
 ---
 
@@ -49,20 +49,22 @@ T004
 
 - `active/Task_Plan.md`。
 - `active/Context.md`。
-- 依赖 T001 证据：稳定安装入口已从 v0.0.3.16 更新到 v0.0.3.17；最小标准项目 init/status/upgrade dry-run/check 通过，strict 因模板占位符按预期失败；fcc_workspace、papers、register 使用全局 acf v0.0.3.17 的 status/upgrade dry-run/check --strict 均通过。
+- 依赖 T002 证据：使用稳定入口 acf v0.0.3.17 在健康真实项目 E:\Codes\TempCodes\register 完成 worklog create + append 轻写入闭环；写入前 dry-run 可解释，写后 acf check docs/ai --strict --json 通过；目标项目仅出现预期 docs/ai/worklog/Worklog_Index.md 修改和 docs/ai/worklog/daily/2026-05-03.md 新文件。
+- 依赖 T003 证据：使用稳定入口 acf v0.0.3.17 在隔离临时项目完成 worklog append/force 错误码恢复矩阵：已有当天 worklog 未传 append/force 返回 TARGET_EXISTS_APPEND_REQUIRED 且 hash 不变；按 next_actions 加 --append 可成功恢复 action=append；--append --force 返回 APPEND_FORCE_CONFLICT 且 hash 不变；append dry-run 返回 would_change=true、1-based insert_after_line 且 hash 不变；复制临时项目删除 anchor 后 append 返回 ANCHOR_NOT_FOUND 且不写入。target/changed_files 为 repo-relative POSIX slash，失败 JSON 含 ok=false/error_code/message/target，成功 JSON 含 warnings: []。
+- 依赖 T004 证据：使用稳定入口 acf v0.0.3.17 完成跨项目只读分类评测：fcc_workspace、papers、register 作为 healthy 样本，status、upgrade docs/ai --dry-run、check docs/ai --strict 均通过，upgrade planned_changes=0，读操作前后 git status 不变；KnowledgeConnector 作为 schema 已齐但内容状态漂移的 diagnostic 样本，status/check 返回 check_failed 并识别 docs/ai 上下文，upgrade dry-run 通过且 planned_changes=0，strict check 暴露 27 个可行动一致性错误，读操作前后 git status 不变。
 
 ---
 
 ## 输出要求
 
-- 健康项目与内容漂移项目的分类评测记录
+- AI 友好性、错误恢复和不常见场景摩擦清单
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：健康项目与内容漂移项目的分类评测记录
-2. 子任务 T004 的完成证据已写回任务板。
+1. 输出物已完成：AI 友好性、错误恢复和不常见场景摩擦清单
+2. 子任务 T005 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---
