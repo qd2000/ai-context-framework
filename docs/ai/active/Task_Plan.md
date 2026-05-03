@@ -8,29 +8,25 @@
 
 ## 大任务状态
 
-Done
+Empty
 
 ---
 
 ## 大任务名称
 
-v0.0.3.17 稳定安装与跨项目评测
+无。
 
 ---
 
 ## 大任务目标
 
-1. 验证稳定安装入口升级到 v0.0.3.17 后，在最小环境和真实项目中的安装、升级、配置与恢复路径。
-2. 验证真实项目写入闭环、多次状态流转、worklog append/force 边界与跨项目复杂性。
+1. 无。
 
 ---
 
 ## 成功标准
 
-1. 稳定安装 acf v0.0.3.17 可在最小标准项目和至少一个真实项目完成 status、upgrade dry-run、strict check。
-2. 至少一个真实项目完成轻写入闭环，并记录是否需要跳出 CLI 手工修复。
-3. new worklog --append/--force 的关键边界和错误码可由 AI 根据 JSON 输出恢复。
-4. 跨项目样本区分健康项目和 schema 当前但内容漂移项目，并形成后续产品化建议。
+1. 无。
 
 ---
 
@@ -44,11 +40,7 @@ v0.0.3.17 稳定安装与跨项目评测
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | 稳定安装 v0.0.3.17 最小环境验证 | 无 | 稳定安装版本、最小标准项目 status/upgrade/check 证据 | 稳定安装入口已从 v0.0.3.16 更新到 v0.0.3.17；最小标准项目 init/status/upgrade dry-run/check 通过，strict 因模板占位符按预期失败；fcc_workspace、papers、register 使用全局 acf v0.0.3.17 的 status/upgrade dry-run/check --strict 均通过。 | 无。 |
-| T002 | Done | 真实项目轻写入闭环验证 | T001 | 一个健康真实项目的 new worklog 或 plan/task 写入闭环记录 | 使用稳定入口 acf v0.0.3.17 在健康真实项目 E:\Codes\TempCodes\register 完成 worklog create + append 轻写入闭环；写入前 dry-run 可解释，写后 acf check docs/ai --strict --json 通过；目标项目仅出现预期 docs/ai/worklog/Worklog_Index.md 修改和 docs/ai/worklog/daily/2026-05-03.md 新文件。 | 无。 |
-| T003 | Done | worklog append/force 边界与恢复验证 | T001 | append、force、重复创建、冲突、异常输入和 AI next_actions 评测摘要 | 使用稳定入口 acf v0.0.3.17 在隔离临时项目完成 worklog append/force 错误码恢复矩阵：已有当天 worklog 未传 append/force 返回 TARGET_EXISTS_APPEND_REQUIRED 且 hash 不变；按 next_actions 加 --append 可成功恢复 action=append；--append --force 返回 APPEND_FORCE_CONFLICT 且 hash 不变；append dry-run 返回 would_change=true、1-based insert_after_line 且 hash 不变；复制临时项目删除 anchor 后 append 返回 ANCHOR_NOT_FOUND 且不写入。target/changed_files 为 repo-relative POSIX slash，失败 JSON 含 ok=false/error_code/message/target，成功 JSON 含 warnings: []。 | 无。 |
-| T004 | Done | 跨项目健康与漂移样本评测 | T001 | 健康项目与内容漂移项目的分类评测记录 | 使用稳定入口 acf v0.0.3.17 完成跨项目只读分类评测：fcc_workspace、papers、register 作为 healthy 样本，status、upgrade docs/ai --dry-run、check docs/ai --strict 均通过，upgrade planned_changes=0，读操作前后 git status 不变；KnowledgeConnector 作为 schema 已齐但内容状态漂移的 diagnostic 样本，status/check 返回 check_failed 并识别 docs/ai 上下文，upgrade dry-run 通过且 planned_changes=0，strict check 暴露 27 个可行动一致性错误，读操作前后 git status 不变。 | 无。 |
-| T005 | Done | 用户旅程摩擦点整理 | T002,T003,T004 | AI 友好性、错误恢复和不常见场景摩擦清单 | 已审阅 T001-T004 进度、证据和剩余规划；将 v0.0.3.17 稳定安装、真实写入闭环、append/force 恢复矩阵、跨项目 healthy/diagnostic 分类评测写入 active/Context.md 当前有效事实；将最小 scenario smoke runner 产品化和 .acf.lock 运行态残留处理写入当前开放问题；详细过程保留在 2026-05-03 worklog。 | 无。 |
+| 暂无 |  |  |  |  |  |  |
 
 ---
 
