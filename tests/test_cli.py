@@ -2302,7 +2302,7 @@ This records a reusable write-safety pattern instead of a current task fact.
                 )
 
             self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
-            self.assertEqual(json.loads(stdout)["error_code"], "safety_refused")
+            self.assertEqual(json.loads(stdout)["error_code"], acf.TARGET_EXISTS_APPEND_REQUIRED)
             with isolated_acf_home(acf_home):
                 log_path = acf.usage_log_path(project_root)
             events = [
@@ -2313,7 +2313,7 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(failed["command"], "new worklog")
             self.assertFalse(failed["ok"])
             self.assertEqual(failed["exit_code"], acf.EXIT_SAFETY_REFUSED)
-            self.assertEqual(failed["error_code"], "safety_refused")
+            self.assertEqual(failed["error_code"], acf.TARGET_EXISTS_APPEND_REQUIRED)
 
     def test_usage_log_feedback_records_explicit_feedback_text(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2645,6 +2645,15 @@ This records a reusable write-safety pattern instead of a current task fact.
             result = acf.check_context(target, "minimal", strict=False)
             self.assertFalse(result.errors)
 
+    def test_worklog_append_anchors_are_preserved_in_renderer_and_template(self):
+        required_anchors = ("## 今日完成", "## 有价值的结论")
+        rendered = acf.render_worklog_daily("2026-05-03", "Summary.", "Conclusion.")
+        template = (acf.TEMPLATE_DIR / "worklog" / "daily" / "YYYY-MM-DD.md").read_text(encoding="utf-8")
+
+        for anchor in required_anchors:
+            self.assertIn(anchor, rendered)
+            self.assertIn(anchor, template)
+
     def test_new_worklog_refuses_existing_daily_file_without_force(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
@@ -2680,8 +2689,227 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
             payload = json.loads(stdout)
             self.assertFalse(payload["ok"])
-            self.assertEqual(payload["error_code"], "safety_refused")
+            self.assertEqual(payload["error_code"], acf.TARGET_EXISTS_APPEND_REQUIRED)
+            self.assertEqual(payload["target"], "ctx/worklog/daily/2026-04-27.md")
             self.assertTrue(payload["next_actions"])
+
+    def test_new_worklog_append_adds_to_existing_daily_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            target = project / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-05-03",
+                    "--summary",
+                    "Initial worklog.",
+                    "--conclusion",
+                    "Initial conclusion.",
+                ]
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-05-03",
+                    "--summary",
+                    "Appended worklog.",
+                    "--conclusion",
+                    "Appended conclusion.",
+                    "--append",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["action"], "append")
+            self.assertEqual(payload["target"], "docs/ai/worklog/daily/2026-05-03.md")
+            self.assertEqual(payload["anchor"], "## 今日完成")
+            self.assertFalse(payload["created"])
+            self.assertTrue(payload["appended"])
+            self.assertTrue(payload["index_updated"])
+            self.assertEqual(
+                payload["changed_files"],
+                [
+                    "docs/ai/worklog/daily/2026-05-03.md",
+                    "docs/ai/worklog/Worklog_Index.md",
+                ],
+            )
+            self.assertEqual(payload["warnings"], [])
+
+            daily_text = (target / "worklog" / "daily" / "2026-05-03.md").read_text(encoding="utf-8")
+            self.assertIn("- Initial worklog.", daily_text)
+            self.assertIn("- Appended worklog.", daily_text)
+            self.assertIn("- Appended conclusion.", daily_text)
+            index_text = (target / "worklog" / "Worklog_Index.md").read_text(encoding="utf-8")
+            self.assertIn("Initial worklog.; 追加：Appended worklog.", index_text)
+
+    def test_new_worklog_append_create_reports_create_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            target = project / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-05-03",
+                    "--summary",
+                    "Created through append.",
+                    "--append",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["action"], "create")
+            self.assertEqual(payload["target"], "docs/ai/worklog/daily/2026-05-03.md")
+            self.assertIsNone(payload["anchor"])
+            self.assertTrue(payload["created"])
+            self.assertFalse(payload["appended"])
+            self.assertTrue(payload["index_updated"])
+            self.assertEqual(payload["warnings"], [])
+
+    def test_new_worklog_append_dry_run_reports_insert_point_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            target = project / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-05-03",
+                    "--summary",
+                    "Initial worklog.",
+                ]
+            )
+            daily_file = target / "worklog" / "daily" / "2026-05-03.md"
+            index_file = target / "worklog" / "Worklog_Index.md"
+            before_daily = daily_file.read_text(encoding="utf-8")
+            before_index = index_file.read_text(encoding="utf-8")
+            before_daily_mtime = daily_file.stat().st_mtime_ns
+            before_index_mtime = index_file.stat().st_mtime_ns
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-05-03",
+                    "--summary",
+                    "Dry-run append.",
+                    "--append",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["dry_run"])
+            self.assertTrue(payload["would_change"])
+            self.assertEqual(payload["operation"], "append")
+            self.assertEqual(payload["target"], "docs/ai/worklog/daily/2026-05-03.md")
+            self.assertEqual(payload["anchor"], "## 今日完成")
+            self.assertIsInstance(payload["insert_after_line"], int)
+            self.assertGreater(payload["insert_after_line"], 0)
+            self.assertEqual(
+                payload["changed_files"],
+                [
+                    "docs/ai/worklog/daily/2026-05-03.md",
+                    "docs/ai/worklog/Worklog_Index.md",
+                ],
+            )
+            self.assertEqual(daily_file.read_text(encoding="utf-8"), before_daily)
+            self.assertEqual(index_file.read_text(encoding="utf-8"), before_index)
+            self.assertEqual(daily_file.stat().st_mtime_ns, before_daily_mtime)
+            self.assertEqual(index_file.stat().st_mtime_ns, before_index_mtime)
+
+    def test_new_worklog_append_force_conflict_returns_stable_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            target = project / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-05-03",
+                    "--summary",
+                    "Conflict.",
+                    "--append",
+                    "--force",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["error_code"], acf.APPEND_FORCE_CONFLICT)
+            self.assertEqual(payload["target"], "docs/ai/worklog/daily/2026-05-03.md")
+
+    def test_new_worklog_append_missing_anchor_returns_stable_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            target = project / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-05-03",
+                    "--summary",
+                    "Initial worklog.",
+                ]
+            )
+            daily_file = target / "worklog" / "daily" / "2026-05-03.md"
+            daily_file.write_text(
+                daily_file.read_text(encoding="utf-8").replace("## 今日完成", "## 今日记录"),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "new",
+                    "worklog",
+                    str(target),
+                    "--date",
+                    "2026-05-03",
+                    "--summary",
+                    "Append without anchor.",
+                    "--append",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["error_code"], acf.ANCHOR_NOT_FOUND)
+            self.assertEqual(payload["target"], "docs/ai/worklog/daily/2026-05-03.md")
 
     def test_new_worklog_force_updates_existing_entry(self):
         with tempfile.TemporaryDirectory() as tmp:

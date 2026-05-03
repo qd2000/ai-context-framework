@@ -99,7 +99,7 @@ Dogfooding MVP / 框架稳定化。
 51. Feedback_Inbox 生命周期已明确：Open/Triaged/Planned/Done/Rejected 各有处理规则，Done/Rejected 需要证据位置或拒绝原因，长期已处理反馈归档到 `archive/feedback/`。
 52. `acf init` 和 `acf upgrade` 已补齐 `archive/feedback/` 目录；旧上下文升级会非破坏式补齐反馈归档结构。
 53. T002-T005 已完成验证：`uv run acf check template`、`uv run acf check docs/ai --strict --json`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf version show --json` 和 `uv run python -m unittest` 均通过。
-54. `acf --version` 当前版本记为 `v0.0.3.16`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.16`。
+54. `acf --version` 当前版本记为 `v0.0.3.17`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.17`。
 55. 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，必须评估旧版本上下文升级兼容性；新增结构应同步到 init 文件清单、upgrade 补齐清单、data-files、文档和 init/upgrade 测试。
 56. `acf upgrade --help` 已明确当前 schema 会补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge；旧上下文升级演练已验证 dry-run、正式 upgrade --check-after 和 check 均可通过。
 57. `acf upgrade` 已支持对已存在但内容过期的 ACF 模板文件做保守 section 级迁移：AGENTS、Feedback_Inbox、Project_Rules 和 System_Manual 会在识别到旧段落时更新；无法识别的自定义文档仍通过 marker notes 非破坏式提示。
@@ -112,6 +112,7 @@ Dogfooding MVP / 框架稳定化。
 64. T004 第四刀已完成：`acf workstream claim/note` 可用；`claim` 追加 read_scope/write_scope，typed write_scope 做命令内有限冲突检查，draft 缺 WS ID 只给 warning；`note` 只允许追加到白名单详情 section，缺失 section 自动创建；尚未实现 archive 或全局 Workstream check。
 65. T004 第五刀已完成并闭环：`acf check` 已接入 optional Workstream 检查；没有 `active/Workstreams.md` 时不检查、不 warning；存在索引时检查详情目录、索引链接、front matter schema、状态必填内容、索引/详情一致性、authority/assigned 冲突和 draft 文件名 warning/strict error。
 66. `decisions/ADR-0005.md` 已从 Proposed 升为 Active；可选 Workstream 层第一版实现、模板读取规则、CLI、check 和验证均已落地。
+67. `acf new worklog --append` 已提供 AI-safe 的同日 daily worklog 定点补记能力：仅追加到稳定 anchor，JSON 使用稳定 error_code、repo-relative POSIX 路径、结构化 warnings、dry-run preview 和 1-based `insert_after_line`；`writeback draft --append` 暂缓。
 
 ---
 

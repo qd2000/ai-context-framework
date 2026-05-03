@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.16` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.15 的 Workstream 目标维护改进，并补强使用反馈记录：普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.17` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.16 的使用反馈记录能力，并新增 AI-safe 的 `acf new worklog --append` 定点补记能力。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -155,6 +155,7 @@ acf workstream show WS001
 acf new task --title "实现一个维护任务" --goal "写清当前目标。"
 acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
 acf new worklog --summary "完成一次上下文维护。"
+acf new worklog --summary "补记一次上下文维护。" --append --json
 acf new adr --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
 acf writeback draft --name "session-note" --text "会话结束回写建议。"
 acf edit section get active/Context.md --heading "## 当前有效事实" --json
@@ -169,7 +170,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.16 --dry-run --json
+acf version set v0.0.3.17 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -191,7 +192,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `workstream init|status|list|show|add|set|block|cancel|merge-request|ready|done|claim|note`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
-- `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`。
+- `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`；同日已有记录且需要补记时使用 `--append`，需要重建时使用 `--force`，二者不能混用。
 - `new adr`：生成下一个 ADR 文件，并更新 `reference/Decisions_Index.md`。
 - `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为可审阅草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
@@ -211,6 +212,18 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 `log` 命令默认开启并写入用户级全局目录 `%USERPROFILE%\.acf\projects\<project-id>\`（Windows）或 `~/.acf/projects/<project-id>/`（macOS/Linux），也可通过 `ACF_HOME` 指定根目录。自动 usage event 不写入项目 `worklog/`，也不记录 `--text` 正文、stdin 内容、Markdown diff 或完整 stdout/stderr；需要保存实际使用反馈时，显式运行 `acf log feedback --text ...` 或 `--input <file>`，该命令会把反馈正文作为 `event_kind=feedback` 事件写入同一日志。日志写入带用户级锁，配置和 prune 重写使用原子替换；自动日志写入失败不会改变原命令退出码。
 
 JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。检查失败时 `error_code` 为 `check_failed`，`next_actions` 给出 AI 可直接读取的后续动作。
+
+AI 调用 `new worklog` 的推荐模式：
+
+| 目标状态 | 推荐命令 | 结果 |
+|---|---|---|
+| 不确定是否已有今日 worklog | `acf new worklog --summary "..." --dry-run --json` | 根据 `error_code` 判断下一步 |
+| 今日 worklog 不存在 | `acf new worklog --summary "..." --json` | 创建 |
+| 今日 worklog 已存在，想补记 | `acf new worklog --summary "..." --append --json` | 追加到稳定 anchor |
+| 今日 worklog 已存在，想重建 | `acf new worklog --summary "..." --force --json` | 替换 |
+| anchor 缺失 | 不自动修复 | 返回 `ANCHOR_NOT_FOUND` |
+
+`new worklog --append` 的 JSON 面向 AI 稳定解析：`target` 和 `changed_files` 使用 repo-relative POSIX slash 路径；成功输出包含结构化 `warnings` 数组；`insert_after_line` 是 1-based 行号；`--dry-run --json` 不写文件；append 不是幂等操作，每运行一次都会新增一段内容。目标已存在但未传 `--append` 或 `--force` 时，`error_code=TARGET_EXISTS_APPEND_REQUIRED`；`--append --force` 返回 `APPEND_FORCE_CONFLICT`；anchor 缺失返回 `ANCHOR_NOT_FOUND`。
 
 退出码和错误分类：
 

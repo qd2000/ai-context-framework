@@ -21,7 +21,11 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.16"
+VERSION = "v0.0.3.17"
+
+TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
+APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
+ANCHOR_NOT_FOUND = "ANCHOR_NOT_FOUND"
 
 
 def find_template_dir() -> Path:
@@ -311,7 +315,7 @@ knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 1. 当前任务或计划状态变化：优先使用 `acf task ...` 或 `acf plan ...` 更新 `active/Current_Task.md`、`active/Task_Plan.md`；工具不能表达时，再用 `acf edit ...` 精确更新相关 section 或表格。
 2. 新的人工反馈、问题、需求碎片：优先写入或更新 `active/Feedback_Inbox.md`；如果无法确定归属，生成 `acf writeback draft ...` 草案，不把反馈直接写成当前事实。
 3. 已验证的当前事实：只在与当前阶段仍相关、且证据明确时更新 `active/Context.md`；一次性过程不写入 Context。
-4. 今日工作记录：完成了可复述的工作或验证后，优先使用 `acf new worklog ...` 记录整理后的摘要；不要写入原始日志或大段命令输出。
+4. 今日工作记录：完成了可复述的工作或验证后，优先使用 `acf new worklog ...` 记录整理后的摘要；同日已有记录且需要补记时使用 `--append --json`，需要重建时才使用 `--force`；不要写入原始日志或大段命令输出。
 5. Knowledge 候选：优先使用 `acf knowledge draft ...` 生成草案；只有经审阅或任务明确要求时，才 apply 到 `reference/Knowledge_Index.md`。
 6. Archive 候选：旧当前任务或旧大任务计划优先使用 `acf archive ...`；其他归档建议先生成 writeback 草案，等待人工确认归档位置。
 7. ADR 或规则候选：已经形成稳定决策时使用 `acf new adr ...` 或更新 rules；只是建议或待确认事项时生成 writeback 草案。
@@ -834,6 +838,12 @@ def write_next_actions(dry_run: bool, check_result: CheckResult | None, changed_
 
 
 def error_next_actions(error_code: str) -> list[str]:
+    if error_code == TARGET_EXISTS_APPEND_REQUIRED:
+        return ["Rerun with `--append` to add an entry or `--force` to replace the daily worklog."]
+    if error_code == APPEND_FORCE_CONFLICT:
+        return ["Use either `--append` or `--force`, not both."]
+    if error_code == ANCHOR_NOT_FOUND:
+        return ["Stop and report the missing worklog anchor; do not guess an insertion point."]
     if error_code == "workstream_not_initialized":
         return ["Run `acf workstream init` for this context before using Workstream detail commands."]
     if error_code == "workstream_not_found":
@@ -1204,6 +1214,10 @@ def relative_display_path(path: Path, base: Path) -> str:
         return display_path(path.relative_to(base))
     except ValueError:
         return display_path(path)
+
+
+def context_json_path(root: Path, path: Path) -> str:
+    return relative_display_path(path.resolve(), infer_project_root(root).resolve())
 
 
 def slugify_project_name(value: str) -> str:
@@ -1855,6 +1869,149 @@ def update_worklog_index(index_path: Path, log_date: str, summary: str, conclusi
     index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
 
 
+def append_worklog_cell(existing: str, addition: str) -> str:
+    addition = clean_table_cell(addition)
+    if not addition or addition == "无。":
+        return existing or "无。"
+    if not existing or existing == "无。":
+        return addition
+    return f"{existing}; 追加：{addition}"
+
+
+def update_worklog_index_append(index_path: Path, log_date: str, summary: str, conclusion: str) -> None:
+    if not index_path.exists():
+        raise SystemExit(f"worklog index does not exist: {index_path}")
+
+    lines = read_text(index_path).splitlines()
+    header_index = next(
+        (index for index, line in enumerate(lines) if line.strip() == "| 日期 | 摘要 | 关键结论 | 详情 |"),
+        None,
+    )
+    if header_index is None or header_index + 1 >= len(lines):
+        raise SystemExit(f"worklog index table was not found: {index_path}")
+
+    table_start = header_index + 2
+    table_end = table_start
+    while table_end < len(lines) and lines[table_end].strip().startswith("|"):
+        table_end += 1
+
+    rows = [row for row in lines[table_start:table_end] if row_date(row) != "暂无" and row.strip()]
+    updated_rows: list[str] = []
+    replaced = False
+    for row in rows:
+        cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+        if cells and cells[0] == log_date:
+            while len(cells) < 4:
+                cells.append("")
+            cells[1] = append_worklog_cell(cells[1], summary)
+            cells[2] = append_worklog_cell(cells[2], conclusion)
+            row = f"| {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} |"
+            replaced = True
+        updated_rows.append(row)
+
+    if not replaced:
+        updated_rows.append(worklog_index_row(log_date, summary, conclusion))
+    updated_rows.sort(key=row_date, reverse=True)
+
+    updated = lines[:table_start] + updated_rows + lines[table_end:]
+    index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
+def section_insert_after_line(text: str, heading: str) -> int:
+    lines = text.splitlines()
+    section = find_section(lines, heading)
+    insert_index = section.body_end
+    while insert_index > section.body_start and not lines[insert_index - 1].strip():
+        insert_index -= 1
+    if insert_index > section.body_start and lines[insert_index - 1].strip() == "---":
+        insert_index -= 1
+        while insert_index > section.body_start and not lines[insert_index - 1].strip():
+            insert_index -= 1
+    return insert_index if insert_index > section.body_start else section.heading_index + 1
+
+
+def emit_worklog_error(
+    args: argparse.Namespace,
+    root: Path,
+    target: Path,
+    error_code: str,
+    message: str,
+    exit_code: int,
+) -> int:
+    payload: dict[str, object] = {
+        "command": "new worklog",
+        "ok": False,
+        "error_code": error_code,
+        "message": message,
+        "target": context_json_path(root, target),
+        "next_actions": error_next_actions(error_code),
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"ERROR: {message}", file=sys.stderr)
+    return exit_code
+
+
+def emit_worklog_result(
+    args: argparse.Namespace,
+    root: Path,
+    message: str,
+    changed_files: Sequence[Path],
+    *,
+    action: str,
+    target: Path,
+    anchor: str | None,
+    created: bool,
+    appended: bool,
+    index_updated: bool,
+    insert_after_line: int | None = None,
+    check_result: CheckResult | None = None,
+) -> int:
+    dry_run = dry_run_enabled(args)
+    changed = [context_json_path(root, path) for path in changed_files]
+    payload: dict[str, object] = {
+        "command": "new worklog",
+        "ok": check_result.ok if check_result is not None else True,
+        "error_code": check_error_code(check_result),
+        "dry_run": dry_run,
+        "changed_files": changed,
+        "message": message,
+        "next_actions": write_next_actions(dry_run, check_result, changed_files),
+        "action": action,
+        "target": context_json_path(root, target),
+        "anchor": anchor,
+        "created": created,
+        "appended": appended,
+        "index_updated": index_updated,
+        "warnings": [],
+    }
+    if dry_run:
+        payload["would_change"] = bool(changed_files)
+        payload["operation"] = action
+    if insert_after_line is not None:
+        payload["insert_after_line"] = insert_after_line
+    if check_result is not None:
+        payload["check"] = check_payload(check_result)
+    set_result_payload(args, payload)
+
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(message)
+        label = "would change" if dry_run else "changed"
+        for changed_file in changed_files:
+            print(f"{label}: {changed_file}")
+        if check_result is not None:
+            print(f"check: {'passed' if check_result.ok else 'failed'}")
+            for error in check_result.errors:
+                print(f"ERROR: {error}", file=sys.stderr)
+            for warning in check_result.warnings:
+                print(f"WARN: {warning}", file=sys.stderr)
+    return 0 if check_result is None or check_result.ok else 1
+
+
 def existing_adr_numbers(decisions_dir: Path) -> list[int]:
     if not decisions_dir.exists():
         return []
@@ -2198,7 +2355,7 @@ def render_writeback_draft(draft_name: str, input_text: str) -> str:
 ## worklog 候选
 
 - 待人工判断是否需要写入当天整理后工作记录。
-- 如需新增或更新，优先使用 `acf new worklog ...`。
+- 如需新增或补记，优先使用 `acf new worklog ...`；同日已有记录时使用 `--append --json`，需要重建时才使用 `--force`。
 
 ---
 
@@ -2390,20 +2547,89 @@ def new_worklog_command(args: argparse.Namespace) -> int:
 
     daily_dir = root / "worklog" / "daily"
     daily_path = daily_dir / f"{log_date}.md"
-    if daily_path.exists() and not args.force:
-        raise SystemExit(f"worklog daily file already exists: {daily_path}")
     index_path = root / "worklog" / "Worklog_Index.md"
     if not index_path.exists():
         raise SystemExit(f"worklog index does not exist: {index_path}")
 
+    append = bool(getattr(args, "append", False))
+    if append and args.force:
+        return emit_worklog_error(
+            args,
+            root,
+            daily_path,
+            APPEND_FORCE_CONFLICT,
+            "Use either --append or --force, not both.",
+            EXIT_INPUT_ERROR,
+        )
+
     changed_files = [daily_path, index_path]
+    if daily_path.exists() and append:
+        anchor = "## 今日完成"
+        try:
+            existing = read_text(daily_path)
+            insert_after_line = section_insert_after_line(existing, anchor)
+            updated = append_section_text(existing, anchor, f"- {summary}")
+            if conclusion != "无。":
+                updated = append_section_text(updated, "## 有价值的结论", f"- {conclusion}")
+        except SystemExit:
+            return emit_worklog_error(
+                args,
+                root,
+                daily_path,
+                ANCHOR_NOT_FOUND,
+                f"Worklog append anchor was not found: {anchor}",
+                EXIT_INPUT_ERROR,
+            )
+
+        if not dry_run:
+            daily_path.write_text(updated, encoding="utf-8")
+            update_worklog_index_append(index_path, log_date, summary, conclusion)
+        check_result = maybe_check_after(args, root)
+        action = "would append" if dry_run else "appended"
+        return emit_worklog_result(
+            args,
+            root,
+            f"{action} worklog {daily_path}",
+            changed_files,
+            action="append",
+            target=daily_path,
+            anchor=anchor,
+            created=False,
+            appended=True,
+            index_updated=True,
+            insert_after_line=insert_after_line,
+            check_result=check_result,
+        )
+
+    if daily_path.exists() and not args.force:
+        return emit_worklog_error(
+            args,
+            root,
+            daily_path,
+            TARGET_EXISTS_APPEND_REQUIRED,
+            "Worklog already exists. Use --append to add an entry or --force to replace it.",
+            EXIT_SAFETY_REFUSED,
+        )
+
     if not dry_run:
         daily_dir.mkdir(parents=True, exist_ok=True)
         daily_path.write_text(render_worklog_daily(log_date, summary, conclusion), encoding="utf-8")
         update_worklog_index(index_path, log_date, summary, conclusion, args.force)
     check_result = maybe_check_after(args, root)
     action = "would create" if dry_run else "created"
-    return emit_write_result(args, "new worklog", f"{action} worklog {daily_path}", changed_files, check_result)
+    return emit_worklog_result(
+        args,
+        root,
+        f"{action} worklog {daily_path}",
+        changed_files,
+        action="create",
+        target=daily_path,
+        anchor=None,
+        created=True,
+        appended=False,
+        index_updated=True,
+        check_result=check_result,
+    )
 
 
 def new_adr_command(args: argparse.Namespace) -> int:
@@ -6681,6 +6907,7 @@ def build_parser() -> argparse.ArgumentParser:
     worklog_parser.add_argument("--date", type=validate_date, default=None, help="date in YYYY-MM-DD format")
     worklog_parser.add_argument("--summary", required=True, help="one-line worklog summary")
     worklog_parser.add_argument("--conclusion", default="无。", help="one-line key conclusion")
+    worklog_parser.add_argument("--append", action="store_true", help="append to an existing daily worklog")
     worklog_parser.add_argument("--force", action="store_true", help="replace existing daily file and index row")
     add_write_arguments(worklog_parser)
     worklog_parser.set_defaults(func=new_worklog_command)

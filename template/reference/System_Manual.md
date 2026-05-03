@@ -291,11 +291,11 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf workstream init|status|list|add [target]` / `acf workstream show|set|block|cancel|merge-request|ready|done|claim|note WS001 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `acf new task [target] --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
 - `acf new source [target] --title "..." --type "..." --location "..." --relation "..."`：添加或更新资料索引行；重复资料标题需传入 `--force` 才能覆盖。
-- `acf new worklog [target] --summary "..."`：生成 daily worklog 并更新工作记录索引。
+- `acf new worklog [target] --summary "..."`：生成 daily worklog 并更新工作记录索引；同日已有记录且需要补记时使用 `--append`，需要重建时使用 `--force`，二者不能混用。
 - `acf new adr [target] --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `acf writeback draft [target] --text "..."`：生成会话回写草案，供人工审阅后再决定是否写入权威上下文。
 - `acf version show --json`：查看 CLI、包配置和锁文件中的版本号。
-- `acf version set v0.0.3.16 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
+- `acf version set v0.0.3.17 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
 - `acf edit section get <file> --heading "## 标题"`：读取上下文根目录内某个 Markdown section 的正文。
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。
@@ -346,6 +346,18 @@ uv run --project <ai-context-framework 路径> acf upgrade --dry-run --json
 - `acf edit section get ... --json`：获取机器可读的 section 正文和行号信息。
 - 写命令可追加 `--dry-run --json`：只预览 changed files，不实际落盘。
 - 写命令可追加 `--check-after`：落盘后自动运行 context check。
+
+AI 调用 `new worklog` 的推荐模式：
+
+| 目标状态 | 推荐命令 | 结果 |
+|---|---|---|
+| 不确定是否已有今日 worklog | `acf new worklog --summary "..." --dry-run --json` | 根据 `error_code` 判断下一步 |
+| 今日 worklog 不存在 | `acf new worklog --summary "..." --json` | 创建 |
+| 今日 worklog 已存在，想补记 | `acf new worklog --summary "..." --append --json` | 追加到稳定 anchor |
+| 今日 worklog 已存在，想重建 | `acf new worklog --summary "..." --force --json` | 替换 |
+| anchor 缺失 | 不自动修复 | 返回 `ANCHOR_NOT_FOUND` |
+
+`new worklog --append` 的 JSON 面向 AI 稳定解析：`target` 和 `changed_files` 使用 repo-relative POSIX slash 路径；成功输出包含结构化 `warnings` 数组；`insert_after_line` 是 1-based 行号；`--dry-run --json` 不写文件；append 不是幂等操作，每运行一次都会新增一段内容。目标已存在但未传 `--append` 或 `--force` 时，`error_code=TARGET_EXISTS_APPEND_REQUIRED`；`--append --force` 返回 `APPEND_FORCE_CONFLICT`；anchor 缺失返回 `ANCHOR_NOT_FOUND`。
 
 JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_actions`。当检查失败时，`error_code` 为 `check_failed`，`next_actions` 给出后续处理建议。
 

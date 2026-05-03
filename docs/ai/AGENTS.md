@@ -88,7 +88,7 @@ Knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 1. 当前任务或计划状态变化：优先使用 `uv run acf task ...` 或 `uv run acf plan ...` 更新 `active/Current_Task.md`、`active/Task_Plan.md`；工具不能表达时，再用 `uv run acf edit ...` 精确更新相关 section 或表格。
 2. 新的人工反馈、问题、需求碎片：优先写入或更新 `active/Feedback_Inbox.md`；如果无法确定归属，生成 `uv run acf writeback draft ...` 草案，不把反馈直接写成当前事实。
 3. 已验证的当前事实：只在与当前阶段仍相关、且证据明确时更新 `active/Context.md`；一次性过程不写入 Context。
-4. 今日工作记录：完成了可复述的工作或验证后，优先使用 `uv run acf new worklog ...` 记录整理后的摘要；不要写入原始日志或大段命令输出。
+4. 今日工作记录：完成了可复述的工作或验证后，优先使用 `uv run acf new worklog ...` 记录整理后的摘要；同日已有记录且需要补记时使用 `--append --json`，需要重建时才使用 `--force`；不要写入原始日志或大段命令输出。
 5. Knowledge 候选：优先使用 `uv run acf knowledge draft ...` 生成草案；只有经审阅或任务明确要求时，才 apply 到 `reference/Knowledge_Index.md`。
 6. Archive 候选：旧当前任务或旧大任务计划优先使用 `uv run acf archive ...`；其他归档建议先生成 writeback 草案，等待人工确认归档位置。
 7. ADR 或规则候选：已经形成稳定决策时使用 `uv run acf new adr ...` 或更新 rules；只是建议或待确认事项时生成 writeback 草案。
