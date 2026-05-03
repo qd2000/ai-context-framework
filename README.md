@@ -104,22 +104,49 @@ template/
 
 ### 安装到 PATH
 
-开发本仓库时，可从仓库根目录安装 editable 工具：
+开发本仓库时，可从仓库根目录安装 editable 工具。Windows 和 WSL/Linux 是两套独立环境：在哪个环境里运行 `acf`，就需要在哪个环境里安装一次。
+
+#### Windows PowerShell
 
 ```bash
+cd E:\Codes\Tools\ai-context-framework
 uv tool install -e .
 uv tool update-shell
 ```
 
-重新打开终端后验证：
+重新打开 PowerShell 后验证：
 
-```bash
+```powershell
+Get-Command acf
 acf --help
 acf --version
 acf status --json
 ```
 
-Windows CMD 可用 `where.exe acf` 查看命令位置；PowerShell 可用 `Get-Command acf`；macOS/Linux 可用 `which acf`。后续发布后，用户可通过包名或 Git URL 安装，例如 `uv tool install ai-context-framework` 或 `uv tool install git+<repo-url>`。
+Windows CMD 可用 `where.exe acf` 查看命令位置。
+
+#### WSL / Linux / macOS
+
+在 WSL 中访问本仓库时，Windows 路径 `E:\Codes\Tools\ai-context-framework` 通常对应 `/mnt/e/Codes/Tools/ai-context-framework`：
+
+```bash
+cd /mnt/e/Codes/Tools/ai-context-framework
+uv tool install -e .
+uv tool update-shell
+```
+
+重新打开 shell，或按 `uv tool update-shell` 的提示刷新 PATH 后验证：
+
+```bash
+which acf
+acf --help
+acf --version
+acf status --json
+```
+
+如果 WSL 项目目录位于 `/mnt/*` 挂载盘，`uv` 可能提示 hardlink 失败并降级为 copy；这是跨文件系统性能提示，不影响安装。需要消除提示时可设置 `export UV_LINK_MODE=copy`。
+
+后续发布后，用户可通过包名或 Git URL 安装，例如 `uv tool install ai-context-framework` 或 `uv tool install git+<repo-url>`。
 
 “任意目录可运行 `acf`”表示命令已进入 PATH；是否能自动找到上下文，取决于当前目录是否位于包含 `docs/ai` 或上下文根目录的项目中。
 

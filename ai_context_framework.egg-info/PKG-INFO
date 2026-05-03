@@ -111,16 +111,41 @@ template/
 
 ### 安装到 PATH
 
-开发本仓库时，可从仓库根目录安装 editable 工具：
+开发本仓库时，可从仓库根目录安装 editable 工具。Windows 和 WSL/Linux 是两套独立环境：在哪个环境里运行 `acf`，就需要在哪个环境里安装一次。
+
+#### Windows PowerShell
 
 ```bash
+cd E:\Codes\Tools\ai-context-framework
 uv tool install -e .
 uv tool update-shell
 ```
 
-重新打开终端后验证：
+重新打开 PowerShell 后验证：
+
+```powershell
+Get-Command acf
+acf --help
+acf --version
+acf status --json
+```
+
+Windows CMD 可用 `where.exe acf` 查看命令位置。
+
+#### WSL / Linux / macOS
+
+在 WSL 中访问本仓库时，Windows 路径 `E:\Codes\Tools\ai-context-framework` 通常对应 `/mnt/e/Codes/Tools/ai-context-framework`：
 
 ```bash
+cd /mnt/e/Codes/Tools/ai-context-framework
+uv tool install -e .
+uv tool update-shell
+```
+
+重新打开 shell，或按 `uv tool update-shell` 的提示刷新 PATH 后验证：
+
+```bash
+which acf
 acf --help
 acf --version
 acf status --json
