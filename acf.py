@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.18"
+VERSION = "v0.0.3.19"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -140,6 +140,7 @@ VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Re
 VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
 VALID_WORKSTREAM_STATUSES = {"Open", "Active", "Blocked", "ReadyToMerge", "Done", "Cancelled"}
 ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge"}
+DEFAULT_STALE_DAYS = 14
 WORKSTREAM_NOTE_SECTIONS = {
     "当前发现": "## 当前发现",
     "待合并结论": "## 待合并结论",
@@ -167,6 +168,7 @@ DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
 TASK_TABLE_HEADER = "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |"
+FEEDBACK_TABLE_HEADER = "| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |"
 KNOWLEDGE_TABLE_HEADER = "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |"
 ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | 标题 | 原因 | 详情 |"
 WORKSTREAM_TABLE_HEADER = "| ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |"
@@ -1506,6 +1508,8 @@ def command_label(args: argparse.Namespace) -> str:
         return f"archive {getattr(args, 'archive_command', '')}".strip()
     if command == "knowledge":
         return f"knowledge {getattr(args, 'knowledge_command', '')}".strip()
+    if command == "review":
+        return f"review {getattr(args, 'review_command', '')}".strip()
     if command == "workstream":
         return f"workstream {getattr(args, 'workstream_command', '')}".strip()
     return command
@@ -1533,7 +1537,7 @@ def context_location_for_args(args: argparse.Namespace) -> ContextLocation:
         return make_context_location(require_context_root(getattr(args, "path", None)))
     if command == "edit":
         return make_context_location(require_context_root(getattr(args, "context", None)))
-    if command in {"plan", "task", "archive", "knowledge", "workstream"}:
+    if command in {"plan", "task", "archive", "knowledge", "review", "workstream"}:
         return make_context_location(require_context_root(getattr(args, "path", None)))
     raise SystemExit("usage log is not available for this command")
 
@@ -5712,6 +5716,420 @@ def knowledge_mark_command(args: argparse.Namespace) -> int:
     return emit_write_result(args, "knowledge mark", f"{action} knowledge {args.id}", [detail, knowledge_index_path(root)], check_result)
 
 
+def parse_iso_date_value(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def iso_dates_in_text(text: str) -> list[date]:
+    dates: list[date] = []
+    for match in re.finditer(r"\b\d{4}-\d{2}-\d{2}\b", text):
+        parsed = parse_iso_date_value(match.group(0))
+        if parsed is not None:
+            dates.append(parsed)
+    return dates
+
+
+def newest_date(values: Sequence[date]) -> date | None:
+    return max(values) if values else None
+
+
+def date_age_days(value: date | None, today_value: date) -> int | None:
+    if value is None:
+        return None
+    return (today_value - value).days
+
+
+def stale_item(
+    root: Path,
+    path: Path,
+    signal: str,
+    message: str,
+    suggested_action: str,
+    *,
+    status: str | None = None,
+    item_id: str | None = None,
+    age_days: int | None = None,
+) -> dict[str, object]:
+    item: dict[str, object] = {
+        "path": relative_display_path(path, root),
+        "signal": signal,
+        "message": message,
+        "suggested_action": suggested_action,
+    }
+    if status is not None:
+        item["status"] = status
+    if item_id is not None:
+        item["id"] = item_id
+    if age_days is not None:
+        item["age_days"] = age_days
+    return item
+
+
+def review_marker_dates(text: str) -> list[date]:
+    dates: list[date] = []
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        lower = line.lower()
+        if "last reviewed" not in lower and "上次审阅" not in line and "最近审阅" not in line:
+            continue
+        window = "\n".join(lines[index : index + 3])
+        dates.extend(iso_dates_in_text(window))
+    return dates
+
+
+def review_current_task_stale(root: Path, days: int, today_value: date) -> list[dict[str, object]]:
+    path = current_task_path(root)
+    if not path.exists():
+        return []
+    status = extract_current_task_status(path) or ""
+    if status != "Active":
+        return []
+    text = read_text(path)
+    latest = newest_date(iso_dates_in_text(text))
+    age = date_age_days(latest, today_value)
+    if latest is None:
+        return [
+            stale_item(
+                root,
+                path,
+                "current_task_active_missing_update_date",
+                "Current_Task is Active but no ISO update/review date was found.",
+                "Review the active task and add/update a dated status note or finish/block/clear it.",
+                status=status,
+            )
+        ]
+    if age is not None and age > days:
+        return [
+            stale_item(
+                root,
+                path,
+                "current_task_active_stale",
+                f"Current_Task has been Active for {age} days since the newest visible date.",
+                "Review the active task and update, block, finish, or clear it.",
+                status=status,
+                age_days=age,
+            )
+        ]
+    return []
+
+
+def review_task_plan_stale(root: Path) -> list[dict[str, object]]:
+    path = task_plan_path(root)
+    if not path.exists():
+        return []
+    items: list[dict[str, object]] = []
+    status = extract_heading_value(path, "## 大任务状态") or ""
+    try:
+        rows = read_task_rows(path)
+    except SystemExit as exc:
+        return [
+            stale_item(
+                root,
+                path,
+                "task_plan_unreadable",
+                str(exc),
+                "Fix Task_Plan structure before using it as a default attention source.",
+                status=status or None,
+            )
+        ]
+
+    terminal_statuses = {"Done", "Skipped", "Superseded"}
+    unfinished = [row for row in rows if row.get("状态") not in terminal_statuses]
+    if status == "Done" and unfinished:
+        items.append(
+            stale_item(
+                root,
+                path,
+                "task_plan_done_with_unfinished_tasks",
+                "Task_Plan is Done but still contains unfinished subtasks.",
+                "Review the task board and either finish/archive tasks or correct the plan status.",
+                status=status,
+            )
+        )
+    if status == "Empty" and rows:
+        items.append(
+            stale_item(
+                root,
+                path,
+                "task_plan_empty_with_tasks",
+                "Task_Plan is Empty but still contains subtask rows.",
+                "Clear stale rows or restore the correct plan status.",
+                status=status,
+            )
+        )
+    if status in {"Active", "Paused"} and rows and not unfinished:
+        items.append(
+            stale_item(
+                root,
+                path,
+                "task_plan_open_status_with_terminal_tasks",
+                "Task_Plan is Active/Paused but all subtasks are terminal.",
+                "Review whether the plan should be completed or archived.",
+                status=status,
+            )
+        )
+    active_rows = [row for row in rows if row.get("状态") == "Active"]
+    if len(active_rows) > 1:
+        items.append(
+            stale_item(
+                root,
+                path,
+                "task_plan_multiple_active_subtasks",
+                "Task_Plan has more than one Active subtask.",
+                "Choose the current focus and reset other Active rows.",
+                status=status or None,
+            )
+        )
+    for row in rows:
+        if row.get("状态") == "Blocked":
+            items.append(
+                stale_item(
+                    root,
+                    path,
+                    "task_plan_blocked_subtask",
+                    f"Subtask {row.get('ID', '')} is Blocked.",
+                    "Review the blocker and decide whether to unblock, rescope, or archive it.",
+                    status="Blocked",
+                    item_id=row.get("ID", "") or None,
+                )
+            )
+    return items
+
+
+def read_feedback_rows(path: Path) -> list[dict[str, str]]:
+    table = find_table(read_text(path).splitlines(), FEEDBACK_TABLE_HEADER)
+    rows: list[dict[str, str]] = []
+    for line in read_text(path).splitlines()[table.body_start : table.body_end]:
+        cells = split_table_line(line)
+        if len(cells) < len(table.headers) or cells[0] == "暂无":
+            continue
+        rows.append(dict(zip(table.headers, cells)))
+    return rows
+
+
+def review_feedback_stale(root: Path, days: int, today_value: date) -> list[dict[str, object]]:
+    path = root / "active" / "Feedback_Inbox.md"
+    if not path.exists():
+        return []
+    try:
+        rows = read_feedback_rows(path)
+    except SystemExit as exc:
+        return [
+            stale_item(
+                root,
+                path,
+                "feedback_inbox_unreadable",
+                str(exc),
+                "Fix Feedback_Inbox structure before using it as an attention signal.",
+            )
+        ]
+    items: list[dict[str, object]] = []
+    watched_statuses = {"Open", "Triaged", "Planned"}
+    for row in rows:
+        status = row.get("状态", "")
+        if status not in watched_statuses:
+            continue
+        row_text = "\n".join(row.values())
+        latest = newest_date(iso_dates_in_text(row_text))
+        age = date_age_days(latest, today_value)
+        if latest is None:
+            signal = "feedback_pending_missing_date"
+            message = f"Feedback item {row.get('ID', '')} is {status} but has no ISO date for age checks."
+            suggested = "Triaging can continue, but add evidence/date when carrying feedback across sessions."
+        elif age is not None and age > days:
+            signal = "feedback_pending_stale"
+            message = f"Feedback item {row.get('ID', '')} is {status} and appears {age} days old."
+            suggested = "Triage the feedback into a plan/current fact/draft, or close/archive it."
+        else:
+            continue
+        items.append(
+            stale_item(
+                root,
+                path,
+                signal,
+                message,
+                suggested,
+                status=status,
+                item_id=row.get("ID", "") or None,
+                age_days=age,
+            )
+        )
+    return items
+
+
+def review_context_stale(root: Path, days: int, today_value: date) -> list[dict[str, object]]:
+    path = root / "active" / "Context.md"
+    if not path.exists():
+        return []
+    text = read_text(path)
+    dates = review_marker_dates(text)
+    latest = newest_date(dates)
+    age = date_age_days(latest, today_value)
+    if latest is None:
+        return [
+            stale_item(
+                root,
+                path,
+                "context_missing_review_marker",
+                "Context does not contain a `Last reviewed` / `上次审阅` marker.",
+                "Review current facts and add a section-level review marker when appropriate.",
+            )
+        ]
+    if age is not None and age > days:
+        return [
+            stale_item(
+                root,
+                path,
+                "context_review_stale",
+                f"Context review marker is {age} days old.",
+                "Review current facts and refresh the review marker if still accurate.",
+                age_days=age,
+            )
+        ]
+    return []
+
+
+def date_from_filename(path: Path) -> date | None:
+    match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", path.name)
+    if not match:
+        return None
+    return parse_iso_date_value(match.group(1))
+
+
+def file_age_days(path: Path, today_value: date) -> int | None:
+    named_date = date_from_filename(path)
+    if named_date is not None:
+        return date_age_days(named_date, today_value)
+    try:
+        modified = datetime.fromtimestamp(path.stat().st_mtime).date()
+    except OSError:
+        return None
+    return date_age_days(modified, today_value)
+
+
+def review_knowledge_stale(root: Path, days: int, today_value: date) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    index_path = knowledge_index_path(root)
+    if index_path.exists():
+        try:
+            table = find_table(read_text(index_path).splitlines(), KNOWLEDGE_TABLE_HEADER)
+            for line in read_text(index_path).splitlines()[table.body_start : table.body_end]:
+                cells = split_table_line(line)
+                if len(cells) < 6 or cells[0] == "暂无":
+                    continue
+                knowledge_id, title, status, _tags, _summary, detail = cells[:6]
+                if status != "Draft":
+                    continue
+                ref = strip_code_ticks(detail)
+                resolved = resolve_ref(root, index_path, ref) if should_check_ref(ref) else None
+                age = file_age_days(resolved, today_value) if resolved is not None else None
+                if age is None:
+                    signal = "knowledge_index_draft_missing_age"
+                    message = f"Knowledge {knowledge_id} is Draft but has no reliable age signal."
+                elif age > days:
+                    signal = "knowledge_index_draft_stale"
+                    message = f"Knowledge {knowledge_id} is Draft and appears {age} days old."
+                else:
+                    continue
+                items.append(
+                    stale_item(
+                        root,
+                        index_path,
+                        signal,
+                        message,
+                        "Apply, mark, promote, reject, or keep the draft with an explicit reason.",
+                        status=status,
+                        item_id=knowledge_id or title,
+                        age_days=age,
+                    )
+                )
+        except SystemExit as exc:
+            items.append(
+                stale_item(
+                    root,
+                    index_path,
+                    "knowledge_index_unreadable",
+                    str(exc),
+                    "Fix Knowledge_Index structure before relying on it.",
+                )
+            )
+
+    draft_dir = root / "worklog" / "knowledge-drafts"
+    if draft_dir.exists():
+        for draft in sorted(draft_dir.glob("*.md")):
+            age = file_age_days(draft, today_value)
+            if age is not None and age <= days:
+                continue
+            signal = "knowledge_draft_stale" if age is not None else "knowledge_draft_missing_age"
+            message = (
+                f"Knowledge draft {draft.name} appears {age} days old."
+                if age is not None
+                else f"Knowledge draft {draft.name} has no reliable age signal."
+            )
+            items.append(
+                stale_item(
+                    root,
+                    draft,
+                    signal,
+                    message,
+                    "Apply, mark, rewrite, reject, or archive the draft after review.",
+                    status="Draft",
+                    age_days=age,
+                )
+            )
+    return items
+
+
+def review_stale_next_actions(stale_items: Sequence[dict[str, object]]) -> list[str]:
+    if not stale_items:
+        return []
+    return [
+        "Review stale_items as candidates, not semantic truth.",
+        "Update the unique authority location, close/archive stale signals, or create a writeback draft.",
+    ]
+
+
+def review_stale_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    if args.days <= 0:
+        raise SystemExit("--days must be greater than 0")
+    today_value = parse_iso_date_value(args.today) if args.today else date.today()
+    if today_value is None:
+        raise SystemExit("invalid --today date")
+    stale_items: list[dict[str, object]] = []
+    stale_items.extend(review_current_task_stale(root, args.days, today_value))
+    stale_items.extend(review_task_plan_stale(root))
+    stale_items.extend(review_feedback_stale(root, args.days, today_value))
+    stale_items.extend(review_context_stale(root, args.days, today_value))
+    stale_items.extend(review_knowledge_stale(root, args.days, today_value))
+    warnings = [str(item["message"]) for item in stale_items]
+    payload: dict[str, object] = {
+        "command": "review stale",
+        "ok": True,
+        "context": str(root),
+        "days": args.days,
+        "today": today_value.isoformat(),
+        "warnings": warnings,
+        "stale_items": stale_items,
+        "error_code": None,
+        "next_actions": review_stale_next_actions(stale_items),
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"review stale: {len(stale_items)} candidate(s)")
+        for item in stale_items:
+            item_id = f" {item['id']}" if "id" in item else ""
+            print(f"- {item['path']}{item_id}: {item['signal']} - {item['message']}")
+        for action in payload["next_actions"]:
+            print(f"next: {action}")
+    return 0
+
+
 def iter_markdown_files(root: Path) -> Iterable[Path]:
     yield from sorted(root.rglob("*.md"))
 
@@ -6921,6 +7339,16 @@ def build_parser() -> argparse.ArgumentParser:
     knowledge_mark_parser.add_argument("--promoted-to", default="", help="target authority when status is Promoted")
     add_write_arguments(knowledge_mark_parser)
     knowledge_mark_parser.set_defaults(func=knowledge_mark_command)
+
+    review_parser = subparsers.add_parser("review", help="run read-only context review checks")
+    review_subparsers = review_parser.add_subparsers(dest="review_command", required=True)
+
+    review_stale_parser = review_subparsers.add_parser("stale", help="report stale attention-entry candidates")
+    review_stale_parser.add_argument("path", nargs="?", type=Path)
+    review_stale_parser.add_argument("--days", type=int, default=DEFAULT_STALE_DAYS, help="age threshold in days")
+    review_stale_parser.add_argument("--today", type=validate_date, default=None, help="override today's date for deterministic checks")
+    add_json_argument(review_stale_parser)
+    review_stale_parser.set_defaults(func=review_stale_command)
 
     new_parser = subparsers.add_parser("new", help="create context entries")
     new_subparsers = new_parser.add_subparsers(dest="entry_type", required=True)

@@ -32,11 +32,12 @@
 - `uv run acf workstream note WS001 docs/ai --section 当前发现 --text "记录一个局部发现。" --dry-run --json`
 - `uv run acf workstream show WS001 docs/ai --json`
 - `uv run acf plan status docs/ai --json`
+- `uv run acf review stale docs/ai --json`
 - `uv run acf log feedback docs/ai --type Problem --source manual --text "实际使用反馈。" --json`
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf new worklog docs/ai --summary "补记一次上下文维护。" --append --dry-run --json`
 - `uv run acf version show --json`
-- `uv run acf version set v0.0.3.18 --dry-run --json`
+- `uv run acf version set v0.0.3.19 --dry-run --json`
 
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。
 

@@ -2062,6 +2062,72 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertTrue(payload["next_actions"])
             self.assertTrue(payload["check"]["ok"])
 
+    def test_review_stale_json_reports_context_review_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["review", "stale", str(target), "--today", "2026-05-05", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["command"], "review stale")
+            self.assertIn("warnings", payload)
+            self.assertIn("stale_items", payload)
+            self.assertTrue(
+                any(item["signal"] == "context_missing_review_marker" for item in payload["stale_items"])
+            )
+            self.assertTrue(payload["next_actions"])
+
+    def test_review_stale_reports_mechanical_attention_signals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nActive\n\n## 任务名称\n\nLong task\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Task_Plan.md").write_text(
+                "## 大任务状态\n\nActive\n\n## 当前焦点\n\nT001\n\n## 子任务\n\n"
+                "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| T001 | Blocked | A | 无。 | 无。 | 无。 | 等待外部输入。 |\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Feedback_Inbox.md").write_text(
+                "## 反馈条目\n\n"
+                "| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |\n"
+                "|---|---|---|---|---|---|\n"
+                "| F001 | Open | Problem | 2026-04-01 旧反馈 | user | 待整理 |\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Context.md").write_text(
+                "## 当前有效事实\n\nLast reviewed: 2026-04-01\n\n- Fact.\n",
+                encoding="utf-8",
+            )
+            draft_dir = target / "worklog" / "knowledge-drafts"
+            draft_dir.mkdir(parents=True, exist_ok=True)
+            (draft_dir / "2026-04-01-old.md").write_text(
+                "# K-草案：Old\n\n## 状态\n\nDraft\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["review", "stale", str(target), "--today", "2026-05-05", "--days", "14", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            signals = {item["signal"] for item in payload["stale_items"]}
+            self.assertIn("current_task_active_missing_update_date", signals)
+            self.assertIn("task_plan_blocked_subtask", signals)
+            self.assertIn("feedback_pending_stale", signals)
+            self.assertIn("context_review_stale", signals)
+            self.assertIn("knowledge_draft_stale", signals)
+
     def test_check_uses_discovered_context_when_path_is_omitted(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp) / "project"
