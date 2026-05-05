@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.17"
+VERSION = "v0.0.3.18"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -306,6 +306,16 @@ knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 
 ---
 
+## 注意力治理与上下文预算
+
+- 默认上下文只保留当前目标、当前事实、当前任务和下一步。
+- 整理事实时优先读取 changed files、`active/`、相关索引和最近 worklog。
+- 不为 curation 默认读取 archive 或全部历史日志；curation draft 不进入默认读取路径。
+- 写入前必须判断唯一权威位置；能更新旧表述时，不追加重复事实。
+- 低优先级文件不得重复完整表述高优先级事实；能引用权威位置时，不复制原文。
+
+---
+
 ## 会话结束回写建议
 
 重要协作结束时，AI 不应默认重复打印完整回写建议清单。先判断是否存在可确定写入的内容；有则优先落盘或生成可审阅草案，最终报告只列出实际变更、草案路径、验证结果和仍需人工判断的风险。
@@ -314,11 +324,12 @@ knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 
 1. 当前任务或计划状态变化：优先使用 `acf task ...` 或 `acf plan ...` 更新 `active/Current_Task.md`、`active/Task_Plan.md`；工具不能表达时，再用 `acf edit ...` 精确更新相关 section 或表格。
 2. 新的人工反馈、问题、需求碎片：优先写入或更新 `active/Feedback_Inbox.md`；如果无法确定归属，生成 `acf writeback draft ...` 草案，不把反馈直接写成当前事实。
-3. 已验证的当前事实：只在与当前阶段仍相关、且证据明确时更新 `active/Context.md`；一次性过程不写入 Context。
+3. 已验证的当前事实：只在与当前阶段仍相关、且证据明确时更新 `active/Context.md`；写入前先查旧表述，能 replace 时不 append；一次性过程不写入 Context。
 4. 今日工作记录：完成了可复述的工作或验证后，优先使用 `acf new worklog ...` 记录整理后的摘要；同日已有记录且需要补记时使用 `--append --json`，需要重建时才使用 `--force`；不要写入原始日志或大段命令输出。
 5. Knowledge 候选：优先使用 `acf knowledge draft ...` 生成草案；只有经审阅或任务明确要求时，才 apply 到 `reference/Knowledge_Index.md`。
 6. Archive 候选：旧当前任务或旧大任务计划优先使用 `acf archive ...`；其他归档建议先生成 writeback 草案，等待人工确认归档位置。
 7. ADR 或规则候选：已经形成稳定决策时使用 `acf new adr ...` 或更新 rules；只是建议或待确认事项时生成 writeback 草案。
+8. 注意力治理候选：发现重复、过期或权威位置不清的信息时，生成 `acf writeback draft ...` 草案，列出当前事实变更、唯一权威位置、仅保留为历史的信息和待确认信号。
 
 最终回复规则：
 
@@ -326,6 +337,7 @@ knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 - 对没有变化的类别，不输出“无需更新”清单。
 - 如果存在应回写但本轮不能安全落盘的内容，只报告草案路径或明确的人工待确认项。
 - 不把 usage event log、原始测试输出、完整对话或 Feedback_Inbox 随想直接写入权威事实源。
+- 不把 writeback draft 或 curation draft 加入默认读取路径。
 """
 
 
@@ -2331,65 +2343,67 @@ def render_writeback_draft(draft_name: str, input_text: str) -> str:
 
 ---
 
-## active/Context.md 候选
+## 当前事实变更候选
 
-- 待人工判断是否存在应写入 `active/Context.md` 的当前阶段事实。
-- 不要把历史过程直接写入当前事实。
-
----
-
-## active/Current_Task.md 候选
-
-- 待人工判断当前任务状态是否需要更新。
-- 如需更新，优先使用 `acf new task ...`。
+- 目标文件：
+- 旧表述：
+- 新表述：
+- 建议动作：replace / append / remove / archive
+- 原因：
 
 ---
 
-## reference/Decisions_Index.md / ADR 候选
+## 唯一权威位置判断
 
-- 待人工判断是否存在需要升格为 ADR 的重要决策。
-- 如需新增决策，优先使用 `acf new adr ...`。
-
----
-
-## worklog 候选
-
-- 待人工判断是否需要写入当天整理后工作记录。
-- 如需新增或补记，优先使用 `acf new worklog ...`；同日已有记录时使用 `--append --json`，需要重建时才使用 `--force`。
+- 信息类型：
+- 权威位置：
+- 其他位置是否已有重复：
+- 建议处理：
 
 ---
 
-## Knowledge 候选
+## 应只保留为历史的信息
 
-- 待人工判断是否存在可复用经验、模式或反例。
-- Knowledge 只保存可迁移判断，不保存当前事实或一次性过程。
-- 如需新增，优先使用 `acf knowledge draft ...` 生成草案。
-
----
-
-## source 候选
-
-- 待人工判断是否需要新增资料索引。
-- 如需新增或更新，优先使用 `acf new source ...`。
+- 内容摘要：
+- 建议位置：worklog / archive
+- 不进入 active 的原因：
 
 ---
 
-## archive 候选
+## 待确认信号
 
-- 待人工判断是否有历史材料需要归档。
-- archive 只保存历史归档，不作为当前事实源。
+- 内容：
+- 建议位置：Feedback_Inbox / writeback draft
+- 需要谁确认：
+
+---
+
+## 可升格候选
+
+- ADR 候选：
+- Knowledge 候选：
+- rules 候选：
+- source 候选：
+
+---
+
+## 建议命令
+
+- 当前任务或计划：优先使用 `acf task ...` 或 `acf plan ...`。
+- 当前事实：优先使用 `acf edit section get|replace ...`，能 replace 时不 append。
+- 历史过程：优先使用 `acf new worklog ...`。
+- 可复用经验：优先使用 `acf knowledge draft ...`。
+- 重要决策：优先使用 `acf new adr ...`。
 
 ---
 
 ## 审阅清单
 
-- [ ] 已确认哪些内容应写入当前事实。
-- [ ] 已确认哪些内容只是历史过程。
-- [ ] 已确认是否需要新增 ADR。
-- [ ] 已确认是否需要新增 worklog。
-- [ ] 已确认是否需要新增 Knowledge 草案。
-- [ ] 已确认是否需要新增 source。
-- [ ] 已确认是否需要归档。
+- [ ] 已确认唯一权威位置。
+- [ ] 已确认当前事实是 replace、append、remove 还是 archive。
+- [ ] 已确认低优先级文件是否应改为引用而不是复制全文。
+- [ ] 已确认哪些内容只保留为历史过程。
+- [ ] 已确认哪些内容仍需人工判断。
 """
 
 
@@ -3573,6 +3587,13 @@ def upgraded_agents_text(text: str) -> str:
         text = replace_section_from_template(text, "AGENTS.md", "## 会话结束回写建议")
     if "active/Feedback_Inbox.md" not in text and section_exists(text, "## 事实源优先级"):
         text = replace_section_from_template(text, "AGENTS.md", "## 事实源优先级")
+    if "## 注意力治理与上下文预算" not in text and "## 会话结束回写建议" in text:
+        body = template_section_body("AGENTS.md", "## 注意力治理与上下文预算")
+        if body is not None:
+            text = text.replace(
+                "## 会话结束回写建议",
+                f"## 注意力治理与上下文预算\n\n{body}\n\n---\n\n## 会话结束回写建议",
+            )
     if "archive/feedback" not in text and section_exists(text, "## 目录结构"):
         text = replace_section_from_template(text, "AGENTS.md", "## 目录结构")
     if "active/Task_Plan.md" not in text and UPGRADE_NOTES_START not in text:
@@ -3637,6 +3658,8 @@ def upgraded_system_manual_text(text: str) -> str:
             marker = "\n---\n\n## 2. rules/ 读取策略"
             insertion = f"\n### 1.1 Feedback_Inbox 生命周期\n\n{body}\n\n---\n\n## 2. rules/ 读取策略"
             text = text.replace(marker, insertion)
+    if "注意力治理规则" not in text and section_exists(text, "## 13. 更新项目上下文的规则"):
+        text = replace_section_from_template(text, "reference/System_Manual.md", "## 13. 更新项目上下文的规则")
     if "修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为" not in text and "旧版本上下文升级" in text:
         addition = "\n\n维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档和 init/upgrade 单元测试；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。\n"
         text = text.rstrip() + addition

@@ -36,7 +36,7 @@
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf new worklog docs/ai --summary "补记一次上下文维护。" --append --dry-run --json`
 - `uv run acf version show --json`
-- `uv run acf version set v0.0.3.17 --dry-run --json`
+- `uv run acf version set v0.0.3.18 --dry-run --json`
 
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。
 
@@ -65,11 +65,20 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 7. 可复用经验进入 Knowledge 草案流程。
 8. Done/Rejected 条目必须保留证据位置或拒绝原因；超过 10 条，或完成超过 30 天且不再支撑当前计划时，整理到 `archive/feedback/`。
 
+## 注意力治理
+
+1. 默认上下文只保留当前目标、当前事实、当前任务和下一步。
+2. 写入前必须判断唯一权威位置；能更新旧表述时，不追加重复事实。
+3. worklog 记录历史过程，archive 保存历史材料，Feedback_Inbox 保存待处理信号；它们默认不作为当前事实。
+4. 整理事实时优先读取 changed files、`active/`、相关索引和最近 worklog。
+5. 不为 curation 默认读取 archive 或全部历史日志；writeback draft 和 curation draft 不进入默认读取路径。
+6. 能引用权威位置时，不复制完整表述。
+
 ## 会话结束回写
 
 1. 不再默认打印完整“无需更新”清单。
 2. 可确定的计划、任务、Context、worklog、Knowledge、archive 或 ADR/rules 变化，优先用 `acf` 命令或结构化编辑落盘。
-3. 不能安全落盘但需要保留的判断，生成 `writeback draft` 草案。
+3. 不能安全落盘但需要保留的判断，生成 `writeback draft` 草案；草案应列出当前事实变更、唯一权威位置、仅保留为历史的信息和待确认信号。
 4. 最终回复只报告实际修改、草案路径、验证结果和仍需人工判断的风险。
 
 ---

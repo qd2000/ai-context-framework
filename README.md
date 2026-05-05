@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.17` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.16 的使用反馈记录能力，并新增 AI-safe 的 `acf new worklog --append` 定点补记能力。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.18` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.17 的 AI-safe worklog append 能力，并新增事实与注意力治理的 P0 规则、模板说明和 writeback draft 草案结构。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -19,6 +19,7 @@
 - **模型无关**：纯 Markdown，不依赖任何 AI 工具的私有格式
 - **渐进式暴露**：AI 默认只读取当前有效上下文，按需读取历史和参考资料
 - **单一事实源**：每类信息有唯一的权威位置，避免重复维护和冲突
+- **注意力治理**：默认注意力入口只保留低噪声、高权威、任务相关的信息
 - **决策可追溯**：通过 ADR（Architecture Decision Record）记录重要决策的完整推理过程
 
 ## 目录结构
@@ -97,6 +98,16 @@ template/
 8. Knowledge_Index.md
 9. worklog
 10. archive
+
+## 注意力治理
+
+ACF 不追求保存更多上下文，而是维护一个低噪声、高权威、任务相关的默认注意力入口。
+
+- `active/` 只保留当前目标、当前事实、当前任务和下一步。
+- 写入当前事实前先判断唯一权威位置；能更新旧表述时，不追加重复事实。
+- worklog 记录历史过程，archive 保存历史材料，Feedback_Inbox 保存待处理信号；它们默认不作为当前事实。
+- 整理事实时优先读取 changed files、`active/`、相关索引和最近 worklog，不默认读取 archive 或全部历史日志。
+- writeback draft 和 curation draft 不进入默认读取路径；能引用权威位置时，不复制完整表述。
 
 ## 命令行工具
 
@@ -197,7 +208,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.17 --dry-run --json
+acf version set v0.0.3.18 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -221,7 +232,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`；同日已有记录且需要补记时使用 `--append`，需要重建时使用 `--force`，二者不能混用。
 - `new adr`：生成下一个 ADR 文件，并更新 `reference/Decisions_Index.md`。
-- `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为可审阅草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。
+- `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为注意力治理草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、archive、Knowledge 和显式启用的 Workstream；没有 `active/Workstreams.md` 时不触发 Workstream 检查。

@@ -133,14 +133,44 @@
 - 新能力没有破坏“纯 Markdown、模型无关、人工可审阅”的边界。
 - usage event log 只记录状态元数据，不记录正文输入，不进入 `worklog/`。
 
+### 阶段 6：事实与注意力治理
+
+状态：P0 规则层已开始落地，CLI 命令待实现。
+
+目标不是保存更多上下文，而是持续维护一个低噪声、高权威、任务相关的默认注意力入口。
+
+原则：
+
+- `active/` 只保留当前目标、当前事实、当前任务和下一步。
+- 写入前必须判断唯一权威位置；能更新旧表述时，不追加重复事实。
+- worklog 记录历史过程，archive 保存历史材料，Feedback_Inbox 保存待处理信号；它们默认不作为当前事实。
+- 整理事实时优先读取 changed files、`active/`、相关索引和最近 worklog。
+- 不为 curation 默认读取 archive 或全部历史日志；writeback draft 和 curation draft 不进入默认读取路径。
+- CLI 只做机械发现和草案生成，不裁决语义事实。
+
+P1 候选命令：
+
+- `acf review stale`：机械检查默认注意力入口是否可能过期，例如 Active 当前任务长期未更新、Feedback 长期未处理、Context 缺少审阅信号、Knowledge 草案长期未推进。
+- `acf curate draft`：默认只基于 changed files、`active/`、索引文件和最近 N 天 worklog 生成整理草案，列出疑似重复事实、疑似陈旧 active 内容、已完成但未归档任务、已处理但仍留在 inbox 的内容，以及可能应升格到 Context / Knowledge / ADR 的近期结论。
+
+暂缓：
+
+- 全量事实 ID 化。
+- 每条事实 `Last reviewed`。
+- 语义级自动去重。
+- CLI 自动判断哪个事实是真的。
+- curation draft 默认进入读取路径。
+
 ## 适合继续程序化的工作
 
 优先做可验证、低歧义、可回退的命令：
 
 1. 根薄入口自定义字段：允许用户在生成时追加少量仓库级规则，但仍不把完整上下文写入根入口。
-2. `writeback-curator` 接入：由 subagent 生成更高质量的回写分类草案，但仍只输出草案。
-3. 跨项目 dogfooding 评测脚本：记录常见命令是否能在真实项目子目录稳定运行。
-4. 安全项目级编辑能力：评估是否需要让 CLI 在明确授权下维护 `docs/ai/` 外的仓库级文档；当前不放宽 `acf edit` 的 context-root 限制。
+2. `review stale`：用机械检查暴露默认注意力入口可能陈旧的问题。
+3. `curate draft`：生成注意力治理草案，但不直接修改权威文件。
+4. `writeback-curator` 接入：由 subagent 生成更高质量的回写分类草案，但仍只输出草案。
+5. 跨项目 dogfooding 评测脚本：记录常见命令是否能在真实项目子目录稳定运行。
+6. 安全项目级编辑能力：评估是否需要让 CLI 在明确授权下维护 `docs/ai/` 外的仓库级文档；当前不放宽 `acf edit` 的 context-root 限制。
 
 这些命令应默认只生成草案或骨架。真正写入权威上下文前，仍应由用户或主代理确认。
 
