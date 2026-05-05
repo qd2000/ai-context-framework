@@ -2090,6 +2090,10 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertIsNone(item["status"])
             self.assertEqual(item["message"], item["reason"])
             self.assertTrue(payload["next_actions"])
+            self.assertIn(
+                "Review active/Context.md current facts and refresh the review marker if still accurate.",
+                payload["next_actions"],
+            )
 
     def test_review_stale_reports_mechanical_attention_signals(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2144,6 +2148,18 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(payload["summary"]["total"], len(payload["stale_items"]))
             self.assertEqual(payload["summary"]["by_kind"]["task_plan"], 1)
             self.assertIn("active/Task_Plan.md", payload["summary"]["by_path"])
+            self.assertIn(
+                "Review active Current_Task status, update its dated note, or finish/block/clear it.",
+                payload["next_actions"],
+            )
+            self.assertIn(
+                "Triage Feedback_Inbox items into a plan, current fact, draft, close, or archive them.",
+                payload["next_actions"],
+            )
+            self.assertIn(
+                "Review knowledge drafts and apply, mark, close, rewrite, or archive them.",
+                payload["next_actions"],
+            )
 
     def test_review_stale_accepts_context_review_marker(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2170,6 +2186,28 @@ This records a reusable write-safety pattern instead of a current task fact.
             ]
             self.assertNotIn("context_missing_review_marker", context_signals)
             self.assertNotIn("context_review_stale", context_signals)
+            self.assertEqual(payload["summary"]["total"], 0)
+            self.assertEqual(payload["next_actions"], ["No stale attention candidates found."])
+
+    def test_review_stale_human_output_reports_clean_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Context.md").write_text(
+                "## 审阅标记\n\n"
+                "- Last reviewed: 2026-05-05\n"
+                "- Review scope: 文件级。\n\n"
+                "## 当前有效事实\n\n- Fact.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["review", "stale", str(target), "--today", "2026-05-05"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertIn("review stale: clean (0 candidate(s))", stdout)
+            self.assertIn("next: No stale attention candidates found.", stdout)
 
     def test_review_stale_human_output_groups_by_kind(self):
         with tempfile.TemporaryDirectory() as tmp:

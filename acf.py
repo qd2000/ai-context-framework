@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.21"
+VERSION = "v0.0.3.22"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -6105,11 +6105,23 @@ def review_knowledge_stale(root: Path, days: int, today_value: date) -> list[dic
 
 def review_stale_next_actions(stale_items: Sequence[dict[str, object]]) -> list[str]:
     if not stale_items:
-        return []
-    return [
-        "Review stale_items as candidates, not semantic truth.",
-        "Update the unique authority location, close/archive stale signals, or create a writeback draft.",
-    ]
+        return ["No stale attention candidates found."]
+    actions = ["Review stale_items as candidates, not semantic truth."]
+    kinds = {str(item.get("kind") or "") for item in stale_items}
+    if "current_task" in kinds:
+        actions.append("Review active Current_Task status, update its dated note, or finish/block/clear it.")
+    if "task_plan" in kinds:
+        actions.append("Review Task_Plan status and subtask rows, then complete, unblock, archive, or correct them.")
+    if "feedback" in kinds:
+        actions.append("Triage Feedback_Inbox items into a plan, current fact, draft, close, or archive them.")
+    if "context_review" in kinds:
+        actions.append("Review active/Context.md current facts and refresh the review marker if still accurate.")
+    if "knowledge" in kinds:
+        actions.append("Review Knowledge_Index Draft entries and apply, mark, promote, reject, or keep them with a reason.")
+    if "knowledge_draft" in kinds:
+        actions.append("Review knowledge drafts and apply, mark, close, rewrite, or archive them.")
+    actions.append("Use a writeback draft when the unique authority location is unclear.")
+    return actions
 
 
 def review_stale_summary(stale_items: Sequence[dict[str, object]]) -> dict[str, object]:
@@ -6157,7 +6169,10 @@ def review_stale_command(args: argparse.Namespace) -> int:
     if json_enabled(args):
         print_json(payload)
     else:
-        print(f"review stale: {len(stale_items)} candidate(s)")
+        if stale_items:
+            print(f"review stale: {len(stale_items)} candidate(s)")
+        else:
+            print("review stale: clean (0 candidate(s))")
         grouped: dict[str, list[dict[str, object]]] = {}
         for item in stale_items:
             grouped.setdefault(str(item.get("kind") or "unknown"), []).append(item)
