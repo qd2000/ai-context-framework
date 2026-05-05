@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.20` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.19 的只读 `acf review stale`，并新增 Context 文件级审阅标记最小规范。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.21` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.20 的 Context 文件级审阅标记规范，并增强只读 `acf review stale` 的 JSON 输出契约。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -209,7 +209,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.20 --dry-run --json
+acf version set v0.0.3.21 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -228,7 +228,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
-- `review stale`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json` 和 `--days`。
+- `review stale`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json` 和 `--days`。JSON 输出包含 `summary.total`、`summary.by_kind`、`summary.by_path`，每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`。
 - `workstream init|status|list|show|add|set|block|cancel|merge-request|ready|done|claim|note`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。

@@ -2077,9 +2077,18 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(payload["command"], "review stale")
             self.assertIn("warnings", payload)
             self.assertIn("stale_items", payload)
+            self.assertIn("summary", payload)
+            self.assertGreater(payload["summary"]["total"], 0)
             self.assertTrue(
                 any(item["signal"] == "context_missing_review_marker" for item in payload["stale_items"])
             )
+            item = next(item for item in payload["stale_items"] if item["signal"] == "context_missing_review_marker")
+            self.assertEqual(item["kind"], "context_review")
+            self.assertEqual(item["path"], "active/Context.md")
+            self.assertIn("Last reviewed", item["reason"])
+            self.assertIsNone(item["age_days"])
+            self.assertIsNone(item["status"])
+            self.assertEqual(item["message"], item["reason"])
             self.assertTrue(payload["next_actions"])
 
     def test_review_stale_reports_mechanical_attention_signals(self):
@@ -2122,11 +2131,19 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
             signals = {item["signal"] for item in payload["stale_items"]}
+            kinds = {item["kind"] for item in payload["stale_items"]}
             self.assertIn("current_task_active_missing_update_date", signals)
             self.assertIn("task_plan_blocked_subtask", signals)
             self.assertIn("feedback_pending_stale", signals)
             self.assertIn("context_review_stale", signals)
             self.assertIn("knowledge_draft_stale", signals)
+            self.assertEqual(
+                {"current_task", "task_plan", "feedback", "context_review", "knowledge_draft"},
+                kinds,
+            )
+            self.assertEqual(payload["summary"]["total"], len(payload["stale_items"]))
+            self.assertEqual(payload["summary"]["by_kind"]["task_plan"], 1)
+            self.assertIn("active/Task_Plan.md", payload["summary"]["by_path"])
 
     def test_review_stale_accepts_context_review_marker(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2153,6 +2170,20 @@ This records a reusable write-safety pattern instead of a current task fact.
             ]
             self.assertNotIn("context_missing_review_marker", context_signals)
             self.assertNotIn("context_review_stale", context_signals)
+
+    def test_review_stale_human_output_groups_by_kind(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["review", "stale", str(target), "--today", "2026-05-05"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertIn("review stale:", stdout)
+            self.assertIn("context_review:", stdout)
+            self.assertIn("context_missing_review_marker", stdout)
 
     def test_check_uses_discovered_context_when_path_is_omitted(self):
         with tempfile.TemporaryDirectory() as tmp:

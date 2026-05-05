@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.20"
+VERSION = "v0.0.3.21"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -5747,26 +5747,29 @@ def date_age_days(value: date | None, today_value: date) -> int | None:
 def stale_item(
     root: Path,
     path: Path,
+    kind: str,
     signal: str,
-    message: str,
+    reason: str,
     suggested_action: str,
     *,
     status: str | None = None,
     item_id: str | None = None,
     age_days: int | None = None,
 ) -> dict[str, object]:
+    rel_path = relative_display_path(path, root)
     item: dict[str, object] = {
-        "path": relative_display_path(path, root),
+        "kind": kind,
         "signal": signal,
-        "message": message,
+        "path": rel_path,
+        "reason": reason,
+        "age_days": age_days,
+        "status": status,
         "suggested_action": suggested_action,
+        # Compatibility field retained for one release cycle.
+        "message": reason,
     }
-    if status is not None:
-        item["status"] = status
     if item_id is not None:
         item["id"] = item_id
-    if age_days is not None:
-        item["age_days"] = age_days
     return item
 
 
@@ -5797,6 +5800,7 @@ def review_current_task_stale(root: Path, days: int, today_value: date) -> list[
             stale_item(
                 root,
                 path,
+                "current_task",
                 "current_task_active_missing_update_date",
                 "Current_Task is Active but no ISO update/review date was found.",
                 "Review the active task and add/update a dated status note or finish/block/clear it.",
@@ -5808,6 +5812,7 @@ def review_current_task_stale(root: Path, days: int, today_value: date) -> list[
             stale_item(
                 root,
                 path,
+                "current_task",
                 "current_task_active_stale",
                 f"Current_Task has been Active for {age} days since the newest visible date.",
                 "Review the active task and update, block, finish, or clear it.",
@@ -5831,6 +5836,7 @@ def review_task_plan_stale(root: Path) -> list[dict[str, object]]:
             stale_item(
                 root,
                 path,
+                "task_plan",
                 "task_plan_unreadable",
                 str(exc),
                 "Fix Task_Plan structure before using it as a default attention source.",
@@ -5845,6 +5851,7 @@ def review_task_plan_stale(root: Path) -> list[dict[str, object]]:
             stale_item(
                 root,
                 path,
+                "task_plan",
                 "task_plan_done_with_unfinished_tasks",
                 "Task_Plan is Done but still contains unfinished subtasks.",
                 "Review the task board and either finish/archive tasks or correct the plan status.",
@@ -5856,6 +5863,7 @@ def review_task_plan_stale(root: Path) -> list[dict[str, object]]:
             stale_item(
                 root,
                 path,
+                "task_plan",
                 "task_plan_empty_with_tasks",
                 "Task_Plan is Empty but still contains subtask rows.",
                 "Clear stale rows or restore the correct plan status.",
@@ -5867,6 +5875,7 @@ def review_task_plan_stale(root: Path) -> list[dict[str, object]]:
             stale_item(
                 root,
                 path,
+                "task_plan",
                 "task_plan_open_status_with_terminal_tasks",
                 "Task_Plan is Active/Paused but all subtasks are terminal.",
                 "Review whether the plan should be completed or archived.",
@@ -5879,6 +5888,7 @@ def review_task_plan_stale(root: Path) -> list[dict[str, object]]:
             stale_item(
                 root,
                 path,
+                "task_plan",
                 "task_plan_multiple_active_subtasks",
                 "Task_Plan has more than one Active subtask.",
                 "Choose the current focus and reset other Active rows.",
@@ -5891,6 +5901,7 @@ def review_task_plan_stale(root: Path) -> list[dict[str, object]]:
                 stale_item(
                     root,
                     path,
+                    "task_plan",
                     "task_plan_blocked_subtask",
                     f"Subtask {row.get('ID', '')} is Blocked.",
                     "Review the blocker and decide whether to unblock, rescope, or archive it.",
@@ -5923,6 +5934,7 @@ def review_feedback_stale(root: Path, days: int, today_value: date) -> list[dict
             stale_item(
                 root,
                 path,
+                "feedback",
                 "feedback_inbox_unreadable",
                 str(exc),
                 "Fix Feedback_Inbox structure before using it as an attention signal.",
@@ -5951,6 +5963,7 @@ def review_feedback_stale(root: Path, days: int, today_value: date) -> list[dict
             stale_item(
                 root,
                 path,
+                "feedback",
                 signal,
                 message,
                 suggested,
@@ -5975,6 +5988,7 @@ def review_context_stale(root: Path, days: int, today_value: date) -> list[dict[
             stale_item(
                 root,
                 path,
+                "context_review",
                 "context_missing_review_marker",
                 "Context does not contain a `Last reviewed` / `上次审阅` marker.",
                 "Review current facts and add a section-level review marker when appropriate.",
@@ -5985,6 +5999,7 @@ def review_context_stale(root: Path, days: int, today_value: date) -> list[dict[
             stale_item(
                 root,
                 path,
+                "context_review",
                 "context_review_stale",
                 f"Context review marker is {age} days old.",
                 "Review current facts and refresh the review marker if still accurate.",
@@ -6040,6 +6055,7 @@ def review_knowledge_stale(root: Path, days: int, today_value: date) -> list[dic
                     stale_item(
                         root,
                         index_path,
+                        "knowledge",
                         signal,
                         message,
                         "Apply, mark, promote, reject, or keep the draft with an explicit reason.",
@@ -6053,6 +6069,7 @@ def review_knowledge_stale(root: Path, days: int, today_value: date) -> list[dic
                 stale_item(
                     root,
                     index_path,
+                    "knowledge",
                     "knowledge_index_unreadable",
                     str(exc),
                     "Fix Knowledge_Index structure before relying on it.",
@@ -6075,6 +6092,7 @@ def review_knowledge_stale(root: Path, days: int, today_value: date) -> list[dic
                 stale_item(
                     root,
                     draft,
+                    "knowledge_draft",
                     signal,
                     message,
                     "Apply, mark, rewrite, reject, or archive the draft after review.",
@@ -6094,6 +6112,21 @@ def review_stale_next_actions(stale_items: Sequence[dict[str, object]]) -> list[
     ]
 
 
+def review_stale_summary(stale_items: Sequence[dict[str, object]]) -> dict[str, object]:
+    by_kind: dict[str, int] = {}
+    by_path: dict[str, int] = {}
+    for item in stale_items:
+        kind = str(item.get("kind") or "unknown")
+        path = str(item.get("path") or "")
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+        by_path[path] = by_path.get(path, 0) + 1
+    return {
+        "total": len(stale_items),
+        "by_kind": dict(sorted(by_kind.items())),
+        "by_path": dict(sorted(by_path.items())),
+    }
+
+
 def review_stale_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     if args.days <= 0:
@@ -6107,13 +6140,14 @@ def review_stale_command(args: argparse.Namespace) -> int:
     stale_items.extend(review_feedback_stale(root, args.days, today_value))
     stale_items.extend(review_context_stale(root, args.days, today_value))
     stale_items.extend(review_knowledge_stale(root, args.days, today_value))
-    warnings = [str(item["message"]) for item in stale_items]
+    warnings = [str(item["reason"]) for item in stale_items]
     payload: dict[str, object] = {
         "command": "review stale",
         "ok": True,
         "context": str(root),
         "days": args.days,
         "today": today_value.isoformat(),
+        "summary": review_stale_summary(stale_items),
         "warnings": warnings,
         "stale_items": stale_items,
         "error_code": None,
@@ -6124,9 +6158,14 @@ def review_stale_command(args: argparse.Namespace) -> int:
         print_json(payload)
     else:
         print(f"review stale: {len(stale_items)} candidate(s)")
+        grouped: dict[str, list[dict[str, object]]] = {}
         for item in stale_items:
-            item_id = f" {item['id']}" if "id" in item else ""
-            print(f"- {item['path']}{item_id}: {item['signal']} - {item['message']}")
+            grouped.setdefault(str(item.get("kind") or "unknown"), []).append(item)
+        for kind in sorted(grouped):
+            print(f"{kind}:")
+            for item in grouped[kind]:
+                item_id = f" {item['id']}" if "id" in item else ""
+                print(f"- {item['path']}{item_id}: {item['signal']} - {item['reason']}")
         for action in payload["next_actions"]:
             print(f"next: {action}")
     return 0

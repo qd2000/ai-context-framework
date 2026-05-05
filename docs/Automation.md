@@ -152,6 +152,7 @@ P1 命令：
 
 - 已实现：`acf review stale` 机械检查默认注意力入口是否可能过期，例如 Active 当前任务长期未更新、Feedback 长期未处理、Context 缺少审阅信号、Knowledge 草案长期未推进；命令只读，只输出 stale candidates，不判断内容真假。
 - 已实现：Context 文件级审阅标记最小规范，推荐 `Last reviewed: YYYY-MM-DD` / `上次审阅：YYYY-MM-DD`，不要求条目级事实 ID。
+- 已实现：`acf review stale --json` 输出契约增强，提供稳定 `kind`、`reason`、`age_days`、`status`、`suggested_action` 字段和 `summary.by_kind` / `summary.by_path` 汇总。
 - 待实现：`acf curate draft` 默认只基于 changed files、`active/`、索引文件和最近 N 天 worklog 生成整理草案，列出疑似重复事实、疑似陈旧 active 内容、已完成但未归档任务、已处理但仍留在 inbox 的内容，以及可能应升格到 Context / Knowledge / ADR 的近期结论。
 
 暂缓：
