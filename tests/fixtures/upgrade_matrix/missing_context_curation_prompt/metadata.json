@@ -1,0 +1,17 @@
+{
+  "source_version": "v0.0.3.24",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": true,
+  "scenario": "main",
+  "risk_tags": ["context_curation_prompt", "missing_reference_file", "non_destructive_upgrade"],
+  "intent": "Verify P1.6 upgrades old contexts by adding the missing on-demand curation prompt as reference material.",
+  "expected_upgrade_behavior": "Upgrade creates reference/Context_Curation_Prompt.md without running semantic curation or modifying active facts.",
+  "remove_paths": [
+    "reference/Context_Curation_Prompt.md"
+  ],
+  "expect_exists": [
+    "reference/Context_Curation_Prompt.md"
+  ],
+  "expect_stale": false
+}

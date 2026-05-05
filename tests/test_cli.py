@@ -1357,12 +1357,14 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "archive" / "Archive_Index.md").exists())
             self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
             self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
+            self.assertTrue((target / "reference" / "Context_Curation_Prompt.md").exists())
             self.assertFalse((target / "decisions" / "ADR-0001-template.md").exists())
             self.assertFalse((target / "worklog" / "daily" / "YYYY-MM-DD.md").exists())
             agents_text = (target / "AGENTS.md").read_text(encoding="utf-8")
             self.assertIn("## CLI 辅助维护", agents_text)
             self.assertIn("active/Task_Plan.md", agents_text)
             self.assertIn("active/Feedback_Inbox.md", agents_text)
+            self.assertIn("reference/Context_Curation_Prompt.md", agents_text)
             self.assertIn("acf status --json", agents_text)
             self.assertIn("acf --help", agents_text)
             result = acf.check_context(target, "minimal", strict=False)
@@ -1378,11 +1380,13 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "archive" / "Archive_Index.md").exists())
             self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
             self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
+            self.assertTrue((target / "reference" / "Context_Curation_Prompt.md").exists())
 
             agents_text = (target / "AGENTS.md").read_text(encoding="utf-8")
             self.assertIn("## CLI 辅助维护", agents_text)
             self.assertIn("acf status --json", agents_text)
             self.assertIn("reference/System_Manual.md", agents_text)
+            self.assertEqual(agents_text.count("reference/Context_Curation_Prompt.md"), 1)
 
     def test_init_creates_root_thin_agent_for_docs_context(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1434,6 +1438,7 @@ class CliTests(unittest.TestCase):
                 "archive/Archive_Index.md",
                 "archive/feedback/.gitkeep",
                 "reference/Knowledge_Index.md",
+                "reference/Context_Curation_Prompt.md",
             ):
                 (target / rel).unlink()
 
@@ -1448,11 +1453,13 @@ class CliTests(unittest.TestCase):
             self.assertIn("planned_changes", payload)
             self.assertIn("skipped_changes", payload)
             self.assertIn(str((target / "active" / "Task_Plan.md").resolve()), payload["changed_files"])
+            self.assertIn(str((target / "reference" / "Context_Curation_Prompt.md").resolve()), payload["changed_files"])
             self.assertIn(
                 str((target / "active" / "Task_Plan.md").resolve()),
                 [item["path"] for item in payload["planned_changes"]],
             )
             self.assertFalse((target / "active" / "Task_Plan.md").exists())
+            self.assertFalse((target / "reference" / "Context_Curation_Prompt.md").exists())
 
     def test_upgrade_does_not_replace_active_current_task(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1467,6 +1474,29 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn("Keep me", task_path.read_text(encoding="utf-8"))
             self.assertTrue((target / "active" / "Task_Plan.md").exists())
+
+    def test_upgrade_adds_missing_context_curation_prompt_without_overwriting_existing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "missing"
+            self.run_cli(["init", str(missing), "--profile", "minimal"])
+            prompt = missing / "reference" / "Context_Curation_Prompt.md"
+            prompt.unlink()
+
+            exit_code = self.run_cli(["upgrade", str(missing)])
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(prompt.exists())
+            self.assertIn("默认产物是整理建议", prompt.read_text(encoding="utf-8"))
+
+            custom = Path(tmp) / "custom"
+            self.run_cli(["init", str(custom), "--profile", "minimal"])
+            custom_prompt = custom / "reference" / "Context_Curation_Prompt.md"
+            custom_prompt.write_text("custom curation prompt\n", encoding="utf-8")
+
+            exit_code = self.run_cli(["upgrade", str(custom)])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(custom_prompt.read_text(encoding="utf-8"), "custom curation prompt\n")
 
     def test_upgrade_updates_old_standard_agents_and_system_manual(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1491,6 +1521,7 @@ class CliTests(unittest.TestCase):
                 "archive/Archive_Index.md",
                 "archive/feedback/.gitkeep",
                 "reference/Knowledge_Index.md",
+                "reference/Context_Curation_Prompt.md",
             ):
                 (target / rel).unlink()
 
@@ -1502,6 +1533,7 @@ class CliTests(unittest.TestCase):
             self.assertIn(str(agents.resolve()), payload["changed_files"])
             self.assertIn(str(manual.resolve()), payload["changed_files"])
             self.assertIn(str((target / "archive" / "feedback" / ".gitkeep").resolve()), payload["changed_files"])
+            self.assertIn(str((target / "reference" / "Context_Curation_Prompt.md").resolve()), payload["changed_files"])
 
             exit_code, stdout, stderr = self.run_cli_output(
                 ["upgrade", str(target), "--check-after", "--json"]
@@ -1514,9 +1546,11 @@ class CliTests(unittest.TestCase):
             self.assertIn("4. `active/Task_Plan.md`", agents_text)
             self.assertIn("5. `active/Current_Task.md`", agents_text)
             self.assertIn("Knowledge 草案", agents_text)
+            self.assertEqual(agents_text.count("reference/Context_Curation_Prompt.md"), 1)
             manual_text = manual.read_text(encoding="utf-8")
             self.assertIn("旧版本上下文升级", manual_text)
             self.assertIn("acf plan init|add-task|set-task|focus|complete|status", manual_text)
+            self.assertTrue((target / "reference" / "Context_Curation_Prompt.md").exists())
             self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
 
     def test_upgrade_refreshes_existing_stale_template_sections(self):

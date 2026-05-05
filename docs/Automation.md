@@ -136,7 +136,7 @@
 
 ### 阶段 6：事实与注意力治理
 
-状态：P0 规则层已落地；P1 的 `review stale`、`curate draft` 最小版和 upgrade compatibility runner 已实现；`curate draft` 后续增强仍保留为路线。
+状态：P0 规则层已落地；P1 的 `review stale`、`curate draft` 最小版、upgrade compatibility runner 和 Context Curation Prompt Template 已实现；`curate draft` 后续增强仍保留为路线。
 
 目标不是保存更多上下文，而是持续维护一个低噪声、高权威、任务相关的默认注意力入口。
 
@@ -157,6 +157,7 @@ P1 命令：
 - 已实现：`acf review stale` 的 clean 状态和 `next_actions` 精炼；无 stale candidate 时明确报告 clean，有候选时按 `kind` 给出低风险机械下一步建议。
 - 已实现：`acf curate draft` 最小版只消费 `review stale` 的结构化 stale signals，生成 `worklog/curation-drafts/` 下的可审阅注意力治理草案；无候选时不创建空草案，同名草案已存在时安全拒绝。
 - 已实现：upgrade compatibility runner，以 `tests/fixtures/upgrade_matrix/` 的最小旧形态 fixture 验证旧项目可以升级到当前工具可治理状态，而不是自动变干净；quick 模式随单元测试运行，full 模式作为 release 前扩展检查。
+- 已实现：`reference/Context_Curation_Prompt.md` 作为按需读取的上下文整理 prompt 模板，帮助 AI 输出整理建议；它不是默认 active 规则，也不是 CLI 自动语义清理能力。
 - 后续增强：`acf curate draft` 可再考虑基于 changed files、`active/`、索引文件和最近 N 天 worklog 生成更丰富整理草案，列出疑似重复事实、疑似陈旧 active 内容、已完成但未归档任务、已处理但仍留在 inbox 的内容，以及可能应升格到 Context / Knowledge / ADR 的近期结论。
 
 暂缓：

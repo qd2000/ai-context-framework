@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.24"
+VERSION = "v0.0.3.25"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -82,6 +82,7 @@ STANDARD_FILES = (
     "reference/Tech_Context.md",
     "reference/Decisions_Index.md",
     "reference/Knowledge_Index.md",
+    "reference/Context_Curation_Prompt.md",
     "reference/Sources_Index.md",
     "reference/sources/.gitkeep",
     "reference/knowledge/.gitkeep",
@@ -122,6 +123,7 @@ MINIMAL_FILES = (
     "reference/Project_Brief.md",
     "reference/Decisions_Index.md",
     "reference/Knowledge_Index.md",
+    "reference/Context_Curation_Prompt.md",
     "reference/Sources_Index.md",
     "reference/knowledge/.gitkeep",
     "worklog/Worklog_Index.md",
@@ -288,6 +290,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 | 需要了解近期进展 | `worklog/Worklog_Index.md` |
 | 涉及外部资料来源 | `reference/Sources_Index.md` |
 | 需要追溯可复用经验 | `reference/Knowledge_Index.md` -> `reference/knowledge/*.md` |
+| 需要整理、归纳、精简上下文 | `reference/Context_Curation_Prompt.md` |
 
 ---
 
@@ -3559,6 +3562,33 @@ def replace_section_from_template(text: str, rel_path: str, heading: str) -> str
     return replace_section_text(text, heading, body)
 
 
+def add_context_curation_prompt_entry(text: str) -> str:
+    if "reference/Context_Curation_Prompt.md" in text:
+        return text
+    if UPGRADE_NOTES_START in text:
+        return text
+    row = "| 需要整理、归纳、精简上下文 | `reference/Context_Curation_Prompt.md` |"
+    sentence = "需要整理、归纳、精简上下文时，按需读取 `reference/Context_Curation_Prompt.md`。"
+    system_manual_row = "| 需要了解系统详细用法 | `reference/System_Manual.md` |"
+    knowledge_row_arrow = "| 需要追溯可复用经验 | `reference/Knowledge_Index.md` → `reference/knowledge/*.md` |"
+    knowledge_row_ascii = "| 需要追溯可复用经验 | `reference/Knowledge_Index.md` -> `reference/knowledge/*.md` |"
+    if system_manual_row in text:
+        return text.replace(system_manual_row, f"{row}\n{system_manual_row}")
+    if knowledge_row_arrow in text:
+        return text.replace(knowledge_row_arrow, f"{knowledge_row_arrow}\n{row}")
+    if knowledge_row_ascii in text:
+        return text.replace(knowledge_row_ascii, f"{knowledge_row_ascii}\n{row}")
+    cli_boundary = "`acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。"
+    if cli_boundary in text:
+        return text.replace(cli_boundary, f"{cli_boundary}\n\n{sentence}")
+    cli_heading = "## CLI 辅助维护\n\n"
+    if cli_heading in text:
+        return text.replace(cli_heading, f"{cli_heading}{sentence}\n\n")
+    if "acf new" in text or "acf plan" in text:
+        return text.rstrip() + "\n\n" + sentence + "\n"
+    return text
+
+
 def upgraded_agents_text(text: str) -> str:
     original = text
     text = text.replace("## 会话结束回写要求", "## 会话结束回写建议")
@@ -3606,6 +3636,7 @@ def upgraded_agents_text(text: str) -> str:
             )
     if "archive/feedback" not in text and section_exists(text, "## 目录结构"):
         text = replace_section_from_template(text, "AGENTS.md", "## 目录结构")
+    text = add_context_curation_prompt_entry(text)
     if "active/Task_Plan.md" not in text and UPGRADE_NOTES_START not in text:
         text = append_upgrade_notes_if_needed(text, "agents")
     elif "acf plan" not in text and UPGRADE_NOTES_START not in text:
@@ -3672,6 +3703,22 @@ def upgraded_system_manual_text(text: str) -> str:
             text = text.replace(marker, insertion)
     if "注意力治理规则" not in text and section_exists(text, "## 13. 更新项目上下文的规则"):
         text = replace_section_from_template(text, "reference/System_Manual.md", "## 13. 更新项目上下文的规则")
+    if "Context_Curation_Prompt.md" not in text and "## 4. reference/ 使用规则" in text:
+        prompt_row = "| 需要整理、归纳、精简上下文 | `reference/Context_Curation_Prompt.md` |"
+        knowledge_row = "| 需要追溯可复用经验 | `reference/Knowledge_Index.md` |"
+        if knowledge_row in text:
+            text = text.replace(knowledge_row, f"{knowledge_row}\n{prompt_row}")
+        prompt_note = "`Context_Curation_Prompt.md` 是按需读取的 AI 整理提示词模板。它用于帮助 AI 归纳、精简、去重并提出上下文整理建议；默认产物是整理建议，不是文件修改。除非用户明确要求落盘，否则不要根据该 prompt 自动修改上下文文件。"
+        if prompt_note not in text and "不要默认读取所有 reference 文件。" in text:
+            text = text.replace(
+                "不要默认读取所有 reference 文件。",
+                "不要默认读取所有 reference 文件。\n\n" + prompt_note,
+            )
+    if "上下文整理提示词模板" not in text and "## 5. reference/ 文件含义" in text:
+        system_manual_line = "- **System_Manual.md**：本文件，系统详细使用手册。"
+        prompt_line = "- **Context_Curation_Prompt.md**：上下文整理提示词模板，仅在需要整理、归纳、精简上下文时按需读取；不进入默认读取路径。"
+        if system_manual_line in text:
+            text = text.replace(system_manual_line, f"{prompt_line}\n{system_manual_line}")
     if "旧版本上下文升级" not in text and "CLI 辅助工具" in text:
         insertion = """\n\n### 旧版本上下文升级\n\n推荐流程：`acf status --json` -> `acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。\n\n`upgrade` 只补齐缺失结构，不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。旧任务或旧计划需要归档时，升级后显式运行 `acf archive current-task` 或 `acf archive task-plan`；已处理反馈需要长期保存时整理到 `archive/feedback/`。\n"""
         text = text.rstrip() + insertion + "\n"
@@ -3691,6 +3738,7 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         root / "active" / "Task_Plan.md",
         root / "archive" / "Archive_Index.md",
         root / "reference" / "Knowledge_Index.md",
+        root / "reference" / "Context_Curation_Prompt.md",
         root / "archive" / "tasks" / ".gitkeep",
         root / "archive" / "plans" / ".gitkeep",
         root / "archive" / "feedback" / ".gitkeep",
@@ -3744,6 +3792,9 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
             path.write_text(render_archive_index(), encoding="utf-8")
         elif path.name == "Knowledge_Index.md":
             path.write_text(render_knowledge_index(), encoding="utf-8")
+        elif path.name == "Context_Curation_Prompt.md":
+            template_prompt = TEMPLATE_DIR / "reference" / "Context_Curation_Prompt.md"
+            path.write_text(read_text(template_prompt) if template_prompt.exists() else "", encoding="utf-8")
         else:
             path.write_text("", encoding="utf-8")
 
@@ -3780,6 +3831,7 @@ def upgrade_managed_paths(root: Path) -> list[Path]:
         root / "active" / "Task_Plan.md",
         root / "archive" / "Archive_Index.md",
         root / "reference" / "Knowledge_Index.md",
+        root / "reference" / "Context_Curation_Prompt.md",
         root / "archive" / "tasks" / ".gitkeep",
         root / "archive" / "plans" / ".gitkeep",
         root / "archive" / "feedback" / ".gitkeep",
@@ -3800,6 +3852,7 @@ def upgrade_detected_features(root: Path) -> list[str]:
         ("archive", root / "archive" / "Archive_Index.md"),
         ("feedback_archive", root / "archive" / "feedback"),
         ("knowledge", root / "reference" / "Knowledge_Index.md"),
+        ("context_curation_prompt", root / "reference" / "Context_Curation_Prompt.md"),
         ("system_manual", root / "reference" / "System_Manual.md"),
         ("workstreams", root / "active" / "Workstreams.md"),
     ]

@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.24` 是当前推荐的真实项目接入/升级版本，新增 upgrade compatibility runner，用风险驱动 fixtures 验证旧上下文可被非破坏式带到当前工具可治理状态。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.25` 是当前推荐的真实项目接入/升级版本，新增按需读取的 `reference/Context_Curation_Prompt.md`，用于帮助 AI 产出上下文整理建议，但不让 CLI 自动裁决或清理事实。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -45,6 +45,7 @@ template/
     Tech_Context.md      # 技术环境
     Decisions_Index.md   # 决策索引
     Knowledge_Index.md   # 可复用经验索引
+    Context_Curation_Prompt.md # 按需上下文整理 prompt
     Sources_Index.md     # 外部资料索引
     System_Manual.md     # 系统详细使用手册
   decisions/             # ADR 决策记录
@@ -210,7 +211,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.24 --dry-run --json
+acf version set v0.0.3.25 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```

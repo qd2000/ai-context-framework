@@ -49,11 +49,12 @@
 - `uv run acf plan status docs/ai --json`
 - `uv run acf review stale docs/ai --json`
 - `uv run acf curate draft docs/ai --dry-run --json`
+- 需要整理、归纳、精简上下文时，按需读取 `reference/Context_Curation_Prompt.md`；默认产物是整理建议，不是文件修改。
 - `uv run acf log feedback docs/ai --type Problem --source manual --text "实际使用反馈。" --json`
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf new worklog docs/ai --summary "补记一次上下文维护。" --append --dry-run --json`
 - `uv run acf version show --json`
-- `uv run acf version set v0.0.3.24 --dry-run --json`
+- `uv run acf version set v0.0.3.25 --dry-run --json`
 - `uv run python scripts/upgrade_matrix.py --mode quick`
 - `uv run python scripts/upgrade_matrix.py --mode full --acf uv run acf`
 

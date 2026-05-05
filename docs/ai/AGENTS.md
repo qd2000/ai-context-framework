@@ -59,6 +59,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 | 需要了解近期进展 | `worklog/Worklog_Index.md` |
 | 涉及外部资料来源 | `reference/Sources_Index.md` |
 | 需要追溯可复用经验 | `reference/Knowledge_Index.md` -> `reference/knowledge/*.md` |
+| 需要整理、归纳、精简上下文 | `reference/Context_Curation_Prompt.md` |
 
 ---
 

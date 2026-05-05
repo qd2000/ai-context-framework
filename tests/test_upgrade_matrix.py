@@ -18,6 +18,7 @@ class UpgradeMatrixTests(unittest.TestCase):
         self.assertIn("v00317_standard_legacy", fixtures)
         self.assertIn("customized_docs_marker_notes", fixtures)
         self.assertIn("curation_draft_collision", fixtures)
+        self.assertIn("missing_context_curation_prompt", fixtures)
 
     def test_full_upgrade_matrix_fixture_metadata_is_present(self):
         fixture_root = Path(__file__).resolve().parent / "fixtures" / "upgrade_matrix"

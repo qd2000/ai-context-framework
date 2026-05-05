@@ -129,10 +129,13 @@
 | 涉及技术实现、运行环境 | `reference/Tech_Context.md` |
 | 涉及外部资料来源 | `reference/Sources_Index.md` |
 | 需要追溯可复用经验 | `reference/Knowledge_Index.md` |
+| 需要整理、归纳、精简上下文 | `reference/Context_Curation_Prompt.md` |
 
 不要默认读取所有 reference 文件。
 
 如果需要资料详情，请先查看 `Sources_Index.md`，再读取 `reference/sources/` 下对应的资料笔记。
+
+`Context_Curation_Prompt.md` 是按需读取的 AI 整理提示词模板。它用于帮助 AI 归纳、精简、去重并提出上下文整理建议；默认产物是整理建议，不是文件修改。除非用户明确要求落盘，否则不要根据该 prompt 自动修改上下文文件。
 
 ---
 
@@ -141,6 +144,7 @@
 - **Project_Brief.md**：项目长期背景、目标、愿景、边界和非目标。不记录当前阶段目标。
 - **Decisions_Index.md**：重要决策索引，只记录摘要和 ADR 路径。
 - **Knowledge_Index.md**：可复用经验索引，只记录从历史材料中提炼出的模式、反例和判断方法。
+- **Context_Curation_Prompt.md**：上下文整理提示词模板，仅在需要整理、归纳、精简上下文时按需读取；不进入默认读取路径。
 - **Architecture.md**：项目架构说明，仅在涉及系统设计时读取。
 - **Tech_Context.md**：技术环境和约束，仅在涉及技术栈、兼容性时读取。
 - **Sources_Index.md**：外部资料索引，只保存摘要和路径，不保存大段原文。
@@ -335,7 +339,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf new adr [target] --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `acf writeback draft [target] --text "..."`：生成注意力治理式会话回写草案，供人工审阅后再决定是否写入权威上下文。
 - `acf version show --json`：查看 CLI、包配置和锁文件中的版本号。
-- `acf version set v0.0.3.24 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
+- `acf version set v0.0.3.25 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
 - `acf edit section get <file> --heading "## 标题"`：读取上下文根目录内某个 Markdown section 的正文。
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。

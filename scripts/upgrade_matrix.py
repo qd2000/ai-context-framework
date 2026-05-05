@@ -146,6 +146,11 @@ class UpgradeMatrixRunner:
             if text.count("<!-- ACF:UPGRADE-NOTES:START -->") > 1:
                 errors.append(f"{rel}: repeated upgrade notes marker")
 
+    def assert_expected_exists(self, fixture: dict[str, Any], context: Path, errors: list[str]) -> None:
+        for rel in fixture.get("expect_exists", []):
+            if not (context / rel).exists():
+                errors.append(f"{fixture['fixture']}: expected {rel} to exist after upgrade")
+
     def run_main_fixture(self, fixture: dict[str, Any], tmp: Path) -> dict[str, Any]:
         project = tmp / fixture["fixture"]
         acf_home = tmp / f"{fixture['fixture']}-acf-home"
@@ -214,6 +219,7 @@ class UpgradeMatrixRunner:
 
         self.assert_preserved(fixture, context, errors)
         self.assert_marker_notes_idempotent(context, errors)
+        self.assert_expected_exists(fixture, context, errors)
 
         return {
             "fixture": fixture["fixture"],

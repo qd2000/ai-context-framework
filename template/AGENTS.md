@@ -79,6 +79,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 | 涉及外部资料来源 | `reference/Sources_Index.md` |
 | 需要追溯可复用经验 | `reference/Knowledge_Index.md` → `reference/knowledge/*.md` |
 | 需要了解近期进展 | `worklog/Worklog_Index.md` → 最近 N 条 daily |
+| 需要整理、归纳、精简上下文 | `reference/Context_Curation_Prompt.md` |
 | 涉及项目通用约束 | `rules/Project_Rules.md` |
 | 涉及代码实现 | `rules/Coding_Rules.md` |
 | 涉及写作输出 | `rules/Writing_Rules.md` |

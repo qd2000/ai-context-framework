@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-context-framework"
-version = "0.0.3.24"
+version = "0.0.3.25"
 description = "Model-independent AI context framework templates and CLI."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -43,6 +43,7 @@ include-package-data = true
 ]
 "share/ai-context-framework/template/reference" = [
     "template/reference/Architecture.md",
+    "template/reference/Context_Curation_Prompt.md",
     "template/reference/Decisions_Index.md",
     "template/reference/Knowledge_Index.md",
     "template/reference/Project_Brief.md",

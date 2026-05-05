@@ -19,6 +19,7 @@ template/archive/plans/.gitkeep
 template/archive/tasks/.gitkeep
 template/decisions/ADR-0001-template.md
 template/reference/Architecture.md
+template/reference/Context_Curation_Prompt.md
 template/reference/Decisions_Index.md
 template/reference/Knowledge_Index.md
 template/reference/Project_Brief.md
