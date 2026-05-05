@@ -2223,6 +2223,101 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertIn("context_review:", stdout)
             self.assertIn("context_missing_review_marker", stdout)
 
+    def test_curate_draft_creates_reviewable_curation_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["curate", "draft", str(target), "--today", "2026-05-05", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["command"], "curate draft")
+            self.assertTrue(payload["created"])
+            self.assertEqual(payload["draft_path"], "worklog/curation-drafts/2026-05-05.md")
+            self.assertEqual(payload["changed_files"], ["worklog/curation-drafts/2026-05-05.md"])
+            self.assertGreater(payload["stale_summary"]["total"], 0)
+            self.assertTrue(payload["stale_items"])
+            draft = target / "worklog" / "curation-drafts" / "2026-05-05.md"
+            self.assertTrue(draft.exists())
+            text = draft.read_text(encoding="utf-8")
+            self.assertIn("# 注意力治理草案：2026-05-05", text)
+            self.assertIn("## context_review", text)
+            self.assertIn("- path: active/Context.md", text)
+            self.assertIn("- 人工复核：", text)
+
+    def test_curate_draft_dry_run_previews_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "curate",
+                    "draft",
+                    str(target),
+                    "--today",
+                    "2026-05-05",
+                    "--name",
+                    "session-curation",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["created"])
+            self.assertEqual(payload["draft_path"], "worklog/curation-drafts/session-curation.md")
+            self.assertEqual(payload["changed_files"], ["worklog/curation-drafts/session-curation.md"])
+            self.assertIn("planned_draft", payload)
+            self.assertFalse((target / "worklog" / "curation-drafts" / "session-curation.md").exists())
+
+    def test_curate_draft_clean_does_not_create_empty_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Context.md").write_text(
+                "## 审阅标记\n\n"
+                "- Last reviewed: 2026-05-05\n"
+                "- Review scope: 文件级。\n\n"
+                "## 当前有效事实\n\n- Fact.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["curate", "draft", str(target), "--today", "2026-05-05", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["stale_summary"]["total"], 0)
+            self.assertIsNone(payload["draft_path"])
+            self.assertFalse(payload["created"])
+            self.assertEqual(payload["changed_files"], [])
+            self.assertEqual(payload["next_actions"], ["No stale attention candidates found."])
+            self.assertFalse((target / "worklog" / "curation-drafts" / "2026-05-05.md").exists())
+
+    def test_curate_draft_refuses_existing_same_day_draft(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["curate", "draft", str(target), "--today", "2026-05-05", "--json"])
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["curate", "draft", str(target), "--today", "2026-05-05", "--json"]
+            )
+
+            self.assertEqual(exit_code, 3)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["command"], "curate draft")
+            self.assertEqual(payload["error_code"], "curation_draft_exists")
+            self.assertTrue(payload["next_actions"])
+
     def test_check_uses_discovered_context_when_path_is_omitted(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp) / "project"

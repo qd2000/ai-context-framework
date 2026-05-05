@@ -327,6 +327,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
 - `acf knowledge draft|apply|list|show|mark [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
 - `acf review stale [target]`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json`、`--days` 和 `--today`。
+- `acf curate draft [target]`：复用 `review stale` 的 stale candidates 生成 curation-drafts 目录下的日期命名注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days`、`--today` 和 `--name`。
 - `acf workstream init|status|list|add [target]` / `acf workstream show|set|block|cancel|merge-request|ready|done|claim|note WS001 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `acf new task [target] --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
 - `acf new source [target] --title "..." --type "..." --location "..." --relation "..."`：添加或更新资料索引行；重复资料标题需传入 `--force` 才能覆盖。
@@ -334,7 +335,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf new adr [target] --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `acf writeback draft [target] --text "..."`：生成注意力治理式会话回写草案，供人工审阅后再决定是否写入权威上下文。
 - `acf version show --json`：查看 CLI、包配置和锁文件中的版本号。
-- `acf version set v0.0.3.22 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
+- `acf version set v0.0.3.23 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
 - `acf edit section get <file> --heading "## 标题"`：读取上下文根目录内某个 Markdown section 的正文。
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。
@@ -383,6 +384,7 @@ uv run --project <ai-context-framework 路径> acf upgrade --dry-run --json
 - `acf check --json --strict`：获取机器可读的检查结果。
 - `acf workstream status|list|show --json`：获取机器可读的 Workstream 初始化状态、索引行和详情 metadata。
 - `acf review stale --json`：获取机器可读的 stale candidates；这些候选只表示默认注意力入口可能过期，不代表事实真假。JSON 顶层包含 `summary.total`、`summary.by_kind` 和 `summary.by_path`；每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
+- `acf curate draft --json`：把 `review stale` 的机器信号转换成可审阅治理草案；JSON 输出包含 `draft_path`、`created`、`stale_summary`、`stale_items`、`changed_files` 和 `next_actions`。该命令不读取 archive、不裁决语义、不修改权威上下文；无 stale candidate 时不创建空草案。
 - `acf edit section get ... --json`：获取机器可读的 section 正文和行号信息。
 - 写命令可追加 `--dry-run --json`：只预览 changed files，不实际落盘。
 - 写命令可追加 `--check-after`：落盘后自动运行 context check。

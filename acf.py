@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.22"
+VERSION = "v0.0.3.23"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -852,6 +852,8 @@ def write_next_actions(dry_run: bool, check_result: CheckResult | None, changed_
 
 
 def error_next_actions(error_code: str) -> list[str]:
+    if error_code == "curation_draft_exists":
+        return ["Review the existing curation draft; choose a different --name if a separate draft is needed."]
     if error_code == TARGET_EXISTS_APPEND_REQUIRED:
         return ["Rerun with `--append` to add an entry or `--force` to replace the daily worklog."]
     if error_code == APPEND_FORCE_CONFLICT:
@@ -918,6 +920,8 @@ def classify_cli_error(message: str) -> tuple[str, int]:
     for code in workstream_codes:
         if message.startswith(f"{code}:"):
             return code, EXIT_INPUT_ERROR
+    if message.startswith("curation_draft_exists:"):
+        return "curation_draft_exists", EXIT_SAFETY_REFUSED
     safety_markers = (
         "already exists",
         "already contains",
@@ -1071,7 +1075,7 @@ def write_command_context_root(args: argparse.Namespace) -> Path | None:
         }:
             return require_context_root(getattr(args, "path", None))
         return None
-    if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "knowledge"}:
+    if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "knowledge", "curate"}:
         return require_context_root(getattr(args, "path", None))
     if command == "edit":
         return require_context_root(getattr(args, "context", None))
@@ -1510,6 +1514,8 @@ def command_label(args: argparse.Namespace) -> str:
         return f"knowledge {getattr(args, 'knowledge_command', '')}".strip()
     if command == "review":
         return f"review {getattr(args, 'review_command', '')}".strip()
+    if command == "curate":
+        return f"curate {getattr(args, 'curate_command', '')}".strip()
     if command == "workstream":
         return f"workstream {getattr(args, 'workstream_command', '')}".strip()
     return command
@@ -6139,6 +6145,16 @@ def review_stale_summary(stale_items: Sequence[dict[str, object]]) -> dict[str, 
     }
 
 
+def collect_review_stale_items(root: Path, days: int, today_value: date) -> list[dict[str, object]]:
+    stale_items: list[dict[str, object]] = []
+    stale_items.extend(review_current_task_stale(root, days, today_value))
+    stale_items.extend(review_task_plan_stale(root))
+    stale_items.extend(review_feedback_stale(root, days, today_value))
+    stale_items.extend(review_context_stale(root, days, today_value))
+    stale_items.extend(review_knowledge_stale(root, days, today_value))
+    return stale_items
+
+
 def review_stale_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     if args.days <= 0:
@@ -6146,12 +6162,7 @@ def review_stale_command(args: argparse.Namespace) -> int:
     today_value = parse_iso_date_value(args.today) if args.today else date.today()
     if today_value is None:
         raise SystemExit("invalid --today date")
-    stale_items: list[dict[str, object]] = []
-    stale_items.extend(review_current_task_stale(root, args.days, today_value))
-    stale_items.extend(review_task_plan_stale(root))
-    stale_items.extend(review_feedback_stale(root, args.days, today_value))
-    stale_items.extend(review_context_stale(root, args.days, today_value))
-    stale_items.extend(review_knowledge_stale(root, args.days, today_value))
+    stale_items = collect_review_stale_items(root, args.days, today_value)
     warnings = [str(item["reason"]) for item in stale_items]
     payload: dict[str, object] = {
         "command": "review stale",
@@ -6184,6 +6195,140 @@ def review_stale_command(args: argparse.Namespace) -> int:
         for action in payload["next_actions"]:
             print(f"next: {action}")
     return 0
+
+
+def curation_draft_path(root: Path, draft_date: date, name: str | None) -> Path:
+    draft_name = f"{name}.md" if name else f"{draft_date.isoformat()}.md"
+    return root / "worklog" / "curation-drafts" / draft_name
+
+
+def markdown_value(value: object) -> str:
+    if value is None:
+        return "null"
+    text = str(value)
+    return text if text else "null"
+
+
+def render_curation_draft(
+    draft_date: date,
+    days: int,
+    stale_items: Sequence[dict[str, object]],
+    summary: dict[str, object],
+) -> str:
+    lines: list[str] = [
+        f"# 注意力治理草案：{draft_date.isoformat()}",
+        "",
+        "## 摘要",
+        "",
+        f"- stale candidates: {summary.get('total', len(stale_items))}",
+        "- generated from: acf review stale",
+        f"- days threshold: {days}",
+        "",
+    ]
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for item in stale_items:
+        grouped.setdefault(str(item.get("kind") or "unknown"), []).append(item)
+    for kind in sorted(grouped):
+        lines.extend([f"## {kind}", ""])
+        for index, item in enumerate(grouped[kind], start=1):
+            lines.extend(
+                [
+                    f"### 候选 {index}",
+                    "",
+                    f"- path: {markdown_value(item.get('path'))}",
+                    f"- signal: {markdown_value(item.get('signal'))}",
+                    f"- reason: {markdown_value(item.get('reason'))}",
+                    f"- age_days: {markdown_value(item.get('age_days'))}",
+                    f"- status: {markdown_value(item.get('status'))}",
+                    f"- suggested_action: {markdown_value(item.get('suggested_action'))}",
+                    "- 人工复核：",
+                    "- 建议处理：保留 / 更新 / 归档 / 关闭 / 生成 writeback draft",
+                    "",
+                ]
+            )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def curate_draft_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    if args.days <= 0:
+        raise SystemExit("--days must be greater than 0")
+    today_value = parse_iso_date_value(args.today) if args.today else date.today()
+    if today_value is None:
+        raise SystemExit("invalid --today date")
+    stale_items = collect_review_stale_items(root, args.days, today_value)
+    stale_summary = review_stale_summary(stale_items)
+    draft_path = curation_draft_path(root, today_value, args.name)
+    rel_draft_path = relative_display_path(draft_path, root)
+    dry_run = dry_run_enabled(args)
+    changed_files: list[Path] = []
+    created = False
+    message: str
+
+    if not stale_items:
+        message = "curate draft: clean; no stale candidates, no draft created"
+    else:
+        if draft_path.exists() and not dry_run:
+            payload = {
+                "command": "curate draft",
+                "ok": False,
+                "error_code": "curation_draft_exists",
+                "draft_path": rel_draft_path,
+                "created": False,
+                "stale_summary": stale_summary,
+                "stale_items": stale_items,
+                "changed_files": [],
+                "message": f"curation draft already exists: {rel_draft_path}",
+                "next_actions": error_next_actions("curation_draft_exists"),
+            }
+            set_result_payload(args, payload)
+            if json_enabled(args):
+                print_json(payload)
+            else:
+                print(f"ERROR: {payload['message']}", file=sys.stderr)
+            return EXIT_SAFETY_REFUSED
+        changed_files = [draft_path]
+        message = f"would create curation draft {rel_draft_path}" if dry_run else f"created curation draft {rel_draft_path}"
+        if not dry_run:
+            draft_path.parent.mkdir(parents=True, exist_ok=True)
+            draft_path.write_text(
+                render_curation_draft(today_value, args.days, stale_items, stale_summary),
+                encoding="utf-8",
+            )
+            created = True
+
+    check_result = maybe_check_after(args, root)
+    payload: dict[str, object] = {
+        "command": "curate draft",
+        "ok": check_result.ok if check_result is not None else True,
+        "error_code": check_error_code(check_result),
+        "dry_run": dry_run,
+        "draft_path": rel_draft_path if stale_items else None,
+        "created": created,
+        "stale_summary": stale_summary,
+        "stale_items": stale_items,
+        "changed_files": [relative_display_path(path, root) for path in changed_files],
+        "message": message,
+        "next_actions": write_next_actions(dry_run, check_result, changed_files)
+        if stale_items
+        else review_stale_next_actions(stale_items),
+    }
+    if dry_run and stale_items:
+        payload["planned_draft"] = render_curation_draft(today_value, args.days, stale_items, stale_summary)
+    if check_result is not None:
+        payload["check"] = check_payload(check_result)
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(message)
+        if stale_items:
+            label = "would change" if dry_run else "changed"
+            for changed_file in changed_files:
+                print(f"{label}: {relative_display_path(changed_file, root)}")
+        for action in payload["next_actions"]:
+            print(f"next: {action}")
+    return 0 if check_result is None or check_result.ok else 1
 
 
 def iter_markdown_files(root: Path) -> Iterable[Path]:
@@ -7405,6 +7550,17 @@ def build_parser() -> argparse.ArgumentParser:
     review_stale_parser.add_argument("--today", type=validate_date, default=None, help="override today's date for deterministic checks")
     add_json_argument(review_stale_parser)
     review_stale_parser.set_defaults(func=review_stale_command)
+
+    curate_parser = subparsers.add_parser("curate", help="create attention governance drafts")
+    curate_subparsers = curate_parser.add_subparsers(dest="curate_command", required=True)
+
+    curate_draft_parser = curate_subparsers.add_parser("draft", help="draft curation notes from review stale signals")
+    curate_draft_parser.add_argument("path", nargs="?", type=Path)
+    curate_draft_parser.add_argument("--days", type=int, default=DEFAULT_STALE_DAYS, help="age threshold in days")
+    curate_draft_parser.add_argument("--today", type=validate_date, default=None, help="override today's date for deterministic drafts")
+    curate_draft_parser.add_argument("--name", type=validate_draft_name, default=None, help="draft file name without .md")
+    add_write_arguments(curate_draft_parser)
+    curate_draft_parser.set_defaults(func=curate_draft_command)
 
     new_parser = subparsers.add_parser("new", help="create context entries")
     new_subparsers = new_parser.add_subparsers(dest="entry_type", required=True)

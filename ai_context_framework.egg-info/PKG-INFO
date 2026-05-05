@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.22
+Version: 0.0.3.23
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.22` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.21 的 `acf review stale` 稳定 JSON 输出契约，并精炼 clean 状态和按 kind 生成的机械 `next_actions`。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.23` 是当前推荐的真实项目接入/升级版本，新增 `acf curate draft` 最小版：只消费 `review stale` 的机械信号并生成可审阅注意力治理草案，不判断事实真假、不修改权威上下文。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -184,6 +184,7 @@ acf archive current-task --reason "任务已完成"
 acf knowledge draft --title "任务拆分经验" --source "worklog/daily/YYYY-MM-DD.md"
 acf knowledge apply worklog/knowledge-drafts/YYYY-MM-DD-task.md --allow-similar
 acf review stale --json
+acf curate draft --dry-run --json
 acf workstream status --json
 acf workstream init --dry-run --json
 acf workstream add --id WS002 --title "并行线" --owner "主 agent" --goal "验证并行目标线。" --output "验证记录"
@@ -216,7 +217,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.22 --dry-run --json
+acf version set v0.0.3.23 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -236,6 +237,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
 - `review stale`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json` 和 `--days`。JSON 输出包含 `summary.total`、`summary.by_kind`、`summary.by_path`，每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
+- `curate draft`：复用 `review stale` 的 stale candidates 生成 `worklog/curation-drafts/YYYY-MM-DD.md` 注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days` 和 `--name`。
 - `workstream init|status|list|show|add|set|block|cancel|merge-request|ready|done|claim|note`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
@@ -250,7 +252,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 
-`status`、`check`、`workstream status|list|show` 和 `edit section get` 支持 `--json` 输出。写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
+`status`、`check`、`review stale`、`workstream status|list|show` 和 `edit section get` 支持 `--json` 输出。`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
 
 `edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它提供的是 section/table 级确定性编辑原语，不做语义判断，也不是通用 Markdown 编辑器。
 
