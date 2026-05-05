@@ -135,7 +135,7 @@
 
 ### 阶段 6：事实与注意力治理
 
-状态：P0 规则层已落地；P1 的 `review stale` 已实现第一版，`curate draft` 待实现。
+状态：P0 规则层已落地；P1 的 `review stale` 与 `curate draft` 最小版已实现；`curate draft` 后续增强仍保留为路线。
 
 目标不是保存更多上下文，而是持续维护一个低噪声、高权威、任务相关的默认注意力入口。
 
@@ -155,7 +155,7 @@ P1 命令：
 - 已实现：`acf review stale --json` 输出契约增强，提供稳定 `kind`、`reason`、`age_days`、`status`、`suggested_action` 字段和 `summary.by_kind` / `summary.by_path` 汇总。
 - 已实现：`acf review stale` 的 clean 状态和 `next_actions` 精炼；无 stale candidate 时明确报告 clean，有候选时按 `kind` 给出低风险机械下一步建议。
 - 已实现：`acf curate draft` 最小版只消费 `review stale` 的结构化 stale signals，生成 `worklog/curation-drafts/` 下的可审阅注意力治理草案；无候选时不创建空草案，同名草案已存在时安全拒绝。
-- 待实现：`acf curate draft` 后续增强再考虑基于 changed files、`active/`、索引文件和最近 N 天 worklog 生成更丰富整理草案，列出疑似重复事实、疑似陈旧 active 内容、已完成但未归档任务、已处理但仍留在 inbox 的内容，以及可能应升格到 Context / Knowledge / ADR 的近期结论。
+- 后续增强：`acf curate draft` 可再考虑基于 changed files、`active/`、索引文件和最近 N 天 worklog 生成更丰富整理草案，列出疑似重复事实、疑似陈旧 active 内容、已完成但未归档任务、已处理但仍留在 inbox 的内容，以及可能应升格到 Context / Knowledge / ADR 的近期结论。
 
 暂缓：
 
