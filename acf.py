@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.19"
+VERSION = "v0.0.3.20"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -3657,10 +3657,12 @@ def upgraded_system_manual_text(text: str) -> str:
     if "PowerShell 中反引号是转义字符" not in text:
         text = text.rstrip() + "\n\nPowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。\n"
     if "Feedback_Inbox 生命周期" not in text and section_exists(text, "## 1. active/ 使用规则"):
-        body = template_section_body("reference/System_Manual.md", "### 1.1 Feedback_Inbox 生命周期")
+        body = template_section_body("reference/System_Manual.md", "### 1.2 Feedback_Inbox 生命周期")
+        if body is None:
+            body = template_section_body("reference/System_Manual.md", "### 1.1 Feedback_Inbox 生命周期")
         if body is not None:
             marker = "\n---\n\n## 2. rules/ 读取策略"
-            insertion = f"\n### 1.1 Feedback_Inbox 生命周期\n\n{body}\n\n---\n\n## 2. rules/ 读取策略"
+            insertion = f"\n### 1.2 Feedback_Inbox 生命周期\n\n{body}\n\n---\n\n## 2. rules/ 读取策略"
             text = text.replace(marker, insertion)
     if "注意力治理规则" not in text and section_exists(text, "## 13. 更新项目上下文的规则"):
         text = replace_section_from_template(text, "reference/System_Manual.md", "## 13. 更新项目上下文的规则")

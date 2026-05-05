@@ -34,7 +34,28 @@
 8. 不要把历史过程、旧方案、原始日志写入 `active/`。
 9. 写入 `active/` 前先判断唯一权威位置；能更新旧表述时，不追加重复事实。
 
-### 1.1 Feedback_Inbox 生命周期
+### 1.1 Context 审阅标记
+
+`active/Context.md` 推荐保留文件级或 section 级审阅标记，用于 `acf review stale` 机械判断默认事实入口是否可能过期。
+
+最小格式：
+
+```markdown
+## 审阅标记
+
+- Last reviewed: YYYY-MM-DD
+- Review scope: 文件级；确认当前目标、当前事实、约束和开放问题仍适合作为默认注意力入口。
+```
+
+也可以使用中文标签：
+
+```markdown
+- 上次审阅：YYYY-MM-DD
+```
+
+该标记只表示“已审阅过默认注意力入口”，不表示每条事实都已逐条重新验证；不要求为每条事实添加 ID 或 reviewed 字段。
+
+### 1.2 Feedback_Inbox 生命周期
 
 `active/Feedback_Inbox.md` 用于接住尚未整理的人工反馈，不是最终事实源。
 
@@ -313,7 +334,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf new adr [target] --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `acf writeback draft [target] --text "..."`：生成注意力治理式会话回写草案，供人工审阅后再决定是否写入权威上下文。
 - `acf version show --json`：查看 CLI、包配置和锁文件中的版本号。
-- `acf version set v0.0.3.19 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
+- `acf version set v0.0.3.20 --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
 - `acf edit section get <file> --heading "## 标题"`：读取上下文根目录内某个 Markdown section 的正文。
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。

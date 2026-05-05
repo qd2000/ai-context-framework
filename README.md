@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.19` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.18 的事实与注意力治理规则，并新增只读 `acf review stale`，用于机械发现默认注意力入口的过期候选。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.20` 是当前推荐的真实项目接入/升级版本，继承 v0.0.3.19 的只读 `acf review stale`，并新增 Context 文件级审阅标记最小规范。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -209,7 +209,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.19 --dry-run --json
+acf version set v0.0.3.20 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```

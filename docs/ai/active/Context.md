@@ -6,6 +6,13 @@
 
 ---
 
+## 审阅标记
+
+- Last reviewed: 2026-05-05
+- Review scope: 文件级；确认本文件仍适合作为当前阶段目标、当前事实、约束和开放问题的默认注意力入口。
+
+---
+
 ## 当前阶段
 
 Dogfooding MVP / 框架稳定化。
@@ -99,7 +106,7 @@ Dogfooding MVP / 框架稳定化。
 51. Feedback_Inbox 生命周期已明确：Open/Triaged/Planned/Done/Rejected 各有处理规则，Done/Rejected 需要证据位置或拒绝原因，长期已处理反馈归档到 `archive/feedback/`。
 52. `acf init` 和 `acf upgrade` 已补齐 `archive/feedback/` 目录；旧上下文升级会非破坏式补齐反馈归档结构。
 53. T002-T005 已完成验证：`uv run acf check template`、`uv run acf check docs/ai --strict --json`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf version show --json` 和 `uv run python -m unittest` 均通过。
-54. `acf --version` 当前版本记为 `v0.0.3.19`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.19`。
+54. `acf --version` 当前版本记为 `v0.0.3.20`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.20`。
 55. 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，必须评估旧版本上下文升级兼容性；新增结构应同步到 init 文件清单、upgrade 补齐清单、data-files、文档和 init/upgrade 测试。
 56. `acf upgrade --help` 已明确当前 schema 会补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge；旧上下文升级演练已验证 dry-run、正式 upgrade --check-after 和 check 均可通过。
 57. `acf upgrade` 已支持对已存在但内容过期的 ACF 模板文件做保守 section 级迁移：AGENTS、Feedback_Inbox、Project_Rules 和 System_Manual 会在识别到旧段落时更新；无法识别的自定义文档仍通过 marker notes 非破坏式提示。
@@ -124,6 +131,8 @@ Dogfooding MVP / 框架稳定化。
 73. 阶段 6「事实与注意力治理」P0 已进入产品化：模板、dogfooding 入口、Always_Active、System Manual、README、Automation 和 `writeback draft` 草案结构均强调默认注意力入口、唯一权威位置、replace 优先、历史默认不可见和 curation draft 不进入默认读取路径；P1 的 `review stale` 已实现第一版，`curate draft` 仍是待实现候选命令。
 
 74. `acf review stale` 已实现只读机械检查：覆盖 `active/Current_Task.md`、`active/Task_Plan.md`、`active/Feedback_Inbox.md`、`active/Context.md`、`reference/Knowledge_Index.md` 和 `worklog/knowledge-drafts/`，输出 `stale_items` 和 `warnings`，不做语义裁决、不写文件、不读取 archive 或全量 worklog。
+
+75. Context 文件级审阅标记最小规范已落地：模板和 dogfooding `active/Context.md` 使用 `## 审阅标记` + `Last reviewed: YYYY-MM-DD`，`acf review stale` 可据此消除缺少审阅标记的机械候选；该规范不要求条目级事实 ID。
 
 ---
 

@@ -2128,6 +2128,32 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertIn("context_review_stale", signals)
             self.assertIn("knowledge_draft_stale", signals)
 
+    def test_review_stale_accepts_context_review_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Context.md").write_text(
+                "## 审阅标记\n\n"
+                "- Last reviewed: 2026-05-05\n"
+                "- Review scope: 文件级。\n\n"
+                "## 当前有效事实\n\n- Fact.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["review", "stale", str(target), "--today", "2026-05-05", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            context_signals = [
+                item["signal"]
+                for item in payload["stale_items"]
+                if item["path"] == "active/Context.md"
+            ]
+            self.assertNotIn("context_missing_review_marker", context_signals)
+            self.assertNotIn("context_review_stale", context_signals)
+
     def test_check_uses_discovered_context_when_path_is_omitted(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp) / "project"
