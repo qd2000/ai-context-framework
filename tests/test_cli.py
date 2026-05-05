@@ -1345,6 +1345,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("acf upgrade", text)
         self.assertIn("旧版本上下文", text)
         self.assertIn("init/upgrade 测试", text)
+        self.assertIn("upgrade compatibility runner", text)
 
     def test_init_minimal_creates_checkable_context(self):
         with tempfile.TemporaryDirectory() as tmp:

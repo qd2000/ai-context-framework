@@ -1,0 +1,14 @@
+{
+  "source_version": "v0.0.3.20",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["standard", "context_review_marker"],
+  "intent": "Represent the first Context file-level review marker version.",
+  "expected_upgrade_behavior": "Upgrade remains idempotent and review stale treats the fresh marker as clean.",
+  "files": {
+    "active/Context.md": "本文件记录当前阶段事实。\n\n## 审阅标记\n\n- Last reviewed: 2026-05-05\n- Review scope: 文件级。\n\n## 当前有效事实\n\n- 已有文件级审阅标记。\n"
+  },
+  "expect_stale": false
+}

@@ -1,0 +1,11 @@
+{
+  "source_version": "v0.0.3.22",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["standard", "clean_next_actions"],
+  "intent": "Represent the review stale clean next_actions release before curate draft existed.",
+  "expected_upgrade_behavior": "Upgrade is idempotent and curate draft dry-run does not create a file when review stale is clean.",
+  "expect_stale": false
+}

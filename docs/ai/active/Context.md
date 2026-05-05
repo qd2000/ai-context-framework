@@ -106,8 +106,8 @@ Dogfooding MVP / 框架稳定化。
 51. Feedback_Inbox 生命周期已明确：Open/Triaged/Planned/Done/Rejected 各有处理规则，Done/Rejected 需要证据位置或拒绝原因，长期已处理反馈归档到 `archive/feedback/`。
 52. `acf init` 和 `acf upgrade` 已补齐 `archive/feedback/` 目录；旧上下文升级会非破坏式补齐反馈归档结构。
 53. T002-T005 已完成验证：`uv run acf check template`、`uv run acf check docs/ai --strict --json`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf version show --json` 和 `uv run python -m unittest` 均通过。
-54. `acf --version` 当前版本记为 `v0.0.3.23`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.23`。
-55. 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，必须评估旧版本上下文升级兼容性；新增结构应同步到 init 文件清单、upgrade 补齐清单、data-files、文档和 init/upgrade 测试。
+54. `acf --version` 当前版本记为 `v0.0.3.24`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.24`。
+55. 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，必须评估旧版本上下文升级兼容性；新增结构应同步到 init 文件清单、upgrade 补齐清单、data-files、文档、init/upgrade 测试和 upgrade compatibility runner。
 56. `acf upgrade --help` 已明确当前 schema 会补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge；旧上下文升级演练已验证 dry-run、正式 upgrade --check-after 和 check 均可通过。
 57. `acf upgrade` 已支持对已存在但内容过期的 ACF 模板文件做保守 section 级迁移：AGENTS、Feedback_Inbox、Project_Rules 和 System_Manual 会在识别到旧段落时更新；无法识别的自定义文档仍通过 marker notes 非破坏式提示。
 58. Workstream 可选层的 T002 读取规则已通过 dogfooding 明确：`init`/`upgrade` 默认不启用 Workstream；仅当存在 Active、Blocked 或 ReadyToMerge workstream，或需要整理并行协作时，才按需读取 Workstreams 索引。
@@ -139,6 +139,8 @@ Dogfooding MVP / 框架稳定化。
 77. `acf review stale` 已精炼 clean 状态与 `next_actions`：无 stale candidate 时明确报告 clean，有候选时按 `kind` 给出低风险机械下一步建议；这些建议仍不做事实真假判断、不触发写入。
 
 78. `acf curate draft` 最小版已实现为 `review stale` 的机械下游：只消费 stale signal，生成 curation-drafts 目录下的日期命名可审阅注意力治理草案；无 stale candidate 时不创建空草案，同名草案已存在时安全拒绝，不读取 archive、不判断事实真假、不修改权威上下文。
+
+79. 阶段 6 P1.5 已新增 upgrade compatibility runner：`scripts/upgrade_matrix.py` 使用 `tests/fixtures/upgrade_matrix/` 中的风险驱动最小旧形态 fixture，验证旧项目可被非破坏式带到当前工具可治理状态；quick 模式随单元测试运行，full 模式用于 release 前扩展检查。该 runner 同时暴露并修复了旧 AGENTS 与旧 System Manual 需要二次 upgrade 才完成 marker notes / 手册提示补齐的幂等性问题。
 
 ---
 

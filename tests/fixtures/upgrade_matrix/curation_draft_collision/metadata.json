@@ -1,0 +1,14 @@
+{
+  "source_version": "v0.0.3.23",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": true,
+  "scenario": "curation_collision",
+  "risk_tags": ["curate_draft", "stale_signal", "draft_collision"],
+  "intent": "Verify actual curate draft creation is isolated from the main upgrade path and same-day reruns safely refuse.",
+  "expected_upgrade_behavior": "First curate draft creates a reviewable draft; second same-name run returns curation_draft_exists.",
+  "files": {
+    "active/Context.md": "本文件记录当前阶段事实。\n\n## 当前有效事实\n\n- 缺少 Last reviewed 标记以触发 context_review signal。\n"
+  },
+  "expect_stale": true
+}

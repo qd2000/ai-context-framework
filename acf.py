@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.23"
+VERSION = "v0.0.3.24"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -3608,7 +3608,7 @@ def upgraded_agents_text(text: str) -> str:
         text = replace_section_from_template(text, "AGENTS.md", "## 目录结构")
     if "active/Task_Plan.md" not in text and UPGRADE_NOTES_START not in text:
         text = append_upgrade_notes_if_needed(text, "agents")
-    elif text == original and "acf plan" not in text and UPGRADE_NOTES_START not in text:
+    elif "acf plan" not in text and UPGRADE_NOTES_START not in text:
         text = append_upgrade_notes_if_needed(text, "agents")
     return text
 
@@ -3624,9 +3624,9 @@ def upgraded_feedback_inbox_text(text: str) -> str:
 
 
 def upgraded_project_rules_text(text: str) -> str:
-    if "旧版本上下文" in text and "`acf upgrade`" in text and "init/upgrade" in text:
+    if "旧版本上下文" in text and "`acf upgrade`" in text and "upgrade compatibility" in text:
         return text
-    addition = "- 修改模板目录结构、默认上下文结构或 `acf upgrade` 补齐逻辑时，必须评估旧版本上下文能否通过 `acf upgrade` 良好升级；新增结构应同步到 upgrade 文件清单、打包清单、文档和 init/upgrade 测试。"
+    addition = "- 修改模板目录结构、默认上下文结构或 `acf upgrade` 补齐逻辑时，必须评估旧版本上下文能否通过 `acf upgrade` 良好升级；新增结构应同步到 upgrade 文件清单、打包清单、文档、init/upgrade 测试和 upgrade compatibility runner。"
     return text.rstrip() + "\n" + addition + "\n"
 
 
@@ -3672,11 +3672,16 @@ def upgraded_system_manual_text(text: str) -> str:
             text = text.replace(marker, insertion)
     if "注意力治理规则" not in text and section_exists(text, "## 13. 更新项目上下文的规则"):
         text = replace_section_from_template(text, "reference/System_Manual.md", "## 13. 更新项目上下文的规则")
+    if "旧版本上下文升级" not in text and "CLI 辅助工具" in text:
+        insertion = """\n\n### 旧版本上下文升级\n\n推荐流程：`acf status --json` -> `acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。\n\n`upgrade` 只补齐缺失结构，不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。旧任务或旧计划需要归档时，升级后显式运行 `acf archive current-task` 或 `acf archive task-plan`；已处理反馈需要长期保存时整理到 `archive/feedback/`。\n"""
+        text = text.rstrip() + insertion + "\n"
     if "修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为" not in text and "旧版本上下文升级" in text:
-        addition = "\n\n维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档和 init/upgrade 单元测试；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。\n"
+        addition = "\n\n维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档、init/upgrade 单元测试和 upgrade compatibility runner；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。\n"
         text = text.rstrip() + addition
     if "acf upgrade [target]" not in text and UPGRADE_NOTES_START not in text:
         text = append_upgrade_notes_if_needed(text, "manual")
+    if "PowerShell 中反引号是转义字符" not in text:
+        text = text.rstrip() + "\n\nPowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。\n"
     return text
 
 

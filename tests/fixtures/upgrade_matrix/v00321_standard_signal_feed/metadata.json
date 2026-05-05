@@ -1,0 +1,11 @@
+{
+  "source_version": "v0.0.3.21",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["standard", "stable_review_stale_contract"],
+  "intent": "Represent the stable review stale JSON contract version.",
+  "expected_upgrade_behavior": "Upgrade is idempotent and governance commands remain clean on a current-shaped fixture.",
+  "expect_stale": false
+}

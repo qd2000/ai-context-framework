@@ -1,0 +1,32 @@
+{
+  "source_version": "v0.0.3.17",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": true,
+  "scenario": "main",
+  "risk_tags": ["standard", "missing_stage6_structure", "active_task_preservation", "old_agents", "old_manual"],
+  "intent": "Simulate a pre-stage-6 standard context with missing governance structures and an Active task that must not be overwritten.",
+  "expected_upgrade_behavior": "Upgrade creates missing structural files, refreshes recognized old docs, preserves Active Current_Task content, and leaves stale fact review to review stale / curate draft.",
+  "remove_paths": [
+    "active/Feedback_Inbox.md",
+    "active/Task_Plan.md",
+    "archive/Archive_Index.md",
+    "archive/feedback/.gitkeep",
+    "reference/Knowledge_Index.md",
+    "reference/knowledge/.gitkeep",
+    "worklog/knowledge-drafts/.gitkeep"
+  ],
+  "files": {
+    "AGENTS.md": "本文件告诉 AI 助手如何进入旧项目。\n\n## 默认读取顺序\n\n1. `active/Context.md`\n2. `rules/Always_Active.md`\n3. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）\n\n---\n\n## CLI 辅助维护\n\n- 新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时，优先考虑 `acf new`。\n",
+    "active/Context.md": "本文件记录旧项目当前事实。\n\n## 当前有效事实\n\n- 旧项目尚未引入 Last reviewed 审阅标记。\n",
+    "active/Current_Task.md": "## 当前任务状态\n\nActive\n\n## 任务名称\n\nKeep active task\n\n## 最近更新\n\n2026-04-01\n",
+    "reference/System_Manual.md": "## 14. CLI 辅助工具\n\n### 14.2 常用命令\n\n- `acf status`：查看状态。\n"
+  },
+  "preserve_contains": [
+    {
+      "path": "active/Current_Task.md",
+      "text": "Keep active task"
+    }
+  ],
+  "expect_stale": true
+}

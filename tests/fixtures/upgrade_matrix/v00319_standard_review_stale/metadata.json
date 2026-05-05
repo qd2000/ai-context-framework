@@ -1,0 +1,14 @@
+{
+  "source_version": "v0.0.3.19",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["standard", "review_stale_available", "context_review_marker_missing"],
+  "intent": "Represent a context after review stale exists but before Context review marker normalization.",
+  "expected_upgrade_behavior": "Upgrade does not invent a review marker; review stale reports a mechanical context_review signal.",
+  "files": {
+    "active/Context.md": "本文件记录当前阶段事实。\n\n## 当前有效事实\n\n- 该旧上下文缺少 Last reviewed 标记。\n"
+  },
+  "expect_stale": true
+}

@@ -1,0 +1,15 @@
+{
+  "source_version": "custom-old",
+  "profile": "minimal",
+  "seed_profile": "standard",
+  "quick": true,
+  "scenario": "main",
+  "risk_tags": ["customized_agents", "customized_system_manual", "marker_notes"],
+  "intent": "Verify highly customized docs receive marker notes instead of forced rewrites, and marker notes are not duplicated.",
+  "expected_upgrade_behavior": "Upgrade appends one marker block to custom AGENTS and System Manual, then becomes idempotent.",
+  "files": {
+    "AGENTS.md": "Custom project agent instructions without recognizable ACF sections.\n",
+    "reference/System_Manual.md": "Custom project manual without recognizable ACF sections.\n"
+  },
+  "expect_stale": false
+}
