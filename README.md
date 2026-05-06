@@ -30,8 +30,8 @@ template/
   active/                # 当前有效上下文（AI 默认读取）
     Context.md           # 当前阶段目标、事实、约束
     Feedback_Inbox.md    # 人工反馈、问题、需求和计划碎片
-    Task_Plan.md         # 当前大任务计划和轻量子任务板
-    Current_Task.md      # 当前具体小任务
+    Task_Plan.md         # 当前大任务计划、轻量子任务板和可选任务阶段表
+    Current_Task.md      # 当前具体小任务，可记录当前执行 Workstream
   rules/                 # 规则系统（分层加载）
     Always_Active.md     # 每次必须遵守的核心规则
     Project_Rules.md     # 项目级通用规则
@@ -225,7 +225,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `upgrade`：非破坏式补齐新版本上下文结构，包括反馈归档目录；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
-- `plan init|add-task|set-task|focus|status`：维护 `active/Task_Plan.md` 中的大任务和子任务板。
+- `plan init|add-task|set-task|focus|status`：维护 `active/Task_Plan.md` 中的大任务和子任务板；`Task_Plan.md` 可包含 `## 任务阶段` 表来注册 `T001.4` 这类阶段编号。
 - `plan complete`：在子任务完成后将大任务计划标记为 Done。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
@@ -240,7 +240,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为注意力治理草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
-- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、archive、Knowledge 和显式启用的 Workstream；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
+- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、任务阶段注册、archive、Knowledge 和显式启用的 Workstream；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
 - `log enable|disable|status|tail|summarize|feedback|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭；普通 usage event 不记录正文，显式 `log feedback --text/--input` 才记录人工反馈正文。
 - `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
 

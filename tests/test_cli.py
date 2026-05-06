@@ -1830,6 +1830,155 @@ class CliTests(unittest.TestCase):
             self.assertIn("## 大任务状态\n\nDone", plan_text)
             self.assertIn("## 当前焦点\n\n无。", plan_text)
 
+    def test_task_stage_registry_is_optional_without_stage_references(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+            self.run_cli(["task", "start", str(target), "--id", "T001"])
+
+            plan_path = target / "active" / "Task_Plan.md"
+            plan_path.write_text(
+                "## 大任务状态\n\nActive\n\n## 当前焦点\n\nT001\n\n## 子任务\n\n"
+                "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| T001 | Active | First | 无。 | 无。 | 无。 | next |\n",
+                encoding="utf-8",
+            )
+
+            result = acf.check_context(target, "minimal", strict=False)
+
+            self.assertFalse(result.errors)
+
+    def test_check_rejects_unregistered_current_task_stage_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001.4\n",
+                encoding="utf-8",
+            )
+
+            result = acf.check_context(target, "minimal", strict=False)
+
+            self.assertTrue(any("stage id `T001.4` does not exist" in error for error in result.errors))
+
+    def test_check_rejects_stage_with_missing_parent_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            plan_path = target / "active" / "Task_Plan.md"
+            plan_path.write_text(
+                plan_path.read_text(encoding="utf-8").replace(
+                    "| 暂无 |  |  |  |  |  |  |  |  |",
+                    "| T001.4 | Active | T001 | Stage | 无。 | 无。 | out | evidence | next |",
+                ),
+                encoding="utf-8",
+            )
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001.4\n",
+                encoding="utf-8",
+            )
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("parent task `T001` does not exist" in error for error in result.errors))
+
+    def test_check_rejects_stage_with_missing_workstream(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+            plan_path = target / "active" / "Task_Plan.md"
+            plan_path.write_text(
+                plan_path.read_text(encoding="utf-8").replace(
+                    "| 暂无 |  |  |  |  |  |  |  |  |",
+                    "| T001.4 | Active | T001 | Stage | WS004 | 无。 | out | evidence | next |",
+                ),
+                encoding="utf-8",
+            )
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("workstream `WS004` does not exist" in error for error in result.errors))
+
+    def test_check_rejects_terminal_workstream_as_current_execution_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"])
+            self.run_cli(
+                [
+                    "workstream",
+                    "merge-request",
+                    "WS004",
+                    str(target),
+                    "--target",
+                    "active/Context.md",
+                    "--summary",
+                    "summary",
+                    "--verification",
+                    "verified",
+                ]
+            )
+            self.run_cli(["workstream", "ready", "WS004", str(target)])
+            self.run_cli(["workstream", "done", "WS004", str(target), "--evidence", "done"])
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001\n\n## 当前执行线\n\nWS004\n",
+                encoding="utf-8",
+            )
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("current execution line references terminal workstream `WS004`" in error for error in result.errors))
+
+    def test_done_workstream_allowed_as_stage_history_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"])
+            self.run_cli(
+                [
+                    "workstream",
+                    "merge-request",
+                    "WS004",
+                    str(target),
+                    "--target",
+                    "active/Context.md",
+                    "--summary",
+                    "summary",
+                    "--verification",
+                    "verified",
+                ]
+            )
+            self.run_cli(["workstream", "ready", "WS004", str(target)])
+            self.run_cli(["workstream", "done", "WS004", str(target), "--evidence", "done"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal", "--force"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+            plan_path = target / "active" / "Task_Plan.md"
+            plan_path.write_text(
+                plan_path.read_text(encoding="utf-8").replace(
+                    "| 暂无 |  |  |  |  |  |  |  |  |",
+                    "| T001.4 | Active | T001 | Stage | 无。 | WS004 | out | active/workstreams/WS004.md | next |",
+                ),
+                encoding="utf-8",
+            )
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001.4\n\n## 当前执行线\n\n无。\n",
+                encoding="utf-8",
+            )
+
+            result = acf.check_context(target, "minimal", strict=False)
+
+            self.assertFalse(result.errors)
+
     def test_archive_current_task_and_task_plan_reset_active_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

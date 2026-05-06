@@ -710,7 +710,7 @@ Workstream 层是 optional：
 1. `active/Current_Task.md` 引用阶段编号时，阶段必须已注册。
 2. 阶段父任务必须存在于 `## 子任务` 表。
 3. 阶段绑定的 Workstream 必须存在。
-4. `active/Current_Task.md` 把 Done / Cancelled Workstream 当作当前执行线时，应报错。
+4. `active/Current_Task.md` 的 `## 当前执行线` 把 Done / Cancelled Workstream 当作当前执行线时，应报错。
 5. `active/Task_Plan.md` 阶段表把 Done / Cancelled Workstream 作为历史依赖或 evidence 时允许。
 
 ### Authority write gate

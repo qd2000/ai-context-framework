@@ -164,12 +164,16 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
 TASK_ID_RE = re.compile(r"^T(\d{3})$")
 TASK_ID_TOKEN_RE = re.compile(r"\bT(\d{3})\b")
+TASK_STAGE_ID_RE = re.compile(r"^T\d{3}\.\d+$")
+TASK_STAGE_ID_TOKEN_RE = re.compile(r"\bT\d{3}\.\d+\b")
 KNOWLEDGE_ID_RE = re.compile(r"^K(\d{3})$")
 WORKSTREAM_ID_RE = re.compile(r"^WS(\d{3})$")
+WORKSTREAM_ID_TOKEN_RE = re.compile(r"\bWS\d{3}\b")
 DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
 TASK_TABLE_HEADER = "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |"
+TASK_STAGE_TABLE_HEADER = "| ID | 状态 | 父任务 | 名称 | 归属 Workstream | 依赖 | 输出物 | 证据 | 下一步 |"
 FEEDBACK_TABLE_HEADER = "| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |"
 KNOWLEDGE_TABLE_HEADER = "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |"
 ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | 标题 | 原因 | 详情 |"
@@ -2264,6 +2268,12 @@ def render_current_task(
 
 ---
 
+## 当前执行线
+
+无。
+
+---
+
 ## 本次任务目标
 
 {numbered_list(goals)}
@@ -3450,6 +3460,14 @@ def render_task_plan(
 
 ---
 
+## 任务阶段
+
+{TASK_STAGE_TABLE_HEADER}
+|---|---|---|---|---|---|---|---|---|
+| 暂无 |  |  |  |  |  |  |  |  |
+
+---
+
 ## 使用规则
 
 1. 本文件保持轻量，只放任务板和必要摘要。
@@ -3907,6 +3925,23 @@ def read_task_rows(plan_path: Path) -> list[dict[str, str]]:
     table = find_table(read_text(plan_path).splitlines(), TASK_TABLE_HEADER)
     rows: list[dict[str, str]] = []
     for line in read_text(plan_path).splitlines()[table.body_start : table.body_end]:
+        cells = split_table_line(line)
+        if len(cells) < len(table.headers) or cells[0] == "暂无":
+            continue
+        rows.append(dict(zip(table.headers, cells)))
+    return rows
+
+
+def read_task_stage_rows(plan_path: Path) -> list[dict[str, str]]:
+    if not plan_path.exists():
+        raise SystemExit(f"task plan does not exist: {plan_path}")
+    lines = read_text(plan_path).splitlines()
+    try:
+        table = find_table(lines, TASK_STAGE_TABLE_HEADER)
+    except SystemExit:
+        return []
+    rows: list[dict[str, str]] = []
+    for line in lines[table.body_start : table.body_end]:
         cells = split_table_line(line)
         if len(cells) < len(table.headers) or cells[0] == "暂无":
             continue
@@ -6557,6 +6592,54 @@ def safe_section_body(path: Path, heading: str) -> str | None:
         return None
 
 
+def meaningful_ref_value(value: str | None) -> bool:
+    normalized = (value or "").strip()
+    return bool(normalized) and normalized not in {"无。", "无", "None", "Empty", "-"}
+
+
+def workstream_statuses_for_task_checks(root: Path) -> dict[str, str]:
+    if not workstream_index_path(root).exists():
+        return {}
+    try:
+        entries = parse_workstream_index(root)
+    except SystemExit:
+        return {}
+    statuses = {entry.workstream_id: entry.status for entry in entries}
+    for entry in entries:
+        try:
+            detail_path = resolve_workstream_detail_path(root, entry.workstream_id, entries)
+        except SystemExit:
+            continue
+        if not detail_path.exists():
+            continue
+        try:
+            metadata, _body, _diagnostics = parse_front_matter(read_text(detail_path))
+        except UnicodeDecodeError:
+            continue
+        detail_status = metadata.get("status")
+        if isinstance(detail_status, str):
+            statuses[entry.workstream_id] = detail_status
+    return statuses
+
+
+def check_current_execution_workstream(root: Path, errors: list[str]) -> None:
+    task_file = root / "active" / "Current_Task.md"
+    if not task_file.exists():
+        return
+    current_line = extract_heading_value(task_file, "## 当前执行线")
+    if not meaningful_ref_value(current_line):
+        return
+    statuses = workstream_statuses_for_task_checks(root)
+    for workstream_id in WORKSTREAM_ID_TOKEN_RE.findall(current_line or ""):
+        status = statuses.get(workstream_id)
+        if status is None:
+            errors.append(f"active/Current_Task.md: current execution line references missing workstream `{workstream_id}`")
+        elif status in {"Done", "Cancelled"}:
+            errors.append(
+                f"active/Current_Task.md: current execution line references terminal workstream `{workstream_id}` ({status})"
+            )
+
+
 def check_task_plan(root: Path, errors: list[str]) -> None:
     plan_path = root / "active" / "Task_Plan.md"
     if not plan_path.exists():
@@ -6567,6 +6650,11 @@ def check_task_plan(root: Path, errors: list[str]) -> None:
 
     try:
         rows = read_task_rows(plan_path)
+    except SystemExit as exc:
+        errors.append(f"active/Task_Plan.md: {exc}")
+        return
+    try:
+        stage_rows = read_task_stage_rows(plan_path)
     except SystemExit as exc:
         errors.append(f"active/Task_Plan.md: {exc}")
         return
@@ -6588,15 +6676,46 @@ def check_task_plan(root: Path, errors: list[str]) -> None:
     if active_count > 1:
         errors.append("active/Task_Plan.md: more than one subtask is Active")
 
+    stage_seen: set[str] = set()
+    workstream_statuses = workstream_statuses_for_task_checks(root)
+    for row in stage_rows:
+        stage_id = row.get("ID", "")
+        stage_status = row.get("状态", "")
+        parent_task = row.get("父任务", "")
+        if not TASK_STAGE_ID_RE.match(stage_id):
+            errors.append(f"active/Task_Plan.md: invalid task stage id `{stage_id}`")
+        if stage_id in stage_seen:
+            errors.append(f"active/Task_Plan.md: duplicate task stage id `{stage_id}`")
+        stage_seen.add(stage_id)
+        if stage_status not in VALID_SUBTASK_STATUSES:
+            errors.append(f"active/Task_Plan.md: invalid task stage status `{stage_status}` for {stage_id}")
+        if not TASK_ID_RE.match(parent_task):
+            errors.append(f"active/Task_Plan.md: task stage `{stage_id}` has invalid parent task `{parent_task}`")
+        elif parent_task not in seen:
+            errors.append(f"active/Task_Plan.md: task stage `{stage_id}` parent task `{parent_task}` does not exist")
+        owner_value = row.get("归属 Workstream", "")
+        if meaningful_ref_value(owner_value):
+            owner_ids = WORKSTREAM_ID_TOKEN_RE.findall(owner_value)
+            if not owner_ids:
+                errors.append(f"active/Task_Plan.md: task stage `{stage_id}` has invalid workstream owner `{owner_value}`")
+            for workstream_id in owner_ids:
+                if workstream_id not in workstream_statuses:
+                    errors.append(f"active/Task_Plan.md: task stage `{stage_id}` workstream `{workstream_id}` does not exist")
+
     focus = extract_heading_value(plan_path, "## 当前焦点")
-    if focus and focus not in {"无。", "None", "Empty"} and not is_placeholder(focus) and focus not in seen:
+    if focus and focus not in {"无。", "None", "Empty"} and not is_placeholder(focus) and focus not in seen and focus not in stage_seen:
         errors.append(f"active/Task_Plan.md: current focus `{focus}` does not match any subtask id")
 
     task_file = root / "active" / "Current_Task.md"
     if task_file.exists():
         task_id = extract_heading_value(task_file, "## 子任务 ID")
-        if task_id and task_id not in {"无。", "None", "Empty"} and not is_placeholder(task_id) and task_id not in seen:
-            errors.append(f"active/Current_Task.md: subtask id `{task_id}` does not exist in active/Task_Plan.md")
+        if task_id and task_id not in {"无。", "None", "Empty"} and not is_placeholder(task_id):
+            if TASK_STAGE_ID_RE.match(task_id):
+                if task_id not in stage_seen:
+                    errors.append(f"active/Current_Task.md: stage id `{task_id}` does not exist in active/Task_Plan.md")
+            elif task_id not in seen:
+                errors.append(f"active/Current_Task.md: subtask id `{task_id}` does not exist in active/Task_Plan.md")
+    check_current_execution_workstream(root, errors)
 
 
 def check_archive(root: Path, errors: list[str]) -> None:

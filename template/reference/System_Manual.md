@@ -18,8 +18,8 @@
 
 - `active/Context.md`：当前阶段事实源，记录当前阶段目标、范围、约束、有效事实和开放问题。
 - `active/Feedback_Inbox.md`：人工临时反馈、问题、需求和计划碎片的入口，允许不规范描述，但不直接作为已确认事实。
-- `active/Task_Plan.md`：当前大任务计划和轻量子任务板，记录子任务状态、证据和下一步。
-- `active/Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源。
+- `active/Task_Plan.md`：当前大任务计划和轻量子任务板，记录子任务、可选任务阶段、证据和下一步。
+- `active/Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源；`当前执行线` 只记录正在执行的 Workstream，不记录历史依赖。
 - Workstreams 索引：可选并行目标线索引，仅在显式启用 Workstream 层且存在 Active、Blocked 或 ReadyToMerge workstream 时按需读取。
 
 使用规则：
@@ -326,7 +326,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `acf simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge 结构；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
-- `acf plan init|add-task|set-task|focus|complete|status [target]`：维护当前大任务计划和子任务板，并在完成后标记计划 Done。
+- `acf plan init|add-task|set-task|focus|complete|status [target]`：维护当前大任务计划和子任务板，并在完成后标记计划 Done；`active/Task_Plan.md` 可包含 `## 任务阶段` 表用于注册 `T001.4` 这类阶段编号。
 - `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
 - `acf knowledge draft|apply|list|show|mark [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
@@ -344,7 +344,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。
 - `acf edit table upsert <file> --key-column "列名" --key "键值" --cell "列名=内容"`：按 key column 更新或追加表格行。
-- `acf check [target]`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举和索引一致性；Workstream 检查仅在存在 Workstreams 索引时启用。
+- `acf check [target]`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举、任务阶段注册和索引一致性；Workstream 检查仅在存在 Workstreams 索引时启用。
 - `acf check [target] --strict`：把占位符残留作为错误，适合正式项目上下文。
 - `acf log enable [target]`：显式启用用户级全局使用状态日志；当前默认已启用，并按项目子目录隔离。
 - `acf log disable [target]`：关闭该项目的用户级全局使用状态日志，不删除已有日志。

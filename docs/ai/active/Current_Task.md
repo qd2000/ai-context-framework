@@ -11,7 +11,7 @@
 
 ## 当前任务状态
 
-Active
+Done
 
 ---
 
@@ -30,6 +30,12 @@ P0 governance hardening: task-stage registry, authority write gate, merge resolu
 ## 子任务 ID
 
 T001
+
+---
+
+## 当前执行线
+
+无。
 
 ---
 
