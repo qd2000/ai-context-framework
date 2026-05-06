@@ -676,15 +676,16 @@ Workstream 层是 optional：
 
 1. 计划中的 Workstreams 索引文件存在时，Workstream 详情目录也应存在。
 2. 总表中的详情文件链接必须存在。
-3. 详情文件存在但总表无记录时 warning。
-4. 总表状态与详情文件状态不一致时 warning，并以详情文件为准。
-5. Active workstream 必须有 owner、目标、读取范围、写入范围和输出物。
-6. Blocked workstream 必须有 blocker 说明。
-7. ReadyToMerge workstream 必须有合并请求和候选变更摘要。
-8. Done workstream 必须有证据位置。
-9. Cancelled workstream 必须有取消原因。
-10. 多个 Active workstream 不得声明同一 authority 或 assigned 文件为可写。
-11. Feedback Planned 条目必须引用 Task ID、Workstream ID 或草案位置。
+3. 详情文件存在但总表无记录时普通 check warning，strict check error。
+4. 总表状态、标题或 owner 与详情文件 front matter 不一致时普通 check warning，strict check error，并以详情文件为准。
+5. 总表有记录但详情文件缺失时 error。
+6. Active workstream 必须有 owner、目标、读取范围、写入范围和输出物。
+7. Blocked workstream 必须有 blocker 说明。
+8. ReadyToMerge workstream 必须有合并请求和候选变更摘要。
+9. Done workstream 必须有证据位置。
+10. Cancelled workstream 必须有取消原因。
+11. 多个 Active workstream 不得声明同一 authority 或 assigned 文件为可写。
+12. Feedback Planned 条目必须引用 Task ID、Workstream ID 或草案位置。
 
 ### Check Severity 矩阵
 
@@ -830,6 +831,20 @@ keep_active_until: 2026-05-10
 1. Done / Cancelled 仍在 `active/workstreams/` 且缺少 keep-active 字段时，普通 check warning。
 2. strict check 下，超过 `keep_active_until` 时 error。
 3. 当前计划结束后，应归档到 `archive/workstreams/`。
+
+### Workstream index consistency check
+
+PR 4a 只实现检测，不实现 `acf workstream sync` 写入命令。
+
+检查规则：
+
+1. `active/workstreams/*.md` 详情文件是 Workstream 的事实源。
+2. `active/Workstreams.md` 总表有行但详情文件缺失时 error。
+3. 详情文件存在但总表无记录时，普通 check warning，strict check error。
+4. 总表行的状态、标题或 owner 与详情 front matter 不一致时，普通 check warning，strict check error。
+5. Done / Cancelled Workstream 仍可让 Workstreams 索引保持 Inactive；只有 Active、Blocked 或 ReadyToMerge Workstream 才应触发默认读取。
+
+PR 4b 再考虑新增 `acf workstream sync --dry-run --json`，且第一版只更新 `active/Workstreams.md`，不覆盖 Knowledge / ADR / Archive。
 
 ### Non-goals
 

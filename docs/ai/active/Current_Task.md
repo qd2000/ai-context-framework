@@ -10,13 +10,20 @@
 
 ## 当前任务状态
 
-Done
+Active
+
+说明：
+
+- Active：当前任务正在进行
+- Paused：当前任务暂停
+- Done：当前任务已完成
+- Empty：暂无需要写入文件的当前任务
 
 ---
 
 ## 任务名称
 
-Merge resolution + active retention gate
+Workstream index consistency check, then sync
 
 ---
 
@@ -28,7 +35,7 @@ P0 governance hardening: task-stage registry, workstream stage focus, authority 
 
 ## 子任务 ID
 
-T004
+T005
 
 ---
 
@@ -40,14 +47,14 @@ T004
 
 ## 本次任务目标
 
-1. 硬化 Done / Cancelled 状态门禁。
-2. 产出并验证输出物：`merge_resolution`、`keep_active_reason`、`keep_active_until` 检查
+1. 先做检测，再做 `acf workstream sync`。
+2. 产出并验证输出物：Workstreams 索引一致性检查；后续 sync dry-run
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T004，所属大任务为“P0 governance hardening: task-stage registry, workstream stage focus, authority write gate, merge resolution, active retention gate”。依赖记录：T003
+该任务来自 `active/Task_Plan.md` 中的子任务 T005，所属大任务为“P0 governance hardening: task-stage registry, workstream stage focus, authority write gate, merge resolution, active retention gate”。依赖记录：T004
 
 ---
 
@@ -55,20 +62,20 @@ T004
 
 - `active/Task_Plan.md`。
 - `active/Context.md`。
-- 依赖 T003 证据：acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; docs/ai/reference/System_Manual.md; worklog/daily/2026-05-06.md; verification: unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix, py_compile
+- 依赖 T004 证据：acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; docs/ai/reference/System_Manual.md; docs/ai/active/workstreams/WS001.md; worklog/daily/2026-05-06.md; verification: targeted PR3 tests, py_compile, unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix
 
 ---
 
 ## 输出要求
 
-- `merge_resolution`、`keep_active_reason`、`keep_active_until` 检查
+- Workstreams 索引一致性检查；后续 sync dry-run
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：`merge_resolution`、`keep_active_reason`、`keep_active_until` 检查
-2. 子任务 T004 的完成证据已写回任务板。
+1. 输出物已完成：Workstreams 索引一致性检查；后续 sync dry-run
+2. 子任务 T005 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---

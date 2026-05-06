@@ -344,7 +344,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。
 - `acf edit table upsert <file> --key-column "列名" --key "键值" --cell "列名=内容"`：按 key column 更新或追加表格行。
-- `acf check [target]`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举、任务阶段注册和索引一致性；Workstream 检查仅在存在 Workstreams 索引时启用，并包含 optional `current_stage` 与 `## 阶段` 表一致性、authority 写入门禁和 `merge_targets` 合并请求要求。
+- `acf check [target]`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举、任务阶段注册和索引一致性；Workstream 检查仅在存在 Workstreams 索引时启用，并包含 optional `current_stage` 与 `## 阶段` 表一致性、Workstreams 索引与详情 front matter 一致性、authority 写入门禁和 `merge_targets` 合并请求要求。
 - `acf check [target] --strict`：把占位符残留作为错误，适合正式项目上下文。
 - `acf log enable [target]`：显式启用用户级全局使用状态日志；当前默认已启用，并按项目子目录隔离。
 - `acf log disable [target]`：关闭该项目的用户级全局使用状态日志，不删除已有日志。

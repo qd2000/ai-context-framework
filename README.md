@@ -240,7 +240,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为注意力治理草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
-- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、任务阶段注册、archive、Knowledge 和显式启用的 Workstream；Workstream 检查包含 optional `current_stage` 与 `## 阶段` 表一致性、authority 写入门禁和 `merge_targets` 合并请求要求；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
+- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、任务阶段注册、archive、Knowledge 和显式启用的 Workstream；Workstream 检查包含 optional `current_stage` 与 `## 阶段` 表一致性、Workstreams 索引与详情 front matter 一致性、authority 写入门禁和 `merge_targets` 合并请求要求；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
 - `log enable|disable|status|tail|summarize|feedback|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭；普通 usage event 不记录正文，显式 `log feedback --text/--input` 才记录人工反馈正文。
 - `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
 

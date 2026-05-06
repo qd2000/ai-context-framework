@@ -1272,6 +1272,79 @@ class CliTests(unittest.TestCase):
             errors = json.loads(stdout)["check"]["errors"]
             self.assertTrue(any("status mismatch" in error for error in errors))
 
+    def test_workstream_check_title_mismatch_severity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS002 | Open | WS002 |", "| WS002 | Open | Stale title |"), encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            warnings = json.loads(stdout)["check"]["warnings"]
+            self.assertTrue(any("title mismatch" in warning for warning in warnings))
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--strict", "--json"])
+            self.assertEqual(exit_code, 1)
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertTrue(any("title mismatch" in error for error in errors))
+
+    def test_terminal_workstreams_keep_index_inactive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            self.add_workstream(target, "WS003")
+            self.run_cli(["workstream", "set", "WS002", str(target), "--status", "Active"])
+            self.run_cli(
+                [
+                    "workstream",
+                    "merge-request",
+                    "WS002",
+                    str(target),
+                    "--target",
+                    "active/Context.md",
+                    "--summary",
+                    "候选摘要",
+                    "--verification",
+                    "验证通过",
+                ]
+            )
+            self.run_cli(["workstream", "ready", "WS002", str(target)])
+            self.run_cli(
+                [
+                    "workstream",
+                    "done",
+                    "WS002",
+                    str(target),
+                    "--evidence",
+                    "done evidence",
+                    "--merge-resolution",
+                    "merged",
+                ]
+            )
+            self.run_cli(["workstream", "cancel", "WS003", str(target), "--reason", "取消"])
+            for workstream_id in ("WS002", "WS003"):
+                detail_path = target / "active" / "workstreams" / f"{workstream_id}.md"
+                detail_path.write_text(
+                    detail_path.read_text(encoding="utf-8").replace(
+                        f"title: {workstream_id}\n",
+                        f"title: {workstream_id}\nkeep_active_reason: terminal state retained for index verification\nkeep_active_until: 2099-01-01\n",
+                    ),
+                    encoding="utf-8",
+                )
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "status", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["state"], "Inactive")
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["check"]["errors"], [])
+            self.assertFalse(any("workstream" in warning.lower() for warning in payload["check"]["warnings"]))
+
     def test_workstream_check_state_required_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

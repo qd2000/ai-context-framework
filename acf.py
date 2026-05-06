@@ -7139,6 +7139,22 @@ def check_workstreams(root: Path, errors: list[str], warnings: list[str], strict
                 warnings,
                 strict,
             )
+        detail_title = detail.metadata.get("title")
+        if isinstance(detail_title, str) and detail_title != entry.title:
+            check_warn_or_error(
+                f"{WORKSTREAM_INDEX_REL}: title mismatch for {entry.workstream_id} ({entry.title}) vs detail ({detail_title})",
+                errors,
+                warnings,
+                strict,
+            )
+        detail_owner = detail.metadata.get("owner")
+        if isinstance(detail_owner, str) and detail_owner != entry.owner:
+            check_warn_or_error(
+                f"{WORKSTREAM_INDEX_REL}: owner mismatch for {entry.workstream_id} ({entry.owner}) vs detail ({detail_owner})",
+                errors,
+                warnings,
+                strict,
+            )
         check_workstream_state_requirements(root, detail, entry, errors, warnings, strict)
         check_workstream_stage_focus(root, detail, errors)
 
