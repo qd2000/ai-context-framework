@@ -58,6 +58,8 @@
 - `uv run python scripts/upgrade_matrix.py --mode quick`
 - `uv run python scripts/upgrade_matrix.py --mode full --acf uv run acf`
 
+Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点；`acf check` 会检查当前阶段已注册、属于本 Workstream、状态合法，并保持未声明阶段焦点的旧项目兼容。
+
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。
 
 ### AI 调用 worklog 模式

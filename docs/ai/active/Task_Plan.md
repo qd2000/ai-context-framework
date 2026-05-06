@@ -29,7 +29,7 @@ P0 governance hardening: task-stage registry, workstream stage focus, authority 
 ## 成功标准
 
 1. `T001.4` 这类阶段编号必须在 `Task_Plan.md` 的 `## 任务阶段` 表注册；未注册引用在普通 check 和 strict check 中都失败。
-2. `WS004.2` 这类 Workstream 内部阶段编号必须在对应 Workstream 详情文件的 `## 阶段` 表注册；`current_stage` 和全局当前阶段引用必须可机械校验。
+2. `WS004.2` 这类 Workstream 内部阶段编号必须在对应 Workstream 详情文件的 `## 阶段` 表注册；`current_stage` 必须可机械校验。
 3. Workstream 的 `owned` / `assigned` 写入范围不得直接命中 authority path；需要影响 authority 文件时必须使用 `merge_targets` 和合并请求。
 4. Done / Cancelled workstream 留在 active 区域时有 `keep_active_reason`、`keep_active_until`；Done 有 evidence 和 `merge_resolution`。
 5. Workstream index 与详情文件一致性先由 check 检测，再引入 `acf workstream sync --dry-run --json`。
@@ -39,7 +39,7 @@ P0 governance hardening: task-stage registry, workstream stage focus, authority 
 
 ## 当前焦点
 
-T002
+T003
 
 ---
 
@@ -48,7 +48,7 @@ T002
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
 | T001 | Done | Task Stage registry | 现有 Task_Plan / Current_Task 结构 | `## 任务阶段` 表、stage ID 检查、Current_Task 引用检查 | PR 1 implemented and verified: acf check docs/ai --strict, acf check template, upgrade dry-run, unittest, minimal smoke, quick upgrade matrix, py_compile | 无。 |
-| T002 | Pending | PR 1b: Workstream Stage Focus | T001 | `current_stage`、Workstream `## 阶段` 表、全局当前阶段对齐检查 | `reference/Workstream_Design.md`; `acf.py`; `tests/test_cli.py` | 新增 Workstream 内部阶段注册和 current_stage check。 |
+| T002 | Done | PR 1b: Workstream Stage Focus | T001 | `current_stage`、Workstream `## 阶段` 表、内部阶段注册和状态检查 | acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; worklog/daily/2026-05-06.md; verification: unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix, py_compile | 无。 |
 | T003 | Pending | Workstream authority write gate + `merge_targets` | T002 | authority path 门禁、`merge_targets` metadata、错误码 | `reference/Workstream_Design.md`; `acf.py`; `tests/test_cli.py` | 扩展 Workstream schema 和 scope 检查。 |
 | T004 | Pending | Merge resolution + active retention gate | T003 | `merge_resolution`、`keep_active_reason`、`keep_active_until` 检查 | `active/workstreams/*.md`; `acf.py`; `tests/test_cli.py` | 硬化 Done / Cancelled 状态门禁。 |
 | T005 | Pending | Workstream index consistency check, then sync | T004 | Workstreams 索引一致性检查；后续 sync dry-run | `active/Workstreams.md`; `active/workstreams/*.md` | 先做检测，再做 `acf workstream sync`。 |

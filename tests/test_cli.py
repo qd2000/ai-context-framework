@@ -81,6 +81,19 @@ class CliTests(unittest.TestCase):
             0,
         )
 
+    def write_workstream_stage_table(self, target, workstream_id, rows):
+        detail_path = target / "active" / "workstreams" / f"{workstream_id}.md"
+        table_rows = "\n".join(f"| {' | '.join(row)} |" for row in rows)
+        detail_path.write_text(
+            detail_path.read_text(encoding="utf-8").rstrip()
+            + "\n\n---\n\n## 阶段\n\n"
+            + acf.WORKSTREAM_STAGE_TABLE_HEADER
+            + "\n|---|---|---|---|---|---|---|\n"
+            + table_rows
+            + "\n",
+            encoding="utf-8",
+        )
+
     def test_standard_template_check_passes_with_placeholder_warnings(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=False)
         self.assertFalse(result.errors)
@@ -1295,6 +1308,151 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             errors = json.loads(stdout)["check"]["errors"]
             self.assertTrue(any("Done" in error and "evidence" in error for error in errors))
+
+    def test_workstream_current_stage_requires_stage_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "title: WS004\n",
+                    "title: WS004\ncurrent_stage: WS004.2\n",
+                ).replace("## 目标\n\n待补充。", "## 目标\n\nGoal"),
+                encoding="utf-8",
+            )
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("current_stage `WS004.2` is not registered" in error for error in result.errors))
+
+    def test_workstream_current_stage_must_belong_to_workstream(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "title: WS004\n",
+                    "title: WS004\ncurrent_stage: WS005.1\n",
+                ),
+                encoding="utf-8",
+            )
+            self.write_workstream_stage_table(
+                target,
+                "WS004",
+                [["WS005.1", "Active", "foreign stage", "无。", "output", "evidence", "next"]],
+            )
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("does not belong to WS004" in error for error in result.errors))
+
+    def test_workstream_current_stage_must_be_registered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "title: WS004\n",
+                    "title: WS004\ncurrent_stage: WS004.2\n",
+                ).replace("## 目标\n\n待补充。", "## 目标\n\nGoal"),
+                encoding="utf-8",
+            )
+            self.write_workstream_stage_table(
+                target,
+                "WS004",
+                [["WS004.1", "Done", "first stage", "无。", "output", "evidence", "next"]],
+            )
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("current_stage `WS004.2` is not registered" in error for error in result.errors))
+
+    def test_workstream_current_stage_accepts_registered_active_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"])
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "title: WS004\n",
+                    "title: WS004\ncurrent_stage: WS004.2\n",
+                ).replace("## 目标\n\n待补充。", "## 目标\n\nGoal"),
+                encoding="utf-8",
+            )
+            self.write_workstream_stage_table(
+                target,
+                "WS004",
+                [
+                    ["WS004.1", "Done", "first stage", "无。", "output", "evidence", "next"],
+                    ["WS004.2", "Active", "second stage", "WS004.1", "output", "evidence", "next"],
+                ],
+            )
+
+            result = acf.check_context(target, "minimal", strict=False)
+
+            self.assertFalse(result.errors)
+
+    def test_workstream_rejects_multiple_active_stages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"])
+            self.write_workstream_stage_table(
+                target,
+                "WS004",
+                [
+                    ["WS004.1", "Active", "first stage", "无。", "output", "evidence", "next"],
+                    ["WS004.2", "Active", "second stage", "无。", "output", "evidence", "next"],
+                ],
+            )
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("more than one Active stage" in error for error in result.errors))
+
+    def test_terminal_workstream_rejects_active_current_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8")
+                .replace("status: Open", "status: Done")
+                .replace("title: WS004\n", "title: WS004\ncurrent_stage: WS004.1\n")
+                .replace("## 证据\n\n无。", "## 证据\n\ndone"),
+                encoding="utf-8",
+            )
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS004 | Open |", "| WS004 | Done |"), encoding="utf-8")
+            self.write_workstream_stage_table(
+                target,
+                "WS004",
+                [["WS004.1", "Active", "stage", "无。", "output", "evidence", "next"]],
+            )
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("terminal workstream has Active stage" in error for error in result.errors))
+
+    def test_workstream_stage_table_optional_without_current_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+
+            result = acf.check_context(target, "minimal", strict=False)
+
+            self.assertFalse(result.errors)
 
     def test_workstream_check_scope_conflict_and_draft_severity(self):
         with tempfile.TemporaryDirectory() as tmp:

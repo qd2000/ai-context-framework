@@ -177,7 +177,7 @@ P1 命令：
 实施顺序：
 
 1. Task Stage registry：在 `Task_Plan.md` 增加 `## 任务阶段` 表，检查 `T001.4` 这类阶段编号的注册、父任务和 Workstream 绑定。
-2. Workstream Stage Focus：在 Workstream 详情中支持 optional `current_stage` 和 `## 阶段` 表，检查 `WS004.2` 这类内部阶段注册、唯一 Active 阶段和全局当前阶段对齐；第一版不实现 stage CLI。
+2. Workstream Stage Focus：在 Workstream 详情中支持 optional `current_stage` 和 `## 阶段` 表，检查 `WS004.2` 这类内部阶段注册、归属、唯一 Active 阶段和终态 Workstream 阶段状态；第一版不实现 stage CLI，也不实现全局 `Current_Task.md` 阶段对齐。
 3. Authority write gate + `merge_targets`：禁止 Workstream 通过 `owned` / `assigned` 直接 claim authority path；需要影响权威文件时使用 `merge_targets` 和合并请求。
 4. Merge resolution + active retention gate：Done Workstream 必须有 evidence 和 `merge_resolution`；Done / Cancelled 留 active 必须有 `keep_active_reason` 和 `keep_active_until`。
 5. Workstream index consistency check, then sync：先检测 `active/Workstreams.md` 与详情 front matter 是否一致，再引入 `acf workstream sync --dry-run --json`。

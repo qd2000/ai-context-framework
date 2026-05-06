@@ -92,6 +92,7 @@ id: WS001
 status: Open
 owner: 主 agent
 title: 并行任务治理模型
+current_stage: WS001.1
 depends_on: []
 read_scope:
   - active/Context dot md
@@ -106,9 +107,10 @@ write_scope:
 
 1. `id` 必须匹配 `WS` 加三位数字。
 2. `status` 必须属于 Workstream 状态机。
-3. `depends_on`、`read_scope`、`write_scope` 使用字符串列表。
-4. `write_scope` 使用 typed string，格式为 `type: path`。
-5. 第一版不支持复杂对象、嵌套 YAML 或未带类型的写入范围。
+3. `current_stage` 可选；存在时必须匹配本 Workstream 详情中的 `## 阶段` 表。
+4. `depends_on`、`read_scope`、`write_scope` 使用字符串列表。
+5. `write_scope` 使用 typed string，格式为 `type: path`。
+6. 第一版不支持复杂对象、嵌套 YAML 或未带类型的写入范围。
 
 ---
 
@@ -741,8 +743,12 @@ current_stage: WS004.2
 3. Active Workstream 最多只能有一个 Active 阶段。
 4. `current_stage` 不能是 Done / Cancelled / Skipped。
 5. Done / Cancelled Workstream 不能有 Active 阶段或非终态 `current_stage`。
-6. 第一版只机械检查同一 Workstream 内部阶段依赖；外部 `WS001`、`T001` 等依赖只作为历史或前置输入引用，不在 PR 1b 中做语义裁决。
-7. 全局 `active/Current_Task.md` 若同时声明 `## 当前执行线` 和 `## 当前阶段`，则当前阶段必须属于当前执行线，并与 Workstream 详情的 `current_stage` 一致。
+6. 阶段表不存在且未声明 `current_stage` 时不报错，保持旧项目兼容。
+
+后续可扩展规则：
+
+1. 机械检查同一 Workstream 内部阶段依赖；外部 `WS001`、`T001` 等依赖只作为历史或前置输入引用，不在 PR 1b 中做语义裁决。
+2. 全局 `active/Current_Task.md` 若同时声明 `## 当前执行线` 和 `## 当前阶段`，则当前阶段必须属于当前执行线，并与 Workstream 详情的 `current_stage` 一致。
 
 PR 1b 只实现注册和 check，不实现完整 `acf workstream stage add|set|done` 或 `acf workstream focus` 命令。命令层待规则稳定后再补。
 

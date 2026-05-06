@@ -141,6 +141,7 @@ VALID_DECISION_STATUSES = {"Active", "Proposed", "Superseded", "Rejected", "Depr
 VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Rejected"}
 VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
 VALID_WORKSTREAM_STATUSES = {"Open", "Active", "Blocked", "ReadyToMerge", "Done", "Cancelled"}
+VALID_WORKSTREAM_STAGE_STATUSES = {"Pending", "Active", "Blocked", "Done", "Skipped", "Cancelled"}
 ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge"}
 DEFAULT_STALE_DAYS = 14
 WORKSTREAM_NOTE_SECTIONS = {
@@ -169,6 +170,7 @@ TASK_STAGE_ID_TOKEN_RE = re.compile(r"\bT\d{3}\.\d+\b")
 KNOWLEDGE_ID_RE = re.compile(r"^K(\d{3})$")
 WORKSTREAM_ID_RE = re.compile(r"^WS(\d{3})$")
 WORKSTREAM_ID_TOKEN_RE = re.compile(r"\bWS\d{3}\b")
+WORKSTREAM_STAGE_ID_RE = re.compile(r"^WS\d{3}\.\d+$")
 DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
@@ -178,6 +180,7 @@ FEEDBACK_TABLE_HEADER = "| ID | 状态 | 类型 | 内容 | 来源 | 后续处理
 KNOWLEDGE_TABLE_HEADER = "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |"
 ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | 标题 | 原因 | 详情 |"
 WORKSTREAM_TABLE_HEADER = "| ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |"
+WORKSTREAM_STAGE_TABLE_HEADER = "| ID | 状态 | 阶段 | 依赖 | 输出物 | 证据 | 下一步 |"
 WORKSTREAM_INDEX_REL = "active/Workstreams.md"
 WORKSTREAM_DIR_REL = "active/workstreams"
 WORKSTREAM_ARCHIVE_DIR_REL = "archive/workstreams"
@@ -186,6 +189,7 @@ WORKSTREAM_METADATA_FIELDS = (
     "status",
     "owner",
     "title",
+    "current_stage",
     "depends_on",
     "read_scope",
     "write_scope",
@@ -4451,7 +4455,7 @@ def workstream_front_matter_schema() -> FrontMatterSchema:
     return FrontMatterSchema(
         required_fields=("id", "status", "owner", "title", "read_scope", "write_scope"),
         allowed_fields=WORKSTREAM_METADATA_FIELDS,
-        scalar_fields=("id", "status", "owner", "title"),
+        scalar_fields=("id", "status", "owner", "title", "current_stage"),
         list_fields=("depends_on", "read_scope", "write_scope"),
         enum_fields={"status": VALID_WORKSTREAM_STATUSES},
         scope_fields=("read_scope",),
@@ -6841,9 +6845,78 @@ def parse_workstream_detail_for_check(root: Path, workstream_id: str, detail_pat
     return WorkstreamDetail(workstream_id, detail_path, metadata, body, diagnostics)
 
 
+def read_workstream_stage_rows(body: str) -> list[dict[str, str]]:
+    lines = body.splitlines()
+    try:
+        table = find_table(lines, WORKSTREAM_STAGE_TABLE_HEADER)
+    except SystemExit:
+        return []
+    rows: list[dict[str, str]] = []
+    for line in lines[table.body_start : table.body_end]:
+        cells = split_table_line(line)
+        if len(cells) < len(table.headers) or cells[0] == "暂无":
+            continue
+        rows.append(dict(zip(table.headers, cells)))
+    return rows
+
+
+def workstream_stage_belongs_to(workstream_id: str, stage_id: str) -> bool:
+    return stage_id.startswith(f"{workstream_id}.")
+
+
 def workstream_section_missing(body: str, heading: str) -> bool:
     value = safe_section_body_from_text(body, heading).strip()
     return not value or value in {"无。", "待补充。", "None", "Empty"}
+
+
+def check_workstream_stage_focus(root: Path, detail: WorkstreamDetail, errors: list[str]) -> None:
+    rel = detail.path.relative_to(root).as_posix()
+    workstream_id = detail.workstream_id
+    status = detail.metadata.get("status")
+    current_stage = detail.metadata.get("current_stage")
+    rows = read_workstream_stage_rows(detail.body)
+    stage_by_id: dict[str, dict[str, str]] = {}
+    active_stage_ids: list[str] = []
+
+    for row in rows:
+        stage_id = row.get("ID", "")
+        stage_status = row.get("状态", "")
+        if not WORKSTREAM_STAGE_ID_RE.match(stage_id):
+            errors.append(f"{rel}: invalid workstream stage id `{stage_id}`")
+        elif not workstream_stage_belongs_to(workstream_id, stage_id):
+            errors.append(f"{rel}: workstream stage `{stage_id}` does not belong to {workstream_id}")
+        if stage_id in stage_by_id:
+            errors.append(f"{rel}: duplicate workstream stage id `{stage_id}`")
+        stage_by_id[stage_id] = row
+        if stage_status not in VALID_WORKSTREAM_STAGE_STATUSES:
+            errors.append(f"{rel}: invalid workstream stage status `{stage_status}` for {stage_id}")
+        if stage_status == "Active":
+            active_stage_ids.append(stage_id)
+
+    if isinstance(status, str) and status == "Active" and len(active_stage_ids) > 1:
+        errors.append(f"{rel}: Active workstream has more than one Active stage")
+
+    if isinstance(status, str) and status in {"Done", "Cancelled"} and active_stage_ids:
+        errors.append(f"{rel}: terminal workstream has Active stage `{active_stage_ids[0]}`")
+
+    if not isinstance(current_stage, str) or not current_stage.strip():
+        return
+    current_stage = current_stage.strip()
+    if not WORKSTREAM_STAGE_ID_RE.match(current_stage):
+        errors.append(f"{rel}: invalid current_stage `{current_stage}`")
+        return
+    if not workstream_stage_belongs_to(workstream_id, current_stage):
+        errors.append(f"{rel}: current_stage `{current_stage}` does not belong to {workstream_id}")
+        return
+    current_row = stage_by_id.get(current_stage)
+    if current_row is None:
+        errors.append(f"{rel}: current_stage `{current_stage}` is not registered in `## 阶段`")
+        return
+    current_status = current_row.get("状态", "")
+    if current_status in {"Done", "Cancelled", "Skipped"}:
+        errors.append(f"{rel}: current_stage `{current_stage}` has terminal status `{current_status}`")
+    if isinstance(status, str) and status in {"Done", "Cancelled"} and current_status not in {"Done", "Cancelled", "Skipped"}:
+        errors.append(f"{rel}: terminal workstream has non-terminal current_stage `{current_stage}` ({current_status})")
 
 
 def check_workstream_state_requirements(root: Path, detail: WorkstreamDetail, entry: WorkstreamEntry | None, errors: list[str]) -> None:
@@ -6958,6 +7031,7 @@ def check_workstreams(root: Path, errors: list[str], warnings: list[str], strict
                 strict,
             )
         check_workstream_state_requirements(root, detail, entry, errors)
+        check_workstream_stage_focus(root, detail, errors)
 
     if details_dir.is_dir():
         for path in sorted(details_dir.glob("WS*.md")):
