@@ -39,7 +39,7 @@ P0 governance hardening: task-stage registry, workstream stage focus, authority 
 
 ## 当前焦点
 
-T006
+T007
 
 ---
 
@@ -52,7 +52,8 @@ T006
 | T003 | Done | Workstream authority write gate + `merge_targets` | T002 | authority path 门禁、`merge_targets` metadata、错误码 | acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; docs/ai/reference/System_Manual.md; worklog/daily/2026-05-06.md; verification: unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix, py_compile | 无。 |
 | T004 | Done | Merge resolution + active retention gate | T003 | `merge_resolution`、`keep_active_reason`、`keep_active_until` 检查 | acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; docs/ai/reference/System_Manual.md; docs/ai/active/workstreams/WS001.md; worklog/daily/2026-05-06.md; verification: targeted PR3 tests, py_compile, unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix | 无。 |
 | T005 | Done | Workstream index consistency check, then sync | T004 | Workstreams 索引一致性检查；后续 sync dry-run | PR 4a/4b complete: acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; docs/ai/reference/System_Manual.md; docs/Automation.md; docs/ai/active/Workstreams.md; worklog/daily/2026-05-06.md; verification: sync targeted tests, unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix, py_compile, workstream sync dry-run no-op after formal sync | 无。 |
-| T006 | Pending | 独立 `audit context` 后续设计 | T001-T005 | P2 audit 设计草案，不进入默认 strict | `../../Automation.md`; `reference/Context_Curation_Prompt.md` | P0 完成后再评估。 |
+| T006 | Done | Cross-project P0 hardening dogfooding on fcc_workspace | T001-T005 | fcc_workspace P0 hardening regression findings | worklog/daily/2026-05-06.md | 无。 |
+| T007 | Pending | Authority path 前缀归一化补强 | T006 | Workstream assigned/owned claim docs/ai 前缀 authority path 时被 strict check 拒绝 | 无。 | 补 docs/ai/active/Context.md 与 docs/ai/active/Current_Task.md claim 的回归测试，再归一化 authority path 匹配。 |
 
 ---
 

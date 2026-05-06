@@ -16,7 +16,7 @@ Done
 
 ## 任务名称
 
-Workstream index consistency check, then sync
+Cross-project P0 hardening dogfooding on fcc_workspace
 
 ---
 
@@ -28,7 +28,7 @@ P0 governance hardening: task-stage registry, workstream stage focus, authority 
 
 ## 子任务 ID
 
-T005
+T006
 
 ---
 
@@ -40,14 +40,14 @@ T005
 
 ## 本次任务目标
 
-1. 先做检测，再做 `acf workstream sync`。
-2. 产出并验证输出物：Workstreams 索引一致性检查；后续 sync dry-run
+1. 先运行 ACF 自身 release-ish 验证，再对 fcc_workspace 执行只读检查，并在修改 FCC 前记录发现。
+2. 产出并验证输出物：fcc_workspace P0 hardening regression findings
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T005，所属大任务为“P0 governance hardening: task-stage registry, workstream stage focus, authority write gate, merge resolution, active retention gate”。依赖记录：T004
+该任务来自 `active/Task_Plan.md` 中的子任务 T006，所属大任务为“P0 governance hardening: task-stage registry, workstream stage focus, authority write gate, merge resolution, active retention gate”。依赖记录：T001-T005
 
 ---
 
@@ -55,20 +55,21 @@ T005
 
 - `active/Task_Plan.md`。
 - `active/Context.md`。
-- 依赖 T004 证据：acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; docs/ai/reference/System_Manual.md; docs/ai/active/workstreams/WS001.md; worklog/daily/2026-05-06.md; verification: targeted PR3 tests, py_compile, unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix
+- 依赖 T001 证据：PR 1 implemented and verified: acf check docs/ai --strict, acf check template, upgrade dry-run, unittest, minimal smoke, quick upgrade matrix, py_compile
+- 依赖 T005 证据：PR 4a/4b complete: acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; docs/ai/reference/System_Manual.md; docs/Automation.md; docs/ai/active/Workstreams.md; worklog/daily/2026-05-06.md; verification: sync targeted tests, unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix, py_compile, workstream sync dry-run no-op after formal sync
 
 ---
 
 ## 输出要求
 
-- Workstreams 索引一致性检查；后续 sync dry-run
+- fcc_workspace P0 hardening regression findings
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：Workstreams 索引一致性检查；后续 sync dry-run
-2. 子任务 T005 的完成证据已写回任务板。
+1. 输出物已完成：fcc_workspace P0 hardening regression findings
+2. 子任务 T006 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---
