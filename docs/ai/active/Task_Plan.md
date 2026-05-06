@@ -2,37 +2,43 @@
 
 - 当前阶段事实请查看：`active/Context.md`
 - 当前正在执行的小任务请查看：`active/Current_Task.md`
-- 本文件只维护当前大任务拆分、子任务状态和下一步，不记录长过程、命令输出或详细推理
+- 本文件只维护当前大任务拆分、状态、证据入口和下一步，不记录长过程、完整日志或详细推理
 
 ---
 
 ## 大任务状态
 
-Empty
+Active
 
 ---
 
 ## 大任务名称
 
-无。
+P0 governance hardening: task-stage registry, authority write gate, merge resolution, active retention gate
 
 ---
 
 ## 大任务目标
 
-1. 无。
+1. 把 FCC dogfooding 暴露的阶段编号、Workstream 权威写入、合并结果和 active 滞留问题转成 `acf check --strict` 的确定性门禁。
+2. 保持 ACF Markdown-first、模型无关、人工可审阅，不引入 agent runtime、数据库、向量库或自动事实裁决。
+3. 第一阶段只做 P0 hardening；generated index 只在 Workstream 上先检测后 sync；content audit 独立后置，不进入默认 strict。
 
 ---
 
 ## 成功标准
 
-1. 无。
+1. `T001.4` 这类阶段编号必须在 `Task_Plan.md` 的 `## 任务阶段` 表注册；未注册引用在普通 check 和 strict check 中都失败。
+2. Workstream 的 `owned` / `assigned` 写入范围不得直接命中 authority path；需要影响 authority 文件时必须使用 `merge_targets` 和合并请求。
+3. Done / Cancelled workstream 留在 active 区域时有 `keep_active_reason`、`keep_active_until`；Done 有 evidence 和 `merge_resolution`。
+4. Workstream index 与详情文件一致性先由 check 检测，再引入 `acf workstream sync --dry-run --json`。
+5. 每个 PR 均通过基线验证命令。
 
 ---
 
 ## 当前焦点
 
-无。
+T001
 
 ---
 
@@ -40,7 +46,48 @@ Empty
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| 暂无 |  |  |  |  |  |  |
+| T001 | Active | Task Stage registry | 现有 Task_Plan / Current_Task 结构 | `## 任务阶段` 表、stage ID 检查、Current_Task 引用检查 | `../../template/active/Task_Plan.md`; `acf.py`; `tests/test_cli.py` | 新增阶段表模板和 strict/check 规则。 |
+| T002 | Pending | Workstream authority write gate + `merge_targets` | T001 | authority path 门禁、`merge_targets` metadata、错误码 | `reference/Workstream_Design.md`; `acf.py`; `tests/test_cli.py` | 扩展 Workstream schema 和 scope 检查。 |
+| T003 | Pending | Merge resolution + active retention gate | T002 | `merge_resolution`、`keep_active_reason`、`keep_active_until` 检查 | `active/workstreams/*.md`; `acf.py`; `tests/test_cli.py` | 硬化 Done / Cancelled 状态门禁。 |
+| T004 | Pending | Workstream index consistency check, then sync | T003 | Workstreams 索引一致性检查；后续 sync dry-run | `active/Workstreams.md`; `active/workstreams/*.md` | 先做检测，再做 `acf workstream sync`。 |
+| T005 | Pending | 独立 `audit context` 后续设计 | T001-T004 | P2 audit 设计草案，不进入默认 strict | `../../Automation.md`; `reference/Context_Curation_Prompt.md` | P0 完成后再评估。 |
+
+---
+
+## 任务阶段
+
+| ID | 状态 | 父任务 | 名称 | 归属 Workstream | 依赖 | 输出物 | 证据 | 下一步 |
+|---|---|---|---|---|---|---|---|---|
+| 暂无 |  |  |  |  |  |  |  |  |
+
+---
+
+## 非目标
+
+本阶段不做：
+
+1. 不新增 task object 单文件。
+2. 不引入可配置 authority map。
+3. 不让 generated index 覆盖 Knowledge / ADR / Archive。
+4. 不把 content audit 接入默认 strict。
+5. 不做自动事实裁决、自动语义去重或自动合并权威上下文。
+
+---
+
+## 基线验证
+
+每个 PR 至少运行：
+
+```bash
+uv run acf check template
+uv run acf check docs/ai --strict --json
+uv run acf upgrade docs/ai --dry-run --json
+uv run python -m unittest
+uv run python scripts/minimal_smoke.py --acf "uv run acf"
+uv run python scripts/upgrade_matrix.py --mode quick
+```
+
+修改 `upgrade`、模板结构或默认检查语义时，再运行 full matrix。
 
 ---
 

@@ -697,6 +697,103 @@ Workstream 层是 optional：
 
 ---
 
+## P0 Governance Hardening
+
+本阶段目标是把真实 dogfooding 中暴露出的阶段注册、权威写入、合并结果和 active 滞留问题转成确定性检查门禁。该阶段不是 Object Graph 全面落地，也不引入 agent runtime、数据库、向量库或自动事实裁决。
+
+### Task Stage registry
+
+`T001.4` 这类阶段编号允许存在，但必须在 `active/Task_Plan.md` 的 `## 任务阶段` 表中注册。
+
+检查规则：
+
+1. `active/Current_Task.md` 引用阶段编号时，阶段必须已注册。
+2. 阶段父任务必须存在于 `## 子任务` 表。
+3. 阶段绑定的 Workstream 必须存在。
+4. `active/Current_Task.md` 把 Done / Cancelled Workstream 当作当前执行线时，应报错。
+5. `active/Task_Plan.md` 阶段表把 Done / Cancelled Workstream 作为历史依赖或 evidence 时允许。
+
+### Authority write gate
+
+Workstream 的 `owned` / `assigned` 写入范围表示可直接写入。第一版 authority path 使用内置清单，不提供可配置 map。
+
+内置 authority path 包括：
+
+- `active/Context.md`
+- `active/Current_Task.md`
+- `active/Task_Plan.md`
+- `active/Feedback_Inbox.md`
+- `rules/*.md`
+- `AGENTS.md`
+- `reference/Decisions_Index.md`
+- `decisions/*.md`
+- `reference/Knowledge_Index.md`
+
+检查规则：
+
+1. `write_scope` 中 `owned` / `assigned` 命中 authority path 时，strict check 失败。
+2. Workstream 需要影响 authority 文件时，应声明 `merge_targets` 并填写合并请求。
+3. `merge_targets` 表示候选影响范围，不表示 Workstream 可以直接写入该文件。
+
+建议错误码：
+
+- `workstream_authority_write_forbidden`
+- `workstream_merge_target_requires_request`
+
+### Merge resolution
+
+Done Workstream 必须说明合并结果。
+
+建议 metadata：
+
+```yaml
+merge_resolution: merged
+```
+
+允许值：
+
+- `merged`
+- `rejected`
+- `no_merge_required`
+- `archived`
+
+检查规则：
+
+1. Done 缺 evidence 时 error。
+2. Done 缺 `merge_resolution` 时 error。
+3. `ReadyToMerge` 或 Done 声明 `merge_targets` 时，必须有合并请求。
+4. `merge_resolution: rejected` 应在正文中给出拒绝原因。
+5. `merge_resolution: no_merge_required` 应说明为什么不需要合并。
+
+### Active retention gate
+
+Done / Cancelled Workstream 不应长期留在 active 区域。确实仍需解释当前计划时，必须显式声明保留理由和期限。
+
+建议 metadata：
+
+```yaml
+keep_active_reason: Still needed by current active plan.
+keep_active_until: 2026-05-10
+```
+
+检查规则：
+
+1. Done / Cancelled 仍在 `active/workstreams/` 且缺少 keep-active 字段时，普通 check warning。
+2. strict check 下，超过 `keep_active_until` 时 error。
+3. 当前计划结束后，应归档到 `archive/workstreams/`。
+
+### Non-goals
+
+本阶段不做：
+
+1. 不新增 task object 单文件。
+2. 不引入可配置 authority map。
+3. 不让 generated index 覆盖 Knowledge / ADR / Archive。
+4. 不把 content audit 接入默认 strict。
+5. 不做自动事实裁决、自动语义去重或自动合并权威上下文。
+
+---
+
 ## Front Matter 判断
 
 轻量 YAML front matter 可以用于现有文档，但不应全量改造。
