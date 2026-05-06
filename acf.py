@@ -142,6 +142,7 @@ VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Re
 VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
 VALID_WORKSTREAM_STATUSES = {"Open", "Active", "Blocked", "ReadyToMerge", "Done", "Cancelled"}
 VALID_WORKSTREAM_STAGE_STATUSES = {"Pending", "Active", "Blocked", "Done", "Skipped", "Cancelled"}
+VALID_MERGE_RESOLUTIONS = {"merged", "rejected", "no_merge_required", "archived"}
 ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge"}
 DEFAULT_STALE_DAYS = 14
 WORKSTREAM_NOTE_SECTIONS = {
@@ -207,6 +208,9 @@ WORKSTREAM_METADATA_FIELDS = (
     "read_scope",
     "write_scope",
     "merge_targets",
+    "merge_resolution",
+    "keep_active_reason",
+    "keep_active_until",
 )
 JSON_SCHEMA_VERSION = 1
 EXIT_CHECK_FAILED = 1
@@ -901,6 +905,8 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Run `acf workstream merge-request ...` with target and summary before `ready`."]
     if error_code == "workstream_missing_evidence":
         return ["Provide `--evidence` so completion remains traceable."]
+    if error_code == "workstream_missing_merge_resolution":
+        return ["Provide `--merge-resolution` with one of: merged, rejected, no_merge_required, archived."]
     if error_code == "workstream_section_not_allowed":
         return ["Use one of the allowed Workstream note sections."]
     if error_code == "workstream_scope_invalid":
@@ -937,6 +943,7 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_reason_required",
         "workstream_missing_merge_request",
         "workstream_missing_evidence",
+        "workstream_missing_merge_resolution",
         "workstream_section_not_allowed",
         "workstream_scope_invalid",
         "workstream_claim_conflict",
@@ -4469,9 +4476,18 @@ def workstream_front_matter_schema() -> FrontMatterSchema:
     return FrontMatterSchema(
         required_fields=("id", "status", "owner", "title", "read_scope", "write_scope"),
         allowed_fields=WORKSTREAM_METADATA_FIELDS,
-        scalar_fields=("id", "status", "owner", "title", "current_stage"),
+        scalar_fields=(
+            "id",
+            "status",
+            "owner",
+            "title",
+            "current_stage",
+            "merge_resolution",
+            "keep_active_reason",
+            "keep_active_until",
+        ),
         list_fields=("depends_on", "read_scope", "write_scope", "merge_targets"),
-        enum_fields={"status": VALID_WORKSTREAM_STATUSES},
+        enum_fields={"status": VALID_WORKSTREAM_STATUSES, "merge_resolution": VALID_MERGE_RESOLUTIONS},
         scope_fields=("read_scope",),
         typed_scope_fields=("write_scope",),
     )
@@ -4829,7 +4845,14 @@ def workstream_detail_metadata_value(detail: WorkstreamDetail, field_name: str, 
     return value if isinstance(value, str) and value.strip() else fallback
 
 
-def update_workstream_status(root: Path, workstream_id: str, status: str, section_updates: dict[str, str] | None, dry_run: bool) -> list[Path]:
+def update_workstream_status(
+    root: Path,
+    workstream_id: str,
+    status: str,
+    section_updates: dict[str, str] | None,
+    dry_run: bool,
+    metadata_updates: dict[str, str | list[str]] | None = None,
+) -> list[Path]:
     entries = parse_workstream_index(root)
     detail = read_workstream_detail(root, workstream_id)
     current_status = workstream_detail_metadata_value(detail, "status", "")
@@ -4841,6 +4864,8 @@ def update_workstream_status(root: Path, workstream_id: str, status: str, sectio
 
     metadata = dict(detail.metadata)
     metadata["status"] = status
+    if metadata_updates:
+        metadata.update(metadata_updates)
     body = detail.body
     for heading, replacement in (section_updates or {}).items():
         body = replace_or_append_section(body, heading, replacement)
@@ -5287,6 +5312,13 @@ def required_workstream_evidence(args: argparse.Namespace) -> str:
     return evidence
 
 
+def required_workstream_merge_resolution(args: argparse.Namespace) -> str:
+    resolution = (args.merge_resolution or "").strip()
+    if not resolution:
+        raise SystemExit("workstream_missing_merge_resolution: done requires --merge-resolution")
+    return resolution
+
+
 def workstream_done_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
@@ -5295,11 +5327,19 @@ def workstream_done_command(args: argparse.Namespace) -> int:
     if "Done" not in WORKSTREAM_STATE_TRANSITIONS.get(current_status, set()):
         raise SystemExit(f"workstream_invalid_transition: {args.id} {current_status} -> Done")
     evidence = required_workstream_evidence(args)
+    merge_resolution = required_workstream_merge_resolution(args)
     section_updates = {"## 证据": evidence}
     completion = (args.summary or "").strip()
     if completion:
         section_updates["## 完成记录"] = completion
-    changed = update_workstream_status(root, args.id, "Done", section_updates, dry_run)
+    changed = update_workstream_status(
+        root,
+        args.id,
+        "Done",
+        section_updates,
+        dry_run,
+        {"merge_resolution": merge_resolution},
+    )
     check_result = maybe_check_after(args, root)
     action = "would mark" if dry_run else "marked"
     return emit_write_result(
@@ -5308,7 +5348,7 @@ def workstream_done_command(args: argparse.Namespace) -> int:
         f"{action} Workstream {args.id} Done",
         changed,
         check_result,
-        extra_payload={"id": args.id, "status": "Done", "evidence": evidence},
+        extra_payload={"id": args.id, "status": "Done", "evidence": evidence, "merge_resolution": merge_resolution},
     )
 
 
@@ -6953,7 +6993,14 @@ def check_workstream_stage_focus(root: Path, detail: WorkstreamDetail, errors: l
         errors.append(f"{rel}: terminal workstream has non-terminal current_stage `{current_stage}` ({current_status})")
 
 
-def check_workstream_state_requirements(root: Path, detail: WorkstreamDetail, entry: WorkstreamEntry | None, errors: list[str]) -> None:
+def check_workstream_state_requirements(
+    root: Path,
+    detail: WorkstreamDetail,
+    entry: WorkstreamEntry | None,
+    errors: list[str],
+    warnings: list[str],
+    strict: bool,
+) -> None:
     rel = detail.path.relative_to(root).as_posix()
     status = detail.metadata.get("status")
     if not isinstance(status, str):
@@ -6982,9 +7029,24 @@ def check_workstream_state_requirements(root: Path, detail: WorkstreamDetail, en
             errors.append(f"{rel}: Done workstream declares merge_targets but is missing merge request")
         if workstream_section_missing(detail.body, "## 证据"):
             errors.append(f"{rel}: Done workstream missing evidence")
+        if required_field_missing(detail.metadata.get("merge_resolution")):
+            errors.append(f"{rel}: Done workstream missing merge_resolution")
     elif status == "Cancelled":
         if workstream_section_missing(detail.body, "## 取消原因"):
             errors.append(f"{rel}: Cancelled workstream missing cancellation reason")
+    if status in {"Done", "Cancelled"}:
+        keep_reason = detail.metadata.get("keep_active_reason")
+        keep_until = detail.metadata.get("keep_active_until")
+        if required_field_missing(keep_reason):
+            warnings.append(f"{rel}: terminal workstream remains active without keep_active_reason")
+        if required_field_missing(keep_until):
+            warnings.append(f"{rel}: terminal workstream remains active without keep_active_until")
+        elif not isinstance(keep_until, str) or not DATE_RE.match(keep_until):
+            errors.append(f"{rel}: invalid keep_active_until `{keep_until}`")
+        elif strict:
+            keep_until_date = date.fromisoformat(keep_until)
+            if keep_until_date < date.today():
+                errors.append(f"{rel}: keep_active_until `{keep_until}` is expired")
 
 
 def check_workstream_scope_claims(root: Path, details: Sequence[WorkstreamDetail], errors: list[str], warnings: list[str], strict: bool) -> None:
@@ -7077,7 +7139,7 @@ def check_workstreams(root: Path, errors: list[str], warnings: list[str], strict
                 warnings,
                 strict,
             )
-        check_workstream_state_requirements(root, detail, entry, errors)
+        check_workstream_state_requirements(root, detail, entry, errors, warnings, strict)
         check_workstream_stage_focus(root, detail, errors)
 
     if details_dir.is_dir():
@@ -7677,6 +7739,12 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_done_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
     workstream_done_parser.add_argument("path", nargs="?", type=Path)
     workstream_done_parser.add_argument("--evidence", default=None, help="completion evidence")
+    workstream_done_parser.add_argument(
+        "--merge-resolution",
+        choices=tuple(sorted(VALID_MERGE_RESOLUTIONS)),
+        default=None,
+        help="final merge outcome: merged, rejected, no_merge_required, or archived",
+    )
     workstream_done_parser.add_argument("--summary", default=None, help="optional completion record")
     add_write_arguments(workstream_done_parser)
     workstream_done_parser.set_defaults(func=workstream_done_command)

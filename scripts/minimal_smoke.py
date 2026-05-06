@@ -229,6 +229,8 @@ class SmokeRunner:
                     str(context),
                     "--evidence",
                     "Smoke evidence",
+                    "--merge-resolution",
+                    "merged",
                     "--json",
                 ]
             )

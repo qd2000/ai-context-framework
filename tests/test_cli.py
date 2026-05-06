@@ -875,6 +875,12 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 2)
             self.assertEqual(json.loads(stdout)["error_code"], "workstream_missing_evidence")
 
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "done", "WS002", str(target), "--evidence", "tests/test_cli.py", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_missing_merge_resolution")
+
             exit_code, stdout, stderr = self.run_cli_output(
                 [
                     "workstream",
@@ -883,6 +889,8 @@ class CliTests(unittest.TestCase):
                     str(target),
                     "--evidence",
                     "tests/test_cli.py",
+                    "--merge-resolution",
+                    "merged",
                     "--summary",
                     "已合并并验证",
                     "--json",
@@ -892,6 +900,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(json.loads(stdout)["status"], "Done")
             detail_text = (target / "active" / "workstreams" / "WS002.md").read_text(encoding="utf-8")
             self.assertIn("status: Done", detail_text)
+            self.assertIn("merge_resolution: merged", detail_text)
             self.assertIn("tests/test_cli.py", detail_text)
             self.assertIn("已合并并验证", detail_text)
 
@@ -1311,6 +1320,111 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             errors = json.loads(stdout)["check"]["errors"]
             self.assertTrue(any("Done" in error and "evidence" in error for error in errors))
+
+    def test_done_workstream_requires_merge_resolution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8")
+                .replace("status: Open", "status: Done")
+                .replace("## 证据\n\n无。", "## 证据\n\ndone"),
+                encoding="utf-8",
+            )
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS004 | Open |", "| WS004 | Done |"), encoding="utf-8")
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("Done workstream missing merge_resolution" in error for error in result.errors))
+
+    def test_done_workstream_rejects_invalid_merge_resolution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8")
+                .replace("status: Open", "status: Done")
+                .replace("title: WS004\n", "title: WS004\nmerge_resolution: maybe\n")
+                .replace("## 证据\n\n无。", "## 证据\n\ndone"),
+                encoding="utf-8",
+            )
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS004 | Open |", "| WS004 | Done |"), encoding="utf-8")
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("merge_resolution" in error and "invalid value" in error for error in result.errors))
+
+    def test_terminal_active_workstream_missing_retention_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8")
+                .replace("status: Open", "status: Done")
+                .replace("title: WS004\n", "title: WS004\nmerge_resolution: no_merge_required\n")
+                .replace("## 证据\n\n无。", "## 证据\n\ndone"),
+                encoding="utf-8",
+            )
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS004 | Open |", "| WS004 | Done |"), encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            warnings = json.loads(stdout)["check"]["warnings"]
+            self.assertTrue(any("terminal workstream remains active without keep_active_reason" in warning for warning in warnings))
+            self.assertTrue(any("terminal workstream remains active without keep_active_until" in warning for warning in warnings))
+
+    def test_strict_rejects_expired_keep_active_until(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8")
+                .replace("status: Open", "status: Done")
+                .replace(
+                    "title: WS004\n",
+                    "title: WS004\nmerge_resolution: no_merge_required\nkeep_active_reason: needed by current plan\nkeep_active_until: 2000-01-01\n",
+                )
+                .replace("## 证据\n\n无。", "## 证据\n\ndone"),
+                encoding="utf-8",
+            )
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS004 | Open |", "| WS004 | Done |"), encoding="utf-8")
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("keep_active_until `2000-01-01` is expired" in error for error in result.errors))
+
+    def test_keep_active_until_requires_iso_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8")
+                .replace("status: Open", "status: Cancelled")
+                .replace("title: WS004\n", "title: WS004\nkeep_active_reason: needed\nkeep_active_until: tomorrow\n")
+                .replace("## 取消原因\n\n无。", "## 取消原因\n\ncancelled"),
+                encoding="utf-8",
+            )
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS004 | Open |", "| WS004 | Cancelled |"), encoding="utf-8")
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("invalid keep_active_until `tomorrow`" in error for error in result.errors))
 
     def test_workstream_current_stage_requires_stage_table(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2208,7 +2322,7 @@ class CliTests(unittest.TestCase):
                 ]
             )
             self.run_cli(["workstream", "ready", "WS004", str(target)])
-            self.run_cli(["workstream", "done", "WS004", str(target), "--evidence", "done"])
+            self.run_cli(["workstream", "done", "WS004", str(target), "--evidence", "done", "--merge-resolution", "no_merge_required"])
             (target / "active" / "Current_Task.md").write_text(
                 "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001\n\n## 当前执行线\n\nWS004\n",
                 encoding="utf-8",
@@ -2239,7 +2353,7 @@ class CliTests(unittest.TestCase):
                 ]
             )
             self.run_cli(["workstream", "ready", "WS004", str(target)])
-            self.run_cli(["workstream", "done", "WS004", str(target), "--evidence", "done"])
+            self.run_cli(["workstream", "done", "WS004", str(target), "--evidence", "done", "--merge-resolution", "no_merge_required"])
             self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal", "--force"])
             self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
             plan_path = target / "active" / "Task_Plan.md"

@@ -115,7 +115,7 @@ Dogfooding MVP / 框架稳定化。
 60. `decisions/ADR-0005.md` 已作为 Proposed ADR 记录可选 Workstream 层的稳定取舍；T004 实现并验证后再评估是否改为 Active。
 61. T004 第一刀已完成：`acf workstream init/status/list/show` 可用；实现范围限定为 Workstream 数据模型、front matter schema 校验、scope normalize、initialized 判断和最小查询/初始化命令。
 62. T004 第二刀已完成：`acf workstream add/set/block/cancel` 可用；`add` 需要显式 `--id`，会生成详情文件并同步索引；`set` 只允许基础状态转换；`block` 和 `cancel` 必须提供 reason 并写入详情文件。
-63. T004 第三刀已完成：`acf workstream merge-request/ready/done` 可用；`merge-request` 只覆盖详情文件的合并请求 section，不改权威上下文；`ready` 要求 Active 状态且合并请求含 target 和候选摘要；`done` 要求 ReadyToMerge 状态和 evidence，并把证据写入详情文件。
+63. T004 第三刀已完成：`acf workstream merge-request/ready/done` 可用；`merge-request` 只覆盖详情文件的合并请求 section，不改权威上下文；`ready` 要求 Active 状态且合并请求含 target 和候选摘要；`done` 要求 ReadyToMerge 状态、evidence 和 `merge_resolution`，并把证据写入详情文件。
 64. T004 第四刀已完成：`acf workstream claim/note` 可用；`claim` 追加 read_scope/write_scope，typed write_scope 做命令内有限冲突检查，draft 缺 WS ID 只给 warning；`note` 只允许追加到白名单详情 section，缺失 section 自动创建；尚未实现 archive 或全局 Workstream check。
 65. T004 第五刀已完成并闭环：`acf check` 已接入 optional Workstream 检查；没有 `active/Workstreams.md` 时不检查、不 warning；存在索引时检查详情目录、索引链接、front matter schema、状态必填内容、索引/详情一致性、authority/assigned 冲突和 draft 文件名 warning/strict error。
 66. `decisions/ADR-0005.md` 已从 Proposed 升为 Active；可选 Workstream 层第一版实现、模板读取规则、CLI、check 和验证均已落地。

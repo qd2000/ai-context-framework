@@ -332,7 +332,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf knowledge draft|apply|list|show|mark [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
 - `acf review stale [target]`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json`、`--days` 和 `--today`。
 - `acf curate draft [target]`：复用 `review stale` 的 stale candidates 生成 curation-drafts 目录下的日期命名注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days`、`--today` 和 `--name`。
-- `acf workstream init|status|list|add [target]` / `acf workstream show|set|block|cancel|merge-request|ready|done|claim|note WS001 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`merge_targets` 记录候选合并目标；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
+- `acf workstream init|status|list|add [target]` / `acf workstream show|set|block|cancel|merge-request|ready|done|claim|note WS001 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`merge_targets` 记录候选合并目标，Done 需要 `--merge-resolution` 写入合并结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `acf new task [target] --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
 - `acf new source [target] --title "..." --type "..." --location "..." --relation "..."`：添加或更新资料索引行；重复资料标题需传入 `--force` 才能覆盖。
 - `acf new worklog [target] --summary "..."`：生成 daily worklog 并更新工作记录索引；同日已有记录且需要补记时使用 `--append`，需要重建时使用 `--force`，二者不能混用。

@@ -93,6 +93,9 @@ status: Open
 owner: 主 agent
 title: 并行任务治理模型
 current_stage: WS001.1
+merge_resolution: no_merge_required
+keep_active_reason: Still needed by current active plan.
+keep_active_until: 2026-05-10
 depends_on: []
 read_scope:
   - active/Context dot md
@@ -110,10 +113,12 @@ merge_targets:
 1. `id` 必须匹配 `WS` 加三位数字。
 2. `status` 必须属于 Workstream 状态机。
 3. `current_stage` 可选；存在时必须匹配本 Workstream 详情中的 `## 阶段` 表。
-4. `depends_on`、`read_scope`、`write_scope`、`merge_targets` 使用字符串列表。
-5. `merge_targets` 可选，只表示候选影响范围，不表示 Workstream 可以直接写入对应文件。
-6. `write_scope` 使用 typed string，格式为 `type: path`。
-7. 第一版不支持复杂对象、嵌套 YAML 或未带类型的写入范围。
+4. `merge_resolution` 可选；Done 时必填，允许值为 `merged`、`rejected`、`no_merge_required`、`archived`。
+5. `keep_active_reason`、`keep_active_until` 可选；Done / Cancelled 仍留在 active 区域时用于说明保留理由和期限。
+6. `depends_on`、`read_scope`、`write_scope`、`merge_targets` 使用字符串列表。
+7. `merge_targets` 可选，只表示候选影响范围，不表示 Workstream 可以直接写入对应文件。
+8. `write_scope` 使用 typed string，格式为 `type: path`。
+9. 第一版不支持复杂对象、嵌套 YAML 或未带类型的写入范围。
 
 ---
 
@@ -336,7 +341,7 @@ uv run acf workstream set WS001 --status Active
 uv run acf workstream claim WS001 --owner "agent-a" --write "assigned: src/foo.py"
 uv run acf workstream note WS001 --section "当前发现" --text "..."
 uv run acf workstream ready WS001
-uv run acf workstream done WS001 --evidence "docs/ai/reference/Workstream_Design"
+uv run acf workstream done WS001 --evidence "docs/ai/reference/Workstream_Design" --merge-resolution no_merge_required
 ```
 
 可延后命令：
@@ -455,7 +460,7 @@ uv run acf workstream set [path] WS001 --status Active --json
 uv run acf workstream block [path] WS001 --reason "等待人工判断" --json
 uv run acf workstream cancel [path] WS001 --reason "不再适用" --json
 uv run acf workstream ready [path] WS001 --summary "候选变更已整理" --json
-uv run acf workstream done [path] WS001 --evidence "worklog/daily/2026-04-30" --json
+uv run acf workstream done [path] WS001 --evidence "worklog/daily/2026-04-30" --merge-resolution merged --json
 ```
 
 行为：
@@ -464,7 +469,7 @@ uv run acf workstream done [path] WS001 --evidence "worklog/daily/2026-04-30" --
 2. 更新详情 front matter。
 3. 同步索引摘要。
 4. `ready` 必须校验合并请求 section 存在。
-5. `done` 必须要求 evidence。
+5. `done` 必须要求 evidence 和 `merge_resolution`。
 6. `block` 和 `cancel` 必须要求 reason。
 
 第一版提供 `block` 和 `cancel` 语义命令，不只依赖通用 `set`，避免漏填 blocker 或取消原因。`status` 作为查询命令返回索引摘要和当前 Active/Blocked/ReadyToMerge 数量。
