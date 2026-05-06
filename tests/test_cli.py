@@ -1797,6 +1797,51 @@ class CliTests(unittest.TestCase):
             errors = json.loads(stdout)["check"]["errors"]
             self.assertTrue(any("authority path" in error and "assigned: active/Context.md" in error for error in errors))
 
+    def test_workstream_strict_rejects_docs_ai_prefixed_assigned_authority_path(self):
+        cases = [
+            "docs/ai/active/Context.md",
+            "docs\\ai\\active\\Context.md",
+        ]
+        for claimed_path in cases:
+            with self.subTest(claimed_path=claimed_path):
+                with tempfile.TemporaryDirectory() as tmp:
+                    target = Path(tmp) / "ctx"
+                    self.init_minimal_workstream_context(target)
+                    self.add_workstream(target, "WS004")
+                    detail_path = target / "active" / "workstreams" / "WS004.md"
+                    detail_path.write_text(
+                        detail_path.read_text(encoding="utf-8").replace(
+                            "  - owned: active/workstreams/WS004.md\n",
+                            f"  - owned: active/workstreams/WS004.md\n  - assigned: {claimed_path}\n",
+                        ),
+                        encoding="utf-8",
+                    )
+
+                    exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--strict", "--json"])
+
+                    self.assertEqual(exit_code, 1)
+                    errors = json.loads(stdout)["check"]["errors"]
+                    self.assertTrue(any("authority path" in error and "assigned: docs/ai/active/Context.md" in error for error in errors))
+
+    def test_workstream_strict_allows_docs_ai_prefixed_non_authority_project_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "  - owned: active/workstreams/WS004.md\n",
+                    "  - owned: active/workstreams/WS004.md\n  - assigned: docs/ai/worklog/writeback-drafts/WS004-draft.md\n",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--strict", "--json"])
+
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertFalse(any("authority path" in error for error in errors))
+
     def test_workstream_strict_rejects_owned_authority_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

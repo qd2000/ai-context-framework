@@ -4502,6 +4502,13 @@ def normalize_scope_path(path_value: str) -> str:
     return normalized.rstrip("/")
 
 
+def normalize_authority_match_path(path_value: str) -> str:
+    normalized = normalize_scope_path(path_value)
+    if normalized.startswith("docs/ai/"):
+        return normalized.removeprefix("docs/ai/")
+    return normalized
+
+
 def normalize_scope_values(values: str | list[str] | None) -> list[str]:
     if not isinstance(values, list):
         return []
@@ -4522,7 +4529,7 @@ def normalize_typed_scope_values(values: str | list[str] | None) -> list[str]:
 
 
 def is_authority_path(path_value: str) -> bool:
-    normalized = normalize_scope_path(path_value)
+    normalized = normalize_authority_match_path(path_value)
     if normalized in AUTHORITY_PATHS:
         return True
     for pattern in AUTHORITY_GLOBS:
