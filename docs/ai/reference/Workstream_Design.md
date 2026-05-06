@@ -713,6 +713,39 @@ Workstream 层是 optional：
 4. `active/Current_Task.md` 的 `## 当前执行线` 把 Done / Cancelled Workstream 当作当前执行线时，应报错。
 5. `active/Task_Plan.md` 阶段表把 Done / Cancelled Workstream 作为历史依赖或 evidence 时允许。
 
+### Workstream Stage Focus
+
+`WS004.2` 这类 Workstream 内部阶段编号允许存在，但必须在对应 Workstream 详情文件的 `## 阶段` 表中注册。该能力用于表达一个长期 Active Workstream 内部当前推进到哪一步，不把 Workstream 改造成 agent runtime 或调度器。
+
+建议 Workstream 详情 front matter 增加可选字段：
+
+```yaml
+current_stage: WS004.2
+```
+
+建议 Workstream 详情正文增加阶段表：
+
+```markdown
+## 阶段
+
+| ID | 状态 | 阶段 | 依赖 | 输出物 | 证据 | 下一步 |
+|---|---|---|---|---|---|---|
+| WS004.1 | Done | pct25 formal Morris raw / processed / metrics | WS001, WS002, WS003 | pct25 metrics | output/formal_morris/... | 激活 WS004.2 |
+| WS004.2 | Active | pct10 formal Morris raw / processed / metrics | WS004.1 | pct10 metrics | output/formal_morris/... | 完成后激活 WS004.3 |
+```
+
+检查规则：
+
+1. `current_stage` 必须存在于本 Workstream 的 `## 阶段` 表。
+2. Workstream stage ID 必须属于当前 Workstream，例如 WS004 详情文件只能注册 `WS004.x`。
+3. Active Workstream 最多只能有一个 Active 阶段。
+4. `current_stage` 不能是 Done / Cancelled / Skipped。
+5. Done / Cancelled Workstream 不能有 Active 阶段或非终态 `current_stage`。
+6. 第一版只机械检查同一 Workstream 内部阶段依赖；外部 `WS001`、`T001` 等依赖只作为历史或前置输入引用，不在 PR 1b 中做语义裁决。
+7. 全局 `active/Current_Task.md` 若同时声明 `## 当前执行线` 和 `## 当前阶段`，则当前阶段必须属于当前执行线，并与 Workstream 详情的 `current_stage` 一致。
+
+PR 1b 只实现注册和 check，不实现完整 `acf workstream stage add|set|done` 或 `acf workstream focus` 命令。命令层待规则稳定后再补。
+
 ### Authority write gate
 
 Workstream 的 `owned` / `assigned` 写入范围表示可直接写入。第一版 authority path 使用内置清单，不提供可配置 map。
@@ -791,6 +824,7 @@ keep_active_until: 2026-05-10
 3. 不让 generated index 覆盖 Knowledge / ADR / Archive。
 4. 不把 content audit 接入默认 strict。
 5. 不做自动事实裁决、自动语义去重或自动合并权威上下文。
+6. PR 1b 不实现完整 Workstream stage CLI，只做注册和 check。
 
 ---
 

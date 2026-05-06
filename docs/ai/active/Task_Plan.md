@@ -14,13 +14,13 @@ Active
 
 ## 大任务名称
 
-P0 governance hardening: task-stage registry, authority write gate, merge resolution, active retention gate
+P0 governance hardening: task-stage registry, workstream stage focus, authority write gate, merge resolution, active retention gate
 
 ---
 
 ## 大任务目标
 
-1. 把 FCC dogfooding 暴露的阶段编号、Workstream 权威写入、合并结果和 active 滞留问题转成 `acf check --strict` 的确定性门禁。
+1. 把 FCC dogfooding 暴露的阶段编号、Workstream 内部阶段焦点、Workstream 权威写入、合并结果和 active 滞留问题转成 `acf check --strict` 的确定性门禁。
 2. 保持 ACF Markdown-first、模型无关、人工可审阅，不引入 agent runtime、数据库、向量库或自动事实裁决。
 3. 第一阶段只做 P0 hardening；generated index 只在 Workstream 上先检测后 sync；content audit 独立后置，不进入默认 strict。
 
@@ -29,10 +29,11 @@ P0 governance hardening: task-stage registry, authority write gate, merge resolu
 ## 成功标准
 
 1. `T001.4` 这类阶段编号必须在 `Task_Plan.md` 的 `## 任务阶段` 表注册；未注册引用在普通 check 和 strict check 中都失败。
-2. Workstream 的 `owned` / `assigned` 写入范围不得直接命中 authority path；需要影响 authority 文件时必须使用 `merge_targets` 和合并请求。
-3. Done / Cancelled workstream 留在 active 区域时有 `keep_active_reason`、`keep_active_until`；Done 有 evidence 和 `merge_resolution`。
-4. Workstream index 与详情文件一致性先由 check 检测，再引入 `acf workstream sync --dry-run --json`。
-5. 每个 PR 均通过基线验证命令。
+2. `WS004.2` 这类 Workstream 内部阶段编号必须在对应 Workstream 详情文件的 `## 阶段` 表注册；`current_stage` 和全局当前阶段引用必须可机械校验。
+3. Workstream 的 `owned` / `assigned` 写入范围不得直接命中 authority path；需要影响 authority 文件时必须使用 `merge_targets` 和合并请求。
+4. Done / Cancelled workstream 留在 active 区域时有 `keep_active_reason`、`keep_active_until`；Done 有 evidence 和 `merge_resolution`。
+5. Workstream index 与详情文件一致性先由 check 检测，再引入 `acf workstream sync --dry-run --json`。
+6. 每个 PR 均通过基线验证命令。
 
 ---
 
@@ -47,10 +48,11 @@ T002
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
 | T001 | Done | Task Stage registry | 现有 Task_Plan / Current_Task 结构 | `## 任务阶段` 表、stage ID 检查、Current_Task 引用检查 | PR 1 implemented and verified: acf check docs/ai --strict, acf check template, upgrade dry-run, unittest, minimal smoke, quick upgrade matrix, py_compile | 无。 |
-| T002 | Pending | Workstream authority write gate + `merge_targets` | T001 | authority path 门禁、`merge_targets` metadata、错误码 | `reference/Workstream_Design.md`; `acf.py`; `tests/test_cli.py` | 扩展 Workstream schema 和 scope 检查。 |
-| T003 | Pending | Merge resolution + active retention gate | T002 | `merge_resolution`、`keep_active_reason`、`keep_active_until` 检查 | `active/workstreams/*.md`; `acf.py`; `tests/test_cli.py` | 硬化 Done / Cancelled 状态门禁。 |
-| T004 | Pending | Workstream index consistency check, then sync | T003 | Workstreams 索引一致性检查；后续 sync dry-run | `active/Workstreams.md`; `active/workstreams/*.md` | 先做检测，再做 `acf workstream sync`。 |
-| T005 | Pending | 独立 `audit context` 后续设计 | T001-T004 | P2 audit 设计草案，不进入默认 strict | `../../Automation.md`; `reference/Context_Curation_Prompt.md` | P0 完成后再评估。 |
+| T002 | Pending | PR 1b: Workstream Stage Focus | T001 | `current_stage`、Workstream `## 阶段` 表、全局当前阶段对齐检查 | `reference/Workstream_Design.md`; `acf.py`; `tests/test_cli.py` | 新增 Workstream 内部阶段注册和 current_stage check。 |
+| T003 | Pending | Workstream authority write gate + `merge_targets` | T002 | authority path 门禁、`merge_targets` metadata、错误码 | `reference/Workstream_Design.md`; `acf.py`; `tests/test_cli.py` | 扩展 Workstream schema 和 scope 检查。 |
+| T004 | Pending | Merge resolution + active retention gate | T003 | `merge_resolution`、`keep_active_reason`、`keep_active_until` 检查 | `active/workstreams/*.md`; `acf.py`; `tests/test_cli.py` | 硬化 Done / Cancelled 状态门禁。 |
+| T005 | Pending | Workstream index consistency check, then sync | T004 | Workstreams 索引一致性检查；后续 sync dry-run | `active/Workstreams.md`; `active/workstreams/*.md` | 先做检测，再做 `acf workstream sync`。 |
+| T006 | Pending | 独立 `audit context` 后续设计 | T001-T005 | P2 audit 设计草案，不进入默认 strict | `../../Automation.md`; `reference/Context_Curation_Prompt.md` | P0 完成后再评估。 |
 
 ---
 
@@ -71,6 +73,7 @@ T002
 3. 不让 generated index 覆盖 Knowledge / ADR / Archive。
 4. 不把 content audit 接入默认 strict。
 5. 不做自动事实裁决、自动语义去重或自动合并权威上下文。
+6. PR 1b 不实现完整 `acf workstream stage` / `focus` 命令，只做注册和 check。
 
 ---
 
@@ -83,7 +86,7 @@ uv run acf check template
 uv run acf check docs/ai --strict --json
 uv run acf upgrade docs/ai --dry-run --json
 uv run python -m unittest
-uv run python scripts/minimal_smoke.py --acf "uv run acf"
+uv run python scripts/minimal_smoke.py --acf uv run acf
 uv run python scripts/upgrade_matrix.py --mode quick
 ```
 

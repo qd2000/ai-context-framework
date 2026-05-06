@@ -172,15 +172,16 @@ P1 命令：
 
 下一阶段开发目标：
 
-**P0 governance hardening**：先把 FCC 暴露的阶段注册、权威写入、合并结果、active 滞留做成 `acf check --strict` 的确定性门禁；generated index 只在 Workstream 上先检测后 sync；content audit 独立后置，不进入默认 strict。
+**P0 governance hardening**：先把 FCC 暴露的阶段注册、Workstream 内部阶段焦点、权威写入、合并结果、active 滞留做成 `acf check --strict` 的确定性门禁；generated index 只在 Workstream 上先检测后 sync；content audit 独立后置，不进入默认 strict。
 
 实施顺序：
 
 1. Task Stage registry：在 `Task_Plan.md` 增加 `## 任务阶段` 表，检查 `T001.4` 这类阶段编号的注册、父任务和 Workstream 绑定。
-2. Authority write gate + `merge_targets`：禁止 Workstream 通过 `owned` / `assigned` 直接 claim authority path；需要影响权威文件时使用 `merge_targets` 和合并请求。
-3. Merge resolution + active retention gate：Done Workstream 必须有 evidence 和 `merge_resolution`；Done / Cancelled 留 active 必须有 `keep_active_reason` 和 `keep_active_until`。
-4. Workstream index consistency check, then sync：先检测 `active/Workstreams.md` 与详情 front matter 是否一致，再引入 `acf workstream sync --dry-run --json`。
-5. 后续独立 `audit context`：只输出 candidates，不进入默认 `check --strict`。
+2. Workstream Stage Focus：在 Workstream 详情中支持 optional `current_stage` 和 `## 阶段` 表，检查 `WS004.2` 这类内部阶段注册、唯一 Active 阶段和全局当前阶段对齐；第一版不实现 stage CLI。
+3. Authority write gate + `merge_targets`：禁止 Workstream 通过 `owned` / `assigned` 直接 claim authority path；需要影响权威文件时使用 `merge_targets` 和合并请求。
+4. Merge resolution + active retention gate：Done Workstream 必须有 evidence 和 `merge_resolution`；Done / Cancelled 留 active 必须有 `keep_active_reason` 和 `keep_active_until`。
+5. Workstream index consistency check, then sync：先检测 `active/Workstreams.md` 与详情 front matter 是否一致，再引入 `acf workstream sync --dry-run --json`。
+6. 后续独立 `audit context`：只输出 candidates，不进入默认 `check --strict`。
 
 非目标：
 
@@ -189,6 +190,7 @@ P1 命令：
 3. 不让 generated index 覆盖 Knowledge / ADR / Archive。
 4. 不把 content audit 接入默认 strict。
 5. 不做自动事实裁决、自动语义去重或自动合并权威上下文。
+6. PR 1b 不实现完整 `acf workstream stage` / `focus` 命令。
 
 基线验证：
 
@@ -197,7 +199,7 @@ uv run acf check template
 uv run acf check docs/ai --strict --json
 uv run acf upgrade docs/ai --dry-run --json
 uv run python -m unittest
-uv run python scripts/minimal_smoke.py --acf "uv run acf"
+uv run python scripts/minimal_smoke.py --acf uv run acf
 uv run python scripts/upgrade_matrix.py --mode quick
 ```
 

@@ -23,7 +23,7 @@ PR 1：Task Stage registry
 
 ## 所属大任务
 
-P0 governance hardening: task-stage registry, authority write gate, merge resolution, active retention gate
+P0 governance hardening: task-stage registry, workstream stage focus, authority write gate, merge resolution, active retention gate
 
 ---
 
