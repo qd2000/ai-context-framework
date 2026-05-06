@@ -1345,6 +1345,99 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["check"]["errors"], [])
             self.assertFalse(any("workstream" in warning.lower() for warning in payload["check"]["warnings"]))
 
+    def test_workstream_sync_dry_run_previews_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            index_path = target / "active" / "Workstreams.md"
+            original = index_path.read_text(encoding="utf-8")
+            index_path.write_text(original.replace("| WS002 | Open | WS002 |", "| WS002 | Done | Stale title |"), encoding="utf-8")
+            drifted = index_path.read_text(encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "sync", str(target), "--dry-run", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["changed_files"], [str(index_path)])
+            self.assertIn("| WS002 | Open | WS002 |", payload["preview"]["content"])
+            self.assertEqual(index_path.read_text(encoding="utf-8"), drifted)
+
+    def test_workstream_sync_fixes_index_metadata_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            detail_path = target / "active" / "workstreams" / "WS002.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace("owner: 主 agent", "owner: detail owner"),
+                encoding="utf-8",
+            )
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS002 | Open | WS002 |", "| WS002 | Done | Stale title |"), encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "sync", str(target), "--json", "--check-after"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["changed_files"], [str(index_path)])
+            synced = index_path.read_text(encoding="utf-8")
+            self.assertIn("| WS002 | Open | WS002 | detail owner |", synced)
+            self.assertTrue(payload["check"]["ok"])
+
+    def test_workstream_sync_adds_missing_detail_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            detail_path = target / "active" / "workstreams" / "WS999.md"
+            detail_path.write_text(
+                acf.render_workstream_detail(
+                    "WS999",
+                    "未索引",
+                    "主 agent",
+                    [],
+                    ["active/Context.md"],
+                    ["owned: active/workstreams/WS999.md"],
+                    "输出物",
+                ),
+                encoding="utf-8",
+            )
+            index_path = target / "active" / "Workstreams.md"
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "sync", str(target), "--json", "--check-after"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["changed_files"], [str(index_path)])
+            self.assertIn("| WS999 | Open | 未索引 | 主 agent | owned: active/workstreams/WS999.md | 无。 | 待补充。 | active/workstreams/WS999.md |", index_path.read_text(encoding="utf-8"))
+            self.assertTrue(payload["check"]["ok"])
+
+    def test_workstream_sync_preserves_stale_index_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(
+                index_path.read_text(encoding="utf-8")
+                .replace("| WS002 | Open | WS002 |", "| WS002 | Done | Stale title |")
+                .replace(
+                    "| WS002 | Done | Stale title | 主 agent | owned: active/workstreams/WS002.md | 无。 | 输出物 | active/workstreams/WS002.md |",
+                    "| WS404 | Open | Missing detail | 主 agent | owned: active/workstreams/WS404.md | 无。 | 输出物 | active/workstreams/WS404.md |\n| WS002 | Done | Stale title | 主 agent | owned: active/workstreams/WS002.md | 无。 | 输出物 | active/workstreams/WS002.md |",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "sync", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertIn("| WS404 | Open | Missing detail |", index_path.read_text(encoding="utf-8"))
+            self.assertIn("| WS002 | Open | WS002 |", index_path.read_text(encoding="utf-8"))
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 1)
+            self.assertTrue(any("broken Workstream detail" in error for error in json.loads(stdout)["check"]["errors"]))
+
     def test_workstream_check_state_required_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

@@ -4805,7 +4805,7 @@ def update_workstream_index_state_text(text: str, entries: Sequence[WorkstreamEn
     return replace_or_append_section(text, "## Workstream 状态", f"{state}\n\n{explanation}")
 
 
-def write_workstream_index(root: Path, entries: Sequence[WorkstreamEntry]) -> None:
+def render_workstream_index_text(root: Path, entries: Sequence[WorkstreamEntry]) -> str:
     index_path = workstream_index_path(root)
     text = read_text(index_path) if index_path.exists() else render_workstream_index()
     lines = text.splitlines()
@@ -4823,7 +4823,11 @@ def write_workstream_index(root: Path, entries: Sequence[WorkstreamEntry]) -> No
     if not rows:
         rows = [render_table_row(["暂无", "Empty", "无。", "无。", "无。", "无。", "无。", "无。"])]
     updated = "\n".join(lines[: table.body_start] + rows + lines[table.body_end :]).rstrip() + "\n"
-    index_path.write_text(update_workstream_index_state_text(updated, entries), encoding="utf-8")
+    return update_workstream_index_state_text(updated, entries)
+
+
+def write_workstream_index(root: Path, entries: Sequence[WorkstreamEntry]) -> None:
+    workstream_index_path(root).write_text(render_workstream_index_text(root, entries), encoding="utf-8")
 
 
 def replace_workstream_entry(entries: Sequence[WorkstreamEntry], updated_entry: WorkstreamEntry) -> list[WorkstreamEntry]:
@@ -4838,6 +4842,42 @@ def replace_workstream_entry(entries: Sequence[WorkstreamEntry], updated_entry: 
     if not replaced:
         updated.append(updated_entry)
     return updated
+
+
+def workstream_entry_from_detail(detail: WorkstreamDetail, existing_entry: WorkstreamEntry | None = None) -> WorkstreamEntry:
+    metadata = detail.metadata
+    write_scope = ", ".join(normalize_typed_scope_values(metadata.get("write_scope")))
+    depends_on = metadata.get("depends_on")
+    return WorkstreamEntry(
+        workstream_id=detail.workstream_id,
+        status=workstream_detail_metadata_value(detail, "status", existing_entry.status if existing_entry else "Open"),
+        title=workstream_detail_metadata_value(detail, "title", existing_entry.title if existing_entry else detail.workstream_id),
+        owner=workstream_detail_metadata_value(detail, "owner", existing_entry.owner if existing_entry else "未分配"),
+        write_scope=write_scope or (existing_entry.write_scope if existing_entry else workstream_write_scope(detail.workstream_id)),
+        depends_on=",".join(depends_on) if isinstance(depends_on, list) and depends_on else (existing_entry.depends_on if existing_entry else "无。"),
+        output=existing_entry.output if existing_entry else "待补充。",
+        detail=existing_entry.detail if existing_entry else workstream_detail_rel(detail.workstream_id),
+    )
+
+
+def synced_workstream_entries(root: Path, entries: Sequence[WorkstreamEntry]) -> list[WorkstreamEntry]:
+    details_dir = workstream_details_dir(root)
+    if not details_dir.is_dir():
+        raise SystemExit(f"workstream_not_initialized: active/workstreams/ directory is missing")
+
+    entry_by_id = {entry.workstream_id: entry for entry in entries}
+    synced_entries = list(entries)
+    errors: list[str] = []
+    for path in sorted(details_dir.glob("WS*.md")):
+        if not WORKSTREAM_ID_RE.match(path.stem):
+            continue
+        detail = parse_workstream_detail_for_check(root, path.stem, path, errors)
+        if detail is None:
+            continue
+        synced_entries = replace_workstream_entry(synced_entries, workstream_entry_from_detail(detail, entry_by_id.get(detail.workstream_id)))
+    if errors:
+        raise SystemExit("workstream_schema_failed: " + "; ".join(errors))
+    return synced_entries
 
 
 def workstream_detail_metadata_value(detail: WorkstreamDetail, field_name: str, fallback: str) -> str:
@@ -4999,6 +5039,36 @@ def workstream_list_command(args: argparse.Namespace) -> int:
         if not entries:
             print("no workstreams")
     return 0
+
+
+def workstream_sync_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    index_path = workstream_index_path(root)
+    current_text = read_text(index_path)
+    entries = parse_workstream_index(root)
+    planned_entries = synced_workstream_entries(root, entries)
+    planned_text = render_workstream_index_text(root, planned_entries)
+    changed = [index_path] if planned_text != current_text else []
+    if changed and not dry_run:
+        index_path.write_text(planned_text, encoding="utf-8")
+
+    check_result = maybe_check_after(args, root)
+    action = "would sync" if dry_run else "synced"
+    extra_payload: dict[str, object] = {
+        "synced": bool(changed),
+        "workstreams": [workstream_entry_payload(entry) for entry in planned_entries],
+    }
+    if dry_run and changed:
+        extra_payload["preview"] = {"path": WORKSTREAM_INDEX_REL, "content": planned_text}
+    return emit_write_result(
+        args,
+        "workstream sync",
+        f"{action} Workstream index",
+        changed,
+        check_result,
+        extra_payload=extra_payload,
+    )
 
 
 def workstream_show_command(args: argparse.Namespace) -> int:
@@ -7690,6 +7760,11 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_list_parser.add_argument("path", nargs="?", type=Path)
     add_json_argument(workstream_list_parser)
     workstream_list_parser.set_defaults(func=workstream_list_command)
+
+    workstream_sync_parser = workstream_subparsers.add_parser("sync", help="sync Workstreams index rows from detail front matter")
+    workstream_sync_parser.add_argument("path", nargs="?", type=Path)
+    add_write_arguments(workstream_sync_parser)
+    workstream_sync_parser.set_defaults(func=workstream_sync_command)
 
     workstream_show_parser = workstream_subparsers.add_parser("show", help="show a Workstream detail file")
     workstream_show_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")

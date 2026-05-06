@@ -832,9 +832,7 @@ keep_active_until: 2026-05-10
 2. strict check 下，超过 `keep_active_until` 时 error。
 3. 当前计划结束后，应归档到 `archive/workstreams/`。
 
-### Workstream index consistency check
-
-PR 4a 只实现检测，不实现 `acf workstream sync` 写入命令。
+### Workstream index consistency check and sync
 
 检查规则：
 
@@ -844,7 +842,14 @@ PR 4a 只实现检测，不实现 `acf workstream sync` 写入命令。
 4. 总表行的状态、标题或 owner 与详情 front matter 不一致时，普通 check warning，strict check error。
 5. Done / Cancelled Workstream 仍可让 Workstreams 索引保持 Inactive；只有 Active、Blocked 或 ReadyToMerge Workstream 才应触发默认读取。
 
-PR 4b 再考虑新增 `acf workstream sync --dry-run --json`，且第一版只更新 `active/Workstreams.md`，不覆盖 Knowledge / ADR / Archive。
+`acf workstream sync` 规则：
+
+1. 只更新 `active/Workstreams.md`。
+2. 只根据 `active/workstreams/*.md` front matter 生成或修复索引行。
+3. dry-run JSON 必须输出 `changed_files` 和 `preview`。
+4. 正式写入后可选 `--check-after` / `--strict`。
+5. 第一版不自动删除索引中缺失详情文件的旧行；缺详情行继续由 check 报 error，要求人工恢复详情或删除旧行。
+6. 不碰 `reference/Knowledge_Index.md`、`reference/Decisions_Index.md`、`archive/Archive_Index.md`，不移动 Done / Cancelled 文件，不改变 Workstream 详情正文。
 
 ### Non-goals
 

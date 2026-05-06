@@ -180,7 +180,7 @@ P1 命令：
 2. Workstream Stage Focus：在 Workstream 详情中支持 optional `current_stage` 和 `## 阶段` 表，检查 `WS004.2` 这类内部阶段注册、归属、唯一 Active 阶段和终态 Workstream 阶段状态；第一版不实现 stage CLI，也不实现全局 `Current_Task.md` 阶段对齐。
 3. Authority write gate + `merge_targets`：禁止 Workstream 通过 `owned` / `assigned` 直接 claim 内置 authority path；需要影响权威文件时使用 `merge_targets` 和合并请求；本阶段不做 `merge_resolution`。
 4. Merge resolution + active retention gate：Done Workstream 必须有 evidence 和 `merge_resolution`；Done / Cancelled 留 active 必须有 `keep_active_reason` 和 `keep_active_until`。
-5. Workstream index consistency check, then sync：PR 4a 先检测 `active/Workstreams.md` 与详情 front matter 是否一致；PR 4b 再引入 `acf workstream sync --dry-run --json`。
+5. Workstream index consistency check, then sync：PR 4a 先检测 `active/Workstreams.md` 与详情 front matter 是否一致；PR 4b 引入 `acf workstream sync --dry-run --json`，只更新 `active/Workstreams.md`，不删除缺详情的旧索引行。
 6. 后续独立 `audit context`：只输出 candidates，不进入默认 `check --strict`。
 
 非目标：

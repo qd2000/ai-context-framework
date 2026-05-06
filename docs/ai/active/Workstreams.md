@@ -18,7 +18,7 @@ Inactive
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS001 | Done | Workstream dogfooding gate | 主 agent | owned: active/workstreams/WS001.md | T002,T003,T005,T006 | docs/ai 最小 Workstream 试运行记录与验收结论 | active/workstreams/WS001.md |
+| WS001 | Done | Workstream dogfooding gate | 主 agent | owned: active/workstreams/WS001.md, authority: active/Workstreams.md, authority: active/Task_Plan.md, authority: docs/ai/AGENTS.md, authority: template/AGENTS.md, authority: docs/ai/reference/System_Manual.md, authority: template/reference/System_Manual.md | T002,T003,T005,T006 | docs/ai 最小 Workstream 试运行记录与验收结论 | active/workstreams/WS001.md |
 
 ---
 
