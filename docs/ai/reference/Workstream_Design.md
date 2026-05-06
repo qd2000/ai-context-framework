@@ -100,6 +100,8 @@ read_scope:
 write_scope:
   - owned: active/workstreams/WS001 dot md
   - draft: worklog/writeback-drafts/WS001-*
+merge_targets:
+  - active/Context dot md
 ---
 ```
 
@@ -108,9 +110,10 @@ write_scope:
 1. `id` 必须匹配 `WS` 加三位数字。
 2. `status` 必须属于 Workstream 状态机。
 3. `current_stage` 可选；存在时必须匹配本 Workstream 详情中的 `## 阶段` 表。
-4. `depends_on`、`read_scope`、`write_scope` 使用字符串列表。
-5. `write_scope` 使用 typed string，格式为 `type: path`。
-6. 第一版不支持复杂对象、嵌套 YAML 或未带类型的写入范围。
+4. `depends_on`、`read_scope`、`write_scope`、`merge_targets` 使用字符串列表。
+5. `merge_targets` 可选，只表示候选影响范围，不表示 Workstream 可以直接写入对应文件。
+6. `write_scope` 使用 typed string，格式为 `type: path`。
+7. 第一版不支持复杂对象、嵌套 YAML 或未带类型的写入范围。
 
 ---
 
@@ -770,9 +773,11 @@ Workstream 的 `owned` / `assigned` 写入范围表示可直接写入。第一�
 
 检查规则：
 
-1. `write_scope` 中 `owned` / `assigned` 命中 authority path 时，strict check 失败。
+1. `write_scope` 中 `owned` / `assigned` 命中 authority path 时，strict check 失败；普通 check 保留 warning。
 2. Workstream 需要影响 authority 文件时，应声明 `merge_targets` 并填写合并请求。
-3. `merge_targets` 表示候选影响范围，不表示 Workstream 可以直接写入该文件。
+3. `merge_targets` 命中 authority path 是允许的，只表示候选影响范围，不表示 Workstream 可以直接写入该文件。
+4. `acf workstream merge-request --target ...` 会同步维护 `merge_targets` metadata。
+5. ReadyToMerge / Done Workstream 如果声明 `merge_targets`，必须有合并请求。
 
 建议错误码：
 

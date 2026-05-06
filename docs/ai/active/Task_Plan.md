@@ -39,7 +39,7 @@ P0 governance hardening: task-stage registry, workstream stage focus, authority 
 
 ## 当前焦点
 
-T003
+T004
 
 ---
 
@@ -49,7 +49,7 @@ T003
 |---|---|---|---|---|---|---|
 | T001 | Done | Task Stage registry | 现有 Task_Plan / Current_Task 结构 | `## 任务阶段` 表、stage ID 检查、Current_Task 引用检查 | PR 1 implemented and verified: acf check docs/ai --strict, acf check template, upgrade dry-run, unittest, minimal smoke, quick upgrade matrix, py_compile | 无。 |
 | T002 | Done | PR 1b: Workstream Stage Focus | T001 | `current_stage`、Workstream `## 阶段` 表、内部阶段注册和状态检查 | acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; worklog/daily/2026-05-06.md; verification: unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix, py_compile | 无。 |
-| T003 | Pending | Workstream authority write gate + `merge_targets` | T002 | authority path 门禁、`merge_targets` metadata、错误码 | `reference/Workstream_Design.md`; `acf.py`; `tests/test_cli.py` | 扩展 Workstream schema 和 scope 检查。 |
+| T003 | Done | Workstream authority write gate + `merge_targets` | T002 | authority path 门禁、`merge_targets` metadata、错误码 | acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; docs/ai/reference/System_Manual.md; worklog/daily/2026-05-06.md; verification: unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix, py_compile | 无。 |
 | T004 | Pending | Merge resolution + active retention gate | T003 | `merge_resolution`、`keep_active_reason`、`keep_active_until` 检查 | `active/workstreams/*.md`; `acf.py`; `tests/test_cli.py` | 硬化 Done / Cancelled 状态门禁。 |
 | T005 | Pending | Workstream index consistency check, then sync | T004 | Workstreams 索引一致性检查；后续 sync dry-run | `active/Workstreams.md`; `active/workstreams/*.md` | 先做检测，再做 `acf workstream sync`。 |
 | T006 | Pending | 独立 `audit context` 后续设计 | T001-T005 | P2 audit 设计草案，不进入默认 strict | `../../Automation.md`; `reference/Context_Curation_Prompt.md` | P0 完成后再评估。 |

@@ -232,7 +232,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
 - `review stale`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json` 和 `--days`。JSON 输出包含 `summary.total`、`summary.by_kind`、`summary.by_path`，每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
 - `curate draft`：复用 `review stale` 的 stale candidates 生成 `worklog/curation-drafts/YYYY-MM-DD.md` 注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days` 和 `--name`。
-- `workstream init|status|list|show|add|set|block|cancel|merge-request|ready|done|claim|note`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
+- `workstream init|status|list|show|add|set|block|cancel|merge-request|ready|done|claim|note`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`merge_targets` 记录候选合并目标；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`；同日已有记录且需要补记时使用 `--append`，需要重建时使用 `--force`，二者不能混用。
@@ -240,7 +240,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为注意力治理草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
-- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、任务阶段注册、archive、Knowledge 和显式启用的 Workstream；Workstream 检查包含 optional `current_stage` 与 `## 阶段` 表一致性；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
+- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、任务阶段注册、archive、Knowledge 和显式启用的 Workstream；Workstream 检查包含 optional `current_stage` 与 `## 阶段` 表一致性、authority 写入门禁和 `merge_targets` 合并请求要求；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
 - `log enable|disable|status|tail|summarize|feedback|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭；普通 usage event 不记录正文，显式 `log feedback --text/--input` 才记录人工反馈正文。
 - `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
 

@@ -16,7 +16,7 @@ Done
 
 ## 任务名称
 
-PR 1b: Workstream Stage Focus
+Workstream authority write gate + `merge_targets`
 
 ---
 
@@ -28,7 +28,7 @@ P0 governance hardening: task-stage registry, workstream stage focus, authority 
 
 ## 子任务 ID
 
-T002
+T003
 
 ---
 
@@ -40,14 +40,14 @@ T002
 
 ## 本次任务目标
 
-1. 新增 Workstream 内部阶段注册和 current_stage check。
-2. 产出并验证输出物：`current_stage`、Workstream `## 阶段` 表、内部阶段注册和状态检查
+1. 扩展 Workstream schema 和 scope 检查。
+2. 产出并验证输出物：authority path 门禁、`merge_targets` metadata、错误码
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T002，所属大任务为“P0 governance hardening: task-stage registry, workstream stage focus, authority write gate, merge resolution, active retention gate”。依赖记录：T001
+该任务来自 `active/Task_Plan.md` 中的子任务 T003，所属大任务为“P0 governance hardening: task-stage registry, workstream stage focus, authority write gate, merge resolution, active retention gate”。依赖记录：T002
 
 ---
 
@@ -55,20 +55,20 @@ T002
 
 - `active/Task_Plan.md`。
 - `active/Context.md`。
-- 依赖 T001 证据：PR 1 implemented and verified: acf check docs/ai --strict, acf check template, upgrade dry-run, unittest, minimal smoke, quick upgrade matrix, py_compile
+- 依赖 T002 证据：acf.py; tests/test_cli.py; README.md; template/reference/System_Manual.md; docs/ai/reference/Workstream_Design.md; worklog/daily/2026-05-06.md; verification: unittest, check template, strict docs check, upgrade dry-run, minimal smoke, quick upgrade matrix, py_compile
 
 ---
 
 ## 输出要求
 
-- `current_stage`、Workstream `## 阶段` 表、内部阶段注册和状态检查
+- authority path 门禁、`merge_targets` metadata、错误码
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：`current_stage`、Workstream `## 阶段` 表、内部阶段注册和状态检查
-2. 子任务 T002 的完成证据已写回任务板。
+1. 输出物已完成：authority path 门禁、`merge_targets` metadata、错误码
+2. 子任务 T003 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---

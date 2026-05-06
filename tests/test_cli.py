@@ -751,6 +751,9 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0, stderr)
             detail_text = detail_path.read_text(encoding="utf-8")
+            self.assertIn("merge_targets:", detail_text)
+            self.assertIn("  - Context", detail_text)
+            self.assertIn("  - Task_Plan", detail_text)
             self.assertIn("### 需要合并到哪里", detail_text)
             self.assertIn("- Context", detail_text)
             self.assertIn("- Task_Plan", detail_text)
@@ -1493,6 +1496,125 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             payload = json.loads(stdout)
             self.assertTrue(any("draft write_scope" in error for error in payload["check"]["errors"]))
+
+    def test_workstream_strict_rejects_assigned_authority_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "  - owned: active/workstreams/WS004.md\n",
+                    "  - owned: active/workstreams/WS004.md\n  - assigned: active/Context.md\n",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--strict", "--json"])
+
+            self.assertEqual(exit_code, 1)
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertTrue(any("authority path" in error and "assigned: active/Context.md" in error for error in errors))
+
+    def test_workstream_strict_rejects_owned_authority_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "  - owned: active/workstreams/WS004.md\n",
+                    "  - owned: active/workstreams/WS004.md\n  - owned: active/Current_Task.md\n",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--strict", "--json"])
+
+            self.assertEqual(exit_code, 1)
+            errors = json.loads(stdout)["check"]["errors"]
+            self.assertTrue(any("authority path" in error and "owned: active/Current_Task.md" in error for error in errors))
+
+    def test_workstream_merge_targets_authority_path_allowed_with_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "write_scope:\n  - owned: active/workstreams/WS004.md\n",
+                    "write_scope:\n  - owned: active/workstreams/WS004.md\nmerge_targets:\n  - active/Context.md\n",
+                ),
+                encoding="utf-8",
+            )
+            self.run_cli(
+                [
+                    "workstream",
+                    "merge-request",
+                    "WS004",
+                    str(target),
+                    "--target",
+                    "active/Context.md",
+                    "--summary",
+                    "候选摘要",
+                    "--verification",
+                    "测试通过",
+                ]
+            )
+            self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"])
+            self.run_cli(["workstream", "ready", "WS004", str(target)])
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertFalse([error for error in result.errors if "WS004" in error or "Workstreams" in error])
+
+    def test_workstream_ready_to_merge_with_merge_targets_requires_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8")
+                .replace("status: Open", "status: ReadyToMerge")
+                .replace(
+                    "write_scope:\n  - owned: active/workstreams/WS004.md\n",
+                    "write_scope:\n  - owned: active/workstreams/WS004.md\nmerge_targets:\n  - active/Context.md\n",
+                ),
+                encoding="utf-8",
+            )
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS004 | Open |", "| WS004 | ReadyToMerge |"), encoding="utf-8")
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("declares merge_targets but is missing merge request" in error for error in result.errors))
+
+    def test_done_workstream_with_merge_targets_requires_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8")
+                .replace("status: Open", "status: Done")
+                .replace("## 证据\n\n无。", "## 证据\n\ndone")
+                .replace(
+                    "write_scope:\n  - owned: active/workstreams/WS004.md\n",
+                    "write_scope:\n  - owned: active/workstreams/WS004.md\nmerge_targets:\n  - active/Context.md\n",
+                ),
+                encoding="utf-8",
+            )
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS004 | Open |", "| WS004 | Done |"), encoding="utf-8")
+
+            result = acf.check_context(target, "minimal", strict=True)
+
+            self.assertTrue(any("Done workstream declares merge_targets but is missing merge request" in error for error in result.errors))
 
     def test_strict_template_check_fails_on_placeholders(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=True)

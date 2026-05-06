@@ -151,6 +151,19 @@ WORKSTREAM_NOTE_SECTIONS = {
     "完成标准": "## 完成标准",
     "证据": "## 证据",
 }
+AUTHORITY_PATHS = {
+    "AGENTS.md",
+    "active/Context.md",
+    "active/Current_Task.md",
+    "active/Task_Plan.md",
+    "active/Feedback_Inbox.md",
+    "reference/Decisions_Index.md",
+    "reference/Knowledge_Index.md",
+}
+AUTHORITY_GLOBS = (
+    "rules/*.md",
+    "decisions/*.md",
+)
 WORKSTREAM_STATE_TRANSITIONS = {
     "Open": {"Active", "Cancelled"},
     "Active": {"Blocked", "ReadyToMerge", "Cancelled"},
@@ -193,6 +206,7 @@ WORKSTREAM_METADATA_FIELDS = (
     "depends_on",
     "read_scope",
     "write_scope",
+    "merge_targets",
 )
 JSON_SCHEMA_VERSION = 1
 EXIT_CHECK_FAILED = 1
@@ -4456,7 +4470,7 @@ def workstream_front_matter_schema() -> FrontMatterSchema:
         required_fields=("id", "status", "owner", "title", "read_scope", "write_scope"),
         allowed_fields=WORKSTREAM_METADATA_FIELDS,
         scalar_fields=("id", "status", "owner", "title", "current_stage"),
-        list_fields=("depends_on", "read_scope", "write_scope"),
+        list_fields=("depends_on", "read_scope", "write_scope", "merge_targets"),
         enum_fields={"status": VALID_WORKSTREAM_STATUSES},
         scope_fields=("read_scope",),
         typed_scope_fields=("write_scope",),
@@ -4489,6 +4503,23 @@ def normalize_typed_scope_values(values: str | list[str] | None) -> list[str]:
         else:
             normalized.append(value)
     return normalized
+
+
+def is_authority_path(path_value: str) -> bool:
+    normalized = normalize_scope_path(path_value)
+    if normalized in AUTHORITY_PATHS:
+        return True
+    for pattern in AUTHORITY_GLOBS:
+        if "/" in pattern:
+            prefix, suffix = pattern.split("*", 1)
+            if not normalized.startswith(prefix) or not normalized.endswith(suffix):
+                continue
+            inner = normalized[len(prefix) :]
+            if suffix:
+                inner = inner[: -len(suffix)]
+            if inner and "/" not in inner:
+                return True
+    return False
 
 
 def diagnostic_payload(diagnostic: FrontMatterDiagnostic) -> dict[str, object]:
@@ -5204,8 +5235,11 @@ def workstream_merge_request_command(args: argparse.Namespace) -> int:
         args.conflict or [],
         (args.strategy or "").strip(),
     )
+    metadata = dict(detail.metadata)
+    merge_targets, _merge_targets_changed = append_unique_values(metadata.get("merge_targets"), targets)
+    metadata["merge_targets"] = merge_targets
     updated_text = format_front_matter(
-        detail.metadata,
+        metadata,
         replace_or_append_section(detail.body, "## 合并请求", section),
         WORKSTREAM_METADATA_FIELDS,
     )
@@ -6924,6 +6958,8 @@ def check_workstream_state_requirements(root: Path, detail: WorkstreamDetail, en
     status = detail.metadata.get("status")
     if not isinstance(status, str):
         return
+    merge_targets = detail.metadata.get("merge_targets")
+    has_merge_targets = isinstance(merge_targets, list) and any(str(target).strip() for target in merge_targets)
     if status == "Active":
         for field_name in ("owner", "title", "read_scope", "write_scope"):
             if required_field_missing(detail.metadata.get(field_name)):
@@ -6937,9 +6973,13 @@ def check_workstream_state_requirements(root: Path, detail: WorkstreamDetail, en
         if workstream_section_missing(detail.body, "## 阻塞原因"):
             errors.append(f"{rel}: Blocked workstream missing blocker reason")
     elif status == "ReadyToMerge":
+        if has_merge_targets and not merge_request_has_required_fields(detail.body):
+            errors.append(f"{rel}: ReadyToMerge workstream declares merge_targets but is missing merge request")
         if not merge_request_has_required_fields(detail.body):
             errors.append(f"{rel}: ReadyToMerge workstream missing merge target or candidate summary")
     elif status == "Done":
+        if has_merge_targets and not merge_request_has_required_fields(detail.body):
+            errors.append(f"{rel}: Done workstream declares merge_targets but is missing merge request")
         if workstream_section_missing(detail.body, "## 证据"):
             errors.append(f"{rel}: Done workstream missing evidence")
     elif status == "Cancelled":
@@ -6964,6 +7004,13 @@ def check_workstream_scope_claims(root: Path, details: Sequence[WorkstreamDetail
             diagnostics = validate_scope_path(normalized_path, "write_scope")
             for diagnostic in diagnostics:
                 errors.append(f"{rel}: {diagnostic.code} (write_scope): {diagnostic.message}")
+            if scope_type in {"assigned", "owned"} and is_authority_path(normalized_path):
+                check_warn_or_error(
+                    f"{rel}: {scope_type}: {normalized_path} targets an authority path; use merge_targets and a merge request instead",
+                    errors,
+                    warnings,
+                    strict,
+                )
             if scope_type == "owned" and normalized_path != workstream_detail_rel(detail.workstream_id):
                 errors.append(f"{rel}: owned write_scope must point to its own detail file")
             if scope_type == "draft" and detail.workstream_id not in Path(normalized_path).name:
