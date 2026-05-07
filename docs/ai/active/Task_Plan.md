@@ -14,26 +14,27 @@ Done
 
 ## 大任务名称
 
-P1 audit context design
+P2 generalization plan
 
 ---
 
 ## 大任务目标
 
-1. 在 P0 governance hardening baseline 之后，定义并实现只读的 `audit context` MVP。
-2. 第一版只输出 candidates，不进入默认 strict，不自动修改事实。
-3. MVP 只实现低误报规则：长 active section、陈旧当前任务 / Workstream 阶段、ReadyToMerge / Done 结论未合并候选。
+1. 把 ACF 下一阶段路线从 FCC-driven 调参切回通用产品路线。
+2. 明确 FCC 是压力测试样本，不是产品需求唯一来源。
+3. 定义真实项目反馈进入 ACF 的通用化准入门槛。
+4. 建立多项目验证矩阵，为后续扩展 audit rules 或 object model 提供防过拟合约束。
+5. 本阶段只写路线和验证策略，不新增 CLI 功能。
 
 ---
 
 ## 成功标准
 
-1. `reference/Context_Audit_Design.md` 记录 P1 audit 的目标、输入范围、候选规则、JSON 输出契约和非目标。
-2. `acf audit context [path] --json` 只读输出稳定 candidates、summary 和 next_actions。
-3. `../Automation.md`、README 和 System Manual 说明 audit 不是 strict、不是 patch/fix、不是事实裁决。
-4. 单元测试、template check、docs/ai strict check 通过。
-5. 完成 MVP candidate quality dogfooding review，先评估候选质量，再决定是否调阈值或扩规则。
-6. 完成 `active_section_too_long` 首轮调优：跳过带子标题的 H1 文档 wrapper，只保留真实长内容 section 候选，并改进 candidate message。
+1. `reference/Product_Roadmap.md` 记录通用化原则、反馈准入门槛、四层推进模型、多项目验证矩阵和非目标。
+2. `../Automation.md` 指向通用产品路线，并明确真实项目反馈必须抽象后产品化。
+3. `reference/Project_Brief.md` 的相关资料包含 Product Roadmap。
+4. 本轮不修改 `acf.py` 或测试。
+5. `uv run acf check docs/ai --strict --json` 通过。
 
 ---
 
@@ -47,11 +48,7 @@ P1 audit context design
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | P1 audit context design draft | P0 governance hardening baseline `v0.0.3.26` | `reference/Context_Audit_Design.md`; `../Automation.md`; `active/Current_Task.md` | `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 无。 |
-| T002 | Done | Review audit MVP command contract | T001 | `acf audit context [path] --json` 只读输出契约、candidate 字段、首批 MVP rules | `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 无。 |
-| T003 | Done | Implement audit context MVP | T002 | `acf audit context [path] --json`、三条 MVP candidate rules、read-only 测试 | `worklog/daily/2026-05-07.md`; verification: targeted audit tests, `uv run python -m py_compile acf.py`, `uv run python -m unittest`, `uv run acf check template`, `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json`, `uv run acf audit context docs/ai --json` | 无。 |
-| T004 | Done | Review audit MVP candidate quality on ACF and FCC | T003 | dogfooding review 结论、候选质量判断、下一步建议 | `reference/Context_Audit_Design.md`; `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf audit context docs/ai --json` | 无。 |
-| T005 | Done | Tune active_section_too_long wrapper handling and messages | T004 | 跳过 H1 wrapper 重复候选、保留真实长 section、改进 reason/suggested_action | `acf.py`; `tests/test_cli.py`; `reference/Context_Audit_Design.md`; `worklog/daily/2026-05-07.md`; verification: targeted audit tests, ACF audit clean, FCC read-only audit 4 -> 1 candidate | 无。 |
+| T001 | Done | Write general product roadmap and validation matrix | P1 audit context MVP dogfooding | 通用化原则、反馈准入门槛、四层推进模型、多项目验证矩阵 | `reference/Product_Roadmap.md`; `../Automation.md`; `reference/Project_Brief.md`; `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 无。 |
 
 ---
 
@@ -67,33 +64,30 @@ P1 audit context design
 
 本阶段不做：
 
-1. 不把 content audit 接入默认 strict。
-2. 不自动修改 `active/Context.md` 或其他权威上下文。
-3. 不做自动事实裁决。
-4. 不做自动语义去重。
-5. 不读取 archive 或全量 worklog 作为默认 audit 输入。
-6. 不实现 patch / fix / curation draft 生成。
-7. 不实现 duplicate fact、strong claim without evidence、volatile fact wrong location。
+1. 不新增 audit candidate rule。
+2. 不继续围绕 FCC 做专用调参。
+3. 不修改 FCC 项目内容。
+4. 不扩展 Object Graph 实现。
+5. 不新增 CLI 命令。
+6. 不把启发式 audit 接入 `check --strict`。
+
+---
+
+## 后续候选
+
+1. P2 Test Matrix Expansion：补 minimal / legacy / complex workstream / audit long section / authority gate fixtures。
+2. 选择一个非 PetroSim 真实项目作为验证样本。
+3. 在验证矩阵稳定后，再评估 duplicate / evidence / volatile audit rules。
 
 ---
 
 ## 基线验证
 
-本实现任务至少运行：
+本规划任务至少运行：
 
 ```bash
-uv run python -m unittest tests.test_cli.CliTests.test_audit_context_clean_json_reports_no_candidates tests.test_cli.CliTests.test_audit_context_reports_long_active_section tests.test_cli.CliTests.test_audit_context_reports_stale_current_task_and_workstream_stage tests.test_cli.CliTests.test_audit_context_reports_terminal_conclusion_not_merged tests.test_cli.CliTests.test_audit_context_is_read_only
-uv run python -m unittest
-uv run acf check template
 uv run acf check docs/ai --strict --json
 uv run acf status docs/ai --json
-```
-
-进入实现前再评估是否需要补充：
-
-```bash
-uv run python -m unittest
-uv run acf check template
 ```
 
 ---
@@ -104,4 +98,3 @@ uv run acf check template
 2. 子任务完成证据优先引用 worklog、测试结果或输出文件路径。
 3. 已失效的大任务计划应归档到 `archive/plans/`。
 4. 不要把历史过程、完整日志或详细推理写入本文件。
-

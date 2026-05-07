@@ -17,19 +17,19 @@ Done
 
 ## 任务名称
 
-Tune active_section_too_long wrapper handling and messages
+Write general product roadmap and validation matrix
 
 ---
 
 ## 所属大任务
 
-P1 audit context design
+P2 generalization plan
 
 ---
 
 ## 子任务 ID
 
-T005
+T001
 
 ---
 
@@ -41,89 +41,91 @@ T005
 
 ## 本次任务目标
 
-1. 用 FCC 的 WS008 / WS009 / WS010 long-section candidates 只读复核 `active_section_too_long` 的质量。
-2. 判断当前 80 行阈值是否需要调整，或是否存在计数口径问题。
-3. 改进 `active_section_too_long` 的 candidate message，使后续 AI 更容易采取低风险整理动作。
-4. 不新增新的 audit candidate rule。
+1. 新增通用产品路线文档，明确 ACF 不能按单一 FCC 样本持续补规则。
+2. 把 FCC 定位为压力测试样本，而不是产品需求唯一来源。
+3. 定义真实项目反馈进入 ACF 的准入门槛。
+4. 定义多项目验证矩阵，防止后续规则过拟合。
+5. 本轮只写文档，不改代码。
 
 ---
 
 ## 任务背景
 
-T004 复盘确认 ACF 自身 audit clean；FCC 只读 audit 输出 4 个 `active_section_too_long` candidates，集中在 WS008 / WS009 / WS010。进一步复核发现 3 个候选来自 Workstream H1 文档标题包含全部子 section 的 wrapper 计数，属于重复信号；真正仍超过阈值的是 WS009 的 `分析层级` section。
+P0 governance hardening 和 P1 audit context MVP 已完成，FCC dogfooding 已证明工具能发现真实复杂项目的上下文治理信号。下一步不应继续围绕 FCC 扩规则，而应先把通用产品路线和验证矩阵固化，确保后续能力来自可迁移的上下文治理问题。
 
 ---
 
 ## 输入材料
 
-- `acf.py`
-- `tests/test_cli.py`
+- `reference/Project_Brief.md`
+- `../Automation.md`
 - `reference/Context_Audit_Design.md`
-- ACF 命令：`uv run acf audit context docs/ai --json`
-- FCC 命令：`uv run acf audit context E:\Codes\fcc_workspace\docs\ai --json`
+- `reference/Workstream_Design.md`
+- `active/Task_Plan.md`
 
 ---
 
 ## 输出要求
 
-1. `active_section_too_long` 跳过带子标题的 H1 文档 wrapper。
-2. 真实长 H2/H3 section 仍继续产生 candidate。
-3. `suggested_action` 和 `next_actions` 表述为“缩短当前事实、拆分窄 section、移动历史到 worklog/reference”，不暗示 Workstream detail 自身一定是目标。
-4. 新增回归测试锁定 H1 wrapper 不误报。
-5. 更新设计文档和 worklog。
+1. 新增 `reference/Product_Roadmap.md`。
+2. 在 `../Automation.md` 中挂接通用产品路线。
+3. 在 `reference/Project_Brief.md` 中补充 Product Roadmap 入口。
+4. 更新 Task_Plan / Current_Task / worklog。
+5. 不修改 `acf.py` 或测试。
 
 ---
 
 ## 成功标准
 
-1. targeted audit tests 通过。
-2. ACF 自身 `acf audit context docs/ai --json` 仍为 `candidates=[]`。
-3. FCC 只读 audit 从 4 个 long-section candidates 降为 1 个真实长 section candidate。
+1. Product Roadmap 明确通用化原则、反馈准入门槛、四层推进模型、多项目验证矩阵和非目标。
+2. 文档明确：FCC 是压力测试样本，不是唯一需求来源。
+3. 文档明确：新规则必须可抽象、可机械检测、可测试、可兼容。
 4. `uv run acf check docs/ai --strict --json` 通过。
-5. 不修改 FCC 内容。
+5. `uv run acf status docs/ai --json` 通过。
 
 完成证据：
 
-- `acf.py`
-- `tests/test_cli.py`
-- `reference/Context_Audit_Design.md`
+- `reference/Product_Roadmap.md`
+- `../Automation.md`
+- `reference/Project_Brief.md`
 - `worklog/daily/2026-05-07.md`
-- `uv run python -m unittest tests.test_cli.CliTests.test_audit_context_reports_long_active_section tests.test_cli.CliTests.test_audit_context_ignores_h1_wrapper_with_child_sections`
-- `uv run acf audit context docs/ai --json`
-- `uv run acf audit context E:\Codes\fcc_workspace\docs\ai --json`
+- `uv run acf check docs/ai --strict --json`
+- `uv run acf status docs/ai --json`
 
 ---
 
 ## 失败信号
 
-1. 提高阈值掩盖所有 FCC 信号。
-2. 新增 duplicate / evidence / volatile 规则。
-3. 修改 FCC 内容。
-4. 把 audit candidates 接入 `check --strict`。
+1. 本轮开始实现新 audit rule。
+2. 本轮把 FCC 业务细节写成 ACF 产品规则。
+3. 本轮修改 FCC 内容。
+4. Product Roadmap 只复述当前功能，没有给出后续准入门槛。
 
 ---
 
 ## 约束条件
 
-1. FCC 只读，不写入。
-2. 不使用 WSL 检查 FCC。
-3. 只调现有 low-risk rule 的计数口径和消息。
+1. 只做文档规划。
+2. 不新增运行依赖。
+3. 不修改 CLI 行为。
+4. 不读取或修改 FCC 内容。
 
 ---
 
 ## 不允许做的事
 
-- 不新增 audit candidate kind。
-- 不生成 patch/fix/curation draft。
-- 不自动拆分或移动 FCC Workstream 内容。
+- 不改 `acf.py`。
+- 不新增测试。
+- 不实现 duplicate / evidence / volatile audit rules。
+- 不把启发式 audit 接入 strict。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. H1 wrapper 是否应被视为文档容器而不是真实内容 section。
-2. 80 行阈值在跳过 H1 wrapper 后是否仍合理。
-3. message 是否足以指导后续人工或 AI 做低风险整理。
+1. 什么情况下真实项目反馈可以进入 ACF。
+2. strict / audit / sync / draft / upgrade 的边界如何作为后续设计门槛。
+3. 多项目验证矩阵应覆盖哪些样本。
 
 ---
 
@@ -131,5 +133,5 @@ T004 复盘确认 ACF 自身 audit clean；FCC 只读 audit 输出 4 个 `active
 
 任务完成后，请整理以下内容，供人审核后写回项目系统：
 
-1. FCC 样本从 4 个候选降为 1 个候选的结论。
-2. `active_section_too_long` 的后续策略：先观察真实长 section，再决定是否调阈值。
+1. Product Roadmap 的核心原则。
+2. 后续候选任务：P2 Test Matrix Expansion，而不是继续 FCC-driven audit rule 扩展。
