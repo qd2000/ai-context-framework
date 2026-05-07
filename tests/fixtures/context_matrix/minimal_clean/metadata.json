@@ -1,0 +1,7 @@
+{
+  "kind": "minimal_clean",
+  "profile": "minimal",
+  "risk_tags": ["minimal", "low_noise", "audit"],
+  "intent": "Verify an empty/minimal project does not receive audit context candidates by default.",
+  "expected_behavior": "acf audit context returns candidates=[] and check succeeds without requiring Workstream or object metadata."
+}

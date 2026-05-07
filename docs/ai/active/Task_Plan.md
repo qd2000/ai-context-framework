@@ -14,27 +14,28 @@ Done
 
 ## 大任务名称
 
-P2 generalization plan
+P2 Test Matrix Expansion
 
 ---
 
 ## 大任务目标
 
-1. 把 ACF 下一阶段路线从 FCC-driven 调参切回通用产品路线。
-2. 明确 FCC 是压力测试样本，不是产品需求唯一来源。
-3. 定义真实项目反馈进入 ACF 的通用化准入门槛。
-4. 建立多项目验证矩阵，为后续扩展 audit rules 或 object model 提供防过拟合约束。
-5. 本阶段只写路线和验证策略，不新增 CLI 功能。
+1. 在继续新增 audit 规则前，先补通用测试样本矩阵。
+2. 用 fixtures 覆盖 minimal、legacy、audit long section、complex Workstream 和 authority gate。
+3. 每个样本只验证一个通用上下文治理问题，不绑定 FCC 业务。
+4. 明确 P3 高误报 audit rules 之前需要非 PetroSim 真实项目样本。
 
 ---
 
 ## 成功标准
 
-1. `reference/Product_Roadmap.md` 记录通用化原则、反馈准入门槛、四层推进模型、多项目验证矩阵和非目标。
-2. `../Automation.md` 指向通用产品路线，并明确真实项目反馈必须抽象后产品化。
-3. `reference/Project_Brief.md` 的相关资料包含 Product Roadmap。
-4. 本轮不修改 `acf.py` 或测试。
-5. `uv run acf check docs/ai --strict --json` 通过。
+1. 现有 fixture 覆盖已盘点：`upgrade_matrix` 已覆盖 legacy / upgrade 兼容。
+2. 新增 `tests/fixtures/context_matrix/`，包含 `minimal_clean`、`legacy_old_context`、`audit_long_section`、`workstream_complex`、`authority_gate`。
+3. 新增 `tests/test_context_matrix.py`，验证 context matrix inventory 和四个可执行通用场景。
+4. `audit_long_section` 验证 H1 wrapper 不误报、真实长 H2 section 会报。
+5. `workstream_complex` 验证 current_stage、terminal retention、merge_resolution 和 sync no-op。
+6. `authority_gate` 验证 direct authority claim 在 strict 下失败。
+7. 不新增 audit candidate rule。
 
 ---
 
@@ -48,7 +49,11 @@ P2 generalization plan
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | Write general product roadmap and validation matrix | P1 audit context MVP dogfooding | 通用化原则、反馈准入门槛、四层推进模型、多项目验证矩阵 | `reference/Product_Roadmap.md`; `../Automation.md`; `reference/Project_Brief.md`; `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 无。 |
+| T001 | Done | Inventory existing fixture coverage | Product Roadmap | 现有 fixtures 覆盖盘点 | `tests/fixtures/upgrade_matrix/`; `reference/Product_Roadmap.md` | 无。 |
+| T002 | Done | Add audit_long_section fixture | T001 | long section fixture metadata 和测试 | `tests/fixtures/context_matrix/audit_long_section/metadata.json`; `tests/test_context_matrix.py` | 无。 |
+| T003 | Done | Add workstream_complex fixture | T001 | complex Workstream fixture metadata 和测试 | `tests/fixtures/context_matrix/workstream_complex/metadata.json`; `tests/test_context_matrix.py` | 无。 |
+| T004 | Done | Add authority_gate fixture | T001 | authority gate fixture metadata 和测试 | `tests/fixtures/context_matrix/authority_gate/metadata.json`; `tests/test_context_matrix.py` | 无。 |
+| T005 | Done | Decide whether non-PetroSim real sample is needed | T001-T004 | 决策：P3 前需要至少一个非 PetroSim 真实项目样本；本轮不选择具体项目 | `reference/Product_Roadmap.md`; `worklog/daily/2026-05-07.md` | 后续单独开任务选择样本。 |
 
 ---
 
@@ -64,28 +69,28 @@ P2 generalization plan
 
 本阶段不做：
 
-1. 不新增 audit candidate rule。
-2. 不继续围绕 FCC 做专用调参。
-3. 不修改 FCC 项目内容。
-4. 不扩展 Object Graph 实现。
-5. 不新增 CLI 命令。
-6. 不把启发式 audit 接入 `check --strict`。
+1. 不新增 duplicate / evidence / volatile audit rules。
+2. 不修改 FCC 内容。
+3. 不新增 CLI 命令。
+4. 不把启发式 audit 接入 `check --strict`。
+5. 不要求 context matrix fixture 复制整套真实项目。
 
 ---
 
 ## 后续候选
 
-1. P2 Test Matrix Expansion：补 minimal / legacy / complex workstream / audit long section / authority gate fixtures。
-2. 选择一个非 PetroSim 真实项目作为验证样本。
-3. 在验证矩阵稳定后，再评估 duplicate / evidence / volatile audit rules。
+1. 选择一个非 PetroSim 真实项目样本，验证 P0/P1/P2 矩阵是否能解释非 FCC 项目。
+2. 评估是否需要把 context matrix 做成独立 runner；当前先保留为 unittest fixture matrix。
+3. 在多项目样本稳定后，再评估 P3 audit rule expansion。
 
 ---
 
 ## 基线验证
 
-本规划任务至少运行：
+本任务至少运行：
 
 ```bash
+uv run python -m unittest tests.test_context_matrix
 uv run acf check docs/ai --strict --json
 uv run acf status docs/ai --json
 ```

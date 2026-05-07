@@ -1,0 +1,7 @@
+{
+  "kind": "legacy_old_context",
+  "covered_by": "tests/fixtures/upgrade_matrix/v00317_standard_legacy",
+  "risk_tags": ["legacy", "upgrade", "compatibility"],
+  "intent": "Verify old-shaped contexts remain covered by the upgrade compatibility matrix.",
+  "expected_behavior": "The referenced upgrade fixture preserves old Active task content, upgrades structure non-destructively, and exposes stale signals without requiring new object metadata."
+}

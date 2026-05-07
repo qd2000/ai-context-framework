@@ -1,0 +1,7 @@
+{
+  "kind": "audit_long_section",
+  "profile": "minimal",
+  "risk_tags": ["audit", "active_section_too_long", "wrapper_noise"],
+  "intent": "Verify long-section audit reports real content sections without double-reporting H1 document wrappers.",
+  "expected_behavior": "H1 wrapper with child headings is ignored; a long H2/H3 section still reports active_section_too_long."
+}

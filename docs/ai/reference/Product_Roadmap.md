@@ -185,6 +185,16 @@ audit_long_section
 authority_gate
 ```
 
+2026-05-07 初版已落地：
+
+1. 新增 `tests/fixtures/context_matrix/` 作为通用上下文治理 fixture matrix。
+2. `minimal_clean`：验证最小项目默认 audit clean。
+3. `legacy_old_context`：引用既有 `upgrade_matrix/v00317_standard_legacy`，避免重复造旧上下文。
+4. `audit_long_section`：验证 H1 wrapper 不误报，真实长 H2/H3 section 仍报告。
+5. `workstream_complex`：验证 current_stage、merge_resolution、keep-active metadata 和 Workstream sync no-op。
+6. `authority_gate`：验证 Workstream direct authority claim 在 strict 下失败。
+7. 非 PetroSim 真实项目样本仍需要在 P3 audit rule expansion 前补充；本轮只做 fixture matrix，不选择具体项目。
+
 ### P3 Audit Rule Expansion
 
 只有在多项目和 fixture 样本稳定后，再评估以下高误报规则：

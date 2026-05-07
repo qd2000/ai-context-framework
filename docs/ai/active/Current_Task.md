@@ -17,13 +17,13 @@ Done
 
 ## 任务名称
 
-Write general product roadmap and validation matrix
+P2 Test Matrix Expansion
 
 ---
 
 ## 所属大任务
 
-P2 generalization plan
+P2 Test Matrix Expansion
 
 ---
 
@@ -41,91 +41,86 @@ T001
 
 ## 本次任务目标
 
-1. 新增通用产品路线文档，明确 ACF 不能按单一 FCC 样本持续补规则。
-2. 把 FCC 定位为压力测试样本，而不是产品需求唯一来源。
-3. 定义真实项目反馈进入 ACF 的准入门槛。
-4. 定义多项目验证矩阵，防止后续规则过拟合。
-5. 本轮只写文档，不改代码。
+1. 盘点现有 fixtures 覆盖。
+2. 新增 context matrix fixtures：minimal_clean、legacy_old_context、audit_long_section、workstream_complex、authority_gate。
+3. 先补测试矩阵，不新增 audit 规则。
+4. 明确 P3 前需要非 PetroSim 真实项目样本。
 
 ---
 
 ## 任务背景
 
-P0 governance hardening 和 P1 audit context MVP 已完成，FCC dogfooding 已证明工具能发现真实复杂项目的上下文治理信号。下一步不应继续围绕 FCC 扩规则，而应先把通用产品路线和验证矩阵固化，确保后续能力来自可迁移的上下文治理问题。
+Product Roadmap 已明确：FCC 是压力测试样本，不是产品需求唯一来源。后续新增规则必须可抽象、可机械检测、可测试、可兼容、可降级。当前任务先补通用测试矩阵，防止 ACF 继续被单个真实项目牵着走。
 
 ---
 
 ## 输入材料
 
-- `reference/Project_Brief.md`
-- `../Automation.md`
-- `reference/Context_Audit_Design.md`
-- `reference/Workstream_Design.md`
-- `active/Task_Plan.md`
+- `reference/Product_Roadmap.md`
+- `tests/fixtures/upgrade_matrix/`
+- `tests/test_cli.py`
+- `scripts/upgrade_matrix.py`
 
 ---
 
 ## 输出要求
 
-1. 新增 `reference/Product_Roadmap.md`。
-2. 在 `../Automation.md` 中挂接通用产品路线。
-3. 在 `reference/Project_Brief.md` 中补充 Product Roadmap 入口。
-4. 更新 Task_Plan / Current_Task / worklog。
-5. 不修改 `acf.py` 或测试。
+1. 新增 `tests/fixtures/context_matrix/`。
+2. 新增 `tests/test_context_matrix.py`。
+3. `audit_long_section` 验证 H1 wrapper 不误报、真实长 section 会报。
+4. `workstream_complex` 验证 complex Workstream strict / sync no-op。
+5. `authority_gate` 验证 direct authority claim strict fail。
+6. 不修改 `acf.py`。
 
 ---
 
 ## 成功标准
 
-1. Product Roadmap 明确通用化原则、反馈准入门槛、四层推进模型、多项目验证矩阵和非目标。
-2. 文档明确：FCC 是压力测试样本，不是唯一需求来源。
-3. 文档明确：新规则必须可抽象、可机械检测、可测试、可兼容。
-4. `uv run acf check docs/ai --strict --json` 通过。
-5. `uv run acf status docs/ai --json` 通过。
+1. `uv run python -m unittest tests.test_context_matrix` 通过。
+2. `uv run python -m unittest` 通过。
+3. `uv run acf check docs/ai --strict --json` 通过。
+4. `uv run acf status docs/ai --json` 通过。
+5. 本轮没有新增 audit candidate kind。
 
 完成证据：
 
-- `reference/Product_Roadmap.md`
-- `../Automation.md`
-- `reference/Project_Brief.md`
+- `tests/fixtures/context_matrix/`
+- `tests/test_context_matrix.py`
 - `worklog/daily/2026-05-07.md`
-- `uv run acf check docs/ai --strict --json`
-- `uv run acf status docs/ai --json`
 
 ---
 
 ## 失败信号
 
-1. 本轮开始实现新 audit rule。
-2. 本轮把 FCC 业务细节写成 ACF 产品规则。
-3. 本轮修改 FCC 内容。
-4. Product Roadmap 只复述当前功能，没有给出后续准入门槛。
+1. 用 FCC 内容作为 fixture。
+2. 新增 audit rule。
+3. 修改 `acf.py`。
+4. 让 minimal / legacy 项目承担新默认负担。
 
 ---
 
 ## 约束条件
 
-1. 只做文档规划。
-2. 不新增运行依赖。
-3. 不修改 CLI 行为。
-4. 不读取或修改 FCC 内容。
+1. fixture 应保持最小，不复制真实项目。
+2. 每个 fixture 只验证一个通用问题。
+3. legacy 覆盖优先复用现有 upgrade matrix，不重复造旧上下文。
 
 ---
 
 ## 不允许做的事
 
-- 不改 `acf.py`。
-- 不新增测试。
 - 不实现 duplicate / evidence / volatile audit rules。
-- 不把启发式 audit 接入 strict。
+- 不修改 FCC。
+- 不新增运行依赖。
+- 不新增常驻 runner。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. 什么情况下真实项目反馈可以进入 ACF。
-2. strict / audit / sync / draft / upgrade 的边界如何作为后续设计门槛。
-3. 多项目验证矩阵应覆盖哪些样本。
+1. context matrix 是否足以作为 P3 audit rule 前置门槛。
+2. 是否需要后续把 context matrix 抽成独立 runner。
+3. 非 PetroSim 样本应选择哪类项目。
 
 ---
 
@@ -133,5 +128,6 @@ P0 governance hardening 和 P1 audit context MVP 已完成，FCC dogfooding 已�
 
 任务完成后，请整理以下内容，供人审核后写回项目系统：
 
-1. Product Roadmap 的核心原则。
-2. 后续候选任务：P2 Test Matrix Expansion，而不是继续 FCC-driven audit rule 扩展。
+1. 新增 fixture 覆盖清单。
+2. 验证命令和结果。
+3. 后续候选：选择非 PetroSim 样本，而不是继续扩 audit rules。

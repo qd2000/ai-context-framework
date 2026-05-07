@@ -1,0 +1,7 @@
+{
+  "kind": "authority_gate",
+  "profile": "minimal",
+  "risk_tags": ["workstream", "authority", "strict_gate"],
+  "intent": "Verify Workstream write_scope cannot directly claim authority context files.",
+  "expected_behavior": "Strict check fails when a Workstream assigned/owned scope targets active/Context.md; merge_targets remains the allowed path for candidate changes."
+}

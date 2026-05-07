@@ -1,0 +1,7 @@
+{
+  "kind": "workstream_complex",
+  "profile": "minimal",
+  "risk_tags": ["workstream", "current_stage", "merge_resolution", "active_retention", "sync"],
+  "intent": "Verify a complex but generic Workstream setup can pass strict checks without relying on FCC-specific paths or business concepts.",
+  "expected_behavior": "Active Workstream current_stage is registered, terminal Workstream has merge_resolution and keep-active metadata, and workstream sync dry-run reports no changes."
+}
