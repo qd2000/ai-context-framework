@@ -91,6 +91,7 @@ class ContextMatrixTests(unittest.TestCase):
             "audit_long_section",
             "workstream_complex",
             "authority_gate",
+            "workstream_stage_flow",
         }
         actual = {path.name for path in FIXTURE_ROOT.iterdir() if path.is_dir()}
         self.assertTrue(expected.issubset(actual))
@@ -243,6 +244,159 @@ class ContextMatrixTests(unittest.TestCase):
             exit_code, sync_payload, stderr = self.run_cli_json(["workstream", "sync", str(target), "--dry-run", "--json"])
             self.assertEqual(exit_code, 0, stderr)
             self.assertEqual(sync_payload["changed_files"], [])
+
+    def test_workstream_stage_flow_fixture_exercises_stage_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_context(tmp, "workstream_stage_flow")
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS010",
+                        "--title",
+                        "Stage flow fixture",
+                        "--owner",
+                        "codex",
+                        "--goal",
+                        "Verify generic Workstream stage flow.",
+                        "--output",
+                        "stage flow evidence",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "set", "WS010", str(target), "--status", "Active"]), 0)
+            for stage_id, title, depends in (
+                ("WS010.1", "First generic stage", "无。"),
+                ("WS010.2", "Second generic stage", "WS010.1"),
+                ("WS010.3", "Conflict candidate stage", "无。"),
+            ):
+                args = [
+                    "workstream",
+                    "stage",
+                    "add",
+                    "WS010",
+                    str(target),
+                    "--id",
+                    stage_id,
+                    "--title",
+                    title,
+                    "--depends",
+                    depends,
+                    "--output",
+                    "stage output",
+                    "--json",
+                ]
+                exit_code, payload, stderr = self.run_cli_json(args)
+                self.assertEqual(exit_code, 0, stderr)
+                self.assertEqual(payload["stage"]["id"], stage_id)
+                self.assertEqual(payload["stage"]["status"], "Pending")
+
+            exit_code, payload, stderr = self.run_cli_json(
+                ["workstream", "stage", "list", "WS010", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual([stage["id"] for stage in payload["stages"]], ["WS010.1", "WS010.2", "WS010.3"])
+
+            exit_code, payload, _stderr = self.run_cli_json(
+                ["workstream", "focus", "WS010", "WS010.2", str(target), "--json"]
+            )
+            self.assertNotEqual(exit_code, 0)
+            self.assertEqual(payload["error_code"], "workstream_stage_dependency_blocked")
+
+            exit_code, payload, stderr = self.run_cli_json(
+                ["workstream", "focus", "WS010", "WS010.1", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(payload["current_stage"], "WS010.1")
+
+            exit_code, payload, _stderr = self.run_cli_json(
+                ["workstream", "stage", "done", "WS010", "WS010.1", str(target), "--json"]
+            )
+            self.assertNotEqual(exit_code, 0)
+            self.assertEqual(payload["error_code"], "workstream_missing_evidence")
+
+            exit_code, payload, _stderr = self.run_cli_json(
+                [
+                    "workstream",
+                    "stage",
+                    "done",
+                    "WS010",
+                    "WS010.1",
+                    str(target),
+                    "--evidence",
+                    "worklog/stage-1.md",
+                    "--json",
+                ]
+            )
+            self.assertNotEqual(exit_code, 0)
+            self.assertEqual(payload["error_code"], "workstream_stage_clear_current_required")
+
+            exit_code, payload, stderr = self.run_cli_json(
+                [
+                    "workstream",
+                    "stage",
+                    "done",
+                    "WS010",
+                    "WS010.1",
+                    str(target),
+                    "--evidence",
+                    "worklog/stage-1.md",
+                    "--clear-current",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(payload["status"], "Done")
+
+            exit_code, payload, stderr = self.run_cli_json(
+                ["workstream", "focus", "WS010", "WS010.2", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(payload["current_stage"], "WS010.2")
+
+            exit_code, payload, _stderr = self.run_cli_json(
+                ["workstream", "focus", "WS010", "WS010.3", str(target), "--json"]
+            )
+            self.assertNotEqual(exit_code, 0)
+            self.assertEqual(payload["error_code"], "workstream_stage_active_conflict")
+
+            exit_code, payload, stderr = self.run_cli_json(
+                [
+                    "workstream",
+                    "stage",
+                    "done",
+                    "WS010",
+                    "WS010.2",
+                    str(target),
+                    "--evidence",
+                    "worklog/stage-2.md",
+                    "--clear-current",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(payload["status"], "Done")
+
+            detail_text = (target / "active" / "workstreams" / "WS010.md").read_text(encoding="utf-8")
+            self.assertNotIn("current_stage:", detail_text)
+            self.assertIn("| WS010.1 | Done | First generic stage", detail_text)
+            self.assertIn("| WS010.2 | Done | Second generic stage", detail_text)
+            self.assertIn("| WS010.3 | Pending | Conflict candidate stage", detail_text)
+
+            exit_code, check_payload, stderr = self.run_cli_json(["check", str(target), "--strict", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(check_payload["ok"])
+            exit_code, sync_payload, stderr = self.run_cli_json(["workstream", "sync", str(target), "--dry-run", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(sync_payload["changed_files"], [])
+            exit_code, audit_payload, stderr = self.run_cli_json(["audit", "context", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(audit_payload["candidates"], [])
 
     def test_authority_gate_fixture_rejects_direct_authority_claim(self):
         with tempfile.TemporaryDirectory() as tmp:

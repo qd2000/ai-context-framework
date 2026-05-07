@@ -14,22 +14,23 @@ Done
 
 ## 大任务名称
 
-P1 JSON Contract Consistency Tests
+P1 Workstream Stage Flow Fixture
 
 ---
 
 ## 大任务目标
 
-1. 根据 Top_Level_Implementation_Gap.md 的 P1-1 建立 AI-facing JSON 输出契约测试。
-2. 覆盖代表性查询、检查、审计、升级、草案、Workstream 和 edit 命令的成功与失败 JSON 最小字段。
-3. 只记录并守护当前兼容输出，不重排现有 JSON payload，不改变 CLI 行为。
+1. 根据 Top_Level_Implementation_Gap.md 的 P1-2 补充 Workstream stage flow synthetic fixture。
+2. 覆盖 stage add/list/focus/done、focus 多 Active 拒绝、done evidence 和 clear-current。
+3. 扩展 minimal_smoke，明确覆盖 workstream sync dry-run no-op 和 audit context clean。
 
 ---
 
 ## 成功标准
 
-1. tests/test_cli.py 新增 JSON contract consistency helper 和代表性命令覆盖。
-2. 验证 uv run python -m unittest、uv run acf check docs/ai --strict --json、uv run acf audit context docs/ai --json 通过。
+1. tests/fixtures/context_matrix/workstream_stage_flow 已建立。
+2. tests/test_context_matrix.py 覆盖该 fixture 的 strict/sync/audit/stage flow 行为。
+3. scripts/minimal_smoke.py 明确验证 stage flow、sync dry-run no-op 和 audit context clean。
 
 ---
 
@@ -43,9 +44,9 @@ P1 JSON Contract Consistency Tests
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T003 | Done | Cover representative failure payloads | T001 | check_failed/input_error/safety_refused/workstream_stage_active_conflict/curation_draft_exists contract tests | tests/test_cli.py#test_ai_facing_failure_json_contracts; acf.py check/status failure message payload | 无。 |
-| T001 | Done | Add JSON contract test helper | Top_Level_Implementation_Gap.md P1-1 | Reusable helper asserting schema_version, ok, command/error_code/next_actions minimum contract | tests/test_cli.py; verification: targeted JSON contract tests, full unittest, check template, docs strict check, upgrade dry-run, minimal_smoke, upgrade_matrix quick, version show | 无。 |
-| T002 | Done | Cover representative success payloads | T001 | Status/check/upgrade/audit/review/curate/workstream/edit success JSON contract tests | tests/test_cli.py#test_ai_facing_success_json_contracts | 无。 |
+| T001 | Done | Add workstream_stage_flow fixture | Top_Level_Implementation_Gap.md P1-2 | tests/fixtures/context_matrix/workstream_stage_flow | tests/fixtures/context_matrix/workstream_stage_flow/metadata.json | 无。 |
+| T002 | Done | Cover fixture in context_matrix tests | T001 | tests/test_context_matrix.py stage flow coverage | tests/test_context_matrix.py#test_workstream_stage_flow_fixture_exercises_stage_commands | 无。 |
+| T003 | Done | Extend minimal smoke sync and audit checks | T002 | scripts/minimal_smoke.py covers workstream sync no-op and audit clean | scripts/minimal_smoke.py workstream sync no-op and audit clean assertions | 无。 |
 
 ---
 

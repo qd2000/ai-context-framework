@@ -1,0 +1,7 @@
+{
+  "kind": "workstream_stage_flow",
+  "profile": "minimal",
+  "risk_tags": ["workstream", "stage_flow", "focus", "sync", "audit"],
+  "intent": "Verify the generic Workstream stage command flow without relying on any real project or FCC-specific business process.",
+  "expected_behavior": "stage add/list/focus/done enforce dependency, evidence, clear-current, and single Active stage rules; strict check passes, sync dry-run is no-op, and audit context stays clean."
+}

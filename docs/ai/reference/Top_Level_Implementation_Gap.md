@@ -6,7 +6,7 @@
 
 ## 状态
 
-Active audit baseline
+Updated through P1-2 Workstream stage flow fixture.
 
 ---
 
@@ -54,7 +54,7 @@ Active audit baseline
 | Task | 主线任务使用 `active/Task_Plan.md` / `active/Current_Task.md` | 已实现 | `acf plan`; `acf task`; `tests/test_cli.py` | 无 | Done | 保持 table-first |
 | Task Stage | `T001.4` 必须注册，父任务和 Workstream 引用可检查 | 部分实现 | `acf check` 已接入 Task Stage registry；`active/Task_Plan.md` 有 `## 任务阶段` 表 | 缺 `acf plan stage add/set/done`；当前靠手写表 + check | P2 | 在 JSON/upgrade/Workstream 验证后评估 Task Stage CLI |
 | Workstream | 可选并行目标线，不是 runtime / 调度器 / 权限系统 | 已实现 | `acf workstream init/add/set/block/cancel/ready/done/claim/note/show/list/status`; `Workstream_Design.md` | Workstream archive 命令未实现，当前靠 keep-active gate 和手工归档 | P2 | 先补生命周期 fixture，再决定 archive 命令 |
-| Workstream Stage | stage add/list/focus/done；focus 拒绝多 Active；done 要 evidence | 已实现，需补测试矩阵 | `acf.py`; `tests/test_cli.py`; `scripts/minimal_smoke.py`; `System_Manual.md` | 缺独立 `context_matrix/workstream_stage_flow` fixture；缺真实复杂样本只读复核记录 | P1 | 新增 synthetic fixture；用临时 context 复核 stage flow |
+| Workstream Stage | stage add/list/focus/done；focus 拒绝多 Active；done 要 evidence | 已实现 | `acf.py`; `tests/test_cli.py`; `tests/fixtures/context_matrix/workstream_stage_flow`; `tests/test_context_matrix.py`; `scripts/minimal_smoke.py`; `System_Manual.md` | synthetic fixture 和 smoke 已覆盖；真实复杂样本复核仍可作为 dogfooding 观察，不阻塞下一切片 | Done | 后续真实项目只读复核只记录观察，不新增规则 |
 | Workstream lifecycle | Done / Cancelled 短期留 active 必须 keep-active，长期进入 archive | 部分实现 | `acf check` keep-active gate; `Workstream_Design.md`; `ACF_Top_Level_Design.md` | 没有 `acf workstream archive`; archive/workstreams lifecycle 未单独 fixture 化 | P2 | 先做 fixture 和设计，不急于命令 |
 | Authority gate | Workstream 不得通过 owned/assigned 直接写 authority path | 已实现 | `acf check --strict`; `tests/fixtures/context_matrix/authority_gate`; `tests/test_context_matrix.py` | 仅内置 authority map；可配置 map 明确后置 | Done | 保持内置清单，避免配置复杂化 |
 | Merge contract | ReadyToMerge 需要合并请求；Done 需要 evidence + merge_resolution | 已实现 | `acf workstream merge-request/ready/done`; strict check; `Workstream_Design.md` | 无明显缺口 | Done | 后续只补归档生命周期 |
@@ -64,11 +64,11 @@ Active audit baseline
 | review stale / curate draft | stale 只读，curate draft 只生成可审阅草案 | 已实现 | `acf review stale`; `acf curate draft`; `tests/test_cli.py`; `upgrade_matrix` | curate draft 后续可更丰富，但不应自动 apply | P2 | 等 gap 更明确后再扩 |
 | draft | writeback / curate / knowledge 草案不进入默认读取路径 | 已实现 | `acf writeback draft`; `acf curate draft`; `acf knowledge draft`; `AGENTS.md` | 无 | Done | 保持草案边界 |
 | upgrade | 非破坏式补结构，不改事实，不自动归档 | 部分实现 | `acf upgrade`; `scripts/upgrade_matrix.py`; `tests/fixtures/upgrade_matrix/*` | 缺新对象层相关旧形态 fixture，例如 old Workstreams without current_stage、ADR no front matter、custom AGENTS 组合 | P1 | 扩 upgrade matrix |
-| JSON contract | AI-facing 命令稳定 `schema_version/ok/command/next_actions`，失败有 `error_code/message` | 部分实现 | `emit_json`; `emit_cli_error`; many JSON tests; README JSON section | 缺统一 contract inventory / parametrized tests；部分命令 payload 字段不完全同形但需兼容记录 | P1 | 建立 JSON contract consistency tests，先记录兼容现状 |
-| error_code recovery | 常见失败路径有稳定 error_code 和 next_actions | 部分实现 | worklog error matrix; workstream stage errors; check/status input errors | 缺跨命令 error_code catalog 测试；部分安全拒绝仍用通用 `safety_refused` | P1 | 与 JSON contract tests 合并推进 |
-| context_matrix | minimal/legacy/audit/workstream/authority 防过拟合 fixture | 部分实现 | `tests/fixtures/context_matrix/*`; `tests/test_context_matrix.py` | 缺 `workstream_stage_flow`、`task_stage_registry`、`audit_stale_stage`、`audit_terminal_merge` | P1 | 优先补 `workstream_stage_flow` |
-| minimal smoke | 快速覆盖 init/status/check/worklog/workstream 主路径 | 部分实现 | `scripts/minimal_smoke.py` 包含 stage add/focus/done | 缺 clean audit 和 workstream sync 明确步骤 | P1 | 扩 smoke，但保持轻量 |
-| 多项目验证 | ACF/FCC/EcSOS/minimal/legacy/fixtures 共同验证 | 部分实现 | worklog 记录 FCC/EcSOS dogfooding；context/upgrade fixtures | Workstream stage flow 尚缺 FCC 临时样本或 synthetic 复核记录 | P1 | 先 synthetic，真实项目只读或临时 context |
+| JSON contract | AI-facing 命令稳定 `schema_version/ok/command/next_actions`，失败有 `error_code/message` | 已实现基础契约测试 | `tests/test_cli.py#test_ai_facing_success_json_contracts`; `tests/test_cli.py#test_ai_facing_failure_json_contracts`; `acf.py` | 仍不是全命令同形重排；后续新增 AI-facing 命令必须复用 contract helper | Done | 新命令新增时补契约测试 |
+| error_code recovery | 常见失败路径有稳定 error_code 和 next_actions | 已实现基础契约测试 | JSON contract failure tests; workstream stage errors; check/status input errors | 不是完整 error catalog；安全拒绝仍可保留通用 `safety_refused` | Done / P2 | 如做 error catalog，单独设计 |
+| context_matrix | minimal/legacy/audit/workstream/authority 防过拟合 fixture | 部分实现 | `tests/fixtures/context_matrix/*`; `tests/test_context_matrix.py` | `workstream_stage_flow` 已补；仍缺 `task_stage_registry`、`audit_stale_stage`、`audit_terminal_merge` | P2 | 后续按具体规则补 fixture |
+| minimal smoke | 快速覆盖 init/status/check/worklog/workstream 主路径 | 已实现当前 P1 范围 | `scripts/minimal_smoke.py` 包含 stage add/focus/done、workstream sync dry-run no-op、audit context clean | 仍是 release smoke，不替代全量单元/fixture 测试 | Done | 保持轻量 |
+| 多项目验证 | ACF/FCC/EcSOS/minimal/legacy/fixtures 共同验证 | 部分实现 | worklog 记录 FCC/EcSOS dogfooding；context/upgrade fixtures; `workstream_stage_flow` synthetic fixture | Workstream stage flow synthetic 已补；真实项目只读复核可继续积累，但不应阻塞 P1-3 | P1 | 下一步扩 upgrade matrix |
 | Task object 文件 | 不急于 `active/tasks/T001` 单文件化 | 不应实现 | `ACF_Top_Level_Design.md` | 无 | Deferred | 暂不做 |
 | high-risk audit | duplicate、strong claim、volatile wrong location | 不应现在实现 | `Context_Audit_Design.md`; `Product_Roadmap.md` | 需要多项目样本和 fixture 后再评估 | Deferred | 暂缓 |
 | agent runtime / scheduler | 非目标 | 不应实现 | Top-Level non-goals; Workstream Design | 无 | Never | 不做 |
@@ -94,12 +94,10 @@ Active audit baseline
 
 ### 部分实现
 
-1. JSON / error_code 契约：已有广泛字段和测试，但缺统一 contract inventory。
-2. Upgrade 兼容矩阵：已有多版旧形态，但缺新对象层和 Workstream stage 相关 fixture。
-3. Workstream stage flow 验证：命令和单元测试已实现，缺 context_matrix 专项 fixture 和真实复杂样本复核。
-4. Task Stage：check 已有，CLI 未有。
-5. Workstream lifecycle：keep-active gate 已有，archive lifecycle 仍未形成命令闭环。
-6. sync：Workstream 已实现，Knowledge/ADR/Archive sync 仍需先设计 marker。
+1. Upgrade 兼容矩阵：已有多版旧形态，但缺新对象层和 Workstream stage 相关 fixture。
+2. Task Stage：check 已有，CLI 未有。
+3. Workstream lifecycle：keep-active gate 已有，archive lifecycle 仍未形成命令闭环。
+4. sync：Workstream 已实现，Knowledge/ADR/Archive sync 仍需先设计 marker。
 
 ### 未实现但可后置
 
@@ -138,6 +136,8 @@ Active audit baseline
 2. 失败 payload 至少验证 `ok=false`、`error_code`、`message` 或可读错误、`next_actions`。
 3. 不改变 JSON 兼容字段，除非明确 bump patch/minor。
 
+状态：已完成。实现见 `tests/test_cli.py` 的 AI-facing success/failure JSON contract tests；`check/status --json` 失败 payload 已补 `message`，版本 bump 到 `v0.0.3.28`。
+
 ### P1-2 Workstream stage flow fixture
 
 理由：命令已实现，但顶层设计要求多项目 / synthetic 防过拟合。当前缺独立 context_matrix fixture 表达完整 stage flow。
@@ -152,6 +152,8 @@ Active audit baseline
 
 1. `tests/test_context_matrix.py` 覆盖该 fixture。
 2. `uv run python scripts/minimal_smoke.py --acf uv run acf` 覆盖 stage flow、sync 和 clean audit。
+
+状态：已完成。新增 `tests/fixtures/context_matrix/workstream_stage_flow`，`tests/test_context_matrix.py` 覆盖 stage add/list/focus/done、dependency blocked、multi Active conflict、missing evidence、clear-current required、strict check、sync no-op 和 audit clean；`scripts/minimal_smoke.py` 已显式断言 sync dry-run no-op 与 audit candidates=[]。
 
 ### P1-3 Upgrade matrix expansion
 
@@ -272,3 +274,5 @@ ACF 可以进入受控实施阶段，但下一步应先补基础契约和验证�
 4. Task Stage CLI 评估。
 5. Workstream lifecycle / archive helper 设计。
 6. high-risk audit rules 继续暂缓。
+
+当前进度：1 和 2 已完成；下一受控实施入口是 P1-3 Upgrade matrix expansion。

@@ -252,6 +252,12 @@ class SmokeRunner:
                 ]
             )
         )
+        sync_step = self.run_acf(["workstream", "sync", str(context), "--dry-run", "--json"])
+        sync_step["ok"] = sync_step["ok"] and sync_step["payload"].get("changed_files") == []
+        steps.append(sync_step)
+        audit_step = self.run_acf(["audit", "context", str(context), "--json"])
+        audit_step["ok"] = audit_step["ok"] and audit_step["payload"].get("candidates") == []
+        steps.append(audit_step)
         steps.append(self.run_acf(["workstream", "ready", "WS001", str(context), "--json"]))
         steps.append(
             self.run_acf(

@@ -16,13 +16,13 @@ Done
 
 ## 任务名称
 
-Add JSON contract test helper
+Add workstream_stage_flow fixture
 
 ---
 
 ## 所属大任务
 
-P1 JSON Contract Consistency Tests
+P1 Workstream Stage Flow Fixture
 
 ---
 
@@ -40,14 +40,14 @@ T001
 
 ## 本次任务目标
 
-1. Inspect tests/test_cli.py JSON tests and add helper
-2. 产出并验证输出物：Reusable helper asserting schema_version, ok, command/error_code/next_actions minimum contract
+1. Create synthetic fixture files.
+2. 产出并验证输出物：tests/fixtures/context_matrix/workstream_stage_flow
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P1 JSON Contract Consistency Tests”。依赖记录：Top_Level_Implementation_Gap.md P1-1
+该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P1 Workstream Stage Flow Fixture”。依赖记录：Top_Level_Implementation_Gap.md P1-2
 
 ---
 
@@ -60,13 +60,13 @@ T001
 
 ## 输出要求
 
-- Reusable helper asserting schema_version, ok, command/error_code/next_actions minimum contract
+- tests/fixtures/context_matrix/workstream_stage_flow
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：Reusable helper asserting schema_version, ok, command/error_code/next_actions minimum contract
+1. 输出物已完成：tests/fixtures/context_matrix/workstream_stage_flow
 2. 子任务 T001 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
