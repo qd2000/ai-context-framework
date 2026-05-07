@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.29"
+VERSION = "v0.0.3.30"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -930,6 +930,10 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Finish the dependent Workstream stage before focusing this stage."]
     if error_code == "workstream_stage_clear_current_required":
         return ["Pass `--clear-current` when completing the current Workstream stage."]
+    if error_code == "workstream_archive_candidates_invalid_today":
+        return ["Use `--today YYYY-MM-DD` or omit it to use the current date."]
+    if error_code == "workstream_archive_candidates_plan_unreadable":
+        return ["Fix active/Task_Plan.md or run `acf check` before reviewing archive candidates."]
     if error_code == "task_stage_duplicate_id":
         return ["Choose an unused Task Stage ID in active/Task_Plan.md."]
     if error_code == "task_stage_scope_invalid":
@@ -982,6 +986,8 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_stage_active_conflict",
         "workstream_stage_dependency_blocked",
         "workstream_stage_clear_current_required",
+        "workstream_archive_candidates_invalid_today",
+        "workstream_archive_candidates_plan_unreadable",
     )
     task_stage_codes = (
         "task_stage_duplicate_id",
@@ -5344,6 +5350,184 @@ def workstream_list_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def parse_archive_candidates_today(value: str | None) -> date:
+    if value is None:
+        return date.today()
+    normalized = value.strip()
+    if not DATE_RE.match(normalized):
+        raise SystemExit("workstream_archive_candidates_invalid_today: --today must use YYYY-MM-DD")
+    return date.fromisoformat(normalized)
+
+
+def current_execution_workstream_ids(root: Path) -> set[str]:
+    task_file = root / "active" / "Current_Task.md"
+    if not task_file.exists():
+        return set()
+    current_line = extract_heading_value(task_file, "## 当前执行线")
+    if not meaningful_ref_value(current_line):
+        return set()
+    return set(WORKSTREAM_ID_TOKEN_RE.findall(current_line or ""))
+
+
+def active_task_stage_workstream_refs(root: Path) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    plan_path = task_plan_path(root)
+    if not plan_path.exists():
+        return {}, {}
+    try:
+        rows = read_task_stage_rows(plan_path)
+    except SystemExit as exc:
+        raise SystemExit(f"workstream_archive_candidates_plan_unreadable: {exc}") from exc
+
+    active_refs: dict[str, list[str]] = {}
+    focus_refs: dict[str, list[str]] = {}
+    focus = extract_heading_value(plan_path, "## 当前焦点") or ""
+    for row in rows:
+        stage_id = row.get("ID", "")
+        owner_value = row.get("归属 Workstream", "")
+        workstream_ids = WORKSTREAM_ID_TOKEN_RE.findall(owner_value)
+        if not workstream_ids:
+            continue
+        if row.get("状态") not in {"Done", "Skipped", "Superseded"}:
+            for workstream_id in workstream_ids:
+                active_refs.setdefault(workstream_id, []).append(stage_id)
+        if focus == stage_id:
+            for workstream_id in workstream_ids:
+                focus_refs.setdefault(workstream_id, []).append(stage_id)
+    return active_refs, focus_refs
+
+
+def workstream_archive_candidate_reason(detail: WorkstreamDetail, today: date) -> str:
+    keep_until = detail.metadata.get("keep_active_until")
+    if isinstance(keep_until, str) and DATE_RE.match(keep_until) and date.fromisoformat(keep_until) < today:
+        return f"keep_active_until {keep_until} is expired."
+    return "terminal Workstream is no longer blocked by keep-active metadata or current-plan references."
+
+
+def workstream_archive_blockers(
+    detail: WorkstreamDetail,
+    today: date,
+    current_execution_refs: set[str],
+    active_stage_refs: dict[str, list[str]],
+    focus_stage_refs: dict[str, list[str]],
+) -> list[str]:
+    blockers: list[str] = []
+    workstream_id = detail.workstream_id
+    status = detail.metadata.get("status")
+    if workstream_id in current_execution_refs:
+        blockers.append("referenced_by_current_task_execution_line")
+    if workstream_id in active_stage_refs:
+        blockers.append("referenced_by_current_task_stage")
+    if workstream_id in focus_stage_refs:
+        blockers.append("referenced_by_current_plan_focus")
+
+    if status == "Done":
+        merge_targets = detail.metadata.get("merge_targets")
+        has_merge_targets = isinstance(merge_targets, list) and any(str(target).strip() for target in merge_targets)
+        if workstream_section_missing(detail.body, "## 证据"):
+            blockers.append("missing_evidence")
+        if required_field_missing(detail.metadata.get("merge_resolution")):
+            blockers.append("missing_merge_resolution")
+        if has_merge_targets and not merge_request_has_required_fields(detail.body):
+            blockers.append("missing_merge_request")
+    elif status == "Cancelled" and workstream_section_missing(detail.body, "## 取消原因"):
+        blockers.append("missing_cancellation_reason")
+
+    keep_until = detail.metadata.get("keep_active_until")
+    if isinstance(keep_until, str) and DATE_RE.match(keep_until):
+        if date.fromisoformat(keep_until) >= today:
+            blockers.append("keep_active_until_not_expired")
+    elif not required_field_missing(keep_until):
+        blockers.append("invalid_keep_active_until")
+
+    return list(dict.fromkeys(blockers))
+
+
+def workstream_archive_candidate_payload(root: Path, detail: WorkstreamDetail, today: date, blockers: Sequence[str]) -> dict[str, object]:
+    keep_until = detail.metadata.get("keep_active_until")
+    return {
+        "id": detail.workstream_id,
+        "status": detail.metadata.get("status", "Unknown"),
+        "title": detail.metadata.get("title", "Unknown"),
+        "detail": detail.path.as_posix(),
+        "archive_target": (root / WORKSTREAM_ARCHIVE_DIR_REL / f"{detail.workstream_id}.md").as_posix(),
+        "keep_active_until": keep_until if isinstance(keep_until, str) else None,
+        "reason": workstream_archive_candidate_reason(detail, today),
+        "blocked_by": list(blockers),
+    }
+
+
+def count_by_key(items: Sequence[dict[str, object]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        value = item.get(key)
+        if isinstance(value, list):
+            values = [str(candidate) for candidate in value if candidate]
+        else:
+            values = [str(value)] if value else []
+        for candidate in values:
+            counts[candidate] = counts.get(candidate, 0) + 1
+    return counts
+
+
+def workstream_archive_candidates_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    today = parse_archive_candidates_today(args.today)
+    entries = parse_workstream_index(root)
+    current_execution_refs = current_execution_workstream_ids(root)
+    active_stage_refs, focus_stage_refs = active_task_stage_workstream_refs(root)
+    candidates: list[dict[str, object]] = []
+    blocked: list[dict[str, object]] = []
+    terminal_total = 0
+
+    for entry in entries:
+        detail = read_workstream_detail(root, entry.workstream_id)
+        status = detail.metadata.get("status")
+        if status not in {"Done", "Cancelled"}:
+            continue
+        terminal_total += 1
+        blockers = workstream_archive_blockers(detail, today, current_execution_refs, active_stage_refs, focus_stage_refs)
+        payload = workstream_archive_candidate_payload(root, detail, today, blockers)
+        if blockers:
+            blocked.append(payload)
+        else:
+            candidates.append(payload)
+
+    next_actions: list[str] = []
+    if candidates:
+        next_actions.append("Review candidates and create an explicit archive draft or future archive command; this command does not move files.")
+    if blocked:
+        next_actions.append("Resolve blockers before archiving terminal Workstreams that remain active.")
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": "workstream archive-candidates",
+        "ok": True,
+        "context": str(root),
+        "today": today.isoformat(),
+        "changed_files": [],
+        "candidates": candidates,
+        "blocked": blocked,
+        "summary": {
+            "terminal_total": terminal_total,
+            "candidate_total": len(candidates),
+            "blocked_total": len(blocked),
+            "by_blocker": count_by_key(blocked, "blocked_by"),
+        },
+        "error_code": None,
+        "next_actions": next_actions,
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        if not candidates:
+            print("no archive candidates")
+        for candidate in candidates:
+            print(f"{candidate['id']}\t{candidate['status']}\t{candidate['reason']}")
+        if blocked:
+            print(f"blocked terminal workstreams: {len(blocked)}")
+    return 0
+
+
 def workstream_sync_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
@@ -8605,6 +8789,15 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_list_parser.add_argument("path", nargs="?", type=Path)
     add_json_argument(workstream_list_parser)
     workstream_list_parser.set_defaults(func=workstream_list_command)
+
+    workstream_archive_candidates_parser = workstream_subparsers.add_parser(
+        "archive-candidates",
+        help="report terminal Workstreams that can be considered for archive",
+    )
+    workstream_archive_candidates_parser.add_argument("path", nargs="?", type=Path)
+    workstream_archive_candidates_parser.add_argument("--today", default=None, help="override current date for keep-active checks")
+    add_json_argument(workstream_archive_candidates_parser)
+    workstream_archive_candidates_parser.set_defaults(func=workstream_archive_candidates_command)
 
     workstream_sync_parser = workstream_subparsers.add_parser("sync", help="sync Workstreams index rows from detail front matter")
     workstream_sync_parser.add_argument("path", nargs="?", type=Path)

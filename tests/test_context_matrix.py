@@ -573,6 +573,14 @@ class ContextMatrixTests(unittest.TestCase):
             self.assertEqual(exit_code, 0, stderr)
             self.assertTrue(check_payload["ok"])
 
+            exit_code, archive_payload, stderr = self.run_cli_json(
+                ["workstream", "archive-candidates", str(target), "--today", "2026-05-08", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(archive_payload["candidates"], [])
+            self.assertEqual(archive_payload["blocked"][0]["id"], "WS020")
+            self.assertIn("referenced_by_current_task_stage", archive_payload["blocked"][0]["blocked_by"])
+
             (target / "active" / "Current_Task.md").write_text(
                 "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001\n\n## 当前执行线\n\nWS020\n",
                 encoding="utf-8",

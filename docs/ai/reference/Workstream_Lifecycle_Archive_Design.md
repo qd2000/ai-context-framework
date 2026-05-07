@@ -98,11 +98,10 @@ Done / Cancelled 是终态；归档后的 Workstream 不应再回到 Active。�
 
 ## 第一版 helper 形态
 
-第一版不直接实现自动移动文件。推荐先实现只读候选命令或 draft 命令：
+第一版不直接实现自动移动文件。当前已实现只读候选命令，draft 命令仍为后续候选：
 
 ```bash
 acf workstream archive-candidates docs/ai --json
-acf workstream archive-draft docs/ai --json
 ```
 
 候选命令只读输出：
@@ -114,9 +113,13 @@ acf workstream archive-draft docs/ai --json
   "command": "workstream archive-candidates",
   "context": "docs/ai",
   "candidates": [],
+  "blocked": [],
+  "changed_files": [],
   "summary": {
-    "total": 0,
-    "by_reason": {}
+    "terminal_total": 0,
+    "candidate_total": 0,
+    "blocked_total": 0,
+    "by_blocker": {}
   },
   "next_actions": []
 }
@@ -128,12 +131,11 @@ candidate 建议字段：
 {
   "id": "WS001",
   "status": "Done",
-  "path": "active/workstreams/WS001.md",
+  "detail": "active/workstreams/WS001.md",
+  "archive_target": "archive/workstreams/WS001.md",
   "reason": "Done and keep_active_until has expired.",
-  "evidence": "worklog/daily/YYYY-MM-DD.md",
-  "merge_resolution": "no_merge_required",
   "blocked_by": [],
-  "suggested_action": "Review and archive explicitly if no longer needed by active plan."
+  "keep_active_until": "YYYY-MM-DD"
 }
 ```
 
@@ -141,9 +143,11 @@ candidate 建议字段：
 
 1. `keep_active_until_not_expired`
 2. `referenced_by_current_task_execution_line`
-3. `current_plan_focus_or_stage_reference`
-4. `missing_merge_resolution`
-5. `missing_evidence`
+3. `referenced_by_current_plan_focus`
+4. `referenced_by_current_task_stage`
+5. `missing_merge_resolution`
+6. `missing_evidence`
+7. `missing_merge_request`
 
 ---
 
@@ -188,7 +192,7 @@ acf workstream archive WS001 docs/ai --reason "current plan no longer needs this
 1. 本设计文档。
 2. `tests/fixtures/context_matrix/workstream_lifecycle_archive`。
 3. fixture 测试覆盖 keep-active clean / expired / current execution line rejected。
-4. 只读 `workstream archive-candidates` 命令。
+4. 只读 `workstream archive-candidates` 命令。已完成。
 5. archive draft 命令。
 6. 显式 `workstream archive` 移动命令。
 

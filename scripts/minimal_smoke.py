@@ -274,6 +274,13 @@ class SmokeRunner:
                 ]
             )
         )
+        archive_step = self.run_acf(["workstream", "archive-candidates", str(context), "--json"])
+        archive_step["ok"] = (
+            archive_step["ok"]
+            and archive_step["payload"].get("changed_files") == []
+            and [candidate.get("id") for candidate in archive_step["payload"].get("candidates", [])] == ["WS001"]
+        )
+        steps.append(archive_step)
         steps.append(self.run_acf(["check", str(context), "--json"]))
 
     def task_stage_minimal_happy_path(self, tmp: Path, steps: list[dict[str, Any]]) -> None:

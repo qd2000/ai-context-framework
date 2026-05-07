@@ -2208,6 +2208,88 @@ class CliTests(unittest.TestCase):
 
             self.assertTrue(any("Done workstream declares merge_targets but is missing merge request" in error for error in result.errors))
 
+    def test_workstream_archive_candidates_is_read_only_and_reports_blockers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS010")
+            self.assertEqual(self.run_cli(["workstream", "set", "WS010", str(target), "--status", "Active"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS010",
+                        str(target),
+                        "--target",
+                        "active/Context.md",
+                        "--summary",
+                        "Archive candidate test has no authority change.",
+                        "--verification",
+                        "Unit test fixture.",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS010", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "done",
+                        "WS010",
+                        str(target),
+                        "--evidence",
+                        "tests/test_cli.py",
+                        "--merge-resolution",
+                        "no_merge_required",
+                    ]
+                ),
+                0,
+            )
+            detail = target / "active" / "workstreams" / "WS010.md"
+            detail.write_text(
+                detail.read_text(encoding="utf-8").replace(
+                    "title: WS010\n",
+                    "title: WS010\nkeep_active_reason: still explains the current plan\nkeep_active_until: 2099-01-01\n",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "archive-candidates", str(target), "--today", "2026-05-08", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "workstream archive-candidates")
+            self.assertEqual(payload["candidates"], [])
+            self.assertEqual(payload["blocked"][0]["id"], "WS010")
+            self.assertIn("keep_active_until_not_expired", payload["blocked"][0]["blocked_by"])
+
+            detail.write_text(detail.read_text(encoding="utf-8").replace("keep_active_until: 2099-01-01", "keep_active_until: 2026-05-01"), encoding="utf-8")
+            before_detail = detail.read_text(encoding="utf-8")
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "archive-candidates", str(target), "--today", "2026-05-08", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["changed_files"], [])
+            self.assertEqual(payload["candidates"][0]["id"], "WS010")
+            self.assertEqual(payload["candidates"][0]["blocked_by"], [])
+            self.assertEqual(detail.read_text(encoding="utf-8"), before_detail)
+
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001\n\n## 当前执行线\n\nWS010\n",
+                encoding="utf-8",
+            )
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "archive-candidates", str(target), "--today", "2026-05-08", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["candidates"], [])
+            self.assertIn("referenced_by_current_task_execution_line", payload["blocked"][0]["blocked_by"])
+
     def test_strict_template_check_fails_on_placeholders(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=True)
         self.assertTrue(any("placeholder" in error for error in result.errors))
@@ -3341,6 +3423,7 @@ This records a reusable write-safety pattern instead of a current task fact.
                 ("curate draft", ["curate", "draft", str(target), "--today", "2026-05-05", "--dry-run", "--json"]),
                 ("workstream status", ["workstream", "status", str(target), "--json"]),
                 ("workstream list", ["workstream", "list", str(target), "--json"]),
+                ("workstream archive-candidates", ["workstream", "archive-candidates", str(target), "--json"]),
                 ("workstream show", ["workstream", "show", "WS001", str(target), "--json"]),
                 ("workstream stage list", ["workstream", "stage", "list", "WS001", str(target), "--json"]),
                 (

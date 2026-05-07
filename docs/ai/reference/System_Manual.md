@@ -18,7 +18,7 @@
 
 顶层产品边界和长期设计以 `reference/ACF_Top_Level_Design.md` 为准；阶段路线和近期优先级以 `reference/Product_Roadmap.md` 为准。新增对象、规则、CLI 命令、模板结构或 upgrade 行为前，应先确认它属于 `check`、`audit`、`sync`、`draft`、`upgrade` 或普通维护命令中的哪一层。
 
-Workstream 归档生命周期的后续实现以 `reference/Workstream_Lifecycle_Archive_Design.md` 为准。当前结论是先做只读候选或草案 helper，再考虑显式移动文件命令；`workstream sync` 和 `upgrade` 都不自动归档 Done / Cancelled Workstream。
+Workstream 归档生命周期以 `reference/Workstream_Lifecycle_Archive_Design.md` 为准。当前已提供只读 `workstream archive-candidates` helper，用于报告可考虑归档的终态 Workstream 和 `blocked_by`；显式移动文件命令仍未实现，`workstream sync` 和 `upgrade` 都不自动归档 Done / Cancelled Workstream。
 
 ---
 
@@ -54,6 +54,7 @@ Workstream 归档生命周期的后续实现以 `reference/Workstream_Lifecycle_
 - `uv run acf workstream stage list WS001 docs/ai --json`
 - `uv run acf workstream focus WS001 WS001.1 docs/ai --json`
 - `uv run acf workstream stage done WS001 WS001.1 docs/ai --evidence "worklog/daily/YYYY-MM-DD.md" --clear-current --json`
+- `uv run acf workstream archive-candidates docs/ai --json`
 - `uv run acf plan status docs/ai --json`
 - `uv run acf plan stage add docs/ai --id T001.1 --parent T001 --title "任务阶段" --json`
 - `uv run acf plan stage list docs/ai --json`
@@ -67,7 +68,7 @@ Workstream 归档生命周期的后续实现以 `reference/Workstream_Lifecycle_
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf new worklog docs/ai --summary "补记一次上下文维护。" --append --dry-run --json`
 - `uv run acf version show --json`
-- `uv run acf version set v0.0.3.29 --dry-run --json`
+- `uv run acf version set v0.0.3.30 --dry-run --json`
 - `uv run python scripts/upgrade_matrix.py --mode quick`
 - `uv run python scripts/upgrade_matrix.py --mode full --acf uv run acf`
 
@@ -75,9 +76,11 @@ Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部
 
 Task Stage 仍以 `active/Task_Plan.md` 的 `## 任务阶段` 表为事实源；`plan stage list|add|set|done` 只维护该表，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。`plan stage add` 要求阶段 ID 使用 `T001.1` 格式且归属于已存在父任务，`--workstream` 只接受已存在的 Workstream ID 或空值；`plan stage done` 要求 `--evidence`。
 
+`acf workstream archive-candidates --json` 只读扫描 Done / Cancelled Workstream，输出 `candidates`、`blocked`、`blocked_by` 和 `changed_files: []`；机械 blocker 包括 keep-active 未过期、当前执行线引用、当前任务阶段归属、缺 evidence、缺 merge_resolution 或缺 merge request。该命令不写文件、不修改 `active/Workstreams.md`、不移动详情文件、不接入 strict。
+
 `acf workstream sync --dry-run --json` 只根据 `active/workstreams/*.md` front matter 预览或更新 `active/Workstreams.md`；第一版不会删除索引中缺失详情文件的旧行，也不会移动 Done / Cancelled 文件。
 
-Done / Cancelled Workstream 留在 `active/workstreams/` 时，应有 `keep_active_reason` 和 `keep_active_until`；strict check 会拒绝过期的 `keep_active_until`。仍被当前计划解释所需的终态 Workstream 不应被自动归档；未来 archive helper 应先输出候选或草案。
+Done / Cancelled Workstream 留在 `active/workstreams/` 时，应有 `keep_active_reason` 和 `keep_active_until`；strict check 会拒绝过期的 `keep_active_until`。仍被当前计划解释所需的终态 Workstream 不应被自动归档；当前 archive helper 只输出候选，不替用户做移动决策。
 
 `acf audit context --json` 是只读上下文审计 MVP，只报告 candidates，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`。当前规则只覆盖长 active section、陈旧当前任务 / Workstream 阶段和 ReadyToMerge 待合并或 Done 缺合并结果候选。
 

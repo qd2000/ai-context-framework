@@ -31,9 +31,9 @@
 - `edit table upsert`：按 key column 更新或追加上下文根目录内 Markdown 表格行。
 - 使用状态日志：`log enable|disable|status|tail|summarize|prune` 管理默认开启的用户级全局 usage event log，按项目子目录记录命令结果元数据，支撑跨项目 dogfooding 评测。
 - CLI 渐进式披露入口：模板和 minimal init 产物会在 AGENTS.md 中提示 `acf status --json`、`acf --help` 和系统手册发现路径，但不在默认入口列完整命令手册。
-- 最小 smoke runner：`scripts/minimal_smoke.py` 使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code`、Workstream 最小 happy path 和 Task Stage 最小 happy path；不覆盖真实项目批量评测或漂移样本诊断。
+- 最小 smoke runner：`scripts/minimal_smoke.py` 使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code`、Workstream 最小 happy path、只读 archive-candidates 和 Task Stage 最小 happy path；不覆盖真实项目批量评测或漂移样本诊断。
 - 升级兼容 runner：`scripts/upgrade_matrix.py` 使用风险驱动 fixture 验证旧上下文可被非破坏式带到当前工具可治理状态；quick 模式随单元测试运行，full 模式用于 release 前扩展检查。
-- Context governance fixture matrix：`tests/fixtures/context_matrix/` 和 `tests/test_context_matrix.py` 覆盖 minimal clean、legacy reference、audit long section、complex Workstream 和 authority gate，作为 P3 audit rule expansion 前的防过拟合样本。
+- Context governance fixture matrix：`tests/fixtures/context_matrix/` 和 `tests/test_context_matrix.py` 覆盖 minimal clean、legacy reference、audit long section、complex Workstream、Workstream lifecycle/archive candidate 和 authority gate，作为 P3 audit rule expansion 前的防过拟合样本。
 
 这些检查不需要模型判断，适合作为每次模板修改后的基础验证。
 

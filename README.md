@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.29` 是当前推荐的真实项目接入/升级版本，新增 `acf plan stage list|add|set|done` 薄切片，用于确定性维护 `active/Task_Plan.md` 的 `## 任务阶段` 表。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.30` 是当前推荐的真实项目接入/升级版本，新增只读 `acf workstream archive-candidates`，用于报告可考虑归档的终态 Workstream 和阻止归档的机械 blocker；命令不移动文件、不修改索引、不接入 strict。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -195,6 +195,7 @@ acf workstream stage list WS002 --json
 acf workstream focus WS002 WS002.1
 acf workstream stage done WS002 WS002.1 --evidence "worklog/daily/YYYY-MM-DD.md" --clear-current
 acf workstream sync --dry-run --json
+acf workstream archive-candidates --json
 acf plan stage add --id T001.1 --parent T001 --title "任务阶段"
 acf plan stage list --json
 acf plan stage set --id T001.1 --status Active --next-action "完成阶段"
@@ -221,7 +222,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.29 --dry-run --json
+acf version set v0.0.3.30 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -243,7 +244,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `review stale`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json` 和 `--days`。JSON 输出包含 `summary.total`、`summary.by_kind`、`summary.by_path`，每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
 - `audit context`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告 `active_section_too_long`、`stale_current_task_or_workstream_stage` 和 `terminal_conclusion_not_merged`（ReadyToMerge 待合并或 Done 缺合并结果）。JSON 输出包含 `candidates`、`summary.total`、`summary.by_kind`、`summary.by_path`、`summary.by_severity` 和 `next_actions`。
 - `curate draft`：复用 `review stale` 的 stale candidates 生成 `worklog/curation-drafts/YYYY-MM-DD.md` 注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days` 和 `--name`。
-- `workstream init|status|list|sync|show|add|set|block|cancel|merge-request|ready|done|claim|note|focus` 和 `workstream stage add|list|done`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim、详情备注和内部阶段焦点；`sync` 只根据 `active/workstreams/*.md` front matter 更新 `active/Workstreams.md`，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，Done 需要 `--merge-resolution` 写入合并结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
+- `workstream init|status|list|archive-candidates|sync|show|add|set|block|cancel|merge-request|ready|done|claim|note|focus` 和 `workstream stage add|list|done`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim、详情备注和内部阶段焦点；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`，不会移动详情文件、不会修改索引；`sync` 只根据 `active/workstreams/*.md` front matter 更新 `active/Workstreams.md`，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，Done 需要 `--merge-resolution` 写入合并结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`；同日已有记录且需要补记时使用 `--append`，需要重建时使用 `--force`，二者不能混用。
@@ -257,7 +258,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 
-`status`、`check`、`review stale`、`audit context`、`workstream status|list|show` 和 `edit section get` 支持 `--json` 输出。`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
+`status`、`check`、`review stale`、`audit context`、`workstream status|list|archive-candidates|show` 和 `edit section get` 支持 `--json` 输出。`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
 
 `edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它提供的是 section/table 级确定性编辑原语，不做语义判断，也不是通用 Markdown 编辑器。
 

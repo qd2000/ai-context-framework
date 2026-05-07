@@ -53,9 +53,9 @@ Updated through P1-3 Upgrade matrix expansion.
 | 唯一事实源 | 写入前判断权威位置，索引不替代详情 | 部分实现 | Workstream 详情 front matter 作为事实源；`acf workstream sync`; `rules/Always_Active.md` | 仅 Workstream 有强 sync/check；Knowledge/ADR/Archive 尚未设计 generated view | P2 | 后续如做 sync 扩展，先设计 generated marker |
 | Task | 主线任务使用 `active/Task_Plan.md` / `active/Current_Task.md` | 已实现 | `acf plan`; `acf task`; `tests/test_cli.py` | 无 | Done | 保持 table-first |
 | Task Stage | `T001.4` 必须注册，父任务和 Workstream 引用可检查 | 已实现当前 P2 薄切片 | `acf check` 已接入 Task Stage registry；`acf plan stage list/add/set/done` 维护 `active/Task_Plan.md` 的 `## 任务阶段` 表 | 未做 task object 单文件；未做 Current_Task 自动切换，符合顶层边界 | Done / P2 | 后续仅在表格能力不足时再评估更重对象模型 |
-| Workstream | 可选并行目标线，不是 runtime / 调度器 / 权限系统 | 已实现 | `acf workstream init/add/set/block/cancel/ready/done/claim/note/show/list/status`; `Workstream_Design.md` | Workstream archive 命令未实现，当前靠 keep-active gate、生命周期设计和手工归档 | P2 | 下一步如继续，应先做只读 archive candidates，不直接移动文件 |
+| Workstream | 可选并行目标线，不是 runtime / 调度器 / 权限系统 | 已实现 | `acf workstream init/add/set/block/cancel/ready/done/claim/note/show/list/status/archive-candidates`; `Workstream_Design.md` | 显式移动文件的 Workstream archive 命令未实现，当前只提供只读候选 helper | P2 | 如继续，应先设计 archive draft 或索引 cleanup 策略，不直接扩大自动移动 |
 | Workstream Stage | stage add/list/focus/done；focus 拒绝多 Active；done 要 evidence | 已实现 | `acf.py`; `tests/test_cli.py`; `tests/fixtures/context_matrix/workstream_stage_flow`; `tests/test_context_matrix.py`; `scripts/minimal_smoke.py`; `System_Manual.md` | synthetic fixture 和 smoke 已覆盖；真实复杂样本复核仍可作为 dogfooding 观察，不阻塞下一切片 | Done | 后续真实项目只读复核只记录观察，不新增规则 |
-| Workstream lifecycle | Done / Cancelled 短期留 active 必须 keep-active，长期进入 archive | 已完成设计 + fixture | `acf check` keep-active gate; `Workstream_Design.md`; `ACF_Top_Level_Design.md`; `Workstream_Lifecycle_Archive_Design.md`; `tests/fixtures/context_matrix/workstream_lifecycle_archive` | 没有 `acf workstream archive-candidates` 或移动命令 | P2 | 下一步先实现只读 candidates 或 draft helper，不直接移动文件 |
+| Workstream lifecycle | Done / Cancelled 短期留 active 必须 keep-active，长期进入 archive | 已完成只读候选 helper | `acf check` keep-active gate; `acf workstream archive-candidates`; `Workstream_Lifecycle_Archive_Design.md`; `tests/fixtures/context_matrix/workstream_lifecycle_archive` | 没有 archive draft 或移动命令；索引 cleanup 策略仍未设计 | P2 | 下一步如继续，优先 archive draft 或 generated/index cleanup design |
 | Authority gate | Workstream 不得通过 owned/assigned 直接写 authority path | 已实现 | `acf check --strict`; `tests/fixtures/context_matrix/authority_gate`; `tests/test_context_matrix.py` | 仅内置 authority map；可配置 map 明确后置 | Done | 保持内置清单，避免配置复杂化 |
 | Merge contract | ReadyToMerge 需要合并请求；Done 需要 evidence + merge_resolution | 已实现 | `acf workstream merge-request/ready/done`; strict check; `Workstream_Design.md` | 无明显缺口 | Done | 后续只补归档生命周期 |
 | Workstream sync | sync 只更新 `active/Workstreams.md`，不改详情、不删除缺详情旧行 | 已实现 | `acf workstream sync`; `tests/test_context_matrix.py`; `System_Manual.md` | 只覆盖 Workstream；其他索引 sync 尚未设计 | Done / P2 | 不扩展到 Knowledge/ADR/Archive，除非先设计 marker |
@@ -203,15 +203,15 @@ acf plan stage done ...
 2. fixture 证明不会误归档当前计划仍需解释的 Workstream。
 3. 明确第一版是否只生成 draft，而不是移动文件。
 
-状态：已完成设计与 fixture，不改变 CLI 行为。新增 `reference/Workstream_Lifecycle_Archive_Design.md`，明确第一版先做 `workstream archive-candidates` 或 archive draft 这类只读/草案 helper，不直接移动文件；新增 `tests/fixtures/context_matrix/workstream_lifecycle_archive` 和 context_matrix 测试，覆盖 retained terminal Workstream strict clean、terminal Workstream 作为当前执行线被拒绝、expired keep-active 被 strict 拦截。
+状态：已完成设计与 fixture，并在 P2-3 落地只读 helper。新增 `reference/Workstream_Lifecycle_Archive_Design.md`，明确第一版先做 `workstream archive-candidates` 或 archive draft 这类只读/草案 helper，不直接移动文件；新增 `tests/fixtures/context_matrix/workstream_lifecycle_archive` 和 context_matrix 测试，覆盖 retained terminal Workstream strict clean、terminal Workstream 作为当前执行线被拒绝、expired keep-active 被 strict 拦截。
 
-下一步候选：
+### P2-3 Workstream archive-candidates
 
 ```bash
 acf workstream archive-candidates docs/ai --json
 ```
 
-该命令应只读输出候选和 `blocked_by`，不修改文件，不接入 strict。
+状态：已完成。该命令只读输出 `candidates`、`blocked`、`blocked_by`、`changed_files: []` 和 summary，不修改文件、不移动详情、不修改索引、不接入 strict。已覆盖 CLI 单元测试、AI-facing JSON contract、context_matrix lifecycle fixture 和 minimal smoke。
 
 ### Deferred audit rules
 
@@ -285,7 +285,7 @@ ACF 可以进入受控实施阶段，但下一步应先补基础契约和验证�
 2. Workstream stage flow fixture + minimal smoke 补强。
 3. Upgrade matrix expansion。
 4. Task Stage CLI 评估。已完成。
-5. Workstream lifecycle / archive helper 设计。已完成。
+5. Workstream lifecycle / archive helper 设计与只读 `archive-candidates`。已完成。
 6. high-risk audit rules 继续暂缓。
 
-当前进度：P1-1、P1-2、P1-3、P2-1 与 P2-2 设计/fixture 已完成；下一入口应继续保持 gap-driven，可优先评估只读 `workstream archive-candidates`，或转向生成式索引 sync 设计；不扩展 high-risk audit rules。
+当前进度：P1-1、P1-2、P1-3、P2-1、P2-2 与 P2-3 已完成；下一入口应继续保持 gap-driven，可优先评估 archive draft / Workstream archive index cleanup design，或转向生成式索引 sync 设计；不扩展 high-risk audit rules。

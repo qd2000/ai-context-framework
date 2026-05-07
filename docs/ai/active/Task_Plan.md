@@ -14,22 +14,19 @@ Done
 
 ## 大任务名称
 
-P2 Workstream Lifecycle Archive Design
+P2 Workstream Archive Candidates
 
 ---
 
 ## 大任务目标
 
-1. 根据顶层设计和 gap audit，收敛 Workstream Done/Cancelled 从 active 保留到 archive 的生命周期 helper 边界。
-2. 先补设计和 synthetic fixture，证明第一版不误归档仍被当前计划需要解释的 Workstream。
+1. Implement the first read-only Workstream archive lifecycle helper from the top-level design gap audit.
 
 ---
 
 ## 成功标准
 
-1. 新增 Workstream lifecycle/archive 设计文档并同步路线入口。
-2. 新增 context_matrix fixture/test 覆盖 retained terminal Workstream 和 expired keep-active 边界。
-3. strict check、audit context 和相关单元测试通过；本轮不改变 CLI 行为，不 bump 版本。
+1. acf workstream archive-candidates reports safe candidates and blockers without writing files, with tests, docs, and version updated.
 
 ---
 
@@ -43,9 +40,9 @@ P2 Workstream Lifecycle Archive Design
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | Define Workstream archive helper boundary | Top_Level_Implementation_Gap.md P2-2 | Workstream_Lifecycle_Archive_Design.md | reference/Workstream_Lifecycle_Archive_Design.md defines conservative archive helper boundary: candidates/draft before moving files. | 无。 |
-| T002 | Done | Add lifecycle fixture coverage | T001 | workstream_lifecycle_archive context_matrix fixture and tests | tests/fixtures/context_matrix/workstream_lifecycle_archive and test_context_matrix lifecycle test cover retained terminal Workstream, current execution line rejection and expired keep-active. | 无。 |
-| T003 | Done | Sync roadmap docs and verify | T002 | roadmap/gap/system manual updates and verification | P2 Workstream lifecycle/archive design and fixture complete; no CLI behavior change, no version bump. | 无。 |
+| T001 | Done | Define archive-candidates contract | 无。 | Read-only command contract | acf.py; tests/test_cli.py; tests/test_context_matrix.py | T002 owns CLI regression coverage |
+| T002 | Done | Implement archive-candidates CLI | T001 | Command, JSON output, tests | tests/test_cli.py; tests/test_context_matrix.py; scripts/minimal_smoke.py | T003 owns docs/version/final verification |
+| T003 | Done | Sync docs version verification | T002 | Docs, version, verification, commit | unittest; minimal_smoke; check template; check docs/ai --strict; audit context; upgrade dry-run; diff --check | Commit and push P2-3 |
 
 ---
 
