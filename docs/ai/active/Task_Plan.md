@@ -14,23 +14,22 @@ Done
 
 ## 大任务名称
 
-P2 Top-Level Design Implementation Audit
+P1 JSON Contract Consistency Tests
 
 ---
 
 ## 大任务目标
 
-1. 将 ACF 顶层设计逐项映射到当前实现，形成 gap-driven 实施依据。
-2. 按 content model、object model、CLI、check、audit、sync、upgrade、tests 分层识别已实现、部分实现、未实现、不应实现、需补测试、需补文档和需补 upgrade 兼容项。
-3. 基于差距矩阵排定下一批受控实施切片，避免继续零散扩展 audit 或随意新增规则。
+1. 根据 Top_Level_Implementation_Gap.md 的 P1-1 建立 AI-facing JSON 输出契约测试。
+2. 覆盖代表性查询、检查、审计、升级、草案、Workstream 和 edit 命令的成功与失败 JSON 最小字段。
+3. 只记录并守护当前兼容输出，不重排现有 JSON payload，不改变 CLI 行为。
 
 ---
 
 ## 成功标准
 
-1. 生成 docs/ai/reference/Top_Level_Implementation_Gap.md，并包含证据、缺口、优先级和下一步。
-2. 当前任务板 T001-T005 已建立，T001 完成后能指向下一步优先级。
-3. 验证 uv run acf check docs/ai --strict --json 和 uv run acf audit context docs/ai --json 通过。
+1. tests/test_cli.py 新增 JSON contract consistency helper 和代表性命令覆盖。
+2. 验证 uv run python -m unittest、uv run acf check docs/ai --strict --json、uv run acf audit context docs/ai --json 通过。
 
 ---
 
@@ -44,11 +43,9 @@ P2 Top-Level Design Implementation Audit
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | Map top-level requirements to current implementation | ACF_Top_Level_Design.md and Product_Roadmap.md are active planning baseline | Top_Level_Implementation_Gap.md initial matrix with evidence | docs/ai/reference/Top_Level_Implementation_Gap.md; verification: uv run acf check docs/ai --strict --json, uv run acf audit context docs/ai --json | 无。 |
-| T003 | Done | Prioritize next implementation slices | T002 | P1/P2 ordered implementation recommendation | docs/ai/reference/Top_Level_Implementation_Gap.md#prioritized-next-slices | 无。 |
-| T002 | Done | Identify gaps by implementation layer | T001 | Layered gap summary for content model, object model, CLI, check, audit, sync, upgrade and tests | docs/ai/reference/Top_Level_Implementation_Gap.md#layer-summary | 无。 |
-| T004 | Done | Create implementation backlog | T003 | Backlog entries with acceptance and verification notes | docs/ai/reference/Top_Level_Implementation_Gap.md#prioritized-next-slices | 无。 |
-| T005 | Done | Decide first code PR | T004 | First code PR decision with why/why-not alternatives | docs/ai/reference/Top_Level_Implementation_Gap.md#first-code-pr-decision | 下一步首选 JSON contract consistency tests。 |
+| T003 | Done | Cover representative failure payloads | T001 | check_failed/input_error/safety_refused/workstream_stage_active_conflict/curation_draft_exists contract tests | tests/test_cli.py#test_ai_facing_failure_json_contracts; acf.py check/status failure message payload | 无。 |
+| T001 | Done | Add JSON contract test helper | Top_Level_Implementation_Gap.md P1-1 | Reusable helper asserting schema_version, ok, command/error_code/next_actions minimum contract | tests/test_cli.py; verification: targeted JSON contract tests, full unittest, check template, docs strict check, upgrade dry-run, minimal_smoke, upgrade_matrix quick, version show | 无。 |
+| T002 | Done | Cover representative success payloads | T001 | Status/check/upgrade/audit/review/curate/workstream/edit success JSON contract tests | tests/test_cli.py#test_ai_facing_success_json_contracts | 无。 |
 
 ---
 

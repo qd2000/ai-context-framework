@@ -16,13 +16,13 @@ Done
 
 ## 任务名称
 
-Map top-level requirements to current implementation
+Add JSON contract test helper
 
 ---
 
 ## 所属大任务
 
-P2 Top-Level Design Implementation Audit
+P1 JSON Contract Consistency Tests
 
 ---
 
@@ -40,14 +40,14 @@ T001
 
 ## 本次任务目标
 
-1. Read code/tests/docs and populate gap matrix
-2. 产出并验证输出物：Top_Level_Implementation_Gap.md initial matrix with evidence
+1. Inspect tests/test_cli.py JSON tests and add helper
+2. 产出并验证输出物：Reusable helper asserting schema_version, ok, command/error_code/next_actions minimum contract
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P2 Top-Level Design Implementation Audit”。依赖记录：ACF_Top_Level_Design.md and Product_Roadmap.md are active planning baseline
+该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P1 JSON Contract Consistency Tests”。依赖记录：Top_Level_Implementation_Gap.md P1-1
 
 ---
 
@@ -60,13 +60,13 @@ T001
 
 ## 输出要求
 
-- Top_Level_Implementation_Gap.md initial matrix with evidence
+- Reusable helper asserting schema_version, ok, command/error_code/next_actions minimum contract
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：Top_Level_Implementation_Gap.md initial matrix with evidence
+1. 输出物已完成：Reusable helper asserting schema_version, ok, command/error_code/next_actions minimum contract
 2. 子任务 T001 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 

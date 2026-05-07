@@ -57,6 +57,32 @@ class CliTests(unittest.TestCase):
             exit_code = acf.main(args)
         return exit_code, stdout.getvalue(), stderr.getvalue()
 
+    def json_payload(self, stdout):
+        return json.loads(stdout)
+
+    def assert_success_json_contract(self, payload, command=None):
+        self.assertEqual(payload.get("schema_version"), 1)
+        self.assertIs(payload.get("ok"), True)
+        self.assertIn("next_actions", payload)
+        self.assertIsInstance(payload["next_actions"], list)
+        if command is not None:
+            self.assertEqual(payload.get("command"), command)
+        if "error_code" in payload:
+            self.assertIsNone(payload["error_code"])
+
+    def assert_failure_json_contract(self, payload, error_code=None, command=None):
+        self.assertEqual(payload.get("schema_version"), 1)
+        self.assertIs(payload.get("ok"), False)
+        self.assertIn("error_code", payload)
+        self.assertIsInstance(payload.get("message"), str)
+        self.assertIn("next_actions", payload)
+        self.assertIsInstance(payload["next_actions"], list)
+        self.assertTrue(payload["next_actions"])
+        if error_code is not None:
+            self.assertEqual(payload["error_code"], error_code)
+        if command is not None:
+            self.assertEqual(payload.get("command"), command)
+
     def init_minimal_workstream_context(self, target):
         self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
         self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
@@ -3091,6 +3117,176 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertIsNone(payload["error_code"])
             self.assertTrue(payload["next_actions"])
             self.assertTrue(payload["check"]["ok"])
+
+    def test_ai_facing_success_json_contracts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Context.md").write_text(
+                "## 审阅标记\n\n"
+                "- Last reviewed: 2026-05-05\n"
+                "- Review scope: 文件级。\n\n"
+                "## 当前有效事实\n\n- Fact.\n\n"
+                "## Alpha\n\nBody.\n",
+                encoding="utf-8",
+            )
+            self.run_cli(["workstream", "init", str(target)])
+            self.run_cli(
+                [
+                    "workstream",
+                    "add",
+                    str(target),
+                    "--id",
+                    "WS001",
+                    "--title",
+                    "Contract workstream",
+                    "--owner",
+                    "主 agent",
+                    "--output",
+                    "验证记录",
+                ]
+            )
+            self.run_cli(
+                [
+                    "workstream",
+                    "stage",
+                    "add",
+                    "WS001",
+                    str(target),
+                    "--id",
+                    "WS001.1",
+                    "--title",
+                    "Contract stage",
+                ]
+            )
+
+            cases = [
+                ("status", ["status", str(target), "--json"]),
+                ("check", ["check", str(target), "--json"]),
+                ("upgrade", ["upgrade", str(target), "--dry-run", "--json"]),
+                ("audit context", ["audit", "context", str(target), "--json"]),
+                ("review stale", ["review", "stale", str(target), "--today", "2026-05-05", "--json"]),
+                ("curate draft", ["curate", "draft", str(target), "--today", "2026-05-05", "--dry-run", "--json"]),
+                ("workstream status", ["workstream", "status", str(target), "--json"]),
+                ("workstream list", ["workstream", "list", str(target), "--json"]),
+                ("workstream show", ["workstream", "show", "WS001", str(target), "--json"]),
+                ("workstream stage list", ["workstream", "stage", "list", "WS001", str(target), "--json"]),
+                (
+                    "workstream stage add",
+                    [
+                        "workstream",
+                        "stage",
+                        "add",
+                        "WS001",
+                        str(target),
+                        "--id",
+                        "WS001.2",
+                        "--title",
+                        "Dry run stage",
+                        "--dry-run",
+                        "--json",
+                    ],
+                ),
+                (
+                    "edit section get",
+                    [
+                        "edit",
+                        "section",
+                        "get",
+                        "active/Context.md",
+                        "--heading",
+                        "## Alpha",
+                        "--json",
+                        "--context",
+                        str(target),
+                    ],
+                ),
+            ]
+
+            for command, args in cases:
+                with self.subTest(command=command):
+                    exit_code, stdout, stderr = self.run_cli_output(args)
+                    self.assertEqual(exit_code, 0, stderr)
+                    payload = self.json_payload(stdout)
+                    self.assert_success_json_contract(payload, command)
+
+    def test_ai_facing_failure_json_contracts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            broken = target / "active" / "Task_Plan.md"
+            broken.write_text(
+                "## 大任务状态\n\nActive\n\n## 当前焦点\n\nT999\n\n## 子任务\n\n"
+                "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| T001 | Active | A | 无。 | 无。 | 无。 | 无。 |\n"
+                "| T001 | Active | B | 无。 | 无。 | 无。 | 无。 |\n",
+                encoding="utf-8",
+            )
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, acf.EXIT_CHECK_FAILED)
+            self.assert_failure_json_contract(self.json_payload(stdout), "check_failed", "check")
+
+            broken.write_text(
+                acf.render_task_plan("Done", "Plan", ["Goal"], ["Success"], "无。", []),
+                encoding="utf-8",
+            )
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "edit",
+                    "section",
+                    "replace",
+                    "../README.md",
+                    "--heading",
+                    "## Alpha",
+                    "--text",
+                    "No escape.",
+                    "--json",
+                    "--context",
+                    str(target),
+                ]
+            )
+            self.assertNotEqual(exit_code, 0)
+            self.assert_failure_json_contract(self.json_payload(stdout), "safety_refused", "edit")
+
+            workstream_target = Path(tmp) / "workstream-ctx"
+            self.init_minimal_workstream_context(workstream_target)
+            self.add_workstream(workstream_target, "WS001")
+            self.write_workstream_stage_table(
+                workstream_target,
+                "WS001",
+                [
+                    ["WS001.1", "Active", "First", "无。", "Output", "无。", "Next"],
+                    ["WS001.2", "Pending", "Second", "无。", "Output", "无。", "Next"],
+                ],
+            )
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "focus", "WS001", "WS001.2", str(workstream_target), "--json"]
+            )
+            self.assertNotEqual(exit_code, 0)
+            self.assert_failure_json_contract(
+                self.json_payload(stdout),
+                "workstream_stage_active_conflict",
+                "workstream",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["curate", "draft", str(workstream_target), "--today", "2026-05-05", "--json"]
+            )
+            self.assertEqual(exit_code, 0)
+            self.assert_success_json_contract(self.json_payload(stdout), "curate draft")
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["curate", "draft", str(workstream_target), "--today", "2026-05-05", "--json"]
+            )
+            self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
+            self.assert_failure_json_contract(self.json_payload(stdout), "curation_draft_exists", "curate draft")
+
+            with tempfile.TemporaryDirectory() as empty:
+                with pushd(Path(empty)):
+                    exit_code, stdout, _stderr = self.run_cli_output(["status", "--json"])
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            self.assert_failure_json_contract(self.json_payload(stdout), "input_error", "status")
 
     def test_review_stale_json_reports_context_review_candidate(self):
         with tempfile.TemporaryDirectory() as tmp:

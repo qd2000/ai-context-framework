@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.27"
+VERSION = "v0.0.3.28"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -7930,6 +7930,8 @@ def check_command(args: argparse.Namespace) -> int:
         "error_code": check_error_code(result),
         "next_actions": check_next_actions(result, args.strict),
     }
+    if not result.ok:
+        payload["message"] = f"check failed: {len(result.errors)} error(s), {len(result.warnings)} warning(s)"
     set_result_payload(args, payload)
     if json_enabled(args):
         print_json(payload)
@@ -7964,6 +7966,8 @@ def status_command(args: argparse.Namespace) -> int:
         "error_code": check_error_code(result),
         "next_actions": check_next_actions(result, args.strict),
     }
+    if not result.ok:
+        payload["message"] = f"check failed: {len(result.errors)} error(s), {len(result.warnings)} warning(s)"
     set_result_payload(args, payload)
     if json_enabled(args):
         print_json(payload)
