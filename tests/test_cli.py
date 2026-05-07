@@ -3055,6 +3055,40 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertIn("90", item["reason"])
             self.assertIn("summary", payload)
 
+    def test_audit_context_ignores_h1_wrapper_with_child_sections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004", "Formal Morris")
+            short_sections = "\n\n".join(
+                f"## Section {section}\n\n" + "\n".join(f"- Fact {section}-{index}" for index in range(30))
+                for section in range(3)
+            )
+            (target / "active" / "workstreams" / "WS004.md").write_text(
+                "---\n"
+                "id: WS004\n"
+                "status: Active\n"
+                "owner: codex\n"
+                "title: Formal Morris\n"
+                "---\n"
+                "# WS004 - Formal Morris\n\n"
+                f"{short_sections}\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["audit", "context", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertFalse(
+                [
+                    candidate
+                    for candidate in payload["candidates"]
+                    if candidate["kind"] == "active_section_too_long"
+                    and candidate.get("section") == "WS004 - Formal Morris"
+                ]
+            )
+
     def test_audit_context_reports_stale_current_task_and_workstream_stage(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

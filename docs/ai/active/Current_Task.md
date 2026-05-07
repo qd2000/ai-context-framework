@@ -17,7 +17,7 @@ Done
 
 ## 任务名称
 
-Review audit MVP candidate quality on ACF and FCC
+Tune active_section_too_long wrapper handling and messages
 
 ---
 
@@ -29,7 +29,7 @@ P1 audit context design
 
 ## 子任务 ID
 
-T004
+T005
 
 ---
 
@@ -41,24 +41,24 @@ T004
 
 ## 本次任务目标
 
-1. 记录 ACF 自身与 FCC 的 `acf audit context` 只读 dogfooding 输出。
-2. 复核当前 MVP candidates 是否有用、是否误报、是否太吵。
-3. 判断 `active_section_too_long` 阈值和 message 是否需要调优。
-4. 明确下一步优先级：调阈值 / 改消息 / 继续观察 / 进入第二批规则设计。
+1. 用 FCC 的 WS008 / WS009 / WS010 long-section candidates 只读复核 `active_section_too_long` 的质量。
+2. 判断当前 80 行阈值是否需要调整，或是否存在计数口径问题。
+3. 改进 `active_section_too_long` 的 candidate message，使后续 AI 更容易采取低风险整理动作。
+4. 不新增新的 audit candidate rule。
 
 ---
 
 ## 任务背景
 
-T003 已实现 P1 audit context MVP。当前 ACF 自身 audit 输出 clean；FCC 只读 audit 输出 4 个 `active_section_too_long` candidates，集中在 FCC 的 active/workstreams/WS008.md、active/workstreams/WS009.md、active/workstreams/WS010.md，没有 stale 或 terminal merge 候选。下一步不应立即扩展高误报规则，而应先复盘候选质量。
+T004 复盘确认 ACF 自身 audit clean；FCC 只读 audit 输出 4 个 `active_section_too_long` candidates，集中在 WS008 / WS009 / WS010。进一步复核发现 3 个候选来自 Workstream H1 文档标题包含全部子 section 的 wrapper 计数，属于重复信号；真正仍超过阈值的是 WS009 的 `分析层级` section。
 
 ---
 
 ## 输入材料
 
+- `acf.py`
+- `tests/test_cli.py`
 - `reference/Context_Audit_Design.md`
-- `active/Task_Plan.md`
-- `worklog/daily/2026-05-07.md`
 - ACF 命令：`uv run acf audit context docs/ai --json`
 - FCC 命令：`uv run acf audit context E:\Codes\fcc_workspace\docs\ai --json`
 
@@ -66,61 +66,64 @@ T003 已实现 P1 audit context MVP。当前 ACF 自身 audit 输出 clean；FCC
 
 ## 输出要求
 
-1. 在 `reference/Context_Audit_Design.md` 记录 dogfooding review 小结。
-2. 说明 ACF 自身 `candidates=[]`。
-3. 说明 FCC 4 个候选均为 `active_section_too_long`。
-4. 说明当前未观察到 stale / terminal merge 误报。
-5. 明确下一步不是扩展 duplicate/evidence/volatile 规则，而是候选质量复核后再决定阈值或消息调优。
+1. `active_section_too_long` 跳过带子标题的 H1 文档 wrapper。
+2. 真实长 H2/H3 section 仍继续产生 candidate。
+3. `suggested_action` 和 `next_actions` 表述为“缩短当前事实、拆分窄 section、移动历史到 worklog/reference”，不暗示 Workstream detail 自身一定是目标。
+4. 新增回归测试锁定 H1 wrapper 不误报。
+5. 更新设计文档和 worklog。
 
 ---
 
 ## 成功标准
 
-1. 设计文档中有 ACF/FCC dogfooding review。
-2. worklog 记录候选质量复盘结论。
-3. `uv run acf check docs/ai --strict --json` 通过。
-4. 本轮不修改 `acf.py` 或测试。
+1. targeted audit tests 通过。
+2. ACF 自身 `acf audit context docs/ai --json` 仍为 `candidates=[]`。
+3. FCC 只读 audit 从 4 个 long-section candidates 降为 1 个真实长 section candidate。
+4. `uv run acf check docs/ai --strict --json` 通过。
+5. 不修改 FCC 内容。
 
 完成证据：
 
+- `acf.py`
+- `tests/test_cli.py`
 - `reference/Context_Audit_Design.md`
 - `worklog/daily/2026-05-07.md`
-- `uv run acf check docs/ai --strict --json`
+- `uv run python -m unittest tests.test_cli.CliTests.test_audit_context_reports_long_active_section tests.test_cli.CliTests.test_audit_context_ignores_h1_wrapper_with_child_sections`
 - `uv run acf audit context docs/ai --json`
+- `uv run acf audit context E:\Codes\fcc_workspace\docs\ai --json`
 
 ---
 
 ## 失败信号
 
-1. 本轮开始实现新 audit 规则。
-2. 本轮修改 FCC 内容。
-3. 把 FCC 的 4 个候选直接当成事实错误，而不是待复核候选。
-4. 提前进入 duplicate / evidence / volatile 规则实现。
+1. 提高阈值掩盖所有 FCC 信号。
+2. 新增 duplicate / evidence / volatile 规则。
+3. 修改 FCC 内容。
+4. 把 audit candidates 接入 `check --strict`。
 
 ---
 
 ## 约束条件
 
-1. 不使用 WSL 检查 FCC。
-2. FCC 只读，不写入。
-3. 只做质量复盘，不做代码变更。
+1. FCC 只读，不写入。
+2. 不使用 WSL 检查 FCC。
+3. 只调现有 low-risk rule 的计数口径和消息。
 
 ---
 
 ## 不允许做的事
 
-- 不修改 `acf.py`。
-- 不新增测试。
-- 不实现新 candidate rule。
-- 不修改 FCC 项目内容。
+- 不新增 audit candidate kind。
+- 不生成 patch/fix/curation draft。
+- 不自动拆分或移动 FCC Workstream 内容。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. `active_section_too_long` 当前 80 行阈值对大型 Workstream 是否合理。
-2. 当前 `suggested_action` 是否足以指导 AI 把过程细节移到 worklog/reference/Workstream detail。
-3. 是否需要下一步 T005 专门调 message，而不是扩规则。
+1. H1 wrapper 是否应被视为文档容器而不是真实内容 section。
+2. 80 行阈值在跳过 H1 wrapper 后是否仍合理。
+3. message 是否足以指导后续人工或 AI 做低风险整理。
 
 ---
 
@@ -128,5 +131,5 @@ T003 已实现 P1 audit context MVP。当前 ACF 自身 audit 输出 clean；FCC
 
 任务完成后，请整理以下内容，供人审核后写回项目系统：
 
-1. 候选质量复盘结论。
-2. 后续是否进入 T005：Tune audit context MVP thresholds and candidate messages。
+1. FCC 样本从 4 个候选降为 1 个候选的结论。
+2. `active_section_too_long` 的后续策略：先观察真实长 section，再决定是否调阈值。

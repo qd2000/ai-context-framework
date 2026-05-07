@@ -6468,9 +6468,9 @@ def audit_candidate(
     }
 
 
-def markdown_sections(text: str) -> list[tuple[str, list[str]]]:
+def markdown_sections(text: str) -> list[tuple[int, str, list[str]]]:
     lines = text.splitlines()
-    sections: list[tuple[str, list[str]]] = []
+    sections: list[tuple[int, str, list[str]]] = []
     for index, line in enumerate(lines):
         level = heading_level(line)
         if level is None:
@@ -6482,8 +6482,12 @@ def markdown_sections(text: str) -> list[tuple[str, list[str]]]:
                 body_end = candidate_index
                 break
         title = line.strip().lstrip("#").strip()
-        sections.append((title, lines[index + 1 : body_end]))
+        sections.append((level, title, lines[index + 1 : body_end]))
     return sections
+
+
+def section_contains_child_heading(body_lines: list[str]) -> bool:
+    return any(heading_level(line) is not None for line in body_lines)
 
 
 def audit_active_section_too_long(root: Path) -> list[dict[str, object]]:
@@ -6500,7 +6504,9 @@ def audit_active_section_too_long(root: Path) -> list[dict[str, object]]:
     for path in active_paths:
         if not path.exists():
             continue
-        for section, body_lines in markdown_sections(read_text(path)):
+        for level, section, body_lines in markdown_sections(read_text(path)):
+            if level == 1 and section_contains_child_heading(body_lines):
+                continue
             nonempty_count = sum(1 for line in body_lines if line.strip() and line.strip() != "---")
             if nonempty_count <= AUDIT_ACTIVE_SECTION_MAX_NONEMPTY_LINES:
                 continue
@@ -6514,7 +6520,10 @@ def audit_active_section_too_long(root: Path) -> list[dict[str, object]]:
                         f"section has {nonempty_count} non-empty lines, above the "
                         f"MVP threshold {AUDIT_ACTIVE_SECTION_MAX_NONEMPTY_LINES}."
                     ),
-                    "Review whether process detail should move to worklog, reference material, or a Workstream detail.",
+                    (
+                        "Review whether this section should be shortened to current facts, split into narrower "
+                        "sections, or moved to worklog/reference material."
+                    ),
                     section=section,
                 )
             )
@@ -6676,7 +6685,9 @@ def audit_context_next_actions(candidates: Sequence[dict[str, object]]) -> list[
     actions = ["Review audit candidates as advisory signals; do not treat them as semantic truth."]
     kinds = {str(candidate.get("kind") or "") for candidate in candidates}
     if "active_section_too_long" in kinds:
-        actions.append("Review long active sections and move process detail to worklog, reference material, or Workstream details.")
+        actions.append(
+            "Review long active sections; shorten to current facts, split narrow sections, or move history to worklog/reference material."
+        )
     if "stale_current_task_or_workstream_stage" in kinds:
         actions.append("Review stale current task or Workstream stage focus and update, block, finish, or clear it.")
     if "terminal_conclusion_not_merged" in kinds:

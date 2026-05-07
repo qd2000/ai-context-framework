@@ -173,6 +173,17 @@ acf audit context [path] --json
 3. `active_section_too_long` 对 WS008 / WS009 / WS010 是否真有整理价值仍需人工复核；不能把候选直接视为事实错误。
 4. 下一步优先做候选质量复盘、阈值和消息调优判断；暂不扩展 `duplicate_active_fact_candidate`、`strong_claim_without_evidence` 或 `volatile_fact_in_wrong_authority_location`。
 
+### active_section_too_long tuning
+
+2026-05-07 调优结论：
+
+1. FCC 初轮 4 个 long-section candidates 中，3 个来自 Workstream H1 文档标题包含全部子 section 的 wrapper 计数。
+2. H1 wrapper 是文档容器，不应和实际内容 section 重复报候选。
+3. `active_section_too_long` 已调整为跳过带子标题的 H1 wrapper；没有子标题的长 H1 section 仍可触发候选。
+4. 调整后 FCC 只读 audit 从 4 个 candidates 降为 1 个，保留 WS009 的 `分析层级` 真实长 section 候选。
+5. 80 行阈值暂不调整；下一步先观察真实长 section 的整理价值，再决定是否调阈值。
+6. candidate message 已改为建议缩短为当前事实、拆分为更窄 section，或把历史细节移动到 worklog/reference material。
+
 ---
 
 ## 默认读取范围
@@ -219,7 +230,7 @@ acf audit context [path] --json
 
 发现 active 层 section 过长，可能包含过程日志、runbook、历史细节或可归档材料。
 
-第一版只按行数、列表项数量或代码块长度做候选提示，不判断内容价值。
+第一版只按非空行数做候选提示，不判断内容价值。带子标题的 H1 文档 wrapper 会被跳过，避免同一 Workstream 详情既按整篇文档、又按内部 section 重复报候选；真实长 H2/H3 section 仍继续报告。
 
 ### stale_current_task_or_workstream_stage
 

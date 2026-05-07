@@ -33,6 +33,7 @@ P1 audit context design
 3. `../Automation.md`、README 和 System Manual 说明 audit 不是 strict、不是 patch/fix、不是事实裁决。
 4. 单元测试、template check、docs/ai strict check 通过。
 5. 完成 MVP candidate quality dogfooding review，先评估候选质量，再决定是否调阈值或扩规则。
+6. 完成 `active_section_too_long` 首轮调优：跳过带子标题的 H1 文档 wrapper，只保留真实长内容 section 候选，并改进 candidate message。
 
 ---
 
@@ -50,6 +51,7 @@ P1 audit context design
 | T002 | Done | Review audit MVP command contract | T001 | `acf audit context [path] --json` 只读输出契约、candidate 字段、首批 MVP rules | `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 无。 |
 | T003 | Done | Implement audit context MVP | T002 | `acf audit context [path] --json`、三条 MVP candidate rules、read-only 测试 | `worklog/daily/2026-05-07.md`; verification: targeted audit tests, `uv run python -m py_compile acf.py`, `uv run python -m unittest`, `uv run acf check template`, `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json`, `uv run acf audit context docs/ai --json` | 无。 |
 | T004 | Done | Review audit MVP candidate quality on ACF and FCC | T003 | dogfooding review 结论、候选质量判断、下一步建议 | `reference/Context_Audit_Design.md`; `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf audit context docs/ai --json` | 无。 |
+| T005 | Done | Tune active_section_too_long wrapper handling and messages | T004 | 跳过 H1 wrapper 重复候选、保留真实长 section、改进 reason/suggested_action | `acf.py`; `tests/test_cli.py`; `reference/Context_Audit_Design.md`; `worklog/daily/2026-05-07.md`; verification: targeted audit tests, ACF audit clean, FCC read-only audit 4 -> 1 candidate | 无。 |
 
 ---
 
