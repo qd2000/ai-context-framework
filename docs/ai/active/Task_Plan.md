@@ -32,6 +32,7 @@ P1 audit context design
 2. `acf audit context [path] --json` 只读输出稳定 candidates、summary 和 next_actions。
 3. `../Automation.md`、README 和 System Manual 说明 audit 不是 strict、不是 patch/fix、不是事实裁决。
 4. 单元测试、template check、docs/ai strict check 通过。
+5. 完成 MVP candidate quality dogfooding review，先评估候选质量，再决定是否调阈值或扩规则。
 
 ---
 
@@ -48,6 +49,7 @@ P1 audit context design
 | T001 | Done | P1 audit context design draft | P0 governance hardening baseline `v0.0.3.26` | `reference/Context_Audit_Design.md`; `../Automation.md`; `active/Current_Task.md` | `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 无。 |
 | T002 | Done | Review audit MVP command contract | T001 | `acf audit context [path] --json` 只读输出契约、candidate 字段、首批 MVP rules | `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 无。 |
 | T003 | Done | Implement audit context MVP | T002 | `acf audit context [path] --json`、三条 MVP candidate rules、read-only 测试 | `worklog/daily/2026-05-07.md`; verification: targeted audit tests, `uv run python -m py_compile acf.py`, `uv run python -m unittest`, `uv run acf check template`, `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json`, `uv run acf audit context docs/ai --json` | 无。 |
+| T004 | Done | Review audit MVP candidate quality on ACF and FCC | T003 | dogfooding review 结论、候选质量判断、下一步建议 | `reference/Context_Audit_Design.md`; `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf audit context docs/ai --json` | 无。 |
 
 ---
 

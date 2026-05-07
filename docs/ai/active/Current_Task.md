@@ -17,7 +17,7 @@ Done
 
 ## 任务名称
 
-Implement audit context MVP
+Review audit MVP candidate quality on ACF and FCC
 
 ---
 
@@ -29,7 +29,7 @@ P1 audit context design
 
 ## 子任务 ID
 
-T003
+T004
 
 ---
 
@@ -41,101 +41,86 @@ T003
 
 ## 本次任务目标
 
-1. 实现只读命令 `acf audit context [path] --json`。
-2. 只实现三条低误报规则：
-   - `active_section_too_long`
-   - `stale_current_task_or_workstream_stage`
-   - `terminal_conclusion_not_merged`
-3. 固定 JSON 输出：`schema_version`、`ok`、`command`、`context`、`candidates`、`summary`、`next_actions`。
-4. 保持命令不写文件、不生成 patch、不创建 curation draft、不接入 `check --strict`。
+1. 记录 ACF 自身与 FCC 的 `acf audit context` 只读 dogfooding 输出。
+2. 复核当前 MVP candidates 是否有用、是否误报、是否太吵。
+3. 判断 `active_section_too_long` 阈值和 message 是否需要调优。
+4. 明确下一步优先级：调阈值 / 改消息 / 继续观察 / 进入第二批规则设计。
 
 ---
 
 ## 任务背景
 
-T001 已完成 P1 audit context 设计草案，T002 已冻结 MVP 命令契约。当前任务是在该契约内实现只读 MVP，先获得结构化 candidates 输出，为后续真实项目 dogfooding 提供机械审计入口。
+T003 已实现 P1 audit context MVP。当前 ACF 自身 audit 输出 clean；FCC 只读 audit 输出 4 个 `active_section_too_long` candidates，集中在 FCC 的 active/workstreams/WS008.md、active/workstreams/WS009.md、active/workstreams/WS010.md，没有 stale 或 terminal merge 候选。下一步不应立即扩展高误报规则，而应先复盘候选质量。
 
 ---
 
 ## 输入材料
 
-- `active/Task_Plan.md`
 - `reference/Context_Audit_Design.md`
-- `../Automation.md`
-- `acf.py`
-- `tests/test_cli.py`
+- `active/Task_Plan.md`
+- `worklog/daily/2026-05-07.md`
+- ACF 命令：`uv run acf audit context docs/ai --json`
+- FCC 命令：`uv run acf audit context E:\Codes\fcc_workspace\docs\ai --json`
 
 ---
 
 ## 输出要求
 
-1. `acf audit context docs/ai --json` 可运行。
-2. clean context 输出空 `candidates`、稳定 `summary` 和 `next_actions`。
-3. 长 active section 产生 `active_section_too_long` candidate。
-4. Active Current_Task 或 Workstream current_stage 超过阈值未更新时产生 `stale_current_task_or_workstream_stage` candidate。
-5. ReadyToMerge / Done 有未合并信号时产生 `terminal_conclusion_not_merged` candidate。
-6. audit 命令不写文件。
+1. 在 `reference/Context_Audit_Design.md` 记录 dogfooding review 小结。
+2. 说明 ACF 自身 `candidates=[]`。
+3. 说明 FCC 4 个候选均为 `active_section_too_long`。
+4. 说明当前未观察到 stale / terminal merge 误报。
+5. 明确下一步不是扩展 duplicate/evidence/volatile 规则，而是候选质量复核后再决定阈值或消息调优。
 
 ---
 
 ## 成功标准
 
-1. 新增 audit MVP 单元测试通过。
-2. `uv run python -m unittest` 通过。
-3. `uv run acf check template` 通过。
-4. `uv run acf check docs/ai --strict --json` 通过。
-5. README、template System Manual、dogfooding System Manual、Automation 和设计文档同步。
+1. 设计文档中有 ACF/FCC dogfooding review。
+2. worklog 记录候选质量复盘结论。
+3. `uv run acf check docs/ai --strict --json` 通过。
+4. 本轮不修改 `acf.py` 或测试。
 
 完成证据：
 
-- `acf.py`
-- `tests/test_cli.py`
-- `../../README.md`
-- `../../template/reference/System_Manual.md`
-- `reference/System_Manual.md`
 - `reference/Context_Audit_Design.md`
-- `../Automation.md`
 - `worklog/daily/2026-05-07.md`
-- targeted audit tests
-- `uv run python -m py_compile acf.py`
-- `uv run python -m unittest`
-- `uv run acf check template`
 - `uv run acf check docs/ai --strict --json`
-- `uv run acf status docs/ai --json`
 - `uv run acf audit context docs/ai --json`
 
 ---
 
 ## 失败信号
 
-1. 本轮实现 duplicate fact、strong claim without evidence 或 volatile fact wrong location。
-2. audit 接入默认 `acf check --strict`。
-3. 新增 patch、fix、write 或 curation draft 行为。
-4. 默认读取 archive 或全量 worklog。
+1. 本轮开始实现新 audit 规则。
+2. 本轮修改 FCC 内容。
+3. 把 FCC 的 4 个候选直接当成事实错误，而不是待复核候选。
+4. 提前进入 duplicate / evidence / volatile 规则实现。
 
 ---
 
 ## 约束条件
 
-1. 保持无第三方运行依赖。
-2. 保持旧项目兼容；没有 Workstream 时 audit 仍可运行。
-3. candidate 只表示候选，不表示事实错误。
+1. 不使用 WSL 检查 FCC。
+2. FCC 只读，不写入。
+3. 只做质量复盘，不做代码变更。
 
 ---
 
 ## 不允许做的事
 
-- 不实现自动修复。
+- 不修改 `acf.py`。
+- 不新增测试。
+- 不实现新 candidate rule。
 - 不修改 FCC 项目内容。
-- 不做语义事实裁决。
-- 不改变 `review stale` / `curate draft` 既有行为。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. MVP 阈值是否需要后续通过 dogfooding 调整。
-2. 后续是否需要为 rejected / archived 等已解决但未合并状态提供单独的低优先级审计候选。
+1. `active_section_too_long` 当前 80 行阈值对大型 Workstream 是否合理。
+2. 当前 `suggested_action` 是否足以指导 AI 把过程细节移到 worklog/reference/Workstream detail。
+3. 是否需要下一步 T005 专门调 message，而不是扩规则。
 
 ---
 
@@ -143,5 +128,5 @@ T001 已完成 P1 audit context 设计草案，T002 已冻结 MVP 命令契约�
 
 任务完成后，请整理以下内容，供人审核后写回项目系统：
 
-1. 应写入 worklog 的实现和验证摘要。
-2. 是否进入 FCC 只读 dogfooding。
+1. 候选质量复盘结论。
+2. 后续是否进入 T005：Tune audit context MVP thresholds and candidate messages。

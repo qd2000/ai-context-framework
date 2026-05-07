@@ -155,6 +155,26 @@ acf audit context [path] --json
 
 ---
 
+## MVP Dogfooding Review
+
+2026-05-07 初轮 dogfooding 结果：
+
+1. ACF 自身：`acf audit context docs/ai --json` 输出 `candidates=[]`，同时 `acf check docs/ai --strict --json` clean。
+2. FCC：在 Windows 宿主机路径 `E:\Codes\fcc_workspace\docs\ai` 只读运行 audit/check，未使用 WSL，未修改 FCC。
+3. FCC strict check clean。
+4. FCC audit 输出 4 个 candidates，全部为 `active_section_too_long`。
+5. FCC candidates 集中在 FCC 的 active/workstreams/WS008.md、active/workstreams/WS009.md、active/workstreams/WS010.md。
+6. 本轮没有观察到 `stale_current_task_or_workstream_stage` 或 `terminal_conclusion_not_merged` 误报。
+
+初步判断：
+
+1. MVP 输出不吵；candidate 数量较少，集中在真实大型 Workstream 文件。
+2. `path`、`section`、`reason` 和 `suggested_action` 足以指导后续人工或 AI 复核。
+3. `active_section_too_long` 对 WS008 / WS009 / WS010 是否真有整理价值仍需人工复核；不能把候选直接视为事实错误。
+4. 下一步优先做候选质量复盘、阈值和消息调优判断；暂不扩展 `duplicate_active_fact_candidate`、`strong_claim_without_evidence` 或 `volatile_fact_in_wrong_authority_location`。
+
+---
+
 ## 默认读取范围
 
 第一版默认只读取当前注意力入口和 Workstream 当前状态：
