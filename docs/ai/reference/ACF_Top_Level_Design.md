@@ -620,6 +620,57 @@ acf knowledge draft
 5. 失败输出包含 `error_code`、`message` 和 `next_actions`。
 6. 路径必须限制在设计好的安全边界内。
 
+### 5.7 JSON 与错误码契约
+
+所有 AI-facing 命令都必须让调用方无需解析自然语言即可判断下一步。不同命令可以有不同 payload，但必须遵守最小字段和命名习惯。
+
+成功输出的最小契约：
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "...",
+  "next_actions": []
+}
+```
+
+写命令成功时还应包含：
+
+```json
+{
+  "dry_run": false,
+  "changed_files": [],
+  "warnings": []
+}
+```
+
+检查、审计或查询命令可按命令语义增加 `check`、`candidates`、`summary`、`items`、`stages`、`workstreams` 等字段，但字段名必须稳定，路径输出优先使用 context-root 或 repo-root 相对 POSIX slash。
+
+失败输出的最小契约：
+
+```json
+{
+  "schema_version": 1,
+  "ok": false,
+  "command": "...",
+  "error_code": "...",
+  "message": "...",
+  "next_actions": []
+}
+```
+
+约束：
+
+1. `schema_version` 表示该命令族 JSON 契约版本，当前统一从 `1` 开始。
+2. `ok=false` 必须有稳定 `error_code`。
+3. `message` 面向人阅读，不能作为机器分支唯一依据。
+4. `next_actions` 必须是低风险、可执行的下一步，不得暗示自动事实裁决。
+5. `warnings` 表示命令成功但存在需复核的结构信号；warning 不等于失败。
+6. `errors` 如出现，应是结构化问题列表；命令级失败仍以 `error_code` 为主。
+7. 新增或重命名 JSON 字段时，必须评估版本号和测试。
+8. 对 AI 常用恢复路径，优先使用稳定错误码，例如 duplicate、not_found、invalid_transition、scope_conflict、check_failed、path_outside_context。
+
 ---
 
 ## 6. Workstream 管理闭环
@@ -654,7 +705,32 @@ AI 进入项目时能知道当前推进哪个阶段。
 9. Workstreams index check + sync。
 10. stage add/list/focus/done 命令闭环。
 
-### 6.3 stage add
+### 6.3 生命周期
+
+Workstream 的生命周期用于降低 active 长期膨胀风险：
+
+```text
+Open -> Active -> ReadyToMerge -> Done -> archive
+              -> Blocked -> Active
+Open/Active/Blocked/ReadyToMerge -> Cancelled -> archive
+```
+
+规则：
+
+1. Open 表示目标线已登记但尚未推进。
+2. Active 表示当前正在推进。
+3. Blocked 表示有明确阻塞原因，阻塞解除后可回到 Active。
+4. ReadyToMerge 表示已有可审阅、可落盘、可验证的合并输入，不表示权威上下文已更新。
+5. Done 表示结论已合并、归档或明确不需要合并，并有 evidence 和 `merge_resolution`。
+6. Cancelled 表示目标线明确终止，不再推进。
+7. Done / Cancelled 是终态；需要继续推进时应新建 Workstream 或新建后续任务，不默认复活旧 ID。
+8. Done / Cancelled 留在 `active/workstreams/` 只能短期解释当前计划，必须有 `keep_active_reason` 和 `keep_active_until`。
+9. 当前计划不再需要解释的 Done / Cancelled Workstream 应进入 `archive/workstreams/`，archive 默认不读取。
+10. 第一版不自动归档；归档必须由显式 archive 流程或人工审阅完成。
+
+归档项应保留：ID、最终状态、标题、owner、处理结果、证据位置、merge_resolution、原详情文件位置和简短摘要。不复制冗长过程。
+
+### 6.4 stage add
 
 输入：
 
@@ -673,7 +749,7 @@ AI 进入项目时能知道当前推进哪个阶段。
 5. 不自动 focus。
 6. 不修改 `active/Current_Task.md` 或 `active/Context.md`。
 
-### 6.4 focus
+### 6.5 focus
 
 输入：
 
@@ -690,7 +766,15 @@ AI 进入项目时能知道当前推进哪个阶段。
 6. 将 stage 状态改为 Active。
 7. 不修改 `active/Current_Task.md`，除非未来明确增加 `--update-current-task`。
 
-### 6.5 stage done
+多 Active stage 策略：
+
+1. 第一版 `focus` 遇到同一 Workstream 已有其他 Active stage 时必须拒绝。
+2. `focus` 不自动把旧 Active stage 改回 Pending、Blocked 或 Skipped。
+3. 拒绝输出必须使用稳定错误码，并在 `next_actions` 中提示先完成、取消或显式调整旧 Active stage。
+4. 如果未来需要支持替换当前 Active stage，必须新增显式参数，例如 `--replace-active`，并要求记录 reason。
+5. `--replace-active` 若进入设计，也只能维护同一 Workstream 详情文件，不得自动修改全局 Current_Task 或 Context。
+
+### 6.6 stage done
 
 输入：
 
@@ -708,7 +792,7 @@ AI 进入项目时能知道当前推进哪个阶段。
 5. 不自动激活下一阶段。
 6. 不自动合并 Context。
 
-### 6.6 stage list
+### 6.7 stage list
 
 输出：
 
@@ -717,7 +801,7 @@ AI 进入项目时能知道当前推进哪个阶段。
 3. `stages[]`。
 4. `next_actions`。
 
-### 6.7 后置能力
+### 6.8 后置能力
 
 暂不做：
 
@@ -855,6 +939,15 @@ patch / minor 判断：
 1. patch：兼容新增，旧项目不新增失败。
 2. minor：默认结构或 strict 行为明显改变，旧项目可能需要迁移。
 
+更细规则：
+
+1. patch：新增向后兼容 CLI 命令；新增 optional JSON 字段；修复错误码 message；新增文档说明；新增不影响旧项目 strict 结果的 check warning；新增 optional template 文件且 upgrade 可非破坏式补齐。
+2. patch：新增 audit candidate 规则但默认只读、低噪声、minimal / legacy 不误伤，并有 fixture 覆盖。
+3. minor：默认 init 结构改变；`check --strict` 对旧项目产生新的失败类型；已有 JSON 字段重命名或语义改变；upgrade 默认行为明显改变；对象模型从 optional 变成默认要求。
+4. minor：sync 从单一索引扩展到新的 generated view，且可能影响用户手写索引内容。
+5. 不需要 bump：只修改 dogfooding `docs/ai/` 内部规划、worklog、当前任务或非用户可见的评测记录，且不改变 CLI、模板、手册对外行为和检查结果。
+6. 是否 bump 的判断必须写入最终报告；做了版本更新时优先使用 `uv run acf version set <version>`。
+
 ---
 
 ## 10. 测试规划
@@ -932,7 +1025,30 @@ upgrade matrix 必须覆盖：
 | `../Automation.md` | 已自动化能力、后续自动化边界、验证命令 |
 | `../../README.md` | 面向使用者的安装、初始化和核心使用说明 |
 
-新增或修改这些文档时，应检查是否改变了事实源职责。如果同一规则已经在专门设计文档中详细说明，顶层设计只保留边界和引用，不复制过多实现细节。
+### 11.1 权威关系
+
+设计文档之间采用“上位边界 + 专题细节 + 使用入口”的关系：
+
+1. `ACF_Top_Level_Design.md` 是上位架构和边界，回答 ACF 是什么、不是什么、对象和 CLI 怎么分层。
+2. `Product_Roadmap.md` 是阶段路线，回答先做什么、后做什么、准入门槛和近期优先级。
+3. `Workstream_Design.md` 是 Workstream 专题细节，回答状态机、stage/focus、merge/retention、sync 和具体命令契约。
+4. `Context_Audit_Design.md` 是 audit 专题细节，回答 candidates、JSON 输出、调优记录、暂缓规则和误报控制。
+5. `Upgrade_Migration_Plan.md` 是 upgrade 专题细节，回答旧项目迁移、marker notes、兼容矩阵和 dry-run 行为。
+6. `Front_Matter_Metadata_Plan.md` 是 metadata 专题细节，回答哪些对象适合 front matter、字段约束和 parser 限制。
+7. `System_Manual.md` 是项目内维护者和 AI 的操作手册，回答日常怎么用命令和失败后怎么办。
+8. `../Automation.md` 是自动化路线和验证命令，回答当前已自动化什么、下一步自动化什么、发布前怎么验。
+9. `../../README.md` 是公开入口摘要，回答用户如何理解、安装和开始使用。
+
+### 11.2 防漂移规则
+
+新增或修改这些文档时，应检查是否改变了事实源职责，并遵守：
+
+1. 细节只写在对应专题文档；Top-Level 只保留原则、边界和入口。
+2. 同一命令的完整参数说明只应出现在 System Manual、README 或对应专题文档，不在多个规划文档重复维护。
+3. 同一规则如果同时影响 strict、audit 和 sync，Top-Level 只说明分层边界，具体触发条件写入对应专题文档。
+4. Product Roadmap 只维护阶段状态和优先级，不复制专题设计全文。
+5. 专题文档改变边界时，必须回查 Top-Level 是否需要更新；只改实现细节时，不必同步 Top-Level。
+6. 公开用户行为改变时，必须评估 README、System Manual、Automation、template、upgrade matrix 和版本号是否需要同步。
 
 ---
 
