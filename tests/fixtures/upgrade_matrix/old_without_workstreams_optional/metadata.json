@@ -1,0 +1,19 @@
+{
+  "source_version": "pre-workstream-optional",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": true,
+  "scenario": "main",
+  "risk_tags": ["upgrade", "workstream_optional", "legacy_without_workstreams"],
+  "intent": "Verify upgrade does not auto-enable the optional Workstream layer for old contexts that never used it.",
+  "expected_upgrade_behavior": "Upgrade may refresh managed governance files, but active/Workstreams.md and Workstream directories remain absent unless explicitly initialized.",
+  "expect_absent": [
+    "active/Workstreams.md",
+    "active/workstreams",
+    "archive/workstreams"
+  ],
+  "expect_not_detected_features": [
+    "workstreams"
+  ],
+  "expect_stale": false
+}

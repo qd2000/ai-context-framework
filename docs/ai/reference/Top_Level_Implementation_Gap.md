@@ -6,7 +6,7 @@
 
 ## 状态
 
-Updated through P1-2 Workstream stage flow fixture.
+Updated through P1-3 Upgrade matrix expansion.
 
 ---
 
@@ -63,7 +63,7 @@ Updated through P1-2 Workstream stage flow fixture.
 | audit context | 只读 candidates，不写文件，不接入 strict | 已实现 MVP | `acf audit context`; `Context_Audit_Design.md`; tests for clean/long/stale/terminal candidates | high-risk rules 暂缓；阈值和 message 仍需 dogfooding | P2 | 暂不扩展 duplicate/evidence/volatile |
 | review stale / curate draft | stale 只读，curate draft 只生成可审阅草案 | 已实现 | `acf review stale`; `acf curate draft`; `tests/test_cli.py`; `upgrade_matrix` | curate draft 后续可更丰富，但不应自动 apply | P2 | 等 gap 更明确后再扩 |
 | draft | writeback / curate / knowledge 草案不进入默认读取路径 | 已实现 | `acf writeback draft`; `acf curate draft`; `acf knowledge draft`; `AGENTS.md` | 无 | Done | 保持草案边界 |
-| upgrade | 非破坏式补结构，不改事实，不自动归档 | 部分实现 | `acf upgrade`; `scripts/upgrade_matrix.py`; `tests/fixtures/upgrade_matrix/*` | 缺新对象层相关旧形态 fixture，例如 old Workstreams without current_stage、ADR no front matter、custom AGENTS 组合 | P1 | 扩 upgrade matrix |
+| upgrade | 非破坏式补结构，不改事实，不自动归档 | 已实现当前 P1 兼容矩阵 | `acf upgrade`; `scripts/upgrade_matrix.py`; `tests/fixtures/upgrade_matrix/*`; `tests/test_upgrade_matrix.py` | 已覆盖 old without Workstreams、old Workstreams without current_stage、old ADR without front matter、custom AGENTS + missing reference combo；后续新对象层仍需随功能增量补 fixture | Done | 新增结构时同步扩 upgrade matrix |
 | JSON contract | AI-facing 命令稳定 `schema_version/ok/command/next_actions`，失败有 `error_code/message` | 已实现基础契约测试 | `tests/test_cli.py#test_ai_facing_success_json_contracts`; `tests/test_cli.py#test_ai_facing_failure_json_contracts`; `acf.py` | 仍不是全命令同形重排；后续新增 AI-facing 命令必须复用 contract helper | Done | 新命令新增时补契约测试 |
 | error_code recovery | 常见失败路径有稳定 error_code 和 next_actions | 已实现基础契约测试 | JSON contract failure tests; workstream stage errors; check/status input errors | 不是完整 error catalog；安全拒绝仍可保留通用 `safety_refused` | Done / P2 | 如做 error catalog，单独设计 |
 | context_matrix | minimal/legacy/audit/workstream/authority 防过拟合 fixture | 部分实现 | `tests/fixtures/context_matrix/*`; `tests/test_context_matrix.py` | `workstream_stage_flow` 已补；仍缺 `task_stage_registry`、`audit_stale_stage`、`audit_terminal_merge` | P2 | 后续按具体规则补 fixture |
@@ -94,10 +94,9 @@ Updated through P1-2 Workstream stage flow fixture.
 
 ### 部分实现
 
-1. Upgrade 兼容矩阵：已有多版旧形态，但缺新对象层和 Workstream stage 相关 fixture。
-2. Task Stage：check 已有，CLI 未有。
-3. Workstream lifecycle：keep-active gate 已有，archive lifecycle 仍未形成命令闭环。
-4. sync：Workstream 已实现，Knowledge/ADR/Archive sync 仍需先设计 marker。
+1. Task Stage：check 已有，CLI 未有。
+2. Workstream lifecycle：keep-active gate 已有，archive lifecycle 仍未形成命令闭环。
+3. sync：Workstream 已实现，Knowledge/ADR/Archive sync 仍需先设计 marker。
 
 ### 未实现但可后置
 
@@ -171,6 +170,8 @@ Updated through P1-2 Workstream stage flow fixture.
 1. quick 模式不变重。
 2. full 模式覆盖新增旧形态。
 3. upgrade 仍不自动启用 optional Workstream。
+
+状态：已完成。新增 old without Workstreams optional、old Workstreams without current_stage、old ADR without front matter、custom AGENTS + missing reference combo fixtures；runner 增加 expected_absent、detected_features、changed_files suffix 和 Workstream sync no-op 断言；quick/full matrix 均通过。
 
 ### P2-1 Task Stage CLI
 
@@ -275,4 +276,4 @@ ACF 可以进入受控实施阶段，但下一步应先补基础契约和验证�
 5. Workstream lifecycle / archive helper 设计。
 6. high-risk audit rules 继续暂缓。
 
-当前进度：1 和 2 已完成；下一受控实施入口是 P1-3 Upgrade matrix expansion。
+当前进度：P1-1、P1-2、P1-3 已完成；下一入口应转入 P2 级评估，优先在 Task Stage CLI、Workstream lifecycle / archive helper、或生成式索引 sync 设计之间重新做小型 gap check。

@@ -1,0 +1,30 @@
+{
+  "source_version": "custom-old-missing-reference",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["upgrade", "customized_agents", "missing_reference_file", "marker_notes"],
+  "intent": "Verify a customized AGENTS file and a missing new reference document can be upgraded together without overwriting custom instructions.",
+  "expected_upgrade_behavior": "Upgrade appends marker notes to custom AGENTS, creates Context_Curation_Prompt, preserves custom text, and is idempotent on a second dry-run.",
+  "remove_paths": [
+    "reference/Context_Curation_Prompt.md"
+  ],
+  "files": {
+    "AGENTS.md": "Custom project agent instructions without recognizable ACF sections.\n\nKeep this bespoke entrypoint intact.\n"
+  },
+  "preserve_contains": [
+    {
+      "path": "AGENTS.md",
+      "text": "Keep this bespoke entrypoint intact."
+    }
+  ],
+  "expect_exists": [
+    "reference/Context_Curation_Prompt.md"
+  ],
+  "expect_changed_suffixes": [
+    "AGENTS.md",
+    "reference/Context_Curation_Prompt.md"
+  ],
+  "expect_stale": false
+}

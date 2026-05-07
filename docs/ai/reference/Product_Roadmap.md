@@ -368,7 +368,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 ### 当前最建议做
 
 1. 使用 `reference/Top_Level_Implementation_Gap.md` 作为进入新代码 PR 前的 gap-driven 实施依据。
-2. JSON contract consistency tests 与 Workstream stage flow fixture 已完成；下一批实现优先进入 upgrade matrix expansion。
+2. JSON contract consistency tests、Workstream stage flow fixture 与 upgrade matrix expansion 已完成；下一批进入 P2 级评估。
 3. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge。
 4. 后续每个新能力先补 fixture，再实现命令或规则。
 
@@ -377,9 +377,9 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 1. P1-1：JSON contract consistency tests。已完成。
 2. P1-2：补 `tests/fixtures/context_matrix/workstream_stage_flow`，覆盖 stage add/focus/done 的上下文形态。已完成。
 3. P1-2：扩展 `scripts/minimal_smoke.py`，纳入 workstream stage/focus/done/sync 和 clean audit。已完成。
-4. P1-3：扩展 upgrade matrix，覆盖 Workstream/ADR/custom AGENTS 旧形态。下一步。
-5. P2-1：评估 Task Stage CLI。
-6. P2-2：设计 Workstream lifecycle / archive helper。
+4. P1-3：扩展 upgrade matrix，覆盖 Workstream/ADR/custom AGENTS 旧形态。已完成。
+5. P2-1：评估 Task Stage CLI。候选。
+6. P2-2：设计 Workstream lifecycle / archive helper。候选。
 
 ---
 

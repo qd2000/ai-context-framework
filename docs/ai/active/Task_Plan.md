@@ -14,23 +14,23 @@ Done
 
 ## 大任务名称
 
-P1 Workstream Stage Flow Fixture
+P1 Upgrade Matrix Expansion
 
 ---
 
 ## 大任务目标
 
-1. 根据 Top_Level_Implementation_Gap.md 的 P1-2 补充 Workstream stage flow synthetic fixture。
-2. 覆盖 stage add/list/focus/done、focus 多 Active 拒绝、done evidence 和 clear-current。
-3. 扩展 minimal_smoke，明确覆盖 workstream sync dry-run no-op 和 audit context clean。
+1. 根据 Top_Level_Implementation_Gap.md 的 P1-3 扩展 upgrade compatibility matrix。
+2. 覆盖旧 Workstream optional/no-current-stage、旧 ADR 无 front matter、自定义 AGENTS 与缺失 reference 文件组合。
+3. 只补测试 fixture 和 runner 断言，不改变 upgrade 语义。
 
 ---
 
 ## 成功标准
 
-1. tests/fixtures/context_matrix/workstream_stage_flow 已建立。
-2. tests/test_context_matrix.py 覆盖该 fixture 的 strict/sync/audit/stage flow 行为。
-3. scripts/minimal_smoke.py 明确验证 stage flow、sync dry-run no-op 和 audit context clean。
+1. tests/fixtures/upgrade_matrix 覆盖新增旧形态。
+2. scripts/upgrade_matrix.py 能验证 optional Workstream 不自动启用、Workstream sync no-op、custom docs marker 和缺失 reference 组合。
+3. quick/full upgrade matrix 均通过。
 
 ---
 
@@ -44,9 +44,9 @@ P1 Workstream Stage Flow Fixture
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | Add workstream_stage_flow fixture | Top_Level_Implementation_Gap.md P1-2 | tests/fixtures/context_matrix/workstream_stage_flow | tests/fixtures/context_matrix/workstream_stage_flow/metadata.json | 无。 |
-| T002 | Done | Cover fixture in context_matrix tests | T001 | tests/test_context_matrix.py stage flow coverage | tests/test_context_matrix.py#test_workstream_stage_flow_fixture_exercises_stage_commands | 无。 |
-| T003 | Done | Extend minimal smoke sync and audit checks | T002 | scripts/minimal_smoke.py covers workstream sync no-op and audit clean | scripts/minimal_smoke.py workstream sync no-op and audit clean assertions | 无。 |
+| T003 | Done | Verify quick and full upgrade matrix | T002 | upgrade_matrix quick/full verification | uv run python scripts/upgrade_matrix.py --mode quick; uv run python scripts/upgrade_matrix.py --mode full; tests/test_upgrade_matrix.py | 无。 |
+| T002 | Done | Add new upgrade compatibility fixtures | T001 | upgrade_matrix fixtures for Workstream, ADR and custom AGENTS reference combo | tests/fixtures/upgrade_matrix/old_without_workstreams_optional; old_workstreams_without_current_stage; old_adr_without_front_matter; custom_agents_missing_reference_combo | 无。 |
+| T001 | Done | Extend upgrade matrix runner assertions | Top_Level_Implementation_Gap.md P1-3 | scripts/upgrade_matrix.py supports expected_absent/features/sync checks | scripts/upgrade_matrix.py expected_absent/features/changed suffix/workstream sync assertions | 无。 |
 
 ---
 

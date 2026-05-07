@@ -16,13 +16,13 @@ Done
 
 ## 任务名称
 
-Add workstream_stage_flow fixture
+Extend upgrade matrix runner assertions
 
 ---
 
 ## 所属大任务
 
-P1 Workstream Stage Flow Fixture
+P1 Upgrade Matrix Expansion
 
 ---
 
@@ -40,14 +40,14 @@ T001
 
 ## 本次任务目标
 
-1. Create synthetic fixture files.
-2. 产出并验证输出物：tests/fixtures/context_matrix/workstream_stage_flow
+1. Add generic assertion helpers.
+2. 产出并验证输出物：scripts/upgrade_matrix.py supports expected_absent/features/sync checks
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P1 Workstream Stage Flow Fixture”。依赖记录：Top_Level_Implementation_Gap.md P1-2
+该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P1 Upgrade Matrix Expansion”。依赖记录：Top_Level_Implementation_Gap.md P1-3
 
 ---
 
@@ -60,13 +60,13 @@ T001
 
 ## 输出要求
 
-- tests/fixtures/context_matrix/workstream_stage_flow
+- scripts/upgrade_matrix.py supports expected_absent/features/sync checks
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：tests/fixtures/context_matrix/workstream_stage_flow
+1. 输出物已完成：scripts/upgrade_matrix.py supports expected_absent/features/sync checks
 2. 子任务 T001 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 

@@ -1,0 +1,25 @@
+{
+  "source_version": "v0.0.3.25-workstream-no-stage",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["upgrade", "workstream", "current_stage_optional", "sync"],
+  "intent": "Verify old Workstream contexts without current_stage metadata remain valid and are not rewritten into staged Workstreams by upgrade.",
+  "expected_upgrade_behavior": "Upgrade preserves the existing Workstream detail, does not require current_stage, and workstream sync dry-run remains a no-op.",
+  "files": {
+    "active/Workstreams.md": "本文件记录显式启用的并行 Workstream 索引。\n\n---\n\n## Workstream 状态\n\nActive\n\n说明：存在 Active、Blocked 或 ReadyToMerge workstream。\n\n---\n\n## Workstreams\n\n| ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |\n|---|---|---|---|---|---|---|---|\n| WS011 | Active | Old staged workstream | codex | owned: active/workstreams/WS011.md | 无。 | legacy output | active/workstreams/WS011.md |\n\n---\n\n## 使用规则\n\n1. 本索引只保留低噪音摘要。\n2. 单个 Workstream 详情文件是该 Workstream 的事实源。\n",
+    "active/workstreams/WS011.md": "---\nid: WS011\nstatus: Active\nowner: codex\ntitle: Old staged workstream\ndepends_on: []\nread_scope:\n  - active/Context.md\nwrite_scope:\n  - owned: active/workstreams/WS011.md\n---\n# WS011 - Old staged workstream\n\n## 边界说明\n\nLegacy Workstream detail without current_stage.\n\n---\n\n## 目标\n\nLegacy goal.\n\n---\n\n## 当前发现\n\n无。\n\n---\n\n## 阻塞原因\n\n无。\n\n---\n\n## 取消原因\n\n无。\n\n---\n\n## 合并请求\n\n无。\n\n---\n\n## 证据\n\n无。\n\n---\n\n## 完成记录\n\n无。\n\n---\n\n## 输出物\n\nlegacy output\n"
+  },
+  "preserve_contains": [
+    {
+      "path": "active/workstreams/WS011.md",
+      "text": "Legacy Workstream detail without current_stage."
+    }
+  ],
+  "expect_detected_features": [
+    "workstreams"
+  ],
+  "expect_workstream_sync_noop": true,
+  "expect_stale": false
+}

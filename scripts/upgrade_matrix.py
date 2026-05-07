@@ -151,6 +151,45 @@ class UpgradeMatrixRunner:
             if not (context / rel).exists():
                 errors.append(f"{fixture['fixture']}: expected {rel} to exist after upgrade")
 
+    def assert_expected_absent(self, fixture: dict[str, Any], context: Path, errors: list[str]) -> None:
+        for rel in fixture.get("expect_absent", []):
+            if (context / rel).exists():
+                errors.append(f"{fixture['fixture']}: expected {rel} to remain absent after upgrade")
+
+    def assert_expected_features(self, fixture: dict[str, Any], payload: dict[str, Any], errors: list[str]) -> None:
+        detected = set(payload.get("detected_features", []))
+        for feature in fixture.get("expect_detected_features", []):
+            if feature not in detected:
+                errors.append(f"{fixture['fixture']}: expected detected feature `{feature}`")
+        for feature in fixture.get("expect_not_detected_features", []):
+            if feature in detected:
+                errors.append(f"{fixture['fixture']}: did not expect detected feature `{feature}`")
+
+    def assert_changed_suffixes(self, fixture: dict[str, Any], payload: dict[str, Any], errors: list[str]) -> None:
+        changed = [str(path).replace("\\", "/") for path in payload.get("changed_files", [])]
+        for suffix in fixture.get("expect_changed_suffixes", []):
+            normalized_suffix = str(suffix).replace("\\", "/")
+            if not any(path.endswith(normalized_suffix) for path in changed):
+                errors.append(f"{fixture['fixture']}: expected changed_files to include {suffix}")
+
+    def assert_workstream_sync_noop(
+        self,
+        fixture: dict[str, Any],
+        context: Path,
+        acf_home: Path,
+        steps: list[dict[str, Any]],
+        errors: list[str],
+    ) -> None:
+        if not fixture.get("expect_workstream_sync_noop"):
+            return
+        sync = self.run_acf(
+            ["workstream", "sync", str(context), "--dry-run", "--json"],
+            env_extra={"ACF_HOME": str(acf_home)},
+        )
+        steps.append(sync)
+        if sync["payload"].get("changed_files") != []:
+            errors.append(f"{fixture['fixture']}: expected workstream sync dry-run to be no-op")
+
     def run_main_fixture(self, fixture: dict[str, Any], tmp: Path) -> dict[str, Any]:
         project = tmp / fixture["fixture"]
         acf_home = tmp / f"{fixture['fixture']}-acf-home"
@@ -172,6 +211,8 @@ class UpgradeMatrixRunner:
         )
         steps.append(dry)
         dry_changed = set(dry["payload"].get("changed_files", []))
+        self.assert_expected_features(fixture, dry["payload"], errors)
+        self.assert_changed_suffixes(fixture, dry["payload"], errors)
 
         applied = self.run_acf(
             ["upgrade", str(context), "--check-after", "--json"],
@@ -179,6 +220,7 @@ class UpgradeMatrixRunner:
         )
         steps.append(applied)
         applied_changed = set(applied["payload"].get("changed_files", []))
+        self.assert_changed_suffixes(fixture, applied["payload"], errors)
         if dry_changed != applied_changed:
             errors.append(f"{fixture['fixture']}: dry-run changed_files differ from actual changed_files")
 
@@ -220,6 +262,8 @@ class UpgradeMatrixRunner:
         self.assert_preserved(fixture, context, errors)
         self.assert_marker_notes_idempotent(context, errors)
         self.assert_expected_exists(fixture, context, errors)
+        self.assert_expected_absent(fixture, context, errors)
+        self.assert_workstream_sync_noop(fixture, context, acf_home, steps, errors)
 
         return {
             "fixture": fixture["fixture"],

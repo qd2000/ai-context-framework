@@ -1,0 +1,21 @@
+{
+  "source_version": "legacy-adr-markdown",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["upgrade", "adr", "front_matter_optional", "preserve_decisions"],
+  "intent": "Verify upgrade preserves legacy ADR Markdown files that use heading fields instead of front matter.",
+  "expected_upgrade_behavior": "Upgrade does not rewrite ADR details, does not require front matter, and keeps Decisions_Index references intact.",
+  "files": {
+    "reference/Decisions_Index.md": "## ADR 索引\n\n| ID | 标题 | 状态 | 摘要 | 详情 |\n|---|---|---|---|---|\n| ADR-0001 | Legacy decision | Active | Old ADR without front matter. | `decisions/ADR-0001.md` |\n",
+    "decisions/ADR-0001.md": "# ADR-0001 Legacy decision\n\n## 状态\n\nActive\n\n## 日期\n\n2026-04-01\n\n## 背景\n\nLegacy ADR files survive upgrade without front matter.\n"
+  },
+  "preserve_contains": [
+    {
+      "path": "decisions/ADR-0001.md",
+      "text": "Legacy ADR files survive upgrade without front matter."
+    }
+  ],
+  "expect_stale": false
+}
