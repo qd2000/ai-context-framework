@@ -16,6 +16,8 @@
 8. `worklog/`：历史工作记录。
 9. `archive/`：旧任务和旧计划归档。
 
+顶层产品边界和长期设计以 `reference/ACF_Top_Level_Design.md` 为准；阶段路线和近期优先级以 `reference/Product_Roadmap.md` 为准。新增对象、规则、CLI 命令、模板结构或 upgrade 行为前，应先确认它属于 `check`、`audit`、`sync`、`draft`、`upgrade` 或普通维护命令中的哪一层。
+
 ---
 
 ## Context 审阅标记
