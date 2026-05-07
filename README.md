@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.28` 是当前推荐的真实项目接入/升级版本，新增 AI-facing JSON 契约一致性测试，并为 `check/status --json` 失败 payload 补充 `message` 字段。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.29` 是当前推荐的真实项目接入/升级版本，新增 `acf plan stage list|add|set|done` 薄切片，用于确定性维护 `active/Task_Plan.md` 的 `## 任务阶段` 表。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -195,6 +195,10 @@ acf workstream stage list WS002 --json
 acf workstream focus WS002 WS002.1
 acf workstream stage done WS002 WS002.1 --evidence "worklog/daily/YYYY-MM-DD.md" --clear-current
 acf workstream sync --dry-run --json
+acf plan stage add --id T001.1 --parent T001 --title "任务阶段"
+acf plan stage list --json
+acf plan stage set --id T001.1 --status Active --next-action "完成阶段"
+acf plan stage done --id T001.1 --evidence "worklog/daily/YYYY-MM-DD.md"
 acf workstream block WS002 --reason "等待依赖"
 acf workstream cancel WS002 --reason "方向取消"
 acf workstream list
@@ -217,7 +221,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.28 --dry-run --json
+acf version set v0.0.3.29 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -231,7 +235,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `upgrade`：非破坏式补齐新版本上下文结构，包括反馈归档目录；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
-- `plan init|add-task|set-task|focus|status`：维护 `active/Task_Plan.md` 中的大任务和子任务板；`Task_Plan.md` 可包含 `## 任务阶段` 表来注册 `T001.4` 这类阶段编号。
+- `plan init|add-task|set-task|focus|status` 和 `plan stage list|add|set|done`：维护 `active/Task_Plan.md` 中的大任务、子任务板和 `## 任务阶段` 表；Task Stage CLI 只维护任务阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
 - `plan complete`：在子任务完成后将大任务计划标记为 Done。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。

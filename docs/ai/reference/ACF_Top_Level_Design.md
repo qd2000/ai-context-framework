@@ -295,14 +295,16 @@ ACF 不把所有 Markdown 文件变成强 schema。只有状态型对象需要�
 4. `Current_Task` 引用的阶段必须未终结。
 5. 历史依赖可以引用 Done Workstream。
 
-未来命令可以是：
+已落地的第一版普通 CLI 维护命令：
 
 ```bash
+acf plan stage list ...
 acf plan stage add ...
 acf plan stage set ...
+acf plan stage done ...
 ```
 
-该命令族后置；当前优先依赖 table + check。
+该命令族只维护 `active/Task_Plan.md` 的 `## 任务阶段` 表，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，不自动联动 Workstream。更重的 Task object 文件仍后置。
 
 ### 4.3 Workstream
 

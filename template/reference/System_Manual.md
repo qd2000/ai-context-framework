@@ -326,7 +326,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `acf simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge 结构；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
-- `acf plan init|add-task|set-task|focus|complete|status [target]`：维护当前大任务计划和子任务板，并在完成后标记计划 Done；`active/Task_Plan.md` 可包含 `## 任务阶段` 表用于注册 `T001.4` 这类阶段编号。
+- `acf plan init|add-task|set-task|focus|complete|status [target]` / `acf plan stage list|add|set|done [target]`：维护当前大任务计划、子任务板和 `## 任务阶段` 表，并在完成后标记计划 Done；Task Stage CLI 只维护 `active/Task_Plan.md` 中的阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
 - `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
 - `acf knowledge draft|apply|list|show|mark [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。

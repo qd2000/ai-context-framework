@@ -14,23 +14,21 @@ Done
 
 ## 大任务名称
 
-P1 Upgrade Matrix Expansion
+P2 Task Stage CLI
 
 ---
 
 ## 大任务目标
 
-1. 根据 Top_Level_Implementation_Gap.md 的 P1-3 扩展 upgrade compatibility matrix。
-2. 覆盖旧 Workstream optional/no-current-stage、旧 ADR 无 front matter、自定义 AGENTS 与缺失 reference 文件组合。
-3. 只补测试 fixture 和 runner 断言，不改变 upgrade 语义。
+1. 根据顶层设计和 gap audit，将已有 Task Stage registry 从手写表推进到受控 CLI 薄切片。
+2. 实现 plan stage add/set/done 的确定性表格维护，不改变 Current_Task 或 Workstream 语义边界。
 
 ---
 
 ## 成功标准
 
-1. tests/fixtures/upgrade_matrix 覆盖新增旧形态。
-2. scripts/upgrade_matrix.py 能验证 optional Workstream 不自动启用、Workstream sync no-op、custom docs marker 和缺失 reference 组合。
-3. quick/full upgrade matrix 均通过。
+1. 新增 Task Stage CLI 有 JSON/dry-run/error recovery 测试和文档。
+2. strict check、audit、smoke、upgrade matrix 回归通过。
 
 ---
 
@@ -44,9 +42,9 @@ P1 Upgrade Matrix Expansion
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T003 | Done | Verify quick and full upgrade matrix | T002 | upgrade_matrix quick/full verification | uv run python scripts/upgrade_matrix.py --mode quick; uv run python scripts/upgrade_matrix.py --mode full; tests/test_upgrade_matrix.py | 无。 |
-| T002 | Done | Add new upgrade compatibility fixtures | T001 | upgrade_matrix fixtures for Workstream, ADR and custom AGENTS reference combo | tests/fixtures/upgrade_matrix/old_without_workstreams_optional; old_workstreams_without_current_stage; old_adr_without_front_matter; custom_agents_missing_reference_combo | 无。 |
-| T001 | Done | Extend upgrade matrix runner assertions | Top_Level_Implementation_Gap.md P1-3 | scripts/upgrade_matrix.py supports expected_absent/features/sync checks | scripts/upgrade_matrix.py expected_absent/features/changed suffix/workstream sync assertions | 无。 |
+| T001 | Done | Define Task Stage CLI contract | Top_Level_Implementation_Gap.md P2-1 | add/set/done command boundary and tests shape | Task Stage CLI contract fixed: table-only command family, no Current_Task/Workstream automation. | 无。 |
+| T002 | Done | Implement plan stage commands | T001 | acf plan stage add/set/done | acf.py implements plan stage list/add/set/done; tests cover command flow, invalid parent, duplicate id and Workstream owner validation. | 无。 |
+| T003 | Done | Add tests, docs and version bump | T002 | unit tests, smoke/gap docs, README/System Manual and v0.0.3.29 | P2 Task Stage CLI complete: acf plan stage list/add/set/done, task_stage_registry fixture, minimal smoke Task Stage path, docs and v0.0.3.29 version metadata. | 无。 |
 
 ---
 
@@ -54,7 +52,7 @@ P1 Upgrade Matrix Expansion
 
 | ID | 状态 | 父任务 | 名称 | 归属 Workstream | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|---|---|
-| 暂无 |  |  |  |  |  |  |  |  |
+| T003.1 | Done | T003 | release verification | 无。 | 无。 | verification evidence and version bump | unittest; check template; docs/ai strict check; audit context; upgrade dry-run; version show; minimal_smoke; upgrade_matrix quick/full; py_compile; git diff --check | 无。 |
 
 ---
 

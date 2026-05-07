@@ -53,6 +53,10 @@
 - `uv run acf workstream focus WS001 WS001.1 docs/ai --json`
 - `uv run acf workstream stage done WS001 WS001.1 docs/ai --evidence "worklog/daily/YYYY-MM-DD.md" --clear-current --json`
 - `uv run acf plan status docs/ai --json`
+- `uv run acf plan stage add docs/ai --id T001.1 --parent T001 --title "任务阶段" --json`
+- `uv run acf plan stage list docs/ai --json`
+- `uv run acf plan stage set docs/ai --id T001.1 --status Active --next-action "完成阶段" --json`
+- `uv run acf plan stage done docs/ai --id T001.1 --evidence "worklog/daily/YYYY-MM-DD.md" --json`
 - `uv run acf review stale docs/ai --json`
 - `uv run acf audit context docs/ai --json`
 - `uv run acf curate draft docs/ai --dry-run --json`
@@ -61,11 +65,13 @@
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf new worklog docs/ai --summary "补记一次上下文维护。" --append --dry-run --json`
 - `uv run acf version show --json`
-- `uv run acf version set v0.0.3.28 --dry-run --json`
+- `uv run acf version set v0.0.3.29 --dry-run --json`
 - `uv run python scripts/upgrade_matrix.py --mode quick`
 - `uv run python scripts/upgrade_matrix.py --mode full --acf uv run acf`
 
 Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点；`workstream stage add/list` 只维护详情文件阶段表，`workstream focus` 只切换详情文件内的 `current_stage` 和目标阶段 Active 状态，`workstream stage done` 要求 evidence，完成当前阶段时需要 `--clear-current`，不会自动激活下一阶段或更新全局 `../active/Current_Task.md`。`merge_targets` 用于记录候选合并目标，不表示 Workstream 可以直接写 authority 文件。`acf check` 会检查当前阶段已注册、属于本 Workstream、状态合法，strict 下检查 Done 阶段 evidence，检查 Workstreams 索引与详情 front matter 是否一致，并在 strict 下拒绝 `owned` / `assigned` 直接命中内置 authority path；ReadyToMerge / Done Workstream 声明 `merge_targets` 时必须有合并请求；Done Workstream 需要 `merge_resolution`，仍留在 active 时需要 keep-active metadata。
+
+Task Stage 仍以 `active/Task_Plan.md` 的 `## 任务阶段` 表为事实源；`plan stage list|add|set|done` 只维护该表，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。`plan stage add` 要求阶段 ID 使用 `T001.1` 格式且归属于已存在父任务，`--workstream` 只接受已存在的 Workstream ID 或空值；`plan stage done` 要求 `--evidence`。
 
 `acf workstream sync --dry-run --json` 只根据 `active/workstreams/*.md` front matter 预览或更新 `active/Workstreams.md`；第一版不会删除索引中缺失详情文件的旧行，也不会移动 Done / Cancelled 文件。
 

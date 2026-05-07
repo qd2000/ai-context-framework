@@ -92,6 +92,7 @@ class ContextMatrixTests(unittest.TestCase):
             "workstream_complex",
             "authority_gate",
             "workstream_stage_flow",
+            "task_stage_registry",
         }
         actual = {path.name for path in FIXTURE_ROOT.iterdir() if path.is_dir()}
         self.assertTrue(expected.issubset(actual))
@@ -397,6 +398,82 @@ class ContextMatrixTests(unittest.TestCase):
             exit_code, audit_payload, stderr = self.run_cli_json(["audit", "context", str(target), "--json"])
             self.assertEqual(exit_code, 0, stderr)
             self.assertEqual(audit_payload["candidates"], [])
+
+    def test_task_stage_registry_fixture_exercises_plan_stage_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_context(tmp, "task_stage_registry")
+            self.assertEqual(
+                self.run_cli(["plan", "init", str(target), "--title", "Task stage fixture", "--goal", "Goal.", "--force"]),
+                0,
+            )
+            self.assertEqual(self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Parent task"]), 0)
+
+            exit_code, payload, _stderr = self.run_cli_json(
+                [
+                    "plan",
+                    "stage",
+                    "add",
+                    str(target),
+                    "--id",
+                    "T001.1",
+                    "--parent",
+                    "T002",
+                    "--title",
+                    "Invalid parent",
+                    "--json",
+                ]
+            )
+            self.assertNotEqual(exit_code, 0)
+            self.assertEqual(payload["error_code"], "task_stage_scope_invalid")
+
+            exit_code, payload, stderr = self.run_cli_json(
+                [
+                    "plan",
+                    "stage",
+                    "add",
+                    str(target),
+                    "--id",
+                    "T001.1",
+                    "--parent",
+                    "T001",
+                    "--title",
+                    "Registered fixture stage",
+                    "--output",
+                    "fixture output",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(payload["stage"]["id"], "T001.1")
+            self.assertEqual(payload["stage"]["status"], "Pending")
+
+            exit_code, payload, stderr = self.run_cli_json(["plan", "stage", "list", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual([stage["id"] for stage in payload["stages"]], ["T001.1"])
+
+            exit_code, payload, stderr = self.run_cli_json(
+                [
+                    "plan",
+                    "stage",
+                    "done",
+                    str(target),
+                    "--id",
+                    "T001.1",
+                    "--evidence",
+                    "worklog/task-stage.md",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(payload["status"], "Done")
+
+            plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
+            self.assertIn("| T001.1 | Done | T001 | Registered fixture stage", plan_text)
+            self.assertIn("worklog/task-stage.md", plan_text)
+
+            exit_code, check_payload, stderr = self.run_cli_json(["check", str(target), "--strict", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(check_payload["ok"])
 
     def test_authority_gate_fixture_rejects_direct_authority_claim(self):
         with tempfile.TemporaryDirectory() as tmp:

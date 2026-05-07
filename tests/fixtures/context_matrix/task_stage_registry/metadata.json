@@ -1,0 +1,17 @@
+{
+  "kind": "task_stage_registry",
+  "intent": "Synthetic fixture for generic Task Stage registry CLI flow without introducing Task object files.",
+  "profile": "minimal",
+  "expected_behavior": [
+    "acf plan stage add registers T001.1 under T001",
+    "acf plan stage list returns machine-readable stage rows",
+    "acf plan stage done records evidence and remains strict-check clean",
+    "invalid parent scope is rejected before writing"
+  ],
+  "risk_tags": [
+    "task-stage",
+    "markdown-table",
+    "json-contract",
+    "compatibility"
+  ]
+}

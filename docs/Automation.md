@@ -18,7 +18,7 @@
 - `upgrade`：非破坏式补齐旧上下文缺失的 `active/Feedback_Inbox.md`、`active/Task_Plan.md`、archive、archive/feedback 和 Knowledge 结构，不自动移动或覆盖 Active 当前任务。
 - `simplify`：从已有上下文导出简化版本，保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径；`--strict` 会将占位符残留视为错误。
-- `plan init|add-task|set-task|focus|status`：维护当前大任务计划和轻量子任务板。
+- `plan init|add-task|set-task|focus|status` 与 `plan stage list|add|set|done`：维护当前大任务计划、轻量子任务板和 `## 任务阶段` 表；Task Stage CLI 不创建 task object 单文件，也不自动修改 `Current_Task.md`。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并维护 `archive/Archive_Index.md`。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引，并维护状态。
@@ -31,7 +31,7 @@
 - `edit table upsert`：按 key column 更新或追加上下文根目录内 Markdown 表格行。
 - 使用状态日志：`log enable|disable|status|tail|summarize|prune` 管理默认开启的用户级全局 usage event log，按项目子目录记录命令结果元数据，支撑跨项目 dogfooding 评测。
 - CLI 渐进式披露入口：模板和 minimal init 产物会在 AGENTS.md 中提示 `acf status --json`、`acf --help` 和系统手册发现路径，但不在默认入口列完整命令手册。
-- 最小 smoke runner：`scripts/minimal_smoke.py` 使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code` 和 Workstream 最小 happy path；不覆盖真实项目批量评测或漂移样本诊断。
+- 最小 smoke runner：`scripts/minimal_smoke.py` 使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code`、Workstream 最小 happy path 和 Task Stage 最小 happy path；不覆盖真实项目批量评测或漂移样本诊断。
 - 升级兼容 runner：`scripts/upgrade_matrix.py` 使用风险驱动 fixture 验证旧上下文可被非破坏式带到当前工具可治理状态；quick 模式随单元测试运行，full 模式用于 release 前扩展检查。
 - Context governance fixture matrix：`tests/fixtures/context_matrix/` 和 `tests/test_context_matrix.py` 覆盖 minimal clean、legacy reference、audit long section、complex Workstream 和 authority gate，作为 P3 audit rule expansion 前的防过拟合样本。
 
@@ -304,7 +304,7 @@ subagent 适合处理需要语义判断、但不应静默修改权威文件的�
 
 1. Python 代码优先通过项目 uv 环境运行：`uv run python ...`。
 2. acf CLI 优先通过项目 uv 入口运行：`uv run acf ...`；需要调试脚本入口时再使用 `uv run python acf.py ...`。
-3. 发布前快速回归可运行 `uv run python scripts/minimal_smoke.py --acf uv run acf`；该脚本只验证三条最小主路径，不替代真实项目评测矩阵。
+3. 发布前快速回归可运行 `uv run python scripts/minimal_smoke.py --acf uv run acf`；该脚本只验证少量最小主路径，不替代真实项目评测矩阵。
 4. 模板结构变化后运行 `uv run acf check template`。
 5. CLI 行为变化后运行 `uv run acf check --strict`、`uv run python -m unittest` 和 `uv run python -m py_compile acf.py tests\test_cli.py tests\test_upgrade_matrix.py scripts\minimal_smoke.py scripts\upgrade_matrix.py`。
 6. 修改 `upgrade`、模板结构或注意力治理入口时，发布前运行 `uv run python scripts/upgrade_matrix.py --mode full --acf uv run acf`。

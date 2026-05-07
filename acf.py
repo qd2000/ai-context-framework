@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.28"
+VERSION = "v0.0.3.29"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -930,6 +930,18 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Finish the dependent Workstream stage before focusing this stage."]
     if error_code == "workstream_stage_clear_current_required":
         return ["Pass `--clear-current` when completing the current Workstream stage."]
+    if error_code == "task_stage_duplicate_id":
+        return ["Choose an unused Task Stage ID in active/Task_Plan.md."]
+    if error_code == "task_stage_scope_invalid":
+        return ["Use a Task Stage ID that belongs to the parent task, for example `T001.2` under `T001`."]
+    if error_code == "task_stage_parent_not_found":
+        return ["Run `acf plan status ... --json` and choose an existing parent task ID."]
+    if error_code == "task_stage_workstream_not_found":
+        return ["Run `acf workstream list ... --json` or omit `--workstream` when no Workstream owner applies."]
+    if error_code == "task_stage_not_found":
+        return ["Run `acf plan stage list ... --json` and choose a registered Task Stage ID."]
+    if error_code == "task_stage_missing_evidence":
+        return ["Provide `--evidence` so Task Stage completion remains traceable."]
     if error_code == "input_error":
         return [
             "Check command arguments and paths.",
@@ -971,7 +983,15 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_stage_dependency_blocked",
         "workstream_stage_clear_current_required",
     )
-    for code in workstream_codes:
+    task_stage_codes = (
+        "task_stage_duplicate_id",
+        "task_stage_scope_invalid",
+        "task_stage_parent_not_found",
+        "task_stage_workstream_not_found",
+        "task_stage_not_found",
+        "task_stage_missing_evidence",
+    )
+    for code in (*workstream_codes, *task_stage_codes):
         if message.startswith(f"{code}:"):
             return code, EXIT_INPUT_ERROR
     if message.startswith("curation_draft_exists:"):
@@ -1565,7 +1585,10 @@ def command_label(args: argparse.Namespace) -> str:
     if command == "version":
         return f"version {getattr(args, 'version_command', '')}".strip()
     if command == "plan":
-        return f"plan {getattr(args, 'plan_command', '')}".strip()
+        plan_command = getattr(args, "plan_command", "")
+        if plan_command == "stage":
+            return f"plan stage {getattr(args, 'plan_stage_command', '')}".strip()
+        return f"plan {plan_command}".strip()
     if command == "task":
         return f"task {getattr(args, 'task_command', '')}".strip()
     if command == "archive":
@@ -2128,6 +2151,12 @@ def validate_draft_name(value: str) -> str:
 def validate_task_id(value: str) -> str:
     if not TASK_ID_RE.match(value):
         raise argparse.ArgumentTypeError("task id must use T001 format")
+    return value
+
+
+def validate_task_stage_id(value: str) -> str:
+    if not TASK_STAGE_ID_RE.match(value):
+        raise argparse.ArgumentTypeError("task stage id must use T001.1 format")
     return value
 
 
@@ -4010,6 +4039,91 @@ def read_task_stage_rows(plan_path: Path) -> list[dict[str, str]]:
     return rows
 
 
+def task_stage_parent_id(stage_id: str) -> str:
+    return stage_id.split(".", 1)[0]
+
+
+def require_task_stage_belongs_to_parent(parent_task: str, stage_id: str) -> None:
+    if task_stage_parent_id(stage_id) != parent_task:
+        raise SystemExit(f"task_stage_scope_invalid: {stage_id} does not belong to parent task {parent_task}")
+
+
+def find_task_stage_row(rows: Sequence[dict[str, str]], stage_id: str) -> dict[str, str] | None:
+    return next((row for row in rows if row.get("ID") == stage_id), None)
+
+
+def task_stage_payload(row: dict[str, str]) -> dict[str, str]:
+    return {
+        "id": row.get("ID", ""),
+        "status": row.get("状态", ""),
+        "parent": row.get("父任务", ""),
+        "title": row.get("名称", ""),
+        "workstream": row.get("归属 Workstream", ""),
+        "depends_on": row.get("依赖", ""),
+        "output": row.get("输出物", ""),
+        "evidence": row.get("证据", ""),
+        "next_action": row.get("下一步", ""),
+    }
+
+
+def render_task_stage_rows(rows: Sequence[dict[str, str]]) -> list[str]:
+    if not rows:
+        return [render_table_row(["暂无", "", "", "", "", "", "", "", ""])]
+    return [
+        render_table_row(
+            [
+                row.get("ID", ""),
+                row.get("状态", ""),
+                row.get("父任务", ""),
+                row.get("名称", ""),
+                row.get("归属 Workstream", ""),
+                row.get("依赖", ""),
+                row.get("输出物", ""),
+                row.get("证据", ""),
+                row.get("下一步", ""),
+            ]
+        )
+        for row in rows
+    ]
+
+
+def write_task_stage_rows(plan_path: Path, rows: Sequence[dict[str, str]]) -> None:
+    text = read_text(plan_path)
+    lines = text.splitlines()
+    try:
+        table = find_table(lines, TASK_STAGE_TABLE_HEADER)
+    except SystemExit:
+        table_text = "\n".join(
+            [
+                TASK_STAGE_TABLE_HEADER,
+                "|---|---|---|---|---|---|---|---|---|",
+                *render_task_stage_rows(rows),
+            ]
+        )
+        plan_path.write_text(text.rstrip() + f"\n\n---\n\n## 任务阶段\n\n{table_text}\n", encoding="utf-8")
+        return
+    updated = lines[: table.body_start] + render_task_stage_rows(rows) + lines[table.body_end :]
+    plan_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
+def validate_task_stage_parent(rows: Sequence[dict[str, str]], parent_task: str, stage_id: str) -> None:
+    require_task_stage_belongs_to_parent(parent_task, stage_id)
+    if not any(row.get("ID") == parent_task for row in rows):
+        raise SystemExit(f"task_stage_parent_not_found: {parent_task}")
+
+
+def validate_task_stage_workstream(root: Path, value: str) -> None:
+    if not meaningful_ref_value(value):
+        return
+    workstream_ids = WORKSTREAM_ID_TOKEN_RE.findall(value)
+    if not workstream_ids:
+        raise SystemExit(f"task_stage_workstream_not_found: {value}")
+    statuses = workstream_statuses_for_task_checks(root)
+    missing = [workstream_id for workstream_id in workstream_ids if workstream_id not in statuses]
+    if missing:
+        raise SystemExit(f"task_stage_workstream_not_found: {', '.join(missing)}")
+
+
 def write_task_rows(plan_path: Path, rows: Sequence[dict[str, str]]) -> None:
     text = read_text(plan_path)
     lines = text.splitlines()
@@ -4288,6 +4402,152 @@ def plan_status_command(args: argparse.Namespace) -> int:
         for row in rows:
             print(f"{row.get('ID')}: {row.get('状态')} {row.get('子任务')}")
     return 0
+
+
+def plan_stage_list_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    plan_path = task_plan_path(root)
+    payload: dict[str, object] = {
+        "command": "plan stage list",
+        "ok": True,
+        "context": str(root),
+        "plan": str(plan_path),
+        "stages": [task_stage_payload(row) for row in read_task_stage_rows(plan_path)],
+        "error_code": None,
+        "next_actions": [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        stages = payload["stages"]
+        if not stages:
+            print("no task stages")
+        for row in stages:
+            if isinstance(row, dict):
+                print(f"{row.get('id')}\t{row.get('status')}\t{row.get('parent')}\t{row.get('title')}")
+    return 0
+
+
+def plan_stage_add_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    task_rows = read_task_rows(plan_path)
+    stage_rows = read_task_stage_rows(plan_path)
+    stage_id = args.id
+    parent_task = args.parent
+    validate_task_stage_parent(task_rows, parent_task, stage_id)
+    if find_task_stage_row(stage_rows, stage_id) is not None:
+        raise SystemExit(f"task_stage_duplicate_id: {stage_id}")
+    title = (args.title or "").strip()
+    if not title:
+        raise SystemExit("task_stage_scope_invalid: stage title cannot be empty")
+    workstream = (args.workstream or "无。").strip() or "无。"
+    validate_task_stage_workstream(root, workstream)
+    row = {
+        "ID": stage_id,
+        "状态": "Pending",
+        "父任务": parent_task,
+        "名称": title,
+        "归属 Workstream": workstream,
+        "依赖": (args.depends or "无。").strip() or "无。",
+        "输出物": (args.output or "待补充。").strip() or "待补充。",
+        "证据": "无。",
+        "下一步": (args.next_action or "待推进。").strip() or "待推进。",
+    }
+    if not dry_run:
+        write_task_stage_rows(plan_path, [*stage_rows, row])
+    check_result = maybe_check_after(args, root)
+    action = "would add" if dry_run else "added"
+    return emit_write_result(
+        args,
+        "plan stage add",
+        f"{action} task stage {stage_id} in {plan_path}",
+        [plan_path],
+        check_result,
+        extra_payload={"stage": task_stage_payload(row)},
+    )
+
+
+def plan_stage_set_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    task_rows = read_task_rows(plan_path)
+    stage_rows = read_task_stage_rows(plan_path)
+    row = find_task_stage_row(stage_rows, args.id)
+    if row is None:
+        raise SystemExit(f"task_stage_not_found: {args.id}")
+    if args.parent is not None:
+        parent_task = args.parent
+        validate_task_stage_parent(task_rows, parent_task, args.id)
+        row["父任务"] = parent_task
+    else:
+        validate_task_stage_parent(task_rows, row.get("父任务", ""), args.id)
+    if args.status:
+        row["状态"] = args.status
+    if args.title is not None:
+        title = args.title.strip()
+        if not title:
+            raise SystemExit("task_stage_scope_invalid: stage title cannot be empty")
+        row["名称"] = title
+    if args.workstream is not None:
+        workstream = args.workstream.strip() or "无。"
+        validate_task_stage_workstream(root, workstream)
+        row["归属 Workstream"] = workstream
+    if args.depends is not None:
+        row["依赖"] = args.depends.strip() or "无。"
+    if args.output is not None:
+        row["输出物"] = args.output.strip() or "无。"
+    if args.evidence is not None:
+        row["证据"] = args.evidence.strip() or "无。"
+    if args.next_action is not None:
+        row["下一步"] = args.next_action.strip() or "无。"
+    if not dry_run:
+        write_task_stage_rows(plan_path, stage_rows)
+    check_result = maybe_check_after(args, root)
+    action = "would update" if dry_run else "updated"
+    return emit_write_result(
+        args,
+        "plan stage set",
+        f"{action} task stage {args.id} in {plan_path}",
+        [plan_path],
+        check_result,
+        extra_payload={"stage": task_stage_payload(row)},
+    )
+
+
+def plan_stage_done_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    _task_rows = read_task_rows(plan_path)
+    stage_rows = read_task_stage_rows(plan_path)
+    row = find_task_stage_row(stage_rows, args.id)
+    if row is None:
+        raise SystemExit(f"task_stage_not_found: {args.id}")
+    evidence = (args.evidence or "").strip()
+    if not evidence:
+        raise SystemExit(f"task_stage_missing_evidence: {args.id}")
+    row["状态"] = "Done"
+    row["证据"] = evidence
+    if args.next_action is not None:
+        row["下一步"] = args.next_action.strip() or "无。"
+    else:
+        row["下一步"] = "无。"
+    if not dry_run:
+        write_task_stage_rows(plan_path, stage_rows)
+    check_result = maybe_check_after(args, root)
+    action = "would mark" if dry_run else "marked"
+    return emit_write_result(
+        args,
+        "plan stage done",
+        f"{action} task stage {args.id} Done in {plan_path}",
+        [plan_path],
+        check_result,
+        extra_payload={"stage_id": args.id, "status": "Done", "evidence": evidence},
+    )
 
 
 def current_task_path(root: Path) -> Path:
@@ -8529,6 +8789,48 @@ def build_parser() -> argparse.ArgumentParser:
     plan_status_parser.add_argument("path", nargs="?", type=Path)
     add_json_argument(plan_status_parser)
     plan_status_parser.set_defaults(func=plan_status_command)
+
+    plan_stage_parser = plan_subparsers.add_parser("stage", help="manage task stages in active/Task_Plan.md")
+    plan_stage_subparsers = plan_stage_parser.add_subparsers(dest="plan_stage_command", required=True)
+
+    plan_stage_list_parser = plan_stage_subparsers.add_parser("list", help="list task stages")
+    plan_stage_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(plan_stage_list_parser)
+    plan_stage_list_parser.set_defaults(func=plan_stage_list_command)
+
+    plan_stage_add_parser = plan_stage_subparsers.add_parser("add", help="add a task stage row")
+    plan_stage_add_parser.add_argument("path", nargs="?", type=Path)
+    plan_stage_add_parser.add_argument("--id", type=validate_task_stage_id, required=True, help="task stage id, for example T001.1")
+    plan_stage_add_parser.add_argument("--parent", type=validate_task_id, required=True, help="parent subtask id")
+    plan_stage_add_parser.add_argument("--title", required=True, help="stage title")
+    plan_stage_add_parser.add_argument("--workstream", default="无。", help="optional owning Workstream id")
+    plan_stage_add_parser.add_argument("--depends", default="无。", help="dependency summary")
+    plan_stage_add_parser.add_argument("--output", default="待补充。", help="expected output")
+    plan_stage_add_parser.add_argument("--next-action", default="待推进。", help="next action")
+    add_write_arguments(plan_stage_add_parser)
+    plan_stage_add_parser.set_defaults(func=plan_stage_add_command)
+
+    plan_stage_set_parser = plan_stage_subparsers.add_parser("set", help="update a task stage row")
+    plan_stage_set_parser.add_argument("path", nargs="?", type=Path)
+    plan_stage_set_parser.add_argument("--id", type=validate_task_stage_id, required=True, help="task stage id")
+    plan_stage_set_parser.add_argument("--status", choices=tuple(sorted(VALID_SUBTASK_STATUSES)), default=None)
+    plan_stage_set_parser.add_argument("--parent", type=validate_task_id, default=None)
+    plan_stage_set_parser.add_argument("--title", default=None)
+    plan_stage_set_parser.add_argument("--workstream", default=None)
+    plan_stage_set_parser.add_argument("--depends", default=None)
+    plan_stage_set_parser.add_argument("--output", default=None)
+    plan_stage_set_parser.add_argument("--evidence", default=None)
+    plan_stage_set_parser.add_argument("--next-action", default=None)
+    add_write_arguments(plan_stage_set_parser)
+    plan_stage_set_parser.set_defaults(func=plan_stage_set_command)
+
+    plan_stage_done_parser = plan_stage_subparsers.add_parser("done", help="mark a task stage Done")
+    plan_stage_done_parser.add_argument("path", nargs="?", type=Path)
+    plan_stage_done_parser.add_argument("--id", type=validate_task_stage_id, required=True, help="task stage id")
+    plan_stage_done_parser.add_argument("--evidence", required=True, help="completion evidence")
+    plan_stage_done_parser.add_argument("--next-action", default=None)
+    add_write_arguments(plan_stage_done_parser)
+    plan_stage_done_parser.set_defaults(func=plan_stage_done_command)
 
     task_group_parser = subparsers.add_parser("task", help="start, finish, block, or clear the current task")
     task_subparsers = task_group_parser.add_subparsers(dest="task_command", required=True)

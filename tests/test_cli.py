@@ -2667,6 +2667,176 @@ class CliTests(unittest.TestCase):
             self.assertIn("blocked evidence", plan_text)
             self.assertIn("wait", plan_text)
 
+    def test_plan_stage_commands_manage_task_stage_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "stage",
+                    "add",
+                    str(target),
+                    "--id",
+                    "T001.1",
+                    "--parent",
+                    "T001",
+                    "--title",
+                    "First stage",
+                    "--output",
+                    "Stage output",
+                    "--next-action",
+                    "Run stage",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "plan stage add")
+            self.assertEqual(payload["stage"]["id"], "T001.1")
+            plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
+            self.assertIn("| T001.1 | Pending | T001 | First stage |", plan_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(["plan", "stage", "list", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "plan stage list")
+            self.assertEqual(payload["stages"][0]["id"], "T001.1")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "stage",
+                    "set",
+                    str(target),
+                    "--id",
+                    "T001.1",
+                    "--status",
+                    "Active",
+                    "--evidence",
+                    "stage evidence",
+                    "--next-action",
+                    "Finish stage",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "plan stage set")
+            self.assertEqual(payload["stage"]["status"], "Active")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "stage",
+                    "done",
+                    str(target),
+                    "--id",
+                    "T001.1",
+                    "--evidence",
+                    "worklog/stage.md",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "plan stage done")
+            self.assertEqual(payload["status"], "Done")
+            plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
+            self.assertIn("| T001.1 | Done | T001 | First stage |", plan_text)
+            self.assertIn("worklog/stage.md", plan_text)
+
+    def test_plan_stage_add_rejects_invalid_parent_scope_and_duplicate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "stage",
+                    "add",
+                    str(target),
+                    "--id",
+                    "T001.1",
+                    "--parent",
+                    "T002",
+                    "--title",
+                    "Wrong parent",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            self.assert_failure_json_contract(self.json_payload(stdout), "task_stage_scope_invalid", "plan")
+
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "plan",
+                        "stage",
+                        "add",
+                        str(target),
+                        "--id",
+                        "T001.1",
+                        "--parent",
+                        "T001",
+                        "--title",
+                        "First stage",
+                    ]
+                ),
+                0,
+            )
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "stage",
+                    "add",
+                    str(target),
+                    "--id",
+                    "T001.1",
+                    "--parent",
+                    "T001",
+                    "--title",
+                    "Duplicate",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            self.assert_failure_json_contract(self.json_payload(stdout), "task_stage_duplicate_id", "plan")
+
+    def test_plan_stage_workstream_owner_must_exist_when_declared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "stage",
+                    "add",
+                    str(target),
+                    "--id",
+                    "T001.1",
+                    "--parent",
+                    "T001",
+                    "--title",
+                    "Stage",
+                    "--workstream",
+                    "WS004",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            self.assert_failure_json_contract(self.json_payload(stdout), "task_stage_workstream_not_found", "plan")
+
     def test_plan_status_recommends_active_or_dependency_ready_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
@@ -3131,6 +3301,8 @@ This records a reusable write-safety pattern instead of a current task fact.
                 encoding="utf-8",
             )
             self.run_cli(["workstream", "init", str(target)])
+            self.run_cli(["plan", "init", str(target), "--title", "Contract plan", "--goal", "Contract goal", "--force"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Contract task"])
             self.run_cli(
                 [
                     "workstream",
@@ -3183,6 +3355,23 @@ This records a reusable write-safety pattern instead of a current task fact.
                         "WS001.2",
                         "--title",
                         "Dry run stage",
+                        "--dry-run",
+                        "--json",
+                    ],
+                ),
+                (
+                    "plan stage add",
+                    [
+                        "plan",
+                        "stage",
+                        "add",
+                        str(target),
+                        "--id",
+                        "T001.1",
+                        "--parent",
+                        "T001",
+                        "--title",
+                        "Dry run task stage",
                         "--dry-run",
                         "--json",
                     ],

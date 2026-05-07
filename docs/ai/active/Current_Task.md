@@ -16,19 +16,19 @@ Done
 
 ## 任务名称
 
-Extend upgrade matrix runner assertions
+Add tests, docs and version bump
 
 ---
 
 ## 所属大任务
 
-P1 Upgrade Matrix Expansion
+P2 Task Stage CLI
 
 ---
 
 ## 子任务 ID
 
-T001
+T003
 
 ---
 
@@ -40,14 +40,14 @@ T001
 
 ## 本次任务目标
 
-1. Add generic assertion helpers.
-2. 产出并验证输出物：scripts/upgrade_matrix.py supports expected_absent/features/sync checks
+1. Run full verification and release metadata update
+2. 产出并验证输出物：unit tests, smoke/gap docs, README/System Manual and v0.0.3.29
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P1 Upgrade Matrix Expansion”。依赖记录：Top_Level_Implementation_Gap.md P1-3
+该任务来自 `active/Task_Plan.md` 中的子任务 T003，所属大任务为“P2 Task Stage CLI”。依赖记录：T002
 
 ---
 
@@ -55,19 +55,20 @@ T001
 
 - `active/Task_Plan.md`。
 - `active/Context.md`。
+- 依赖 T002 证据：acf.py implements plan stage list/add/set/done; tests cover command flow, invalid parent, duplicate id and Workstream owner validation.
 
 ---
 
 ## 输出要求
 
-- scripts/upgrade_matrix.py supports expected_absent/features/sync checks
+- unit tests, smoke/gap docs, README/System Manual and v0.0.3.29
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：scripts/upgrade_matrix.py supports expected_absent/features/sync checks
-2. 子任务 T001 的完成证据已写回任务板。
+1. 输出物已完成：unit tests, smoke/gap docs, README/System Manual and v0.0.3.29
+2. 子任务 T003 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---

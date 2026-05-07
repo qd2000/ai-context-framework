@@ -52,7 +52,7 @@ Updated through P1-3 Upgrade matrix expansion.
 | 内容分层 | `active/reference/worklog/archive/rules/decisions` 职责明确 | 已实现 | `AGENTS.md`; `reference/System_Manual.md`; `template/` | 旧项目可能仍有历史漂移，只能通过 audit/curation 处理 | Done | 不新增规则；继续通过 check/audit 发现漂移 |
 | 唯一事实源 | 写入前判断权威位置，索引不替代详情 | 部分实现 | Workstream 详情 front matter 作为事实源；`acf workstream sync`; `rules/Always_Active.md` | 仅 Workstream 有强 sync/check；Knowledge/ADR/Archive 尚未设计 generated view | P2 | 后续如做 sync 扩展，先设计 generated marker |
 | Task | 主线任务使用 `active/Task_Plan.md` / `active/Current_Task.md` | 已实现 | `acf plan`; `acf task`; `tests/test_cli.py` | 无 | Done | 保持 table-first |
-| Task Stage | `T001.4` 必须注册，父任务和 Workstream 引用可检查 | 部分实现 | `acf check` 已接入 Task Stage registry；`active/Task_Plan.md` 有 `## 任务阶段` 表 | 缺 `acf plan stage add/set/done`；当前靠手写表 + check | P2 | 在 JSON/upgrade/Workstream 验证后评估 Task Stage CLI |
+| Task Stage | `T001.4` 必须注册，父任务和 Workstream 引用可检查 | 已实现当前 P2 薄切片 | `acf check` 已接入 Task Stage registry；`acf plan stage list/add/set/done` 维护 `active/Task_Plan.md` 的 `## 任务阶段` 表 | 未做 task object 单文件；未做 Current_Task 自动切换，符合顶层边界 | Done / P2 | 后续仅在表格能力不足时再评估更重对象模型 |
 | Workstream | 可选并行目标线，不是 runtime / 调度器 / 权限系统 | 已实现 | `acf workstream init/add/set/block/cancel/ready/done/claim/note/show/list/status`; `Workstream_Design.md` | Workstream archive 命令未实现，当前靠 keep-active gate 和手工归档 | P2 | 先补生命周期 fixture，再决定 archive 命令 |
 | Workstream Stage | stage add/list/focus/done；focus 拒绝多 Active；done 要 evidence | 已实现 | `acf.py`; `tests/test_cli.py`; `tests/fixtures/context_matrix/workstream_stage_flow`; `tests/test_context_matrix.py`; `scripts/minimal_smoke.py`; `System_Manual.md` | synthetic fixture 和 smoke 已覆盖；真实复杂样本复核仍可作为 dogfooding 观察，不阻塞下一切片 | Done | 后续真实项目只读复核只记录观察，不新增规则 |
 | Workstream lifecycle | Done / Cancelled 短期留 active 必须 keep-active，长期进入 archive | 部分实现 | `acf check` keep-active gate; `Workstream_Design.md`; `ACF_Top_Level_Design.md` | 没有 `acf workstream archive`; archive/workstreams lifecycle 未单独 fixture 化 | P2 | 先做 fixture 和设计，不急于命令 |
@@ -67,7 +67,7 @@ Updated through P1-3 Upgrade matrix expansion.
 | JSON contract | AI-facing 命令稳定 `schema_version/ok/command/next_actions`，失败有 `error_code/message` | 已实现基础契约测试 | `tests/test_cli.py#test_ai_facing_success_json_contracts`; `tests/test_cli.py#test_ai_facing_failure_json_contracts`; `acf.py` | 仍不是全命令同形重排；后续新增 AI-facing 命令必须复用 contract helper | Done | 新命令新增时补契约测试 |
 | error_code recovery | 常见失败路径有稳定 error_code 和 next_actions | 已实现基础契约测试 | JSON contract failure tests; workstream stage errors; check/status input errors | 不是完整 error catalog；安全拒绝仍可保留通用 `safety_refused` | Done / P2 | 如做 error catalog，单独设计 |
 | context_matrix | minimal/legacy/audit/workstream/authority 防过拟合 fixture | 部分实现 | `tests/fixtures/context_matrix/*`; `tests/test_context_matrix.py` | `workstream_stage_flow` 已补；仍缺 `task_stage_registry`、`audit_stale_stage`、`audit_terminal_merge` | P2 | 后续按具体规则补 fixture |
-| minimal smoke | 快速覆盖 init/status/check/worklog/workstream 主路径 | 已实现当前 P1 范围 | `scripts/minimal_smoke.py` 包含 stage add/focus/done、workstream sync dry-run no-op、audit context clean | 仍是 release smoke，不替代全量单元/fixture 测试 | Done | 保持轻量 |
+| minimal smoke | 快速覆盖 init/status/check/worklog/workstream/task-stage 主路径 | 已实现当前 P2 范围 | `scripts/minimal_smoke.py` 包含 Workstream stage add/focus/done、workstream sync dry-run no-op、audit context clean，以及 Task Stage add/list/done | 仍是 release smoke，不替代全量单元/fixture 测试 | Done | 保持轻量 |
 | 多项目验证 | ACF/FCC/EcSOS/minimal/legacy/fixtures 共同验证 | 部分实现 | worklog 记录 FCC/EcSOS dogfooding；context/upgrade fixtures; `workstream_stage_flow` synthetic fixture | Workstream stage flow synthetic 已补；真实项目只读复核可继续积累，但不应阻塞 P1-3 | P1 | 下一步扩 upgrade matrix |
 | Task object 文件 | 不急于 `active/tasks/T001` 单文件化 | 不应实现 | `ACF_Top_Level_Design.md` | 无 | Deferred | 暂不做 |
 | high-risk audit | duplicate、strong claim、volatile wrong location | 不应现在实现 | `Context_Audit_Design.md`; `Product_Roadmap.md` | 需要多项目样本和 fixture 后再评估 | Deferred | 暂缓 |
@@ -191,6 +191,8 @@ acf plan stage done ...
 2. task_stage_registry fixture 完成。
 3. 明确不创建 task object 单文件。
 
+状态：已完成。新增 `acf plan stage list/add/set/done`，只维护 `active/Task_Plan.md` 的 `## 任务阶段` 表；`add/set` 校验 stage ID 归属父任务、父任务存在、optional Workstream owner 存在；`done` 要求 evidence；未创建 task object 单文件，未自动修改 `Current_Task`，未联动 Workstream。新增 `tests/fixtures/context_matrix/task_stage_registry`、CLI 单元测试和 minimal smoke Task Stage 主路径。
+
 ### P2-2 Workstream lifecycle / archive helper
 
 理由：keep-active gate 已有，但 Done / Cancelled 到 archive 的闭环仍靠人工。
@@ -272,8 +274,8 @@ ACF 可以进入受控实施阶段，但下一步应先补基础契约和验证�
 1. JSON contract consistency tests。
 2. Workstream stage flow fixture + minimal smoke 补强。
 3. Upgrade matrix expansion。
-4. Task Stage CLI 评估。
+4. Task Stage CLI 评估。已完成。
 5. Workstream lifecycle / archive helper 设计。
 6. high-risk audit rules 继续暂缓。
 
-当前进度：P1-1、P1-2、P1-3 已完成；下一入口应转入 P2 级评估，优先在 Task Stage CLI、Workstream lifecycle / archive helper、或生成式索引 sync 设计之间重新做小型 gap check。
+当前进度：P1-1、P1-2、P1-3 与 P2-1 已完成；下一入口应继续保持 gap-driven，优先在 Workstream lifecycle / archive helper 或生成式索引 sync 设计之间做小型 gap check，不扩展 high-risk audit rules。
