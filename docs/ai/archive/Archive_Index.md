@@ -21,3 +21,5 @@
 | 2026-05-03 | Plan | 复现分类 .acf.lock 残留 | 复现分类 .acf.lock 残留计划已完成；F014 已有分类结论，后续仅保留可选清理提示或仓库卫生说明。 | `archive/plans/2026-05-03-复现分类-.acf.lock-残留.md` |
 | 2026-05-03 | Task | 实现最小 smoke runner | 最小 smoke runner 已实现并通过验证；当前任务完成。 | `archive/tasks/2026-05-03-实现最小-smoke-runner.md` |
 | 2026-05-03 | Plan | 最小 smoke runner 设计与实现 | 最小 smoke runner 设计与实现计划已完成；脚本覆盖三条已验证主路径，并明确不扩展到真实项目批量评测或复杂 upgrade 审查。 | `archive/plans/2026-05-03-最小-smoke-runner-设计与实现.md` |
+| 2026-05-07 | Task | Draft EcSOS upgrade rehearsal plan | 切换到 P2 Workstream Task Flow 当前规划 | `archive/tasks/2026-05-07-draft-ecsos-upgrade-rehearsal-plan.md` |
+| 2026-05-07 | Plan | EcSOS upgrade rehearsal plan | 切换到 P2 Workstream Task Flow 当前规划 | `archive/plans/2026-05-07-ecsos-upgrade-rehearsal-plan.md` |

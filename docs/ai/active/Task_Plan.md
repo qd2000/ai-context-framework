@@ -2,46 +2,44 @@
 
 - 当前阶段事实请查看：`active/Context.md`
 - 当前正在执行的小任务请查看：`active/Current_Task.md`
-- 本文件只维护当前大任务拆分、状态、证据入口和下一步，不记录长过程、完整日志或详细推理
+- 本文件只维护当前大任务拆分、子任务状态和下一步，不记录长过程、命令输出或详细推理
 
 ---
 
 ## 大任务状态
 
-Done
+Active
 
 ---
 
 ## 大任务名称
 
-EcSOS upgrade rehearsal plan
+P2 Workstream Task Flow
 
 ---
 
 ## 大任务目标
 
-1. 为 EcSOS 非 PetroSim dogfooding 样本准备 upgrade dry-run -> apply 的授权前检查计划。
-2. 明确写入前必须确认目标项目 `ahead 1` 状态。
-3. 固定只读 / dry-run / 写入 / 写后验证顺序。
-4. 明确 upgrade 只验证 context 结构，不自动改论文事实、不修 stale 当前任务。
-5. 本轮只写 ACF 计划文档，不写 EcSOS。
+1. 补齐 Workstream 内部阶段的任务管理闭环，让阶段可机械新增、查询、聚焦、完成和后续评估是否同步 Current_Task。
+2. 保持 Workstream 仍是可选并行目标线，不扩展为 runtime、权限系统或复杂调度器。
+3. 以详情文件 active/workstreams/WS*.md 为阶段事实源，并保持 current_stage、## 阶段表、Workstreams 索引和 strict check 一致。
 
 ---
 
 ## 成功标准
 
-1. `reference/Non_PetroSim_Dogfooding_Sample.md` 增加 Upgrade Rehearsal Plan。
-2. 记录 EcSOS `ahead 1` 的具体 commit：`c236a77 初始化docs/ai/`。
-3. 写入范围预期限定为 upgrade dry-run 输出的结构文件。
-4. 写后验证命令明确为 check / audit / review stale / git status / git diff。
-5. 明确 stale current task、Context review marker 和论文事实不自动修。
-6. 本轮不修改 EcSOS 项目内容。
+1. T001 先产出 workstream stage/focus 命令契约设计，覆盖通用治理问题、分层、fixture、兼容性和 next_actions。
+2. PR 1 仅实现 workstream stage add/list：只修改目标详情文件，拒绝重复 ID 和跨 WS 阶段 ID，不改 Current_Task 或 Context。
+3. PR 2 实现 workstream focus：current_stage 必须存在且非 Done/Cancelled/Skipped，同一 WS 不能多个 Active，依赖未 Done 默认拒绝。
+4. PR 3 实现 workstream stage done：Done 阶段必须写 evidence，完成 current_stage 时第一版清空 current_stage，不自动激活下一阶段。
+5. PR 4 仅评估 --update-current-task 同步选项，默认不触碰全局 Current_Task。
+6. 每个实现 PR 后运行 uv run acf check template、uv run acf check docs/ai --strict --json 和 uv run python -m unittest。
 
 ---
 
 ## 当前焦点
 
-无。
+T001
 
 ---
 
@@ -49,7 +47,11 @@ EcSOS upgrade rehearsal plan
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | Draft EcSOS upgrade rehearsal plan | Non-PetroSim sample selection | 授权前检查、写入步骤、写后验证、不自动处理清单 | `reference/Non_PetroSim_Dogfooding_Sample.md`; `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 等用户明确授权后，才进入 EcSOS upgrade apply。 |
+| T001 | Active | Design workstream stage/focus command contract | Product Roadmap 要求新能力先确认通用上下文治理问题、分层、fixture、兼容性和 next_actions | Workstream stage/focus CLI 设计契约，覆盖 PR1-PR4 边界、状态规则、检查规则和验收 fixture | 无。 | 先写设计文档，不实现代码 |
+| T002 | Pending | Implement workstream stage add/list | T001 | acf workstream stage add/list；只修改目标 workstream 详情文件；新增阶段行；重复 ID 和跨 WS ID 拒绝 | 无。 | 为 stage 表读写、ID 归属和 JSON 输出补 fixture 与测试 |
+| T003 | Pending | Implement workstream focus | T002 | acf workstream focus；更新 current_stage 和阶段 Active 状态；拒绝缺失、终态、多 Active 和依赖未 Done | 无。 | 实现前先锁定 strict check 对 current_stage/Active/depends 的一致性规则 |
+| T004 | Pending | Implement workstream stage done | T003 | acf workstream stage done；Done 必须有 evidence；current_stage 完成后第一版清空，要求用户显式 focus 下一阶段 | 无。 | 实现 Done/evidence/current_stage strict fail 与 --clear-current 行为 |
+| T005 | Pending | Evaluate Current_Task sync option | T002,T003,T004 | 评估 workstream focus --update-current-task 是否进入后续 PR；只同步 Current_Task 的当前执行线和当前阶段 section | 无。 | 前三个命令稳定后再决定是否设计/实现全局入口同步 |
 
 ---
 
@@ -58,37 +60,6 @@ EcSOS upgrade rehearsal plan
 | ID | 状态 | 父任务 | 名称 | 归属 Workstream | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|---|---|
 | 暂无 |  |  |  |  |  |  |  |  |
-
----
-
-## 非目标
-
-本阶段不做：
-
-1. 不执行 EcSOS `acf upgrade` 正式写入。
-2. 不修改 EcSOS active/Context.md、Current_Task.md 或 Task_Plan.md。
-3. 不修 stale candidates。
-4. 不运行训练、采样、论文生成或 runtime 命令。
-5. 不新增 ACF audit rules。
-
----
-
-## 后续候选
-
-1. 用户明确授权后，按 rehearsal plan 执行 EcSOS upgrade apply。
-2. 写后只验证 context 结构和 audit/stale 信号。
-3. 将写入前/后差异写回 ACF worklog，再决定是否进入 P3 audit rule expansion。
-
----
-
-## 基线验证
-
-本任务至少运行：
-
-```bash
-uv run acf check docs/ai --strict --json
-uv run acf status docs/ai --json
-```
 
 ---
 
