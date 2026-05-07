@@ -37,7 +37,7 @@ P1 audit context design
 
 ## 当前焦点
 
-T001
+无。
 
 ---
 
@@ -46,7 +46,7 @@ T001
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
 | T001 | Done | P1 audit context design draft | P0 governance hardening baseline `v0.0.3.26` | `reference/Context_Audit_Design.md`; `../Automation.md`; `active/Current_Task.md` | `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 无。 |
-| T002 | Pending | Review audit MVP command contract | T001 | `acf audit context docs/ai --json` 只读输出契约 | 待 T001 完成 | 设计复核后再决定是否进入实现。 |
+| T002 | Done | Review audit MVP command contract | T001 | `acf audit context [path] --json` 只读输出契约、candidate 字段、首批 MVP rules | `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 无。 |
 
 ---
 

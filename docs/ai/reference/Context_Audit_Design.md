@@ -6,7 +6,7 @@
 
 ## 状态
 
-Draft
+MVP contract reviewed
 
 ---
 
@@ -48,6 +48,100 @@ acf audit context docs/ai --json
 1. `candidates` 只表示候选问题，不表示事实错误。
 2. `summary` 只做机械汇总，例如按 kind、path 或 severity 计数。
 3. `next_actions` 给出低风险审阅建议，不给出自动合并或自动删除指令。
+
+---
+
+## MVP Command Contract
+
+第一版 `acf audit context` 是只读候选发现命令，不写文件、不生成 patch、不创建 curation draft、不进入 strict。
+
+### Command
+
+```bash
+acf audit context [path] --json
+```
+
+参数约定：
+
+1. `[path]` 指向 ACF context root，例如 `docs/ai`。
+2. 第一版只要求 `--json` 输出契约稳定；人类可读输出可后置。
+3. 不支持 `--fix`、`--write`、`--patch` 或自动 draft 生成参数。
+
+### Top-level JSON fields
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "command": "audit context",
+  "context": "docs/ai",
+  "candidates": [],
+  "summary": {
+    "total": 0,
+    "by_kind": {},
+    "by_path": {},
+    "by_severity": {}
+  },
+  "next_actions": []
+}
+```
+
+字段约定：
+
+| 字段 | 含义 |
+|---|---|
+| `schema_version` | audit JSON 输出 schema 版本，第一版为 `1`。 |
+| `ok` | 命令是否成功完成读取和候选生成；存在 candidates 时仍可为 `true`。 |
+| `command` | 固定为 `audit context`。 |
+| `context` | 输入 context root，输出为调用方传入或规范化后的路径。 |
+| `candidates` | 候选问题数组；候选不等于事实错误。 |
+| `summary` | 机械汇总，第一版包含 `total`、`by_kind`、`by_path`、`by_severity`。 |
+| `next_actions` | 低风险审阅建议，不是自动修复指令。 |
+
+### Candidate fields
+
+```json
+{
+  "kind": "active_section_too_long",
+  "severity": "P1-candidate",
+  "path": "active/Context.md",
+  "section": "当前有效事实",
+  "reason": "section has 90 non-empty lines, above the MVP threshold",
+  "suggested_action": "Review whether process detail should move to worklog or reference material."
+}
+```
+
+字段约定：
+
+| 字段 | 含义 |
+|---|---|
+| `kind` | 候选类型，使用稳定 snake_case。 |
+| `severity` | `P0-candidate`、`P1-candidate` 或 `P2-candidate`。 |
+| `path` | context-root 相对路径，使用 POSIX slash。 |
+| `section` | 可选，命中的 Markdown section heading；无法定位时可省略或为空。 |
+| `reason` | 机械触发原因，说明阈值、状态或结构信号。 |
+| `suggested_action` | 审阅建议，不是自动修复指令。 |
+
+### MVP rules
+
+第一版只实现低误报、偏结构化的候选规则：
+
+1. `active_section_too_long`
+2. `stale_current_task_or_workstream_stage`
+3. `terminal_conclusion_not_merged`
+
+暂缓以下规则，避免 MVP 过早引入高误报语义判断：
+
+1. `duplicate_active_fact_candidate`
+2. `strong_claim_without_evidence`
+3. `volatile_fact_in_wrong_authority_location`
+
+### MVP acceptance
+
+1. clean context 输出 `ok: true`、空 `candidates` 和稳定 `summary`。
+2. 发现候选时仍输出 `ok: true`，除非读取或解析发生命令级错误。
+3. 每个候选必须有稳定 `kind`、`severity`、`path`、`reason` 和 `suggested_action`。
+4. 第一版不写文件，不改变 `acf check`、`acf review stale` 或 `acf curate draft` 行为。
 
 ---
 
