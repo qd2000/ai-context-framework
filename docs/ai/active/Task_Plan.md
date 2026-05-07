@@ -8,7 +8,7 @@
 
 ## 大任务状态
 
-Active
+Done
 
 ---
 
@@ -39,7 +39,7 @@ P2 Workstream Task Flow
 
 ## 当前焦点
 
-T001
+无。
 
 ---
 
@@ -47,11 +47,11 @@ T001
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Active | Design workstream stage/focus command contract | Product Roadmap 要求新能力先确认通用上下文治理问题、分层、fixture、兼容性和 next_actions | Workstream stage/focus CLI 设计契约，覆盖 PR1-PR4 边界、状态规则、检查规则和验收 fixture | 无。 | 先写设计文档，不实现代码 |
-| T002 | Pending | Implement workstream stage add/list | T001 | acf workstream stage add/list；只修改目标 workstream 详情文件；新增阶段行；重复 ID 和跨 WS ID 拒绝 | 无。 | 为 stage 表读写、ID 归属和 JSON 输出补 fixture 与测试 |
-| T003 | Pending | Implement workstream focus | T002 | acf workstream focus；更新 current_stage 和阶段 Active 状态；拒绝缺失、终态、多 Active 和依赖未 Done | 无。 | 实现前先锁定 strict check 对 current_stage/Active/depends 的一致性规则 |
-| T004 | Pending | Implement workstream stage done | T003 | acf workstream stage done；Done 必须有 evidence；current_stage 完成后第一版清空，要求用户显式 focus 下一阶段 | 无。 | 实现 Done/evidence/current_stage strict fail 与 --clear-current 行为 |
-| T005 | Pending | Evaluate Current_Task sync option | T002,T003,T004 | 评估 workstream focus --update-current-task 是否进入后续 PR；只同步 Current_Task 的当前执行线和当前阶段 section | 无。 | 前三个命令稳定后再决定是否设计/实现全局入口同步 |
+| T001 | Done | Design workstream stage/focus command contract | Product Roadmap 要求新能力先确认通用上下文治理问题、分层、fixture、兼容性和 next_actions | Workstream stage/focus CLI 设计契约，覆盖 PR1-PR4 边界、状态规则、检查规则和验收 fixture | docs/ai/reference/Workstream_Design.md; acf.py; tests/test_cli.py; verification: uv run python -m unittest, uv run acf check template --json, uv run acf check docs/ai --strict --json, uv run acf upgrade docs/ai --dry-run --json, uv run python scripts/minimal_smoke.py, uv run python scripts/upgrade_matrix.py --mode quick | 无。 |
+| T002 | Done | Implement workstream stage add/list | T001 | acf workstream stage add/list；只修改目标 workstream 详情文件；新增阶段行；重复 ID 和跨 WS ID 拒绝 | acf.py; tests/test_cli.py; commands: acf workstream stage add/list; rejects duplicate and cross-WS stage IDs | 已实现并验证 |
+| T003 | Done | Implement workstream focus | T002 | acf workstream focus；更新 current_stage 和阶段 Active 状态；拒绝缺失、终态、多 Active 和依赖未 Done | acf.py; tests/test_cli.py; command: acf workstream focus; rejects terminal target, multiple Active stages, and unmet same-WS dependencies | 已实现并验证 |
+| T004 | Done | Implement workstream stage done | T003 | acf workstream stage done；Done 必须有 evidence；current_stage 完成后第一版清空，要求用户显式 focus 下一阶段 | acf.py; tests/test_cli.py; command: acf workstream stage done; requires evidence and --clear-current for focused stage; strict check rejects Done stage without evidence | 已实现并验证 |
+| T005 | Done | Evaluate Current_Task sync option | T002,T003,T004 | 评估 workstream focus --update-current-task 是否进入后续 PR；只同步 Current_Task 的当前执行线和当前阶段 section | docs/ai/reference/Workstream_Design.md; README.md; System_Manual.md; --update-current-task left as deferred follow-up, no global Current_Task sync implemented | 后续如有明确需求再单独设计 --update-current-task |
 
 ---
 

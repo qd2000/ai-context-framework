@@ -1610,6 +1610,247 @@ class CliTests(unittest.TestCase):
 
             self.assertTrue(any("current_stage `WS004.2` is not registered" in error for error in result.errors))
 
+    def test_workstream_stage_add_and_list_registers_only_detail_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            current_task_before = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            context_before = (target / "active" / "Context.md").read_text(encoding="utf-8")
+            index_before = (target / "active" / "Workstreams.md").read_text(encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "stage",
+                    "add",
+                    "WS004",
+                    str(target),
+                    "--id",
+                    "WS004.2",
+                    "--title",
+                    "pct10 formal Morris",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["changed_files"], [str(detail_path)])
+            self.assertIn("| WS004.2 | Pending | pct10 formal Morris |", detail_path.read_text(encoding="utf-8"))
+            self.assertEqual((target / "active" / "Current_Task.md").read_text(encoding="utf-8"), current_task_before)
+            self.assertEqual((target / "active" / "Context.md").read_text(encoding="utf-8"), context_before)
+            self.assertEqual((target / "active" / "Workstreams.md").read_text(encoding="utf-8"), index_before)
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "stage", "list", "WS004", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            stages = json.loads(stdout)["stages"]
+            self.assertEqual(stages[0]["id"], "WS004.2")
+            self.assertEqual(stages[0]["status"], "Pending")
+            self.assertFalse(acf.check_context(target, "minimal", strict=False).errors)
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "stage",
+                    "add",
+                    "WS004",
+                    str(target),
+                    "--id",
+                    "WS004.2",
+                    "--title",
+                    "duplicate",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_stage_duplicate_id")
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "stage",
+                    "add",
+                    "WS004",
+                    str(target),
+                    "--id",
+                    "WS005.1",
+                    "--title",
+                    "foreign",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_stage_scope_invalid")
+
+    def test_workstream_focus_sets_current_stage_and_rejects_blockers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            self.assertEqual(self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "stage",
+                        "add",
+                        "WS004",
+                        str(target),
+                        "--id",
+                        "WS004.1",
+                        "--title",
+                        "first",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "stage",
+                        "add",
+                        "WS004",
+                        str(target),
+                        "--id",
+                        "WS004.2",
+                        "--title",
+                        "second",
+                        "--depends",
+                        "WS004.1",
+                    ]
+                ),
+                0,
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(["workstream", "focus", "WS004", "WS004.2", str(target), "--json"])
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_stage_dependency_blocked")
+
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "stage",
+                        "done",
+                        "WS004",
+                        "WS004.1",
+                        str(target),
+                        "--evidence",
+                        "worklog/daily/stage-1.md",
+                    ]
+                ),
+                0,
+            )
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "focus", "WS004", "WS004.2", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["current_stage"], "WS004.2")
+            detail_text = (target / "active" / "workstreams" / "WS004.md").read_text(encoding="utf-8")
+            self.assertIn("current_stage: WS004.2", detail_text)
+            self.assertIn("| WS004.2 | Active | second | WS004.1 |", detail_text)
+
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "stage",
+                        "add",
+                        "WS004",
+                        str(target),
+                        "--id",
+                        "WS004.3",
+                        "--title",
+                        "third",
+                    ]
+                ),
+                0,
+            )
+            exit_code, stdout, _stderr = self.run_cli_output(["workstream", "focus", "WS004", "WS004.3", str(target), "--json"])
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_stage_active_conflict")
+
+    def test_workstream_stage_done_requires_evidence_and_clears_current_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            self.assertEqual(self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "stage",
+                        "add",
+                        "WS004",
+                        str(target),
+                        "--id",
+                        "WS004.1",
+                        "--title",
+                        "stage one",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "focus", "WS004", "WS004.1", str(target)]), 0)
+
+            exit_code, stdout, _stderr = self.run_cli_output(["workstream", "stage", "done", "WS004", "WS004.1", str(target), "--json"])
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_missing_evidence")
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "stage",
+                    "done",
+                    "WS004",
+                    "WS004.1",
+                    str(target),
+                    "--evidence",
+                    "output/stage-one",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_stage_clear_current_required")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "stage",
+                    "done",
+                    "WS004",
+                    "WS004.1",
+                    str(target),
+                    "--evidence",
+                    "output/stage-one",
+                    "--clear-current",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["status"], "Done")
+            detail_text = (target / "active" / "workstreams" / "WS004.md").read_text(encoding="utf-8")
+            self.assertNotIn("current_stage:", detail_text)
+            self.assertIn("| WS004.1 | Done | stage one | 无。 | 待补充。 | output/stage-one |", detail_text)
+
+    def test_workstream_strict_rejects_done_stage_without_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            self.write_workstream_stage_table(
+                target,
+                "WS004",
+                [["WS004.1", "Done", "stage", "无。", "output", "无。", "next"]],
+            )
+
+            self.assertFalse(acf.check_context(target, "minimal", strict=False).errors)
+            result = acf.check_context(target, "minimal", strict=True)
+            self.assertTrue(any("Done workstream stage `WS004.1` missing evidence" in error for error in result.errors))
+
     def test_workstream_current_stage_must_belong_to_workstream(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

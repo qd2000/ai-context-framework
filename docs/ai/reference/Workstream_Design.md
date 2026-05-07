@@ -754,12 +754,37 @@ current_stage: WS004.2
 5. Done / Cancelled Workstream 不能有 Active 阶段或非终态 `current_stage`。
 6. 阶段表不存在且未声明 `current_stage` 时不报错，保持旧项目兼容。
 
+阶段任务流命令：
+
+1. `acf workstream stage add WS004 --id WS004.2 --title "pct10 formal Morris" --json`
+   - 只修改 active/workstreams/WS004 dot md。
+   - 若 `## 阶段` 表不存在，则创建该 section 和表。
+   - 新阶段默认 `Pending`，不自动设为 Active，不修改 `../active/Current_Task.md` 或 `../active/Context.md`。
+   - `WS004.2` 必须属于 `WS004`；重复 ID 拒绝。
+2. `acf workstream stage list WS004 --json`
+   - 只读取详情文件，返回 `current_stage` 和阶段表行。
+3. `acf workstream focus WS004 WS004.2 --json`
+   - 更新详情 front matter 的 `current_stage: WS004.2`。
+   - 将目标阶段设为 `Active`。
+   - 若同一 Workstream 已有其他 Active 阶段，第一版拒绝，不自动替用户降级为 Pending。
+   - 目标阶段不能是 Done / Cancelled / Skipped。
+   - 同一 Workstream 内部依赖阶段未 Done 时拒绝；外部 Task / Workstream 依赖只保留为文本引用。
+   - 不更新全局 `../active/Current_Task.md`；后续如需同步，单独设计 `--update-current-task`。
+4. `acf workstream stage done WS004 WS004.2 --evidence "output/..." --clear-current --json`
+   - 将目标阶段设为 `Done` 并写入 evidence。
+   - 如果目标阶段是 `current_stage`，必须传 `--clear-current`，完成后清空 `current_stage`。
+   - 不自动激活下一阶段。
+
+新增检查规则：
+
+1. strict check 下，Done 阶段必须有非占位 evidence。
+
 后续可扩展规则：
 
-1. 机械检查同一 Workstream 内部阶段依赖；外部 `WS001`、`T001` 等依赖只作为历史或前置输入引用，不在 PR 1b 中做语义裁决。
-2. 全局 `active/Current_Task.md` 若同时声明 `## 当前执行线` 和 `## 当前阶段`，则当前阶段必须属于当前执行线，并与 Workstream 详情的 `current_stage` 一致。
+1. 全局 `active/Current_Task.md` 若同时声明 `## 当前执行线` 和 `## 当前阶段`，则当前阶段必须属于当前执行线，并与 Workstream 详情的 `current_stage` 一致。
+2. `workstream focus --update-current-task` 可作为后续 PR 评估，只同步 `../active/Current_Task.md` 的当前执行线和当前阶段 section，不复制 Workstream 详情。
 
-PR 1b 只实现注册和 check，不实现完整 `acf workstream stage add|set|done` 或 `acf workstream focus` 命令。命令层待规则稳定后再补。
+本阶段仍不做自动创建下一阶段、自动推断阶段依赖、自动归档 Workstream、自动合并结论到 Context、自然语言阶段识别或完整 kanban。
 
 ### Authority write gate
 

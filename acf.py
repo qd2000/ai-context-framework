@@ -916,6 +916,20 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Choose a different write scope or resolve the conflicting active Workstream first."]
     if error_code == "workstream_owned_scope_invalid":
         return ["Use `owned:` only for the current Workstream detail file."]
+    if error_code == "workstream_stage_duplicate_id":
+        return ["Choose an unused Workstream stage ID in this Workstream detail file."]
+    if error_code == "workstream_stage_scope_invalid":
+        return ["Use a Workstream stage ID that belongs to the target Workstream, for example `WS004.2` in `WS004`."]
+    if error_code == "workstream_stage_not_found":
+        return ["Run `acf workstream stage list ...` and choose a registered stage ID."]
+    if error_code == "workstream_stage_terminal":
+        return ["Choose a non-terminal Workstream stage; terminal stages cannot be focused."]
+    if error_code == "workstream_stage_active_conflict":
+        return ["Resolve the existing Active stage first; this version does not automatically demote other Active stages."]
+    if error_code == "workstream_stage_dependency_blocked":
+        return ["Finish the dependent Workstream stage before focusing this stage."]
+    if error_code == "workstream_stage_clear_current_required":
+        return ["Pass `--clear-current` when completing the current Workstream stage."]
     if error_code == "input_error":
         return [
             "Check command arguments and paths.",
@@ -949,6 +963,13 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_scope_invalid",
         "workstream_claim_conflict",
         "workstream_owned_scope_invalid",
+        "workstream_stage_duplicate_id",
+        "workstream_stage_scope_invalid",
+        "workstream_stage_not_found",
+        "workstream_stage_terminal",
+        "workstream_stage_active_conflict",
+        "workstream_stage_dependency_blocked",
+        "workstream_stage_clear_current_required",
     )
     for code in workstream_codes:
         if message.startswith(f"{code}:"):
@@ -1094,15 +1115,21 @@ def write_command_context_root(args: argparse.Namespace) -> Path | None:
     if command in {"init", "simplify"}:
         return None
     if command == "workstream":
+        if getattr(args, "workstream_command", None) == "stage":
+            if getattr(args, "workstream_stage_command", None) in {"add", "done"}:
+                return require_context_root(getattr(args, "path", None))
+            return None
         if getattr(args, "workstream_command", None) in {
             "init",
             "add",
             "set",
+            "sync",
             "block",
             "cancel",
             "merge-request",
             "ready",
             "done",
+            "focus",
             "claim",
             "note",
         }:
@@ -2113,6 +2140,12 @@ def validate_knowledge_id(value: str) -> str:
 def validate_workstream_id(value: str) -> str:
     if not WORKSTREAM_ID_RE.match(value):
         raise argparse.ArgumentTypeError("workstream id must use WS001 format")
+    return value
+
+
+def validate_workstream_stage_id(value: str) -> str:
+    if not WORKSTREAM_STAGE_ID_RE.match(value):
+        raise argparse.ArgumentTypeError("workstream stage id must use WS001.1 format")
     return value
 
 
@@ -5576,6 +5609,186 @@ def workstream_claim_command(args: argparse.Namespace) -> int:
     )
 
 
+def workstream_stage_add_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    workstream_id = args.id
+    stage_id = args.stage_id
+    require_workstream_stage_belongs_to(workstream_id, stage_id)
+    detail = read_workstream_detail(root, workstream_id)
+    rows = read_workstream_stage_rows(detail.body)
+    if find_workstream_stage_row(rows, stage_id) is not None:
+        raise SystemExit(f"workstream_stage_duplicate_id: {stage_id}")
+    title = (args.title or "").strip()
+    if not title:
+        raise SystemExit("workstream_stage_scope_invalid: stage title cannot be empty")
+    row = {
+        "ID": stage_id,
+        "状态": "Pending",
+        "阶段": title,
+        "依赖": (args.depends or "无。").strip() or "无。",
+        "输出物": (args.output or "待补充。").strip() or "待补充。",
+        "证据": "无。",
+        "下一步": (args.next_action or "待推进。").strip() or "待推进。",
+    }
+    updated_text = format_front_matter(
+        detail.metadata,
+        replace_or_append_workstream_stage_rows(detail.body, [*rows, row]),
+        WORKSTREAM_METADATA_FIELDS,
+    )
+    changed = [detail.path]
+    if not dry_run:
+        detail.path.write_text(updated_text, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would add" if dry_run else "added"
+    return emit_write_result(
+        args,
+        "workstream stage add",
+        f"{action} stage {stage_id} for Workstream {workstream_id}",
+        changed,
+        check_result,
+        extra_payload={"id": workstream_id, "stage": workstream_stage_payload(row)},
+    )
+
+
+def workstream_stage_list_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    detail = read_workstream_detail(root, args.id)
+    rows = read_workstream_stage_rows(detail.body)
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": "workstream stage list",
+        "ok": True,
+        "context": str(root),
+        "id": args.id,
+        "detail": str(detail.path),
+        "current_stage": detail.metadata.get("current_stage"),
+        "stages": [workstream_stage_payload(row) for row in rows],
+        "error_code": None,
+        "next_actions": [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        for row in rows:
+            print(f"{row.get('ID')}\t{row.get('状态')}\t{row.get('阶段')}")
+        if not rows:
+            print("no workstream stages")
+    return 0
+
+
+def assert_workstream_stage_dependencies_done(workstream_id: str, rows: Sequence[dict[str, str]], row: dict[str, str]) -> None:
+    rows_by_id = {candidate.get("ID", ""): candidate for candidate in rows}
+    blocked: list[str] = []
+    for dependency_id in workstream_stage_dependency_tokens(row.get("依赖", "")):
+        if not workstream_stage_belongs_to(workstream_id, dependency_id):
+            continue
+        dependency = rows_by_id.get(dependency_id)
+        if dependency is None or dependency.get("状态") != "Done":
+            blocked.append(dependency_id)
+    if blocked:
+        raise SystemExit(f"workstream_stage_dependency_blocked: {row.get('ID')} depends on {', '.join(blocked)}")
+
+
+def workstream_focus_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    workstream_id = args.id
+    stage_id = args.stage_id
+    require_workstream_stage_belongs_to(workstream_id, stage_id)
+    detail = read_workstream_detail(root, workstream_id)
+    rows = read_workstream_stage_rows(detail.body)
+    row = find_workstream_stage_row(rows, stage_id)
+    if row is None:
+        raise SystemExit(f"workstream_stage_not_found: {stage_id}")
+    current_status = row.get("状态", "")
+    if terminal_workstream_stage_status(current_status):
+        raise SystemExit(f"workstream_stage_terminal: {stage_id} has status {current_status}")
+    active_stage_ids = [candidate.get("ID", "") for candidate in rows if candidate.get("状态") == "Active" and candidate.get("ID") != stage_id]
+    if active_stage_ids:
+        raise SystemExit(f"workstream_stage_active_conflict: {workstream_id} already has Active stage {active_stage_ids[0]}")
+    assert_workstream_stage_dependencies_done(workstream_id, rows, row)
+
+    updated_rows: list[dict[str, str]] = []
+    for candidate in rows:
+        updated = dict(candidate)
+        if updated.get("ID") == stage_id:
+            updated["状态"] = "Active"
+        updated_rows.append(updated)
+    metadata = dict(detail.metadata)
+    metadata["current_stage"] = stage_id
+    updated_text = format_front_matter(
+        metadata,
+        replace_or_append_workstream_stage_rows(detail.body, updated_rows),
+        WORKSTREAM_METADATA_FIELDS,
+    )
+    changed = [detail.path]
+    if not dry_run:
+        detail.path.write_text(updated_text, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would focus" if dry_run else "focused"
+    return emit_write_result(
+        args,
+        "workstream focus",
+        f"{action} Workstream {workstream_id} on stage {stage_id}",
+        changed,
+        check_result,
+        extra_payload={"id": workstream_id, "current_stage": stage_id},
+    )
+
+
+def workstream_stage_done_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    workstream_id = args.id
+    stage_id = args.stage_id
+    require_workstream_stage_belongs_to(workstream_id, stage_id)
+    evidence = required_workstream_evidence(args)
+    detail = read_workstream_detail(root, workstream_id)
+    rows = read_workstream_stage_rows(detail.body)
+    row = find_workstream_stage_row(rows, stage_id)
+    if row is None:
+        raise SystemExit(f"workstream_stage_not_found: {stage_id}")
+    current_status = row.get("状态", "")
+    if current_status in {"Cancelled", "Skipped"}:
+        raise SystemExit(f"workstream_stage_terminal: {stage_id} has status {current_status}")
+    metadata = dict(detail.metadata)
+    is_current_stage = metadata.get("current_stage") == stage_id
+    if is_current_stage and not args.clear_current:
+        raise SystemExit(f"workstream_stage_clear_current_required: {stage_id} is current_stage")
+    if is_current_stage and args.clear_current:
+        metadata.pop("current_stage", None)
+
+    updated_rows: list[dict[str, str]] = []
+    for candidate in rows:
+        updated = dict(candidate)
+        if updated.get("ID") == stage_id:
+            updated["状态"] = "Done"
+            updated["证据"] = evidence
+            if args.next_action is not None:
+                updated["下一步"] = args.next_action.strip() or "无。"
+        updated_rows.append(updated)
+    updated_text = format_front_matter(
+        metadata,
+        replace_or_append_workstream_stage_rows(detail.body, updated_rows),
+        WORKSTREAM_METADATA_FIELDS,
+    )
+    changed = [detail.path]
+    if not dry_run:
+        detail.path.write_text(updated_text, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would mark" if dry_run else "marked"
+    return emit_write_result(
+        args,
+        "workstream stage done",
+        f"{action} stage {stage_id} Done for Workstream {workstream_id}",
+        changed,
+        check_result,
+        extra_payload={"id": workstream_id, "stage_id": stage_id, "status": "Done", "evidence": evidence},
+    )
+
+
 def resolve_context_existing_path(root: Path, value: str) -> Path:
     candidate = Path(strip_code_ticks(value))
     resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
@@ -7303,6 +7516,72 @@ def read_workstream_stage_rows(body: str) -> list[dict[str, str]]:
     return rows
 
 
+def workstream_stage_payload(row: dict[str, str]) -> dict[str, str]:
+    return {
+        "id": row.get("ID", ""),
+        "status": row.get("状态", ""),
+        "title": row.get("阶段", ""),
+        "depends_on": row.get("依赖", ""),
+        "output": row.get("输出物", ""),
+        "evidence": row.get("证据", ""),
+        "next_action": row.get("下一步", ""),
+    }
+
+
+def render_workstream_stage_rows(rows: Sequence[dict[str, str]]) -> list[str]:
+    if not rows:
+        return [render_table_row(["暂无", "Empty", "无。", "无。", "无。", "无。", "无。"])]
+    return [
+        render_table_row(
+            [
+                row.get("ID", ""),
+                row.get("状态", ""),
+                row.get("阶段", ""),
+                row.get("依赖", ""),
+                row.get("输出物", ""),
+                row.get("证据", ""),
+                row.get("下一步", ""),
+            ]
+        )
+        for row in rows
+    ]
+
+
+def replace_or_append_workstream_stage_rows(body: str, rows: Sequence[dict[str, str]]) -> str:
+    rendered_rows = render_workstream_stage_rows(rows)
+    lines = body.splitlines()
+    try:
+        table = find_table(lines, WORKSTREAM_STAGE_TABLE_HEADER)
+    except SystemExit:
+        table_text = "\n".join(
+            [
+                WORKSTREAM_STAGE_TABLE_HEADER,
+                "|---|---|---|---|---|---|---|",
+                *rendered_rows,
+            ]
+        )
+        return body.rstrip() + f"\n\n---\n\n## 阶段\n\n{table_text}\n"
+    updated_lines = list(lines[: table.body_start]) + rendered_rows + list(lines[table.body_end :])
+    return "\n".join(updated_lines).rstrip() + "\n"
+
+
+def find_workstream_stage_row(rows: Sequence[dict[str, str]], stage_id: str) -> dict[str, str] | None:
+    return next((row for row in rows if row.get("ID") == stage_id), None)
+
+
+def require_workstream_stage_belongs_to(workstream_id: str, stage_id: str) -> None:
+    if not workstream_stage_belongs_to(workstream_id, stage_id):
+        raise SystemExit(f"workstream_stage_scope_invalid: {stage_id} does not belong to {workstream_id}")
+
+
+def terminal_workstream_stage_status(status: str) -> bool:
+    return status in {"Done", "Cancelled", "Skipped"}
+
+
+def workstream_stage_dependency_tokens(value: str) -> list[str]:
+    return re.findall(r"\bWS\d{3}\.\d+\b", value or "")
+
+
 def workstream_stage_belongs_to(workstream_id: str, stage_id: str) -> bool:
     return stage_id.startswith(f"{workstream_id}.")
 
@@ -7312,7 +7591,7 @@ def workstream_section_missing(body: str, heading: str) -> bool:
     return not value or value in {"无。", "待补充。", "None", "Empty"}
 
 
-def check_workstream_stage_focus(root: Path, detail: WorkstreamDetail, errors: list[str]) -> None:
+def check_workstream_stage_focus(root: Path, detail: WorkstreamDetail, errors: list[str], strict: bool) -> None:
     rel = detail.path.relative_to(root).as_posix()
     workstream_id = detail.workstream_id
     status = detail.metadata.get("status")
@@ -7333,6 +7612,9 @@ def check_workstream_stage_focus(root: Path, detail: WorkstreamDetail, errors: l
         stage_by_id[stage_id] = row
         if stage_status not in VALID_WORKSTREAM_STAGE_STATUSES:
             errors.append(f"{rel}: invalid workstream stage status `{stage_status}` for {stage_id}")
+        evidence = row.get("证据")
+        if strict and stage_status == "Done" and (required_field_missing(evidence) or evidence in {"无。", "待补充。"}):
+            errors.append(f"{rel}: Done workstream stage `{stage_id}` missing evidence")
         if stage_status == "Active":
             active_stage_ids.append(stage_id)
 
@@ -7525,7 +7807,7 @@ def check_workstreams(root: Path, errors: list[str], warnings: list[str], strict
                 strict,
             )
         check_workstream_state_requirements(root, detail, entry, errors, warnings, strict)
-        check_workstream_stage_focus(root, detail, errors)
+        check_workstream_stage_focus(root, detail, errors, strict)
 
     if details_dir.is_dir():
         for path in sorted(details_dir.glob("WS*.md")):
@@ -8064,6 +8346,43 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_sync_parser.add_argument("path", nargs="?", type=Path)
     add_write_arguments(workstream_sync_parser)
     workstream_sync_parser.set_defaults(func=workstream_sync_command)
+
+    workstream_stage_parser = workstream_subparsers.add_parser("stage", help="manage Workstream internal stages")
+    workstream_stage_subparsers = workstream_stage_parser.add_subparsers(dest="workstream_stage_command", required=True)
+
+    workstream_stage_add_parser = workstream_stage_subparsers.add_parser("add", help="register a Workstream internal stage")
+    workstream_stage_add_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS004")
+    workstream_stage_add_parser.add_argument("path", nargs="?", type=Path)
+    workstream_stage_add_parser.add_argument("--id", dest="stage_id", type=validate_workstream_stage_id, required=True, help="stage id, for example WS004.2")
+    workstream_stage_add_parser.add_argument("--title", required=True, help="stage title")
+    workstream_stage_add_parser.add_argument("--depends", default="无。", help="stage dependencies")
+    workstream_stage_add_parser.add_argument("--output", default="待补充。", help="expected stage output")
+    workstream_stage_add_parser.add_argument("--next-action", default="待推进。", help="stage next action")
+    add_write_arguments(workstream_stage_add_parser)
+    workstream_stage_add_parser.set_defaults(func=workstream_stage_add_command)
+
+    workstream_stage_list_parser = workstream_stage_subparsers.add_parser("list", help="list Workstream internal stages")
+    workstream_stage_list_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS004")
+    workstream_stage_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(workstream_stage_list_parser)
+    workstream_stage_list_parser.set_defaults(func=workstream_stage_list_command)
+
+    workstream_stage_done_parser = workstream_stage_subparsers.add_parser("done", help="mark a Workstream internal stage done")
+    workstream_stage_done_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS004")
+    workstream_stage_done_parser.add_argument("stage_id", type=validate_workstream_stage_id, help="stage id, for example WS004.2")
+    workstream_stage_done_parser.add_argument("path", nargs="?", type=Path)
+    workstream_stage_done_parser.add_argument("--evidence", default=None, help="stage completion evidence")
+    workstream_stage_done_parser.add_argument("--clear-current", action="store_true", help="clear current_stage when completing the focused stage")
+    workstream_stage_done_parser.add_argument("--next-action", default=None, help="optional replacement next action")
+    add_write_arguments(workstream_stage_done_parser)
+    workstream_stage_done_parser.set_defaults(func=workstream_stage_done_command)
+
+    workstream_focus_parser = workstream_subparsers.add_parser("focus", help="focus a Workstream on a registered internal stage")
+    workstream_focus_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS004")
+    workstream_focus_parser.add_argument("stage_id", type=validate_workstream_stage_id, help="stage id, for example WS004.2")
+    workstream_focus_parser.add_argument("path", nargs="?", type=Path)
+    add_write_arguments(workstream_focus_parser)
+    workstream_focus_parser.set_defaults(func=workstream_focus_command)
 
     workstream_show_parser = workstream_subparsers.add_parser("show", help="show a Workstream detail file")
     workstream_show_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")

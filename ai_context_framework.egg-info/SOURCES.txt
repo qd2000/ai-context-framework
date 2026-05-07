@@ -40,4 +40,5 @@ template/worklog/Worklog_Index.md
 template/worklog/daily/YYYY-MM-DD.md
 template/worklog/knowledge-drafts/.gitkeep
 tests/test_cli.py
+tests/test_context_matrix.py
 tests/test_upgrade_matrix.py

@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.25` 是当前推荐的真实项目接入/升级版本，新增按需读取的 `reference/Context_Curation_Prompt.md`，用于帮助 AI 产出上下文整理建议，但不让 CLI 自动裁决或清理事实。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.26` 是当前推荐的真实项目接入/升级版本，新增 Workstream 内部阶段注册、聚焦和完成命令，用于让 Workstream 阶段闭环保持机械一致。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -185,6 +185,7 @@ acf archive current-task --reason "任务已完成"
 acf knowledge draft --title "任务拆分经验" --source "worklog/daily/YYYY-MM-DD.md"
 acf knowledge apply worklog/knowledge-drafts/YYYY-MM-DD-task.md --allow-similar
 acf review stale --json
+acf audit context --json
 acf curate draft --dry-run --json
 acf workstream status --json
 acf workstream init --dry-run --json
@@ -196,6 +197,10 @@ acf workstream ready WS002
 acf workstream done WS002 --evidence "worklog/daily/YYYY-MM-DD.md" --merge-resolution merged
 acf workstream claim WS002 --read reference/Architecture.md --write "assigned: src/foo.py"
 acf workstream note WS002 --section 当前发现 --text "记录一个局部发现。"
+acf workstream stage add WS002 --id WS002.1 --title "内部阶段"
+acf workstream stage list WS002 --json
+acf workstream focus WS002 WS002.1
+acf workstream stage done WS002 WS002.1 --evidence "worklog/daily/YYYY-MM-DD.md" --clear-current
 acf workstream sync --dry-run --json
 acf workstream block WS002 --reason "等待依赖"
 acf workstream cancel WS002 --reason "方向取消"
@@ -219,7 +224,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.25 --dry-run --json
+acf version set v0.0.3.26 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -239,8 +244,9 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
 - `review stale`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json` 和 `--days`。JSON 输出包含 `summary.total`、`summary.by_kind`、`summary.by_path`，每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
+- `audit context`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告 `active_section_too_long`、`stale_current_task_or_workstream_stage` 和 `terminal_conclusion_not_merged`（ReadyToMerge 待合并或 Done 缺合并结果）。JSON 输出包含 `candidates`、`summary.total`、`summary.by_kind`、`summary.by_path`、`summary.by_severity` 和 `next_actions`。
 - `curate draft`：复用 `review stale` 的 stale candidates 生成 `worklog/curation-drafts/YYYY-MM-DD.md` 注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days` 和 `--name`。
-- `workstream init|status|list|sync|show|add|set|block|cancel|merge-request|ready|done|claim|note`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；`sync` 只根据 `active/workstreams/*.md` front matter 更新 `active/Workstreams.md`，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`merge_targets` 记录候选合并目标，Done 需要 `--merge-resolution` 写入合并结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
+- `workstream init|status|list|sync|show|add|set|block|cancel|merge-request|ready|done|claim|note|focus` 和 `workstream stage add|list|done`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim、详情备注和内部阶段焦点；`sync` 只根据 `active/workstreams/*.md` front matter 更新 `active/Workstreams.md`，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，Done 需要 `--merge-resolution` 写入合并结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`；同日已有记录且需要补记时使用 `--append`，需要重建时使用 `--force`，二者不能混用。
@@ -248,13 +254,13 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为注意力治理草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
-- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、任务阶段注册、archive、Knowledge 和显式启用的 Workstream；Workstream 检查包含 optional `current_stage` 与 `## 阶段` 表一致性、Workstreams 索引与详情 front matter 一致性、authority 写入门禁和 `merge_targets` 合并请求要求；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
+- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、任务阶段注册、archive、Knowledge 和显式启用的 Workstream；Workstream 检查包含 optional `current_stage` 与 `## 阶段` 表一致性、strict 下 Done 阶段 evidence、Workstreams 索引与详情 front matter 一致性、authority 写入门禁和 `merge_targets` 合并请求要求；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
 - `log enable|disable|status|tail|summarize|feedback|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭；普通 usage event 不记录正文，显式 `log feedback --text/--input` 才记录人工反馈正文。
 - `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 
-`status`、`check`、`review stale`、`workstream status|list|show` 和 `edit section get` 支持 `--json` 输出。`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
+`status`、`check`、`review stale`、`audit context`、`workstream status|list|show` 和 `edit section get` 支持 `--json` 输出。`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
 
 `edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它提供的是 section/table 级确定性编辑原语，不做语义判断，也不是通用 Markdown 编辑器。
 
