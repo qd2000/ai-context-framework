@@ -132,7 +132,7 @@ acf knowledge ...
 | minimal project | 验证空白/小项目不增加负担 | init/status/check/audit 必须低噪声 |
 | legacy project | 验证 upgrade 兼容 | 升级不破坏旧正文，不强制新对象 |
 | synthetic fixtures | 验证边界和误伤 | 新规则必须优先补 fixture / unit test |
-| non PetroSim project | 防止领域过拟合 | 论文、工具库、Web 项目或数据项目至少选一类 |
+| non PetroSim project | 防止领域过拟合 | 已选择 EcSOS `cracking-yield-prediction-system` 作为论文 / 数据分析 / Python 工具项目样本 |
 
 ---
 
@@ -193,7 +193,7 @@ authority_gate
 4. `audit_long_section`：验证 H1 wrapper 不误报，真实长 H2/H3 section 仍报告。
 5. `workstream_complex`：验证 current_stage、merge_resolution、keep-active metadata 和 Workstream sync no-op。
 6. `authority_gate`：验证 Workstream direct authority claim 在 strict 下失败。
-7. 非 PetroSim 真实项目样本仍需要在 P3 audit rule expansion 前补充；本轮只做 fixture matrix，不选择具体项目。
+7. 非 PetroSim 真实项目样本已选择 EcSOS `cracking-yield-prediction-system`，只读评估记录见 `reference/Non_PetroSim_Dogfooding_Sample.md`。
 
 ### P3 Audit Rule Expansion
 

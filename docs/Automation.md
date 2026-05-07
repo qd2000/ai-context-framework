@@ -4,6 +4,8 @@
 
 通用产品路线见 `docs/ai/reference/Product_Roadmap.md`。后续真实项目反馈进入 ACF 前，必须先抽象成通用上下文治理问题，并能用 fixture 或最小上下文测试验证；FCC 只作为压力测试样本之一，不作为产品需求唯一来源。
 
+非 PetroSim dogfooding 样本见 `docs/ai/reference/Non_PetroSim_Dogfooding_Sample.md`。当前选择 EcSOS `cracking-yield-prediction-system` 作为论文 / 数据分析 / Python 工具类真实样本；默认只读或 dry-run，写入前需确认目标项目状态。
+
 ## 当前已自动化
 
 `acf.py` 先覆盖确定性工作：
