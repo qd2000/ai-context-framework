@@ -219,6 +219,39 @@ class SmokeRunner:
                 ]
             )
         )
+        steps.append(
+            self.run_acf(
+                [
+                    "workstream",
+                    "stage",
+                    "add",
+                    "WS001",
+                    str(context),
+                    "--id",
+                    "WS001.1",
+                    "--title",
+                    "Stage one",
+                    "--json",
+                ]
+            )
+        )
+        steps.append(self.run_acf(["workstream", "focus", "WS001", "WS001.1", str(context), "--json"]))
+        steps.append(
+            self.run_acf(
+                [
+                    "workstream",
+                    "stage",
+                    "done",
+                    "WS001",
+                    "WS001.1",
+                    str(context),
+                    "--evidence",
+                    "Smoke stage evidence",
+                    "--clear-current",
+                    "--json",
+                ]
+            )
+        )
         steps.append(self.run_acf(["workstream", "ready", "WS001", str(context), "--json"]))
         steps.append(
             self.run_acf(
