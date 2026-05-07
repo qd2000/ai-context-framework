@@ -136,7 +136,7 @@
 
 ### 阶段 6：事实与注意力治理
 
-状态：P0 规则层已落地；P1 的 `review stale`、`curate draft` 最小版、upgrade compatibility runner 和 Context Curation Prompt Template 已实现；`curate draft` 后续增强仍保留为路线。
+状态：P0 governance hardening 已以 `v0.0.3.26` 作为稳定基线收口；P1 先进入 `audit context` 设计阶段，不直接实现新命令，也不把启发式候选接入默认 strict。既有 `review stale`、`curate draft` 最小版、upgrade compatibility runner 和 Context Curation Prompt Template 继续保留。
 
 目标不是保存更多上下文，而是持续维护一个低噪声、高权威、任务相关的默认注意力入口。
 
@@ -168,9 +168,9 @@ P1 命令：
 - CLI 自动判断哪个事实是真的。
 - curation draft 默认进入读取路径。
 
-### P0 governance hardening
+### P0 governance hardening baseline
 
-下一阶段开发目标：
+状态：已完成，基线版本为 `v0.0.3.26`。
 
 **P0 governance hardening**：先把 FCC 暴露的阶段注册、Workstream 内部阶段焦点、权威写入、合并结果、active 滞留做成 `acf check --strict` 的确定性门禁；generated index 只在 Workstream 上先检测后 sync；content audit 独立后置，不进入默认 strict。
 
@@ -203,15 +203,64 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 uv run python scripts/upgrade_matrix.py --mode quick
 ```
 
+### P1 audit context design
+
+下一阶段先写设计，不直接实现工具。设计文档为 `docs/ai/reference/Context_Audit_Design.md`。
+
+目标：
+
+1. 定义只读 `acf audit context docs/ai --json` 的输出契约。
+2. 只输出 candidates、summary 和 next_actions。
+3. 不进入默认 `acf check --strict`。
+4. 不自动修改 `active/Context.md` 或其他权威上下文。
+5. 不做事实真假裁决、自动语义去重或自动合并。
+
+第一版候选规则限定为：
+
+1. duplicate active facts candidate。
+2. volatile fact in wrong authority location。
+3. strong claim without evidence。
+4. Done / ReadyToMerge conclusion not merged。
+5. active section too long。
+6. stale current task / stale workstream stage。
+
+默认读取范围只覆盖当前注意力入口和 Workstream 当前状态：
+
+- `active/Context.md`
+- `active/Current_Task.md`
+- `active/Task_Plan.md`
+- `active/Workstreams.md`
+- `active/workstreams/*.md`
+
+非目标：
+
+1. 不做自动事实裁决。
+2. 不做自动语义去重。
+3. 不默认修改 `Context.md`。
+4. 不进入 `check --strict`。
+5. 不读取 archive 或全量 worklog。
+6. 不生成 patch 或自动修复。
+
+未来如果实现 MVP，第一版 JSON 形态保持极小：
+
+```json
+{
+  "candidates": [],
+  "summary": {},
+  "next_actions": []
+}
+```
+
 ## 适合继续程序化的工作
 
 优先做可验证、低歧义、可回退的命令：
 
 1. 根薄入口自定义字段：允许用户在生成时追加少量仓库级规则，但仍不把完整上下文写入根入口。
-2. `curate draft` 后续增强：在当前 signal -> draft 边界内补充 changed-files / duplicate 机械信号。
-3. `writeback-curator` 接入：由 subagent 生成更高质量的回写分类草案，但仍只输出草案。
-4. 跨项目 dogfooding 评测脚本：记录常见命令是否能在真实项目子目录稳定运行。
-5. 安全项目级编辑能力：评估是否需要让 CLI 在明确授权下维护 `docs/ai/` 外的仓库级文档；当前不放宽 `acf edit` 的 context-root 限制。
+2. `audit context` MVP：在设计复核后，只实现只读 candidates 输出，不生成 patch，不接入 strict。
+3. `curate draft` 后续增强：在当前 signal -> draft 边界内补充 changed-files / duplicate 机械信号。
+4. `writeback-curator` 接入：由 subagent 生成更高质量的回写分类草案，但仍只输出草案。
+5. 跨项目 dogfooding 评测脚本：记录常见命令是否能在真实项目子目录稳定运行。
+6. 安全项目级编辑能力：评估是否需要让 CLI 在明确授权下维护 `docs/ai/` 外的仓库级文档；当前不放宽 `acf edit` 的 context-root 限制。
 
 这些命令应默认只生成草案或骨架。真正写入权威上下文前，仍应由用户或主代理确认。
 
