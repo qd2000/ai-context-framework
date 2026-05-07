@@ -48,6 +48,7 @@
 - `uv run acf workstream show WS001 docs/ai --json`
 - `uv run acf plan status docs/ai --json`
 - `uv run acf review stale docs/ai --json`
+- `uv run acf audit context docs/ai --json`
 - `uv run acf curate draft docs/ai --dry-run --json`
 - 需要整理、归纳、精简上下文时，按需读取 `reference/Context_Curation_Prompt.md`；默认产物是整理建议，不是文件修改。
 - `uv run acf log feedback docs/ai --type Problem --source manual --text "实际使用反馈。" --json`
@@ -61,6 +62,8 @@
 Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点；`merge_targets` 用于记录候选合并目标，不表示 Workstream 可以直接写 authority 文件。`acf check` 会检查当前阶段已注册、属于本 Workstream、状态合法，检查 Workstreams 索引与详情 front matter 是否一致，并在 strict 下拒绝 `owned` / `assigned` 直接命中内置 authority path；ReadyToMerge / Done Workstream 声明 `merge_targets` 时必须有合并请求；Done Workstream 需要 `merge_resolution`，仍留在 active 时需要 keep-active metadata。
 
 `acf workstream sync --dry-run --json` 只根据 `active/workstreams/*.md` front matter 预览或更新 `active/Workstreams.md`；第一版不会删除索引中缺失详情文件的旧行，也不会移动 Done / Cancelled 文件。
+
+`acf audit context --json` 是只读上下文审计 MVP，只报告 candidates，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`。当前规则只覆盖长 active section、陈旧当前任务 / Workstream 阶段和 ReadyToMerge 待合并或 Done 缺合并结果候选。
 
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。
 

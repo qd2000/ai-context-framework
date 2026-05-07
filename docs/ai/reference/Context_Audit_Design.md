@@ -6,7 +6,7 @@
 
 ## 状态
 
-MVP contract reviewed
+MVP implemented
 
 ---
 
@@ -143,6 +143,16 @@ acf audit context [path] --json
 3. 每个候选必须有稳定 `kind`、`severity`、`path`、`reason` 和 `suggested_action`。
 4. 第一版不写文件，不改变 `acf check`、`acf review stale` 或 `acf curate draft` 行为。
 
+### MVP implementation status
+
+已实现：
+
+1. `acf audit context [path] --json`。
+2. `active_section_too_long`。
+3. `stale_current_task_or_workstream_stage`。
+4. `terminal_conclusion_not_merged`。
+5. clean 状态、summary、next_actions 和 read-only 行为测试。
+
 ---
 
 ## 默认读取范围
@@ -181,9 +191,9 @@ acf audit context [path] --json
 
 ### terminal_conclusion_not_merged
 
-发现 Done / ReadyToMerge 相关结论可能没有进入权威上下文或缺少合并状态说明。
+发现 ReadyToMerge 相关结论仍待合并审阅，或 Done Workstream 仍缺少合并状态说明。
 
-该规则与 P0 hardening 区分：P0 strict 只检查确定性 metadata 和 merge request 结构；P1 audit 可提示“结论看起来仍停留在 Workstream 中，可能需要人工决定是否合并”。
+该规则与 P0 hardening 区分：P0 strict 只检查确定性 metadata 和 merge request 结构；P1 audit 可提示“结论看起来仍停留在 Workstream 中，可能需要人工决定是否合并”。已明确 `merged`、`rejected`、`no_merge_required` 或 `archived` 的 Done Workstream 不应作为本规则的 MVP 候选。
 
 ### active_section_too_long
 

@@ -145,6 +145,7 @@ VALID_WORKSTREAM_STAGE_STATUSES = {"Pending", "Active", "Blocked", "Done", "Skip
 VALID_MERGE_RESOLUTIONS = {"merged", "rejected", "no_merge_required", "archived"}
 ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge"}
 DEFAULT_STALE_DAYS = 14
+AUDIT_ACTIVE_SECTION_MAX_NONEMPTY_LINES = 80
 WORKSTREAM_NOTE_SECTIONS = {
     "当前发现": "## 当前发现",
     "待合并结论": "## 待合并结论",
@@ -1546,6 +1547,8 @@ def command_label(args: argparse.Namespace) -> str:
         return f"knowledge {getattr(args, 'knowledge_command', '')}".strip()
     if command == "review":
         return f"review {getattr(args, 'review_command', '')}".strip()
+    if command == "audit":
+        return f"audit {getattr(args, 'audit_command', '')}".strip()
     if command == "curate":
         return f"curate {getattr(args, 'curate_command', '')}".strip()
     if command == "workstream":
@@ -1575,7 +1578,7 @@ def context_location_for_args(args: argparse.Namespace) -> ContextLocation:
         return make_context_location(require_context_root(getattr(args, "path", None)))
     if command == "edit":
         return make_context_location(require_context_root(getattr(args, "context", None)))
-    if command in {"plan", "task", "archive", "knowledge", "review", "workstream"}:
+    if command in {"plan", "task", "archive", "knowledge", "review", "audit", "workstream"}:
         return make_context_location(require_context_root(getattr(args, "path", None)))
     raise SystemExit("usage log is not available for this command")
 
@@ -6445,6 +6448,284 @@ def review_stale_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def audit_candidate(
+    root: Path,
+    path: Path,
+    kind: str,
+    severity: str,
+    reason: str,
+    suggested_action: str,
+    *,
+    section: str | None = None,
+) -> dict[str, object]:
+    return {
+        "kind": kind,
+        "severity": severity,
+        "path": relative_display_path(path.resolve(), root.resolve()),
+        "section": section,
+        "reason": reason,
+        "suggested_action": suggested_action,
+    }
+
+
+def markdown_sections(text: str) -> list[tuple[str, list[str]]]:
+    lines = text.splitlines()
+    sections: list[tuple[str, list[str]]] = []
+    for index, line in enumerate(lines):
+        level = heading_level(line)
+        if level is None:
+            continue
+        body_end = len(lines)
+        for candidate_index in range(index + 1, len(lines)):
+            candidate_level = heading_level(lines[candidate_index])
+            if candidate_level is not None and candidate_level <= level:
+                body_end = candidate_index
+                break
+        title = line.strip().lstrip("#").strip()
+        sections.append((title, lines[index + 1 : body_end]))
+    return sections
+
+
+def audit_active_section_too_long(root: Path) -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    active_paths = [
+        root / "active" / "Context.md",
+        root / "active" / "Current_Task.md",
+        root / "active" / "Task_Plan.md",
+        root / "active" / "Workstreams.md",
+    ]
+    details_dir = workstream_details_dir(root)
+    if details_dir.is_dir():
+        active_paths.extend(sorted(details_dir.glob("*.md")))
+    for path in active_paths:
+        if not path.exists():
+            continue
+        for section, body_lines in markdown_sections(read_text(path)):
+            nonempty_count = sum(1 for line in body_lines if line.strip() and line.strip() != "---")
+            if nonempty_count <= AUDIT_ACTIVE_SECTION_MAX_NONEMPTY_LINES:
+                continue
+            candidates.append(
+                audit_candidate(
+                    root,
+                    path,
+                    "active_section_too_long",
+                    "P1-candidate",
+                    (
+                        f"section has {nonempty_count} non-empty lines, above the "
+                        f"MVP threshold {AUDIT_ACTIVE_SECTION_MAX_NONEMPTY_LINES}."
+                    ),
+                    "Review whether process detail should move to worklog, reference material, or a Workstream detail.",
+                    section=section,
+                )
+            )
+    return candidates
+
+
+def audit_current_task_stale(root: Path, today_value: date) -> list[dict[str, object]]:
+    path = current_task_path(root)
+    if not path.exists():
+        return []
+    status = extract_current_task_status(path) or ""
+    if status != "Active":
+        return []
+    text = read_text(path)
+    latest = newest_date(iso_dates_in_text(text))
+    age = date_age_days(latest, today_value)
+    if latest is not None and age is not None and age <= DEFAULT_STALE_DAYS:
+        return []
+    reason = (
+        "Current_Task is Active but no ISO update/review date was found."
+        if latest is None
+        else f"Current_Task newest visible date is {latest.isoformat()}, {age} days old."
+    )
+    return [
+        audit_candidate(
+            root,
+            path,
+            "stale_current_task_or_workstream_stage",
+            "P1-candidate",
+            reason,
+            "Review the active task and update, block, finish, or clear it.",
+            section="当前任务状态",
+        )
+    ]
+
+
+def parse_workstream_detail_for_audit(path: Path) -> WorkstreamDetail | None:
+    try:
+        metadata, body, diagnostics = parse_front_matter(read_text(path))
+    except UnicodeDecodeError:
+        return None
+    if diagnostics:
+        return None
+    workstream_id = metadata.get("id")
+    if not isinstance(workstream_id, str) or not WORKSTREAM_ID_RE.match(workstream_id):
+        workstream_id = path.stem
+    return WorkstreamDetail(workstream_id, path, metadata, body, diagnostics)
+
+
+def audit_workstream_stage_stale(root: Path, today_value: date) -> list[dict[str, object]]:
+    details_dir = workstream_details_dir(root)
+    if not details_dir.is_dir():
+        return []
+    candidates: list[dict[str, object]] = []
+    for path in sorted(details_dir.glob("WS*.md")):
+        detail = parse_workstream_detail_for_audit(path)
+        if detail is None:
+            continue
+        status = detail.metadata.get("status")
+        if status not in ACTIVE_WORKSTREAM_STATUSES:
+            continue
+        current_stage = detail.metadata.get("current_stage")
+        if not isinstance(current_stage, str) or not current_stage.strip():
+            continue
+        current_stage = current_stage.strip()
+        rows = read_workstream_stage_rows(detail.body)
+        current_row = next((row for row in rows if row.get("ID") == current_stage), None)
+        if current_row is None or current_row.get("状态") != "Active":
+            continue
+        row_text = "\n".join(current_row.values())
+        latest = newest_date(iso_dates_in_text(row_text))
+        age = date_age_days(latest, today_value)
+        if latest is not None and age is not None and age <= DEFAULT_STALE_DAYS:
+            continue
+        reason = (
+            f"Workstream current_stage {current_stage} is Active but has no ISO update/review date in its stage row."
+            if latest is None
+            else f"Workstream current_stage {current_stage} newest visible date is {latest.isoformat()}, {age} days old."
+        )
+        candidates.append(
+            audit_candidate(
+                root,
+                path,
+                "stale_current_task_or_workstream_stage",
+                "P1-candidate",
+                reason,
+                "Review the Workstream stage and update evidence/date, block it, or move focus to the next stage.",
+                section="阶段",
+            )
+        )
+    return candidates
+
+
+def audit_terminal_conclusion_not_merged(root: Path) -> list[dict[str, object]]:
+    details_dir = workstream_details_dir(root)
+    if not details_dir.is_dir():
+        return []
+    candidates: list[dict[str, object]] = []
+    for path in sorted(details_dir.glob("WS*.md")):
+        detail = parse_workstream_detail_for_audit(path)
+        if detail is None:
+            continue
+        status = detail.metadata.get("status")
+        if status not in {"ReadyToMerge", "Done"}:
+            continue
+        merge_targets = detail.metadata.get("merge_targets")
+        has_merge_targets = isinstance(merge_targets, list) and any(str(target).strip() for target in merge_targets)
+        has_merge_request = merge_request_has_required_fields(detail.body)
+        merge_resolution = detail.metadata.get("merge_resolution")
+        if status == "ReadyToMerge" and (has_merge_targets or has_merge_request):
+            candidates.append(
+                audit_candidate(
+                    root,
+                    path,
+                    "terminal_conclusion_not_merged",
+                    "P0-candidate",
+                    "ReadyToMerge workstream has merge inputs that still require review and merge resolution.",
+                    "Review the merge request and either merge, reject, mark no_merge_required, or keep it ReadyToMerge.",
+                    section="合并请求",
+                )
+            )
+        elif status == "Done" and (has_merge_targets or has_merge_request) and not merge_resolution:
+            candidates.append(
+                audit_candidate(
+                    root,
+                    path,
+                    "terminal_conclusion_not_merged",
+                    "P0-candidate",
+                    "Done workstream has merge inputs but no merge_resolution metadata.",
+                    "Review whether the conclusion was merged, rejected, archived, or requires no authority merge.",
+                    section="合并请求",
+                )
+            )
+    return candidates
+
+
+def audit_context_summary(candidates: Sequence[dict[str, object]]) -> dict[str, object]:
+    by_kind: dict[str, int] = {}
+    by_path: dict[str, int] = {}
+    by_severity: dict[str, int] = {}
+    for candidate in candidates:
+        kind = str(candidate.get("kind") or "unknown")
+        path = str(candidate.get("path") or "")
+        severity = str(candidate.get("severity") or "unknown")
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+        by_path[path] = by_path.get(path, 0) + 1
+        by_severity[severity] = by_severity.get(severity, 0) + 1
+    return {
+        "total": len(candidates),
+        "by_kind": dict(sorted(by_kind.items())),
+        "by_path": dict(sorted(by_path.items())),
+        "by_severity": dict(sorted(by_severity.items())),
+    }
+
+
+def audit_context_next_actions(candidates: Sequence[dict[str, object]]) -> list[str]:
+    if not candidates:
+        return ["No context audit candidates found."]
+    actions = ["Review audit candidates as advisory signals; do not treat them as semantic truth."]
+    kinds = {str(candidate.get("kind") or "") for candidate in candidates}
+    if "active_section_too_long" in kinds:
+        actions.append("Review long active sections and move process detail to worklog, reference material, or Workstream details.")
+    if "stale_current_task_or_workstream_stage" in kinds:
+        actions.append("Review stale current task or Workstream stage focus and update, block, finish, or clear it.")
+    if "terminal_conclusion_not_merged" in kinds:
+        actions.append("Review ReadyToMerge/Done Workstream merge state and decide whether authority context needs a merge.")
+    return actions
+
+
+def collect_audit_context_candidates(root: Path, today_value: date) -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    candidates.extend(audit_active_section_too_long(root))
+    candidates.extend(audit_current_task_stale(root, today_value))
+    candidates.extend(audit_workstream_stage_stale(root, today_value))
+    candidates.extend(audit_terminal_conclusion_not_merged(root))
+    return candidates
+
+
+def audit_context_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    today_value = date.today()
+    candidates = collect_audit_context_candidates(root, today_value)
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "ok": True,
+        "command": "audit context",
+        "context": str(root),
+        "candidates": candidates,
+        "summary": audit_context_summary(candidates),
+        "next_actions": audit_context_next_actions(candidates),
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        if candidates:
+            print(f"audit context: {len(candidates)} candidate(s)")
+        else:
+            print("audit context: clean (0 candidate(s))")
+        grouped: dict[str, list[dict[str, object]]] = {}
+        for candidate in candidates:
+            grouped.setdefault(str(candidate.get("kind") or "unknown"), []).append(candidate)
+        for kind in sorted(grouped):
+            print(f"{kind}:")
+            for candidate in grouped[kind]:
+                print(f"- {candidate['path']}: {candidate['severity']} - {candidate['reason']}")
+        for action in payload["next_actions"]:
+            print(f"next: {action}")
+    return 0
+
+
 def curation_draft_path(root: Path, draft_date: date, name: str | None) -> Path:
     draft_name = f"{name}.md" if name else f"{draft_date.isoformat()}.md"
     return root / "worklog" / "curation-drafts" / draft_name
@@ -8014,6 +8295,14 @@ def build_parser() -> argparse.ArgumentParser:
     review_stale_parser.add_argument("--today", type=validate_date, default=None, help="override today's date for deterministic checks")
     add_json_argument(review_stale_parser)
     review_stale_parser.set_defaults(func=review_stale_command)
+
+    audit_parser = subparsers.add_parser("audit", help="run read-only context audit checks")
+    audit_subparsers = audit_parser.add_subparsers(dest="audit_command", required=True)
+
+    audit_context_parser = audit_subparsers.add_parser("context", help="report context audit candidates")
+    audit_context_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(audit_context_parser)
+    audit_context_parser.set_defaults(func=audit_context_command)
 
     curate_parser = subparsers.add_parser("curate", help="create attention governance drafts")
     curate_subparsers = curate_parser.add_subparsers(dest="curate_command", required=True)

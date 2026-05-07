@@ -178,6 +178,7 @@ acf archive current-task --reason "任务已完成"
 acf knowledge draft --title "任务拆分经验" --source "worklog/daily/YYYY-MM-DD.md"
 acf knowledge apply worklog/knowledge-drafts/YYYY-MM-DD-task.md --allow-similar
 acf review stale --json
+acf audit context --json
 acf curate draft --dry-run --json
 acf workstream status --json
 acf workstream init --dry-run --json
@@ -232,6 +233,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
 - `review stale`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json` 和 `--days`。JSON 输出包含 `summary.total`、`summary.by_kind`、`summary.by_path`，每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
+- `audit context`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告 `active_section_too_long`、`stale_current_task_or_workstream_stage` 和 `terminal_conclusion_not_merged`（ReadyToMerge 待合并或 Done 缺合并结果）。JSON 输出包含 `candidates`、`summary.total`、`summary.by_kind`、`summary.by_path`、`summary.by_severity` 和 `next_actions`。
 - `curate draft`：复用 `review stale` 的 stale candidates 生成 `worklog/curation-drafts/YYYY-MM-DD.md` 注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days` 和 `--name`。
 - `workstream init|status|list|sync|show|add|set|block|cancel|merge-request|ready|done|claim|note`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim 和详情备注；`sync` 只根据 `active/workstreams/*.md` front matter 更新 `active/Workstreams.md`，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`merge_targets` 记录候选合并目标，Done 需要 `--merge-resolution` 写入合并结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
@@ -247,7 +249,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 
-`status`、`check`、`review stale`、`workstream status|list|show` 和 `edit section get` 支持 `--json` 输出。`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
+`status`、`check`、`review stale`、`audit context`、`workstream status|list|show` 和 `edit section get` 支持 `--json` 输出。`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
 
 `edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它提供的是 section/table 级确定性编辑原语，不做语义判断，也不是通用 Markdown 编辑器。
 

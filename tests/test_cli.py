@@ -3012,6 +3012,138 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertIn("context_review:", stdout)
             self.assertIn("context_missing_review_marker", stdout)
 
+    def test_audit_context_clean_json_reports_no_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(["audit", "context", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertEqual(payload["command"], "audit context")
+            self.assertEqual(payload["context"], str(target.resolve()))
+            self.assertEqual(payload["candidates"], [])
+            self.assertEqual(
+                payload["summary"],
+                {"total": 0, "by_kind": {}, "by_path": {}, "by_severity": {}},
+            )
+            self.assertEqual(payload["next_actions"], ["No context audit candidates found."])
+
+    def test_audit_context_reports_long_active_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            long_lines = "\n".join(f"- Fact {index}" for index in range(90))
+            (target / "active" / "Context.md").write_text(
+                f"## 当前有效事实\n\n{long_lines}\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["audit", "context", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            candidates = payload["candidates"]
+            self.assertEqual(payload["summary"]["total"], len(candidates))
+            item = next(candidate for candidate in candidates if candidate["kind"] == "active_section_too_long")
+            self.assertEqual(item["severity"], "P1-candidate")
+            self.assertEqual(item["path"], "active/Context.md")
+            self.assertEqual(item["section"], "当前有效事实")
+            self.assertIn("90", item["reason"])
+            self.assertIn("summary", payload)
+
+    def test_audit_context_reports_stale_current_task_and_workstream_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004", "Formal Morris")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_text = detail_path.read_text(encoding="utf-8")
+            detail_text = detail_text.replace("status: Open", "status: Active\ncurrent_stage: WS004.1")
+            detail_text = detail_text.replace(
+                "## 目标\n\n待补充。",
+                "## 目标\n\nFormal Morris.\n\n"
+                "## 阶段\n\n"
+                + acf.WORKSTREAM_STAGE_TABLE_HEADER
+                + "\n|---|---|---|---|---|---|---|\n"
+                + "| WS004.1 | Active | pct25 | 无。 | metrics | 2000-01-01 output | 等待 metrics |\n",
+            )
+            detail_path.write_text(detail_text, encoding="utf-8")
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nActive\n\n## 任务名称\n\nOld task\n\n## 最近更新\n\n2000-01-01\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["audit", "context", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            stale_items = [
+                candidate
+                for candidate in payload["candidates"]
+                if candidate["kind"] == "stale_current_task_or_workstream_stage"
+            ]
+            self.assertEqual({item["path"] for item in stale_items}, {"active/Current_Task.md", "active/workstreams/WS004.md"})
+            self.assertTrue(all(item["severity"] == "P1-candidate" for item in stale_items))
+            self.assertEqual(payload["summary"]["by_kind"]["stale_current_task_or_workstream_stage"], 2)
+
+    def test_audit_context_reports_terminal_conclusion_not_merged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004", "Formal Morris")
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS004",
+                        str(target),
+                        "--target",
+                        "active/Context.md",
+                        "--summary",
+                        "Merge formal Morris conclusion.",
+                        "--verification",
+                        "Validated by output metrics.",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS004", str(target)]), 0)
+
+            exit_code, stdout, stderr = self.run_cli_output(["audit", "context", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            item = next(candidate for candidate in payload["candidates"] if candidate["kind"] == "terminal_conclusion_not_merged")
+            self.assertEqual(item["severity"], "P0-candidate")
+            self.assertEqual(item["path"], "active/workstreams/WS004.md")
+            self.assertEqual(item["section"], "合并请求")
+            self.assertIn("ReadyToMerge", item["reason"])
+
+    def test_audit_context_is_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            before = {
+                path.relative_to(target).as_posix(): path.read_text(encoding="utf-8")
+                for path in sorted(target.rglob("*.md"))
+            }
+
+            exit_code, stdout, stderr = self.run_cli_output(["audit", "context", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(json.loads(stdout)["ok"])
+            after = {
+                path.relative_to(target).as_posix(): path.read_text(encoding="utf-8")
+                for path in sorted(target.rglob("*.md"))
+            }
+            self.assertEqual(before, after)
+
     def test_curate_draft_creates_reviewable_curation_draft(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

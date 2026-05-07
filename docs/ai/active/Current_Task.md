@@ -17,7 +17,7 @@ Done
 
 ## 任务名称
 
-Review audit MVP command contract
+Implement audit context MVP
 
 ---
 
@@ -29,7 +29,7 @@ P1 audit context design
 
 ## 子任务 ID
 
-T002
+T003
 
 ---
 
@@ -41,15 +41,19 @@ T002
 
 ## 本次任务目标
 
-1. 复核 `reference/Context_Audit_Design.md`，把 P1 audit 从设计草案收敛为可实现的 MVP 命令契约。
-2. 冻结 `acf audit context [path] --json` 的只读边界、JSON 顶层字段和 candidate 字段。
-3. 收窄第一版规则，只保留低误报候选；暂缓更容易误报的语义类规则。
+1. 实现只读命令 `acf audit context [path] --json`。
+2. 只实现三条低误报规则：
+   - `active_section_too_long`
+   - `stale_current_task_or_workstream_stage`
+   - `terminal_conclusion_not_merged`
+3. 固定 JSON 输出：`schema_version`、`ok`、`command`、`context`、`candidates`、`summary`、`next_actions`。
+4. 保持命令不写文件、不生成 patch、不创建 curation draft、不接入 `check --strict`。
 
 ---
 
 ## 任务背景
 
-T001 已完成 P1 audit context 设计草案。下一步不是写代码，而是先确认 MVP 契约是否足够窄、字段是否稳定、首批规则是否低误报，并继续保持 audit 不进入默认 strict、不自动修改事实。
+T001 已完成 P1 audit context 设计草案，T002 已冻结 MVP 命令契约。当前任务是在该契约内实现只读 MVP，先获得结构化 candidates 输出，为后续真实项目 dogfooding 提供机械审计入口。
 
 ---
 
@@ -58,78 +62,80 @@ T001 已完成 P1 audit context 设计草案。下一步不是写代码，而是
 - `active/Task_Plan.md`
 - `reference/Context_Audit_Design.md`
 - `../Automation.md`
+- `acf.py`
+- `tests/test_cli.py`
 
 ---
 
 ## 输出要求
 
-1. 在 `reference/Context_Audit_Design.md` 新增或收敛 `MVP Command Contract`。
-2. 固定命令形态：
-
-```bash
-acf audit context [path] --json
-```
-
-3. 固定 JSON 顶层字段：`schema_version`、`ok`、`command`、`context`、`candidates`、`summary`、`next_actions`。
-4. 固定 candidate 字段：`kind`、`severity`、`path`、`section`、`reason`、`suggested_action`。
-5. 第一版 MVP rules 只保留：
-   - `active_section_too_long`
-   - `stale_current_task_or_workstream_stage`
-   - `terminal_conclusion_not_merged`
-6. 暂缓：
-   - `duplicate_active_fact_candidate`
-   - `strong_claim_without_evidence`
-   - `volatile_fact_in_wrong_authority_location`
+1. `acf audit context docs/ai --json` 可运行。
+2. clean context 输出空 `candidates`、稳定 `summary` 和 `next_actions`。
+3. 长 active section 产生 `active_section_too_long` candidate。
+4. Active Current_Task 或 Workstream current_stage 超过阈值未更新时产生 `stale_current_task_or_workstream_stage` candidate。
+5. ReadyToMerge / Done 有未合并信号时产生 `terminal_conclusion_not_merged` candidate。
+6. audit 命令不写文件。
 
 ---
 
 ## 成功标准
 
-1. MVP 命令契约足够明确，可直接转化为后续测试用例。
-2. 设计仍然声明只读、不生成 patch、不修改文件、不创建 curation draft。
-3. 设计仍然声明不进入默认 `acf check --strict`。
-4. 默认读取范围仍限定为 active 入口和 Workstream 当前状态，不读取 archive、全量 worklog 或历史 curation draft。
-5. `acf check docs/ai --strict --json` 通过。
+1. 新增 audit MVP 单元测试通过。
+2. `uv run python -m unittest` 通过。
+3. `uv run acf check template` 通过。
+4. `uv run acf check docs/ai --strict --json` 通过。
+5. README、template System Manual、dogfooding System Manual、Automation 和设计文档同步。
 
 完成证据：
 
+- `acf.py`
+- `tests/test_cli.py`
+- `../../README.md`
+- `../../template/reference/System_Manual.md`
+- `reference/System_Manual.md`
 - `reference/Context_Audit_Design.md`
+- `../Automation.md`
 - `worklog/daily/2026-05-07.md`
+- targeted audit tests
+- `uv run python -m py_compile acf.py`
+- `uv run python -m unittest`
+- `uv run acf check template`
 - `uv run acf check docs/ai --strict --json`
 - `uv run acf status docs/ai --json`
+- `uv run acf audit context docs/ai --json`
 
 ---
 
 ## 失败信号
 
-1. 本轮开始实现 `acf audit context`。
-2. 把全部 candidate rules 都列为第一版 MVP。
-3. 设计允许自动删除、合并或改写权威上下文。
-4. 默认读取范围扩大到 archive 或全量 worklog。
+1. 本轮实现 duplicate fact、strong claim without evidence 或 volatile fact wrong location。
+2. audit 接入默认 `acf check --strict`。
+3. 新增 patch、fix、write 或 curation draft 行为。
+4. 默认读取 archive 或全量 worklog。
 
 ---
 
 ## 约束条件
 
-1. 本阶段只做设计复核，不做代码。
-2. 不修改 `acf.py`、测试或 CLI 行为。
-3. 保持 T001 的非目标继续成立。
+1. 保持无第三方运行依赖。
+2. 保持旧项目兼容；没有 Workstream 时 audit 仍可运行。
+3. candidate 只表示候选，不表示事实错误。
 
 ---
 
 ## 不允许做的事
 
-- 不实现 `acf audit context`。
-- 不新增测试。
-- 不把 audit 接入 strict。
-- 不生成自动修复或 patch 设计。
+- 不实现自动修复。
+- 不修改 FCC 项目内容。
+- 不做语义事实裁决。
+- 不改变 `review stale` / `curate draft` 既有行为。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. MVP 首批 3 条规则是否都能靠机械信号实现。
-2. JSON schema 是否足够稳定，能支撑后续 MVP 测试。
+1. MVP 阈值是否需要后续通过 dogfooding 调整。
+2. 后续是否需要为 rejected / archived 等已解决但未合并状态提供单独的低优先级审计候选。
 
 ---
 
@@ -137,5 +143,5 @@ acf audit context [path] --json
 
 任务完成后，请整理以下内容，供人审核后写回项目系统：
 
-1. 应写入 worklog 的设计复核和验证摘要。
-2. 后续是否进入 `acf audit context` 只读 MVP 实现。
+1. 应写入 worklog 的实现和验证摘要。
+2. 是否进入 FCC 只读 dogfooding。
