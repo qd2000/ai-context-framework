@@ -16,13 +16,13 @@ Done
 
 ## 任务名称
 
-Design workstream stage/focus command contract
+Map top-level requirements to current implementation
 
 ---
 
 ## 所属大任务
 
-P2 Workstream Task Flow
+P2 Top-Level Design Implementation Audit
 
 ---
 
@@ -40,14 +40,14 @@ T001
 
 ## 本次任务目标
 
-1. 先写设计文档，不实现代码
-2. 产出并验证输出物：Workstream stage/focus CLI 设计契约，覆盖 PR1-PR4 边界、状态规则、检查规则和验收 fixture
+1. Read code/tests/docs and populate gap matrix
+2. 产出并验证输出物：Top_Level_Implementation_Gap.md initial matrix with evidence
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P2 Workstream Task Flow”。依赖记录：Product Roadmap 要求新能力先确认通用上下文治理问题、分层、fixture、兼容性和 next_actions
+该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P2 Top-Level Design Implementation Audit”。依赖记录：ACF_Top_Level_Design.md and Product_Roadmap.md are active planning baseline
 
 ---
 
@@ -60,13 +60,13 @@ T001
 
 ## 输出要求
 
-- Workstream stage/focus CLI 设计契约，覆盖 PR1-PR4 边界、状态规则、检查规则和验收 fixture
+- Top_Level_Implementation_Gap.md initial matrix with evidence
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：Workstream stage/focus CLI 设计契约，覆盖 PR1-PR4 边界、状态规则、检查规则和验收 fixture
+1. 输出物已完成：Top_Level_Implementation_Gap.md initial matrix with evidence
 2. 子任务 T001 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 

@@ -367,19 +367,19 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 
 ### 当前最建议做
 
-1. 完成 Phase A 顶层设计收敛的最后补强：设计文档权威关系、版本策略、JSON/error_code 契约、Workstream focus 冲突策略、Workstream 生命周期和归档策略。
-2. 用顶层设计校验现有 Workstream、Audit、Upgrade 和 Automation 文档是否边界一致。
-3. 将后续功能按 Phase B-F 重新排队。
+1. 使用 `reference/Top_Level_Implementation_Gap.md` 作为进入新代码 PR 前的 gap-driven 实施依据。
+2. 下一批实现优先从 JSON contract consistency tests、Workstream stage flow fixture、upgrade matrix expansion 中选择。
+3. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge。
 4. 后续每个新能力先补 fixture，再实现命令或规则。
 
 ### 下一批候选任务
 
-1. T001：Refine ACF Top-Level Design authority map，仅改规划文档并验证 strict/audit。
-2. 补 `tests/fixtures/context_matrix/workstream_stage_flow`，覆盖 stage add/focus/done 的上下文形态。
-3. 扩展 `scripts/minimal_smoke.py`，纳入 workstream stage/focus/done/sync 和 clean audit。
-4. 梳理 `Front_Matter_Metadata_Plan.md` 与顶层对象模型是否一致。
-5. 梳理 `Upgrade_Migration_Plan.md` 是否覆盖新增顶层设计文档和旧项目 marker 行为。
-6. 复盘 `Context_Audit_Design.md` 的暂缓规则准入条件。
+1. P1-1：JSON contract consistency tests。
+2. P1-2：补 `tests/fixtures/context_matrix/workstream_stage_flow`，覆盖 stage add/focus/done 的上下文形态。
+3. P1-2：扩展 `scripts/minimal_smoke.py`，纳入 workstream stage/focus/done/sync 和 clean audit。
+4. P1-3：扩展 upgrade matrix，覆盖 Workstream/ADR/custom AGENTS 旧形态。
+5. P2-1：评估 Task Stage CLI。
+6. P2-2：设计 Workstream lifecycle / archive helper。
 
 ---
 

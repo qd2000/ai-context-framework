@@ -14,26 +14,23 @@ Done
 
 ## 大任务名称
 
-P2 Workstream Task Flow
+P2 Top-Level Design Implementation Audit
 
 ---
 
 ## 大任务目标
 
-1. 补齐 Workstream 内部阶段的任务管理闭环，让阶段可机械新增、查询、聚焦、完成和后续评估是否同步 Current_Task。
-2. 保持 Workstream 仍是可选并行目标线，不扩展为 runtime、权限系统或复杂调度器。
-3. 以详情文件 active/workstreams/WS*.md 为阶段事实源，并保持 current_stage、## 阶段表、Workstreams 索引和 strict check 一致。
+1. 将 ACF 顶层设计逐项映射到当前实现，形成 gap-driven 实施依据。
+2. 按 content model、object model、CLI、check、audit、sync、upgrade、tests 分层识别已实现、部分实现、未实现、不应实现、需补测试、需补文档和需补 upgrade 兼容项。
+3. 基于差距矩阵排定下一批受控实施切片，避免继续零散扩展 audit 或随意新增规则。
 
 ---
 
 ## 成功标准
 
-1. T001 先产出 workstream stage/focus 命令契约设计，覆盖通用治理问题、分层、fixture、兼容性和 next_actions。
-2. PR 1 仅实现 workstream stage add/list：只修改目标详情文件，拒绝重复 ID 和跨 WS 阶段 ID，不改 Current_Task 或 Context。
-3. PR 2 实现 workstream focus：current_stage 必须存在且非 Done/Cancelled/Skipped，同一 WS 不能多个 Active，依赖未 Done 默认拒绝。
-4. PR 3 实现 workstream stage done：Done 阶段必须写 evidence，完成 current_stage 时第一版清空 current_stage，不自动激活下一阶段。
-5. PR 4 仅评估 --update-current-task 同步选项，默认不触碰全局 Current_Task。
-6. 每个实现 PR 后运行 uv run acf check template、uv run acf check docs/ai --strict --json 和 uv run python -m unittest。
+1. 生成 docs/ai/reference/Top_Level_Implementation_Gap.md，并包含证据、缺口、优先级和下一步。
+2. 当前任务板 T001-T005 已建立，T001 完成后能指向下一步优先级。
+3. 验证 uv run acf check docs/ai --strict --json 和 uv run acf audit context docs/ai --json 通过。
 
 ---
 
@@ -47,11 +44,11 @@ P2 Workstream Task Flow
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | Design workstream stage/focus command contract | Product Roadmap 要求新能力先确认通用上下文治理问题、分层、fixture、兼容性和 next_actions | Workstream stage/focus CLI 设计契约，覆盖 PR1-PR4 边界、状态规则、检查规则和验收 fixture | docs/ai/reference/Workstream_Design.md; acf.py; tests/test_cli.py; verification: uv run python -m unittest, uv run acf check template --json, uv run acf check docs/ai --strict --json, uv run acf upgrade docs/ai --dry-run --json, uv run python scripts/minimal_smoke.py, uv run python scripts/upgrade_matrix.py --mode quick | 无。 |
-| T002 | Done | Implement workstream stage add/list | T001 | acf workstream stage add/list；只修改目标 workstream 详情文件；新增阶段行；重复 ID 和跨 WS ID 拒绝 | acf.py; tests/test_cli.py; commands: acf workstream stage add/list; rejects duplicate and cross-WS stage IDs | 已实现并验证 |
-| T003 | Done | Implement workstream focus | T002 | acf workstream focus；更新 current_stage 和阶段 Active 状态；拒绝缺失、终态、多 Active 和依赖未 Done | acf.py; tests/test_cli.py; command: acf workstream focus; rejects terminal target, multiple Active stages, and unmet same-WS dependencies | 已实现并验证 |
-| T004 | Done | Implement workstream stage done | T003 | acf workstream stage done；Done 必须有 evidence；current_stage 完成后第一版清空，要求用户显式 focus 下一阶段 | acf.py; tests/test_cli.py; command: acf workstream stage done; requires evidence and --clear-current for focused stage; strict check rejects Done stage without evidence | 已实现并验证 |
-| T005 | Done | Evaluate Current_Task sync option | T002,T003,T004 | 评估 workstream focus --update-current-task 是否进入后续 PR；只同步 Current_Task 的当前执行线和当前阶段 section | docs/ai/reference/Workstream_Design.md; README.md; System_Manual.md; --update-current-task left as deferred follow-up, no global Current_Task sync implemented | 后续如有明确需求再单独设计 --update-current-task |
+| T001 | Done | Map top-level requirements to current implementation | ACF_Top_Level_Design.md and Product_Roadmap.md are active planning baseline | Top_Level_Implementation_Gap.md initial matrix with evidence | docs/ai/reference/Top_Level_Implementation_Gap.md; verification: uv run acf check docs/ai --strict --json, uv run acf audit context docs/ai --json | 无。 |
+| T003 | Done | Prioritize next implementation slices | T002 | P1/P2 ordered implementation recommendation | docs/ai/reference/Top_Level_Implementation_Gap.md#prioritized-next-slices | 无。 |
+| T002 | Done | Identify gaps by implementation layer | T001 | Layered gap summary for content model, object model, CLI, check, audit, sync, upgrade and tests | docs/ai/reference/Top_Level_Implementation_Gap.md#layer-summary | 无。 |
+| T004 | Done | Create implementation backlog | T003 | Backlog entries with acceptance and verification notes | docs/ai/reference/Top_Level_Implementation_Gap.md#prioritized-next-slices | 无。 |
+| T005 | Done | Decide first code PR | T004 | First code PR decision with why/why-not alternatives | docs/ai/reference/Top_Level_Implementation_Gap.md#first-code-pr-decision | 下一步首选 JSON contract consistency tests。 |
 
 ---
 
