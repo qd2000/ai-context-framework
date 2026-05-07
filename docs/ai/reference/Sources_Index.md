@@ -28,6 +28,7 @@
 | Non-PetroSim Dogfooding Sample | dogfooding 样本记录 | reference/Non_PetroSim_Dogfooding_Sample.md | Useful | 高 | 记录 EcSOS `cracking-yield-prediction-system` 作为非 PetroSim 真实样本的选择理由、只读检查结果和后续写入边界。 | 进入 P3 audit rule expansion 或真实项目验证前按需读取。 |
 | Upgrade Migration Plan | 设计计划 | reference/Upgrade_Migration_Plan.md | Useful | 高 | 记录旧版本上下文升级到新版本的阶段、兼容性原则、Workstream/front matter 可选启用策略、测试矩阵和 JSON 输出契约。 | 实现 Workstream、front matter 或模板结构变化前必须读取，并同步 init/upgrade/check 测试。 |
 | Workstream Design | 设计文档 | reference/Workstream_Design.md | Useful | 高 | 记录多 agent 并行目标线治理方案、front matter 取舍、状态机、合并契约和后续 CLI/check 计划。 | 作为 T001 设计依据；后续实现 Workstream 可选层时按需读取。 |
+| Workstream Lifecycle Archive Design | 设计文档 | reference/Workstream_Lifecycle_Archive_Design.md | Useful | 高 | 记录 Done / Cancelled Workstream 从 active 保留到 archive 的生命周期边界、候选 helper 形态、阻塞条件和后续显式 archive 命令前置条件。 | 实现 `workstream archive-candidates`、archive draft 或移动文件命令前必须读取；当前结论是先候选/草案，不直接移动文件。 |
 
 ---
 

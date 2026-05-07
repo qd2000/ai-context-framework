@@ -857,6 +857,8 @@ keep_active_until: 2026-05-10
 2. strict check 下，超过 `keep_active_until` 时 error。
 3. 当前计划结束后，应归档到 `archive/workstreams/`。
 
+详细 archive helper 边界见 `reference/Workstream_Lifecycle_Archive_Design.md`。当前设计结论是先做只读候选或草案 helper，再考虑显式移动文件命令；`workstream sync` 和 `upgrade` 都不自动归档 Done / Cancelled Workstream。
+
 ### Workstream index consistency check and sync
 
 检查规则：

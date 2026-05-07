@@ -93,6 +93,7 @@ class ContextMatrixTests(unittest.TestCase):
             "authority_gate",
             "workstream_stage_flow",
             "task_stage_registry",
+            "workstream_lifecycle_archive",
         }
         actual = {path.name for path in FIXTURE_ROOT.iterdir() if path.is_dir()}
         self.assertTrue(expected.issubset(actual))
@@ -474,6 +475,124 @@ class ContextMatrixTests(unittest.TestCase):
             exit_code, check_payload, stderr = self.run_cli_json(["check", str(target), "--strict", "--json"])
             self.assertEqual(exit_code, 0, stderr)
             self.assertTrue(check_payload["ok"])
+
+    def test_workstream_lifecycle_archive_fixture_retains_needed_terminal_workstream(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_context(tmp, "workstream_lifecycle_archive")
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS020",
+                        "--title",
+                        "Lifecycle fixture workstream",
+                        "--owner",
+                        "codex",
+                        "--output",
+                        "lifecycle evidence",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "set", "WS020", str(target), "--status", "Active"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS020",
+                        str(target),
+                        "--target",
+                        "active/Context.md",
+                        "--summary",
+                        "No authority write required for lifecycle fixture.",
+                        "--verification",
+                        "Fixture evidence reviewed.",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS020", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "done",
+                        "WS020",
+                        str(target),
+                        "--evidence",
+                        "worklog/lifecycle.md",
+                        "--merge-resolution",
+                        "no_merge_required",
+                    ]
+                ),
+                0,
+            )
+            detail = target / "active" / "workstreams" / "WS020.md"
+            detail.write_text(
+                detail.read_text(encoding="utf-8").replace(
+                    "title: Lifecycle fixture workstream\n",
+                    "title: Lifecycle fixture workstream\n"
+                    "keep_active_reason: retained to explain current synthetic plan\n"
+                    "keep_active_until: 2099-01-01\n",
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                self.run_cli(["plan", "init", str(target), "--title", "Lifecycle plan", "--goal", "Goal.", "--force"]),
+                0,
+            )
+            self.assertEqual(self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Parent task"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "plan",
+                        "stage",
+                        "add",
+                        str(target),
+                        "--id",
+                        "T001.1",
+                        "--parent",
+                        "T001",
+                        "--title",
+                        "Stage referencing retained terminal Workstream",
+                        "--workstream",
+                        "WS020",
+                        "--output",
+                        "stage output",
+                    ]
+                ),
+                0,
+            )
+
+            exit_code, check_payload, stderr = self.run_cli_json(["check", str(target), "--strict", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(check_payload["ok"])
+
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001\n\n## 当前执行线\n\nWS020\n",
+                encoding="utf-8",
+            )
+            result = acf.check_context(target, "minimal", strict=True)
+            self.assertTrue(
+                any("current execution line references terminal workstream `WS020`" in error for error in result.errors),
+                result.errors,
+            )
+
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nEmpty\n\n## 子任务 ID\n\n无。\n\n## 当前执行线\n\n无。\n",
+                encoding="utf-8",
+            )
+            detail.write_text(
+                detail.read_text(encoding="utf-8").replace("keep_active_until: 2099-01-01", "keep_active_until: 2000-01-01"),
+                encoding="utf-8",
+            )
+            result = acf.check_context(target, "minimal", strict=True)
+            self.assertTrue(any("keep_active_until `2000-01-01` is expired" in error for error in result.errors), result.errors)
 
     def test_authority_gate_fixture_rejects_direct_authority_claim(self):
         with tempfile.TemporaryDirectory() as tmp:

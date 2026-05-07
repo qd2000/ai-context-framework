@@ -14,21 +14,22 @@ Done
 
 ## 大任务名称
 
-P2 Task Stage CLI
+P2 Workstream Lifecycle Archive Design
 
 ---
 
 ## 大任务目标
 
-1. 根据顶层设计和 gap audit，将已有 Task Stage registry 从手写表推进到受控 CLI 薄切片。
-2. 实现 plan stage add/set/done 的确定性表格维护，不改变 Current_Task 或 Workstream 语义边界。
+1. 根据顶层设计和 gap audit，收敛 Workstream Done/Cancelled 从 active 保留到 archive 的生命周期 helper 边界。
+2. 先补设计和 synthetic fixture，证明第一版不误归档仍被当前计划需要解释的 Workstream。
 
 ---
 
 ## 成功标准
 
-1. 新增 Task Stage CLI 有 JSON/dry-run/error recovery 测试和文档。
-2. strict check、audit、smoke、upgrade matrix 回归通过。
+1. 新增 Workstream lifecycle/archive 设计文档并同步路线入口。
+2. 新增 context_matrix fixture/test 覆盖 retained terminal Workstream 和 expired keep-active 边界。
+3. strict check、audit context 和相关单元测试通过；本轮不改变 CLI 行为，不 bump 版本。
 
 ---
 
@@ -42,9 +43,9 @@ P2 Task Stage CLI
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | Define Task Stage CLI contract | Top_Level_Implementation_Gap.md P2-1 | add/set/done command boundary and tests shape | Task Stage CLI contract fixed: table-only command family, no Current_Task/Workstream automation. | 无。 |
-| T002 | Done | Implement plan stage commands | T001 | acf plan stage add/set/done | acf.py implements plan stage list/add/set/done; tests cover command flow, invalid parent, duplicate id and Workstream owner validation. | 无。 |
-| T003 | Done | Add tests, docs and version bump | T002 | unit tests, smoke/gap docs, README/System Manual and v0.0.3.29 | P2 Task Stage CLI complete: acf plan stage list/add/set/done, task_stage_registry fixture, minimal smoke Task Stage path, docs and v0.0.3.29 version metadata. | 无。 |
+| T001 | Done | Define Workstream archive helper boundary | Top_Level_Implementation_Gap.md P2-2 | Workstream_Lifecycle_Archive_Design.md | reference/Workstream_Lifecycle_Archive_Design.md defines conservative archive helper boundary: candidates/draft before moving files. | 无。 |
+| T002 | Done | Add lifecycle fixture coverage | T001 | workstream_lifecycle_archive context_matrix fixture and tests | tests/fixtures/context_matrix/workstream_lifecycle_archive and test_context_matrix lifecycle test cover retained terminal Workstream, current execution line rejection and expired keep-active. | 无。 |
+| T003 | Done | Sync roadmap docs and verify | T002 | roadmap/gap/system manual updates and verification | P2 Workstream lifecycle/archive design and fixture complete; no CLI behavior change, no version bump. | 无。 |
 
 ---
 
@@ -52,7 +53,7 @@ P2 Task Stage CLI
 
 | ID | 状态 | 父任务 | 名称 | 归属 Workstream | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|---|---|
-| T003.1 | Done | T003 | release verification | 无。 | 无。 | verification evidence and version bump | unittest; check template; docs/ai strict check; audit context; upgrade dry-run; version show; minimal_smoke; upgrade_matrix quick/full; py_compile; git diff --check | 无。 |
+| 暂无 |  |  |  |  |  |  |  |  |
 
 ---
 

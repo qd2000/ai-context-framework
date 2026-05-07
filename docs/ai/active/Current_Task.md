@@ -16,13 +16,13 @@ Done
 
 ## 任务名称
 
-Add tests, docs and version bump
+Sync roadmap docs and verify
 
 ---
 
 ## 所属大任务
 
-P2 Task Stage CLI
+P2 Workstream Lifecycle Archive Design
 
 ---
 
@@ -40,14 +40,14 @@ T003
 
 ## 本次任务目标
 
-1. Run full verification and release metadata update
-2. 产出并验证输出物：unit tests, smoke/gap docs, README/System Manual and v0.0.3.29
+1. Update docs, run checks and commit
+2. 产出并验证输出物：roadmap/gap/system manual updates and verification
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T003，所属大任务为“P2 Task Stage CLI”。依赖记录：T002
+该任务来自 `active/Task_Plan.md` 中的子任务 T003，所属大任务为“P2 Workstream Lifecycle Archive Design”。依赖记录：T002
 
 ---
 
@@ -55,19 +55,19 @@ T003
 
 - `active/Task_Plan.md`。
 - `active/Context.md`。
-- 依赖 T002 证据：acf.py implements plan stage list/add/set/done; tests cover command flow, invalid parent, duplicate id and Workstream owner validation.
+- 依赖 T002 证据：tests/fixtures/context_matrix/workstream_lifecycle_archive and test_context_matrix lifecycle test cover retained terminal Workstream, current execution line rejection and expired keep-active.
 
 ---
 
 ## 输出要求
 
-- unit tests, smoke/gap docs, README/System Manual and v0.0.3.29
+- roadmap/gap/system manual updates and verification
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：unit tests, smoke/gap docs, README/System Manual and v0.0.3.29
+1. 输出物已完成：roadmap/gap/system manual updates and verification
 2. 子任务 T003 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 

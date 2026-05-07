@@ -1,0 +1,18 @@
+{
+  "kind": "workstream_lifecycle_archive",
+  "intent": "Synthetic fixture for terminal Workstream retention and future archive-helper boundaries.",
+  "profile": "minimal",
+  "expected_behavior": [
+    "Done Workstream with evidence, merge_resolution, keep_active_reason, and future keep_active_until remains strict-check clean",
+    "Terminal Workstream referenced as current execution line is rejected",
+    "Expired keep_active_until is rejected in strict check",
+    "Task Stage historical ownership/reference does not by itself require archiving"
+  ],
+  "risk_tags": [
+    "workstream",
+    "archive",
+    "lifecycle",
+    "keep-active",
+    "terminal-state"
+  ]
+}

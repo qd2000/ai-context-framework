@@ -105,8 +105,7 @@ Dogfooding MVP / 框架稳定化。
 50. 会话结束回写协议已改为落盘优先：可确定内容应优先写入对应文件或生成可审阅草案，最终回复只报告实际变更、草案路径、验证结果和仍需人工判断的风险。
 51. Feedback_Inbox 生命周期已明确：Open/Triaged/Planned/Done/Rejected 各有处理规则，Done/Rejected 需要证据位置或拒绝原因，长期已处理反馈归档到 `archive/feedback/`。
 52. `acf init` 和 `acf upgrade` 已补齐 `archive/feedback/` 目录；旧上下文升级会非破坏式补齐反馈归档结构。
-53. T002-T005 已完成验证：`uv run acf check template`、`uv run acf check docs/ai --strict --json`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf version show --json` 和 `uv run python -m unittest` 均通过。
-54. `acf --version` 当前版本记为 `v0.0.3.29`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.29`。
+53. `acf --version` 当前版本记为 `v0.0.3.29`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.29`。
 55. 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，必须评估旧版本上下文升级兼容性；新增结构应同步到 init 文件清单、upgrade 补齐清单、data-files、文档、init/upgrade 测试和 upgrade compatibility runner。
 56. `acf upgrade --help` 已明确当前 schema 会补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge；旧上下文升级演练已验证 dry-run、正式 upgrade --check-after 和 check 均可通过。
 57. `acf upgrade` 已支持对已存在但内容过期的 ACF 模板文件做保守 section 级迁移：AGENTS、Feedback_Inbox、Project_Rules 和 System_Manual 会在识别到旧段落时更新；无法识别的自定义文档仍通过 marker notes 非破坏式提示。
@@ -143,6 +142,8 @@ Dogfooding MVP / 框架稳定化。
 79. 阶段 6 P1.5 已新增 upgrade compatibility runner：`scripts/upgrade_matrix.py` 使用 `tests/fixtures/upgrade_matrix/` 中的风险驱动最小旧形态 fixture，验证旧项目可被非破坏式带到当前工具可治理状态；quick 模式随单元测试运行，full 模式用于 release 前扩展检查。该 runner 同时暴露并修复了旧 AGENTS 与旧 System Manual 需要二次 upgrade 才完成 marker notes / 手册提示补齐的幂等性问题。
 
 80. 阶段 6 P1.6 已新增 `reference/Context_Curation_Prompt.md`：该文件是按需读取的 AI 上下文整理 prompt 模板，默认产物是整理建议，不是文件修改；`init` 和 `upgrade` 会补齐该 reference 文件，但不自动运行 stale/curation、也不让 CLI 裁决事实真假。
+
+81. P2 Workstream lifecycle/archive helper 当前完成设计与 fixture：`reference/Workstream_Lifecycle_Archive_Design.md` 规定第一版先做只读候选或草案 helper，不直接移动文件；`tests/fixtures/context_matrix/workstream_lifecycle_archive` 覆盖 retained terminal Workstream、当前执行线误用和 expired keep-active 边界。本轮未改变 CLI 行为，不 bump 版本。
 
 ---
 

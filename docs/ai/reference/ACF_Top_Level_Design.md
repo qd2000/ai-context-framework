@@ -1021,6 +1021,7 @@ upgrade matrix 必须覆盖：
 | `Architecture.md` | 仓库和 CLI 架构说明 |
 | `System_Manual.md` | 项目内维护者和 AI 的操作手册摘要 |
 | `Workstream_Design.md` | Workstream 协议、状态机、stage/focus、merge/retention、sync 细节 |
+| `Workstream_Lifecycle_Archive_Design.md` | Done / Cancelled Workstream 从 active 保留到 archive 的 helper 边界 |
 | `Context_Audit_Design.md` | audit candidates、JSON 输出、暂缓规则和调优原则 |
 | `Upgrade_Migration_Plan.md` | 旧上下文升级策略、兼容矩阵和 migration 行为 |
 | `Front_Matter_Metadata_Plan.md` | 轻量 metadata 字段、适用对象和 parser 约束 |
@@ -1034,12 +1035,13 @@ upgrade matrix 必须覆盖：
 1. `ACF_Top_Level_Design.md` 是上位架构和边界，回答 ACF 是什么、不是什么、对象和 CLI 怎么分层。
 2. `Product_Roadmap.md` 是阶段路线，回答先做什么、后做什么、准入门槛和近期优先级。
 3. `Workstream_Design.md` 是 Workstream 专题细节，回答状态机、stage/focus、merge/retention、sync 和具体命令契约。
-4. `Context_Audit_Design.md` 是 audit 专题细节，回答 candidates、JSON 输出、调优记录、暂缓规则和误报控制。
-5. `Upgrade_Migration_Plan.md` 是 upgrade 专题细节，回答旧项目迁移、marker notes、兼容矩阵和 dry-run 行为。
-6. `Front_Matter_Metadata_Plan.md` 是 metadata 专题细节，回答哪些对象适合 front matter、字段约束和 parser 限制。
-7. `System_Manual.md` 是项目内维护者和 AI 的操作手册，回答日常怎么用命令和失败后怎么办。
-8. `../Automation.md` 是自动化路线和验证命令，回答当前已自动化什么、下一步自动化什么、发布前怎么验。
-9. `../../README.md` 是公开入口摘要，回答用户如何理解、安装和开始使用。
+4. `Workstream_Lifecycle_Archive_Design.md` 是 Workstream archive helper 专题细节，回答终态 Workstream 何时只生成候选、何时可显式归档。
+5. `Context_Audit_Design.md` 是 audit 专题细节，回答 candidates、JSON 输出、调优记录、暂缓规则和误报控制。
+6. `Upgrade_Migration_Plan.md` 是 upgrade 专题细节，回答旧项目迁移、marker notes、兼容矩阵和 dry-run 行为。
+7. `Front_Matter_Metadata_Plan.md` 是 metadata 专题细节，回答哪些对象适合 front matter、字段约束和 parser 限制。
+8. `System_Manual.md` 是项目内维护者和 AI 的操作手册，回答日常怎么用命令和失败后怎么办。
+9. `../Automation.md` 是自动化路线和验证命令，回答当前已自动化什么、下一步自动化什么、发布前怎么验。
+10. `../../README.md` 是公开入口摘要，回答用户如何理解、安装和开始使用。
 
 ### 11.2 防漂移规则
 

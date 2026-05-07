@@ -368,7 +368,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 ### 当前最建议做
 
 1. 使用 `reference/Top_Level_Implementation_Gap.md` 作为进入新代码 PR 前的 gap-driven 实施依据。
-2. JSON contract consistency tests、Workstream stage flow fixture、upgrade matrix expansion 与 Task Stage CLI 薄切片已完成；下一批继续 gap-driven P2 评估。
+2. JSON contract consistency tests、Workstream stage flow fixture、upgrade matrix expansion、Task Stage CLI 薄切片与 Workstream lifecycle/archive helper 设计已完成；下一批继续 gap-driven P2 评估。
 3. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge。
 4. 后续每个新能力先补 fixture，再实现命令或规则。
 
@@ -379,7 +379,8 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 3. P1-2：扩展 `scripts/minimal_smoke.py`，纳入 workstream stage/focus/done/sync 和 clean audit。已完成。
 4. P1-3：扩展 upgrade matrix，覆盖 Workstream/ADR/custom AGENTS 旧形态。已完成。
 5. P2-1：实现 Task Stage CLI 薄切片。已完成：`acf plan stage list/add/set/done` 只维护 `active/Task_Plan.md` 的 `## 任务阶段` 表，不创建 task object 单文件，不自动修改 `Current_Task`，不联动 Workstream。
-6. P2-2：设计 Workstream lifecycle / archive helper。候选。
+6. P2-2：设计 Workstream lifecycle / archive helper。已完成：新增 `reference/Workstream_Lifecycle_Archive_Design.md` 和 `workstream_lifecycle_archive` fixture，明确第一版先做候选/草案 helper，不直接移动文件。
+7. P2-3：评估只读 `workstream archive-candidates` 命令。候选。
 
 ---
 
