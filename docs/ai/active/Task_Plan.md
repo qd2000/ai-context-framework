@@ -14,27 +14,28 @@ Done
 
 ## 大任务名称
 
-P2 Non-PetroSim Dogfooding Sample
+EcSOS upgrade rehearsal plan
 
 ---
 
 ## 大任务目标
 
-1. 在 ACF 自身、FCC、minimal / legacy / synthetic fixtures 之外，选择一个非 PetroSim 真实项目样本。
-2. 只读评估该样本是否能验证 ACF 在不同项目形态下的适用性。
-3. 记录选择理由、当前 ACF check/audit/upgrade 信号和后续写入边界。
-4. 本轮不修改目标项目，不新增 audit 规则。
+1. 为 EcSOS 非 PetroSim dogfooding 样本准备 upgrade dry-run -> apply 的授权前检查计划。
+2. 明确写入前必须确认目标项目 `ahead 1` 状态。
+3. 固定只读 / dry-run / 写入 / 写后验证顺序。
+4. 明确 upgrade 只验证 context 结构，不自动改论文事实、不修 stale 当前任务。
+5. 本轮只写 ACF 计划文档，不写 EcSOS。
 
 ---
 
 ## 成功标准
 
-1. 选择一个非 PetroSim 真实项目样本。
-2. 样本类型不同于 FCC：论文 / 数据分析 / Python 工具项目。
-3. 完成只读 `status`、`check`、`upgrade --dry-run`、`audit context`、`review stale` 评估。
-4. `reference/Non_PetroSim_Dogfooding_Sample.md` 记录选择理由和检查结果。
-5. `reference/Product_Roadmap.md` 与 `../Automation.md` 指向该样本。
-6. 不修改目标项目内容。
+1. `reference/Non_PetroSim_Dogfooding_Sample.md` 增加 Upgrade Rehearsal Plan。
+2. 记录 EcSOS `ahead 1` 的具体 commit：`c236a77 初始化docs/ai/`。
+3. 写入范围预期限定为 upgrade dry-run 输出的结构文件。
+4. 写后验证命令明确为 check / audit / review stale / git status / git diff。
+5. 明确 stale current task、Context review marker 和论文事实不自动修。
+6. 本轮不修改 EcSOS 项目内容。
 
 ---
 
@@ -48,7 +49,7 @@ P2 Non-PetroSim Dogfooding Sample
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | Inspect EcSOS as non-PetroSim candidate | Product Roadmap; context matrix | 样本适配性判断、只读检查结果、后续写入边界 | `reference/Non_PetroSim_Dogfooding_Sample.md`; `reference/Product_Roadmap.md`; `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 若后续需要写入 EcSOS，先确认目标项目 ahead 状态并从 `acf upgrade --dry-run` 开始。 |
+| T001 | Done | Draft EcSOS upgrade rehearsal plan | Non-PetroSim sample selection | 授权前检查、写入步骤、写后验证、不自动处理清单 | `reference/Non_PetroSim_Dogfooding_Sample.md`; `worklog/daily/2026-05-07.md`; verification: `uv run acf check docs/ai --strict --json`, `uv run acf status docs/ai --json` | 等用户明确授权后，才进入 EcSOS upgrade apply。 |
 
 ---
 
@@ -64,19 +65,19 @@ P2 Non-PetroSim Dogfooding Sample
 
 本阶段不做：
 
-1. 不修改 EcSOS 项目内容。
-2. 不启动 EcSOS runtime、训练或采样任务。
-3. 不新增 audit candidate rule。
-4. 不把 EcSOS 的论文业务规则写入 ACF。
-5. 不把启发式 audit 接入 `check --strict`。
+1. 不执行 EcSOS `acf upgrade` 正式写入。
+2. 不修改 EcSOS active/Context.md、Current_Task.md 或 Task_Plan.md。
+3. 不修 stale candidates。
+4. 不运行训练、采样、论文生成或 runtime 命令。
+5. 不新增 ACF audit rules。
 
 ---
 
 ## 后续候选
 
-1. 经用户明确授权后，对 EcSOS 执行 `acf upgrade --dry-run` 计划变更的正式写入。
-2. 写入后复跑 EcSOS `acf check`、`acf audit context`、`acf review stale`。
-3. 在 ACF 中记录非 PetroSim 样本写入前/后的差异，再决定是否进入 P3 audit rule expansion。
+1. 用户明确授权后，按 rehearsal plan 执行 EcSOS upgrade apply。
+2. 写后只验证 context 结构和 audit/stale 信号。
+3. 将写入前/后差异写回 ACF worklog，再决定是否进入 P3 audit rule expansion。
 
 ---
 

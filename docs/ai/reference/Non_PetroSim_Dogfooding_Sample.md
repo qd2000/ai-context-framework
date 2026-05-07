@@ -47,6 +47,14 @@ Selected
 
 含义：目标项目本地已有未推送提交或状态差异。ACF dogfooding 不应在未明确授权时写入该项目。
 
+`git log --oneline origin/master..HEAD` 显示本地 ahead commit 为：
+
+```text
+c236a77 初始化docs/ai/
+```
+
+含义：当前 ahead 状态来自目标项目已有 `docs/ai/` 初始化提交。执行正式 upgrade 写入前，应先确认该本地提交是否保留、推送或继续在其上追加。
+
 ### ACF status / check
 
 命令：
@@ -148,6 +156,59 @@ EcSOS 适合作为 P2/P3 之间的非 PetroSim 真实样本。
    - `acf audit context docs/ai --json`
    - `acf review stale docs/ai --json`
 5. 不在 EcSOS 项目中测试 FCC/PetroSim 专属规则。
+
+---
+
+## Upgrade Rehearsal Plan
+
+目标：在用户明确授权前，只准备演练计划，不写 EcSOS。
+
+### 授权前检查
+
+1. 确认目标项目路径仍为 `E:\Codes\EcSOS\cracking-yield-prediction-system`。
+2. 复跑 `git status -sb`，确认是否仍为 `ahead 1` 且无其他 dirty files。
+3. 复跑 `git log --oneline origin/master..HEAD`，确认 ahead commit 是否仍为 `c236a77 初始化docs/ai/`。
+4. 复跑 `acf upgrade --dry-run --json`，确认 planned changes 仍限于结构升级文件。
+5. 不运行训练、采样、论文生成或任何 runtime 命令。
+
+### 写入步骤
+
+仅在用户明确授权后执行：
+
+```bash
+uv run acf upgrade E:\Codes\EcSOS\cracking-yield-prediction-system\docs\ai --json
+```
+
+写入范围预期只包括：
+
+1. `reference/Context_Curation_Prompt.md`
+2. `AGENTS.md`
+3. `rules/Project_Rules.md`
+4. `reference/System_Manual.md`
+
+若 dry-run 输出发生变化，应停止并重新评估。
+
+### 写后验证
+
+只验证 context 结构和 audit 信号，不改论文事实：
+
+```bash
+uv run acf check E:\Codes\EcSOS\cracking-yield-prediction-system\docs\ai --json
+uv run acf audit context E:\Codes\EcSOS\cracking-yield-prediction-system\docs\ai --json
+uv run acf review stale E:\Codes\EcSOS\cracking-yield-prediction-system\docs\ai --json
+git -C E:\Codes\EcSOS\cracking-yield-prediction-system status -sb
+git -C E:\Codes\EcSOS\cracking-yield-prediction-system diff -- docs/ai
+```
+
+### 写入后不自动处理
+
+以下候选只记录，不自动修：
+
+1. Active Current_Task 缺 dated status note。
+2. Context 缺 review marker。
+3. 论文实验事实、数据事实源、口径决策或表图迁移问题。
+
+这些内容属于目标项目语义治理，需要用户或主代理另行确认。
 
 ---
 

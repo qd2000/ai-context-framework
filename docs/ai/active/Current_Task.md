@@ -17,13 +17,13 @@ Done
 
 ## 任务名称
 
-Inspect EcSOS as non-PetroSim dogfooding sample
+Draft EcSOS upgrade rehearsal plan
 
 ---
 
 ## 所属大任务
 
-P2 Non-PetroSim Dogfooding Sample
+EcSOS upgrade rehearsal plan
 
 ---
 
@@ -41,88 +41,90 @@ T001
 
 ## 本次任务目标
 
-1. 只读查看 `E:\Codes\EcSOS\cracking-yield-prediction-system`。
-2. 判断该项目是否适合作为 ACF 非 PetroSim 真实 dogfooding 样本。
-3. 记录 ACF status/check/upgrade/audit/review stale 的只读信号。
-4. 不修改目标项目。
+1. 为 EcSOS 非 PetroSim 样本写 upgrade rehearsal plan。
+2. 明确授权前检查、写入步骤、写后验证和不自动处理项。
+3. 记录 EcSOS 当前 `ahead 1` 的具体 commit。
+4. 本轮不修改 EcSOS。
 
 ---
 
 ## 任务背景
 
-ACF 已有 ACF 自身、FCC、minimal / legacy / synthetic fixtures。为了防止后续 P3 audit rules 过拟合 FCC/PetroSim，需要增加一个非 PetroSim 真实项目样本。EcSOS 项目是论文 / 数据分析 / Python 工具项目，已有旧版 ACF context 和 Active 当前任务，适合验证非 Workstream-heavy 项目的 upgrade/audit 适用性。
+EcSOS 已选为 ACF 非 PetroSim 真实样本。只读评估显示它是旧版 ACF context，缺少 `reference/Context_Curation_Prompt.md`；`acf upgrade --dry-run` 可非破坏式补结构。同时目标项目当前 `git status` 为 `ahead 1`，本地 ahead commit 是 `c236a77 初始化docs/ai/`。正式写入前需要明确授权和安全边界。
 
 ---
 
 ## 输入材料
 
-- `E:\Codes\EcSOS\cracking-yield-prediction-system\AGENTS.md`
-- `E:\Codes\EcSOS\cracking-yield-prediction-system\README.md`
-- `E:\Codes\EcSOS\cracking-yield-prediction-system\docs\ai`
-- `reference/Product_Roadmap.md`
+- `reference/Non_PetroSim_Dogfooding_Sample.md`
+- EcSOS 只读命令结果：
+  - `git status -sb`
+  - `git log --oneline origin/master..HEAD`
+  - `acf upgrade --dry-run --json`
+  - `acf audit context --json`
+  - `acf review stale --json`
 
 ---
 
 ## 输出要求
 
-1. 新增 `reference/Non_PetroSim_Dogfooding_Sample.md`。
-2. 更新 `reference/Product_Roadmap.md`。
-3. 更新 `../Automation.md` 和 `reference/Sources_Index.md` 的入口。
-4. 记录只读检查结果和后续写入边界。
-5. 不修改 EcSOS 项目。
+1. 在 `reference/Non_PetroSim_Dogfooding_Sample.md` 增加 Upgrade Rehearsal Plan。
+2. 写清授权前检查。
+3. 写清预期写入文件。
+4. 写清写后验证命令。
+5. 写清 stale / 论文事实不自动修。
 
 ---
 
 ## 成功标准
 
-1. 明确 EcSOS 是否适合作为非 PetroSim 样本。
-2. 记录 check/status 当前失败原因。
-3. 记录 upgrade dry-run planned changes。
-4. 记录 audit/review stale candidates。
-5. ACF 自身 `uv run acf check docs/ai --strict --json` 通过。
+1. rehearsal plan 可直接指导后续授权执行。
+2. 明确：没有用户授权不写 EcSOS。
+3. 明确：upgrade 只做结构升级，不改论文事实。
+4. `uv run acf check docs/ai --strict --json` 通过。
+5. `uv run acf status docs/ai --json` 通过。
 
 完成证据：
 
 - `reference/Non_PetroSim_Dogfooding_Sample.md`
-- `reference/Product_Roadmap.md`
-- `../Automation.md`
-- `reference/Sources_Index.md`
+- `active/Task_Plan.md`
+- `active/Current_Task.md`
 - `worklog/daily/2026-05-07.md`
 
 ---
 
 ## 失败信号
 
-1. 修改 EcSOS 项目内容。
-2. 启动训练、采样或 runtime。
-3. 将 EcSOS 业务规则写成 ACF 通用规则。
-4. 直接进入 P3 audit rule implementation。
+1. 本轮执行 EcSOS `acf upgrade` 正式写入。
+2. 修改 EcSOS 当前任务或论文事实。
+3. 自动修 stale candidates。
+4. 新增 audit rule。
 
 ---
 
 ## 约束条件
 
-1. 目标项目只读。
+1. EcSOS 只读。
 2. 不使用 WSL。
-3. 只记录通用上下文治理信号。
-4. 目标项目当前 `git status` 显示 ahead，写入前必须另行确认。
+3. 不运行训练、采样或 runtime。
+4. 不新增 ACF 代码。
 
 ---
 
 ## 不允许做的事
 
-- 不运行训练或实验脚本。
-- 不执行 `acf upgrade` 正式写入。
 - 不修改 EcSOS 文件。
-- 不新增 ACF audit rule。
+- 不运行 `acf upgrade` 非 dry-run。
+- 不提交 EcSOS。
+- 不把 EcSOS 业务问题写入 ACF 产品规则。
 
 ---
 
 ## 需要 AI 协助判断的问题
 
-1. EcSOS 暴露的是通用 ACF 问题，还是项目业务问题。
-2. 它适合覆盖哪些 ACF 能力，不适合覆盖哪些能力。
-3. 后续写入前需要哪些安全边界。
+1. 写入前哪些条件必须重新确认。
+2. 写入后哪些验证足以证明结构升级安全。
+3. 哪些 stale / audit 候选必须保留为人工审阅。
 
 ---
 
@@ -130,6 +132,5 @@ ACF 已有 ACF 自身、FCC、minimal / legacy / synthetic fixtures。为了防�
 
 任务完成后，请整理以下内容，供人审核后写回项目系统：
 
-1. EcSOS 作为非 PetroSim 样本的适配性结论。
-2. 只读检查结果。
-3. 后续是否进入 EcSOS 正式 upgrade 写入。
+1. rehearsal plan 已写入。
+2. 后续需要用户明确授权才能写 EcSOS。
