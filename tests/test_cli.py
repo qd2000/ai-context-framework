@@ -1349,7 +1349,7 @@ class CliTests(unittest.TestCase):
             index_path = target / "active" / "Workstreams.md"
             index_path.write_text(index_path.read_text(encoding="utf-8").replace("| WS002 | Open | WS002 |", "| WS002 | Open | Stale title |"), encoding="utf-8")
 
-            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--profile", "minimal", "--json"])
             self.assertEqual(exit_code, 0, stderr)
             warnings = json.loads(stdout)["check"]["warnings"]
             self.assertTrue(any("title mismatch" in warning for warning in warnings))
@@ -1408,7 +1408,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0, stderr)
             self.assertEqual(json.loads(stdout)["state"], "Inactive")
 
-            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--profile", "minimal", "--json"])
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
             self.assertEqual(payload["check"]["errors"], [])
@@ -1503,7 +1503,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("| WS404 | Open | Missing detail |", index_path.read_text(encoding="utf-8"))
             self.assertIn("| WS002 | Open | WS002 |", index_path.read_text(encoding="utf-8"))
 
-            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--profile", "minimal", "--json"])
             self.assertEqual(exit_code, 1)
             self.assertTrue(any("broken Workstream detail" in error for error in json.loads(stdout)["check"]["errors"]))
 
@@ -3012,7 +3012,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("T001", task_text)
             self.assertIn("产出并验证输出物：Slice output", task_text)
             self.assertIn("`active/Context.md`", task_text)
-            self.assertIn("- `reference/Roadmap.md`：Roadmap priority。", task_text)
+            self.assertIn("- [reference/Roadmap.md](../reference/Roadmap.md)：Roadmap priority。", task_text)
             self.assertNotIn("- - `reference/Roadmap.md`", task_text)
             self.assertIn("保持 `active/Task_Plan.md` 与 `active/Current_Task.md` 状态同步", task_text)
             self.assertIn("## 当前焦点\n\nT001", (target / "active" / "Task_Plan.md").read_text(encoding="utf-8"))
@@ -3056,7 +3056,7 @@ class CliTests(unittest.TestCase):
             self.assertIn(str((target / "active" / "Task_Plan.md").resolve()), payload["changed_files"])
             self.assertIn(str((target / "active" / "Current_Task.md").resolve()), payload["changed_files"])
             task_text = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
-            self.assertIn("- `reference/roadmap/Plan.md`：Roadmap priority。", task_text)
+            self.assertIn("- [reference/roadmap/Plan.md](../reference/roadmap/Plan.md)：Roadmap priority。", task_text)
 
             duplicate_exit = self.run_cli(
                 [
@@ -3090,7 +3090,7 @@ class CliTests(unittest.TestCase):
                 0,
             )
             self.assertIn(
-                "- `reference/roadmap/Plan.md`：Updated priority。",
+                "- [reference/roadmap/Plan.md](../reference/roadmap/Plan.md)：Updated priority。",
                 (target / "active" / "Current_Task.md").read_text(encoding="utf-8"),
             )
 
@@ -3920,6 +3920,22 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertIn("current task: Empty", stdout)
             self.assertIn("check: passed", stdout)
 
+    def test_status_discovers_docs_acf_context_from_project_subdirectory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs-acf" / "ai"
+            nested = project_root / "src"
+            nested.mkdir(parents=True)
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            with pushd(nested):
+                exit_code, stdout, stderr = self.run_cli_output(["status", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["context"], str(target.resolve()))
+            self.assertEqual(payload["project_root"], str(project_root.resolve()))
+
     def test_status_json_is_machine_readable(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp) / "project"
@@ -3940,6 +3956,175 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertIsNone(payload["error_code"])
             self.assertTrue(payload["next_actions"])
             self.assertTrue(payload["check"]["ok"])
+
+    def test_check_validates_markdown_links_images_and_heading_anchors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "reference" / "System_Manual.md").write_text(
+                "# System Manual\n\n## 人工笔记与 Obsidian\n\n内容。\n",
+                encoding="utf-8",
+            )
+            (target / "reference" / "asset.png").write_text("png", encoding="utf-8")
+            current = target / "active" / "Current_Task.md"
+            current.write_text(
+                "# Current Task\n\n"
+                "## 当前任务状态\n\nActive\n\n"
+                "## 输入材料\n\n"
+                "- [manual](../reference/System_Manual.md#人工笔记与-obsidian)\n"
+                "- ![asset](../reference/asset.png)\n"
+                "- [external](https://example.com/file.md)\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--profile", "minimal", "--json"])
+            payload = self.json_payload(stdout)
+            self.assertEqual(exit_code, 0, stderr)
+            self.assert_success_json_contract(payload, "check")
+
+            current.write_text(
+                current.read_text(encoding="utf-8")
+                + "- [missing](../reference/Missing.md)\n"
+                + "- ![missing asset](../reference/missing.png)\n"
+                + "- [bad anchor](../reference/System_Manual.md#不存在)\n",
+                encoding="utf-8",
+            )
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--profile", "minimal", "--json"])
+            payload = self.json_payload(stdout)
+            self.assertEqual(exit_code, 1)
+            errors = "\n".join(payload["check"]["errors"])
+            self.assertIn("broken markdown link `../reference/Missing.md`", errors)
+            self.assertIn("broken markdown link `../reference/missing.png`", errors)
+            self.assertIn("broken markdown link anchor `../reference/System_Manual.md#不存在`", errors)
+
+    def test_linkify_converts_default_scope_and_skips_daily_worklog_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "reference" / "System_Manual.md").write_text("# Manual\n", encoding="utf-8")
+            (target / "archive" / "tasks" / "done.md").write_text("# Done\n", encoding="utf-8")
+            (target / "active" / "Current_Task.md").write_text(
+                "# Current Task\n\n"
+                "## 当前任务状态\n\nActive\n\n"
+                "## 输入材料\n\n"
+                "- `reference/System_Manual.md`\n"
+                "- reference/System_Manual.md\n"
+                "- reference/Missing.md\n"
+                "- `uv run acf link add active/Current_Task.md --target reference/System_Manual.md`\n"
+                "```\nreference/System_Manual.md\n```\n",
+                encoding="utf-8",
+            )
+            (target / "archive" / "Archive_Index.md").write_text(
+                "# Archive\n\n- archive/tasks/done.md\n",
+                encoding="utf-8",
+            )
+            frontmatter_file = target / "active" / "FrontMatter.md"
+            frontmatter_file.write_text(
+                "---\n"
+                "read_scope:\n"
+                "  - reference/System_Manual.md\n"
+                "---\n\n"
+                "- reference/System_Manual.md\n",
+                encoding="utf-8",
+            )
+            daily = target / "worklog" / "daily" / "2099-01-01.md"
+            daily.write_text("- reference/System_Manual.md\n", encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(["linkify", str(target), "--dry-run", "--json"])
+            payload = self.json_payload(stdout)
+            self.assertEqual(exit_code, 0, stderr)
+            self.assert_success_json_contract(payload, "linkify")
+            self.assertIn("active/Current_Task.md", {entry["path"] for entry in payload["updated"]})
+            self.assertFalse((target / ".acf.lock").exists())
+
+            self.assertEqual(self.run_cli(["linkify", str(target)]), 0)
+            text = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            self.assertIn("[reference/System_Manual.md](../reference/System_Manual.md)", text)
+            self.assertIn("reference/Missing.md", text)
+            self.assertIn("`uv run acf link add active/Current_Task.md --target reference/System_Manual.md`", text)
+            self.assertIn("```\nreference/System_Manual.md\n```", text)
+            archive_index = (target / "archive" / "Archive_Index.md").read_text(encoding="utf-8")
+            self.assertIn("[archive/tasks/done.md](tasks/done.md)", archive_index)
+            frontmatter_text = frontmatter_file.read_text(encoding="utf-8")
+            self.assertIn("  - reference/System_Manual.md\n---", frontmatter_text)
+            self.assertIn("[reference/System_Manual.md](../reference/System_Manual.md)", frontmatter_text)
+            self.assertEqual("- reference/System_Manual.md\n", daily.read_text(encoding="utf-8"))
+
+    def test_index_path_markup_can_be_checked_after_linkify(self):
+        self.assertEqual(
+            acf.strip_code_ticks("[worklog/daily/2026-05-08.md](daily/2026-05-08.md)"),
+            "worklog/daily/2026-05-08.md",
+        )
+        self.assertEqual(
+            acf.strip_code_ticks("[active/workstreams/WS001.md](workstreams/WS001.md)"),
+            "active/workstreams/WS001.md",
+        )
+
+    def test_linkify_allow_missing_links_missing_targets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            current = target / "active" / "Current_Task.md"
+            current.write_text(
+                "# Current Task\n\n## 当前任务状态\n\nActive\n\n## 输入材料\n\n- reference/Missing.md\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_cli(["linkify", str(target), "--allow-missing"]), 0)
+            self.assertIn(
+                "[reference/Missing.md](../reference/Missing.md)",
+                current.read_text(encoding="utf-8"),
+            )
+
+    def test_link_add_appends_heading_link_and_rejects_duplicate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "reference" / "System_Manual.md").write_text(
+                "# System Manual\n\n## 人工笔记与 Obsidian\n\n内容。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "link",
+                    "add",
+                    str(target),
+                    "active/Current_Task.md",
+                    "--heading",
+                    "## 输入材料",
+                    "--target",
+                    "reference/System_Manual.md",
+                    "--target-heading",
+                    "人工笔记与 Obsidian",
+                    "--json",
+                ]
+            )
+            payload = self.json_payload(stdout)
+            self.assertEqual(exit_code, 0, stderr)
+            self.assert_success_json_contract(payload, "link add")
+            text = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            self.assertIn(
+                "- [reference/System_Manual.md#人工笔记与-obsidian](../reference/System_Manual.md#人工笔记与-obsidian)",
+                text,
+            )
+
+            exit_code, _stdout, stderr = self.run_cli_output(
+                [
+                    "link",
+                    "add",
+                    str(target),
+                    "active/Current_Task.md",
+                    "--heading",
+                    "## 输入材料",
+                    "--target",
+                    "reference/System_Manual.md",
+                    "--target-heading",
+                    "人工笔记与 Obsidian",
+                ]
+            )
+            self.assertEqual(exit_code, 3)
+            self.assertIn("link already exists", stderr)
 
     def test_ai_facing_success_json_contracts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3989,6 +4174,22 @@ This records a reusable write-safety pattern instead of a current task fact.
                 ("status", ["status", str(target), "--json"]),
                 ("check", ["check", str(target), "--json"]),
                 ("upgrade", ["upgrade", str(target), "--dry-run", "--json"]),
+                ("linkify", ["linkify", str(target), "--dry-run", "--json"]),
+                (
+                    "link add",
+                    [
+                        "link",
+                        "add",
+                        str(target),
+                        "active/Current_Task.md",
+                        "--heading",
+                        "## 输入材料",
+                        "--target",
+                        "reference/Project_Brief.md",
+                        "--dry-run",
+                        "--json",
+                    ],
+                ),
                 ("audit context", ["audit", "context", str(target), "--json"]),
                 ("review stale", ["review", "stale", str(target), "--today", "2026-05-05", "--json"]),
                 ("curate draft", ["curate", "draft", str(target), "--today", "2026-05-05", "--dry-run", "--json"]),
@@ -4068,7 +4269,7 @@ This records a reusable write-safety pattern instead of a current task fact.
                 "| T001 | Active | B | 无。 | 无。 | 无。 | 无。 |\n",
                 encoding="utf-8",
             )
-            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--json"])
+            exit_code, stdout, _stderr = self.run_cli_output(["check", str(target), "--profile", "minimal", "--json"])
             self.assertEqual(exit_code, acf.EXIT_CHECK_FAILED)
             self.assert_failure_json_contract(self.json_payload(stdout), "check_failed", "check")
 

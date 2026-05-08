@@ -88,6 +88,18 @@
 4. 可以把项目 `docs/` 作为 Obsidian vault 根目录，用 `[[双链]]` 方便人工查看和导航。ACF 不解析、不校验、不依赖 Obsidian 双链；AI 和 CLI 仍以普通 Markdown 路径引用作为结构化依据。
 5. `active/Feedback_Inbox.md` 仍用于待处理反馈和需求碎片；`human/` 用于更自由的人工记录、周报和汇报材料，二者不自动合并。
 
+### 1.4 Markdown 链接与人工导航
+
+ACF 的结构化引用优先使用普通 Markdown 链接，例如 `[reference/System_Manual.md](../reference/System_Manual.md)`；这类链接可被 Obsidian、GitHub 和常规 Markdown 工具识别。`[[双链]]` 可以作为人工导航补充，但不作为 ACF 机器校验或 AI 读取增强的依据。
+
+使用规则：
+
+1. 文档中引用上下文内其他文件时，优先使用相对 Markdown 链接，链接目标按当前文件所在目录计算。
+2. 需要链接到标题时使用 `path.md#heading-anchor`；`acf check` 会校验本地 Markdown 链接目标是否存在，并校验 `.md#anchor` 是否能匹配目标文件标题。
+3. `acf linkify [target] --format markdown` 可把安全识别到的本地路径引用转换为 Markdown 链接；默认只处理 active、reference、rules、decisions、Worklog_Index 和 Archive_Index，不修改 archive 详情或 daily worklog。
+4. `acf link add [target] <file> --heading "## 输入材料" --target reference/X.md` 可向指定小节追加一个确定性链接 bullet；它不做语义判断、不自动猜 section、不批量替换。
+5. `http://`、`https://` 和其他 URI scheme 不做本地存在性校验；本地图片链接 `![alt](path)` 会按文件存在性校验。
+
 ---
 
 ## 2. rules/ 读取策略
@@ -328,7 +340,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - 通用：`acf --help`
 - 查看版本：`acf --version`
 
-请注意：能在任意目录运行 `acf`，不等于任意目录都有 AI 上下文。`acf status --json` 只有在当前目录位于某个包含 `docs/ai` 或上下文根目录的项目中时才会成功。否则应先进入项目目录、显式传入上下文路径，或运行 `acf init docs/ai` 初始化。
+请注意：能在任意目录运行 `acf`，不等于任意目录都有 AI 上下文。`acf status --json` 只有在当前目录位于某个包含 `docs/ai`、`docs-acf/ai` 或上下文根目录的项目中时才会成功。否则应先进入项目目录、显式传入上下文路径，或运行 `acf init docs/ai` 初始化。
 
 ### 15.2 常用命令
 
@@ -339,6 +351,8 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、标准 profile 的 human 层、archive、archive/feedback、Knowledge 结构和 active -> reference 规划依据追溯入口；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
 - `acf plan init|add-task|set-task|focus|complete|status [target]` / `acf plan reference list|add|remove [target]` / `acf plan stage list|add|set|done [target]`：维护当前大任务计划、子任务板、`## 规划依据` 和 `## 任务阶段` 表，并在完成后标记计划 Done；`plan reference add --path reference/X.md --purpose "用途"` 只写 reference 路径和一句话用途，默认要求目标文件存在，可用 `--allow-missing` 显式允许缺失，用 `--force` 更新同一路径，用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md`；Task Stage CLI 只维护 `active/Task_Plan.md` 中的阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
+- `acf linkify [target] --format markdown --dry-run --json`：把默认范围内安全识别到的本地路径引用转换为可点击 Markdown 链接；默认跳过 archive 详情和 daily worklog，可用 `--include-archive` / `--include-worklog-daily` 显式扩大范围，缺失目标默认跳过并报告，可用 `--allow-missing` 显式允许。
+- `acf link add [target] <file> --heading "## 输入材料" --target reference/X.md --json`：向上下文内指定 Markdown 文件的小节追加链接 bullet；`--target-heading` 会生成并校验 Markdown heading anchor，重复链接默认拒绝，`--force` 才允许重复。
 - `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
 - `acf knowledge draft|apply|list|show|mark [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
@@ -368,7 +382,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf log feedback [target] --text "..." --type Problem --source manual --json`：显式记录实际使用反馈正文，写入用户级 usage log；普通命令不会自动记录正文。
 - `acf log prune [target] --days 30`：删除旧 usage event。
 
-`target` 省略时，CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录；显式传入 `target` 时，以显式路径为准。CLI 的检查结果不能替代人工判断，但可以自动发现维护成本高、容易遗忘的结构性问题。
+`target` 省略时，CLI 会从当前目录向上查找 `docs/ai`、`docs-acf/ai` 或上下文根目录；显式传入 `target` 时，以显式路径为准。CLI 的检查结果不能替代人工判断，但可以自动发现维护成本高、容易遗忘的结构性问题。
 
 ### 15.3 旧版本上下文升级
 

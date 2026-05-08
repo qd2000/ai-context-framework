@@ -14,6 +14,7 @@ import sys
 import sysconfig
 import time
 import unicodedata
+from urllib.parse import unquote
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -21,7 +22,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.34"
+VERSION = "v0.0.3.35"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -183,7 +184,20 @@ WORKSTREAM_STATE_TRANSITIONS = {
 PLACEHOLDER_RE = re.compile(r"【[^】]+】")
 ACF_PLACEHOLDER_RE = re.compile(r"^【ACF:[A-Z0-9_:-]+(?:\|[^】]+)?】$")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
-PLAN_REFERENCE_BULLET_RE = re.compile(r"^-\s+`(?P<path>reference/[^`\n]+\.md)`[：:]\s*(?P<purpose>.+?)\s*$")
+MARKDOWN_LINK_RE = re.compile(r"(!?)\[([^\]\n]*)\]\(([^)\n]+)\)")
+PATH_LIKE_RE = re.compile(
+    r"(?<![\w./\\:-])"
+    r"((?:\.{1,2}/)?(?:[A-Za-z0-9_.\-\u4e00-\u9fff]+/)+"
+    r"[A-Za-z0-9_.\-\u4e00-\u9fff]+(?:\.[A-Za-z0-9]+)"
+    r"(?:#[A-Za-z0-9_.%\-_\u4e00-\u9fff]+)?)"
+)
+LINKIFY_DEFAULT_DIRS = ("active", "reference", "rules", "decisions")
+LINKIFY_DEFAULT_FILES = ("worklog/Worklog_Index.md", "archive/Archive_Index.md")
+PLAN_REFERENCE_BULLET_RE = re.compile(
+    r"^-\s+(?:`(?P<path>reference/[^`\n]+\.md)`|"
+    r"\[(?P<link_path>reference/[^\]\n]+\.md)\]\([^)]+\))"
+    r"[：:]\s*(?P<purpose>.+?)\s*$"
+)
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
 TASK_ID_RE = re.compile(r"^T(\d{3})$")
@@ -1212,8 +1226,12 @@ def write_command_context_root(args: argparse.Namespace) -> Path | None:
         }:
             return require_context_root(getattr(args, "path", None))
         return None
-    if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "knowledge", "curate"}:
+    if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "knowledge", "curate", "linkify"}:
         return require_context_root(getattr(args, "path", None))
+    if command == "link":
+        if getattr(args, "link_command", None) == "add":
+            return require_context_root(getattr(args, "path", None))
+        return None
     if command == "edit":
         return require_context_root(getattr(args, "context", None))
     return None
@@ -1324,9 +1342,11 @@ def is_context_root(path: Path) -> bool:
 
 
 def infer_project_root(context_root: Path) -> Path:
-    if context_root.name == "ai" and context_root.parent.name == "docs":
+    if context_root.name == "ai" and context_root.parent.name in {"docs", "docs-acf"}:
         return context_root.parent.parent
-    return context_root
+    if context_root.parent.name.lower() == "docs":
+        return context_root.parent.parent
+    return context_root.parent
 
 
 def make_context_location(context_root: Path) -> ContextLocation:
@@ -1349,6 +1369,9 @@ def discover_context(start: Path | None = None) -> ContextLocation:
         docs_ai = directory / "docs" / "ai"
         if is_context_root(docs_ai):
             return make_context_location(docs_ai)
+        docs_acf_ai = directory / "docs-acf" / "ai"
+        if is_context_root(docs_acf_ai):
+            return make_context_location(docs_acf_ai)
 
     raise SystemExit("could not find AI context directory; pass a context path or run `acf init docs/ai`")
 
@@ -1405,6 +1428,8 @@ def copy_selected_files(source: Path, target: Path, files: Sequence[str], dirs: 
 
 
 def infer_project_root(context_root: Path) -> Path:
+    if context_root.name == "ai" and context_root.parent.name in {"docs", "docs-acf"}:
+        return context_root.parent.parent
     if context_root.parent.name.lower() == "docs":
         return context_root.parent.parent
     return context_root.parent
@@ -1710,6 +1735,8 @@ def command_label(args: argparse.Namespace) -> str:
         return f"curate {getattr(args, 'curate_command', '')}".strip()
     if command == "workstream":
         return f"workstream {getattr(args, 'workstream_command', '')}".strip()
+    if command == "link":
+        return f"link {getattr(args, 'link_command', '')}".strip()
     return command
 
 
@@ -1728,6 +1755,10 @@ def context_location_for_args(args: argparse.Namespace) -> ContextLocation:
     if command == "simplify":
         return make_context_location(getattr(args, "target").resolve())
     if command == "upgrade":
+        return make_context_location(require_context_root(getattr(args, "path", None)))
+    if command == "linkify":
+        return make_context_location(require_context_root(getattr(args, "path", None)))
+    if command == "link":
         return make_context_location(require_context_root(getattr(args, "path", None)))
     if command == "new":
         return make_context_location(require_context_root(getattr(args, "path", None)))
@@ -3071,6 +3102,30 @@ def resolve_context_markdown_file(root: Path, target: Path) -> Path:
     return resolved
 
 
+def resolve_context_file(root: Path, target: Path, *, must_exist: bool = True) -> Path:
+    root = root.resolve()
+    if target.is_absolute():
+        resolved = target.resolve()
+    else:
+        root_candidate = (root / target).resolve()
+        if not is_relative_to(root_candidate, root):
+            raise SystemExit(f"target file is outside context root: {target}")
+
+        cwd_candidate = (Path.cwd() / target).resolve()
+        if cwd_candidate.exists() and is_relative_to(cwd_candidate, root):
+            resolved = cwd_candidate
+        else:
+            resolved = root_candidate
+
+    if not is_relative_to(resolved, root):
+        raise SystemExit(f"target file is outside context root: {target}")
+    if must_exist and not resolved.exists():
+        raise SystemExit(f"target file does not exist: {resolved}")
+    if must_exist and not resolved.is_file():
+        raise SystemExit(f"target path is not a file: {resolved}")
+    return resolved
+
+
 def read_edit_input(args: argparse.Namespace) -> str:
     text = getattr(args, "text", None)
     input_path = getattr(args, "input", None)
@@ -3086,6 +3141,290 @@ def read_edit_input(args: argparse.Namespace) -> str:
     if not sys.stdin.isatty():
         return sys.stdin.read()
     raise SystemExit("edit command requires --text, --input, or stdin")
+
+
+def markdown_link_target_for(md_file: Path, target_file: Path, fragment: str = "") -> str:
+    relative = os.path.relpath(target_file, start=md_file.parent).replace("\\", "/")
+    if fragment:
+        relative = f"{relative}#{fragment}"
+    return relative
+
+
+def render_markdown_link(text: str, target: str) -> str:
+    if any(char in target for char in " ()"):
+        target = f"<{target}>"
+    return f"[{text}]({target})"
+
+
+def path_candidate_from_ref(root: Path, md_file: Path, ref_path: str, *, allow_missing: bool) -> Path | None:
+    if not ref_path:
+        return md_file
+    resolved = resolve_ref_path(root, md_file, ref_path)
+    if resolved is not None:
+        return resolved
+    if not allow_missing:
+        return None
+    normalized = normalize_ref_path(ref_path)
+    if normalized.startswith(("../", "./")):
+        candidate = (md_file.parent / normalized).resolve()
+    else:
+        candidate = (root / normalized).resolve()
+    if not is_relative_to(candidate, root.resolve()):
+        return None
+    return candidate
+
+
+def is_linkify_path_candidate(value: str) -> bool:
+    candidate = clean_markdown_link_target(value.strip().strip("`"))
+    if not is_local_link_ref(candidate):
+        return False
+    ref_path, _fragment = split_ref_fragment(candidate)
+    if not ref_path or ref_path.endswith(("/", ".")):
+        return False
+    if " " in ref_path or "\t" in ref_path:
+        return False
+    if "/" not in ref_path and "\\" not in ref_path:
+        return False
+    return bool(Path(ref_path).suffix)
+
+
+def linkify_candidate(
+    root: Path,
+    md_file: Path,
+    candidate: str,
+    *,
+    allow_missing: bool,
+) -> tuple[str | None, dict[str, str] | None]:
+    display = candidate.strip().strip("`")
+    if not is_linkify_path_candidate(display):
+        return None, None
+    ref_path, fragment = split_ref_fragment(clean_markdown_link_target(display))
+    target_file = path_candidate_from_ref(root, md_file, ref_path, allow_missing=allow_missing)
+    if target_file is None:
+        return None, {"target": display, "reason": "missing target"}
+    href = markdown_link_target_for(md_file, target_file, fragment)
+    return render_markdown_link(display, href), None
+
+
+def match_overlaps_spans(start: int, end: int, spans: Sequence[tuple[int, int]]) -> bool:
+    return any(start < span_end and end > span_start for span_start, span_end in spans)
+
+
+def replace_linkify_matches(
+    line: str,
+    pattern: re.Pattern[str],
+    root: Path,
+    md_file: Path,
+    *,
+    allow_missing: bool,
+    protected_spans: Sequence[tuple[int, int]] = (),
+) -> tuple[str, int, list[dict[str, str]]]:
+    chunks: list[str] = []
+    skipped: list[dict[str, str]] = []
+    last = 0
+    replacements = 0
+    for match in pattern.finditer(line):
+        if match_overlaps_spans(match.start(), match.end(), protected_spans):
+            continue
+        candidate = match.group(1)
+        replacement, skip = linkify_candidate(root, md_file, candidate, allow_missing=allow_missing)
+        if skip is not None:
+            skipped.append(skip)
+        if replacement is None:
+            continue
+        chunks.append(line[last : match.start()])
+        chunks.append(replacement)
+        last = match.end()
+        replacements += 1
+    if replacements == 0:
+        return line, 0, skipped
+    chunks.append(line[last:])
+    return "".join(chunks), replacements, skipped
+
+
+def linkify_markdown_text(
+    root: Path,
+    md_file: Path,
+    text: str,
+    *,
+    allow_missing: bool,
+) -> tuple[str, int, list[dict[str, str]]]:
+    updated_lines: list[str] = []
+    total = 0
+    skipped: list[dict[str, str]] = []
+    in_fence = False
+    fence_marker = ""
+    in_front_matter = False
+    front_matter_done = False
+    code_ref_re = re.compile(r"`([^`\n]+)`")
+    for index, line in enumerate(text.splitlines()):
+        if index == 0 and line.strip() == "---":
+            in_front_matter = True
+            updated_lines.append(line)
+            continue
+        if in_front_matter:
+            updated_lines.append(line)
+            if line.strip() == "---":
+                in_front_matter = False
+                front_matter_done = True
+            continue
+        if not front_matter_done and line.strip():
+            front_matter_done = True
+
+        stripped = line.lstrip()
+        fence = re.match(r"^(```+|~~~+)", stripped)
+        if fence:
+            marker = fence.group(1)[:3]
+            if not in_fence:
+                in_fence = True
+                fence_marker = marker
+            elif marker == fence_marker:
+                in_fence = False
+                fence_marker = ""
+            updated_lines.append(line)
+            continue
+        if in_fence:
+            updated_lines.append(line)
+            continue
+
+        link_spans = [(match.start(), match.end()) for match in MARKDOWN_LINK_RE.finditer(line)]
+        line, count, line_skipped = replace_linkify_matches(
+            line,
+            code_ref_re,
+            root,
+            md_file,
+            allow_missing=allow_missing,
+            protected_spans=link_spans,
+        )
+        total += count
+        skipped.extend(line_skipped)
+
+        link_spans = [(match.start(), match.end()) for match in MARKDOWN_LINK_RE.finditer(line)]
+        code_spans = [(match.start(), match.end()) for match in code_ref_re.finditer(line)]
+        line, count, line_skipped = replace_linkify_matches(
+            line,
+            PATH_LIKE_RE,
+            root,
+            md_file,
+            allow_missing=allow_missing,
+            protected_spans=[*link_spans, *code_spans],
+        )
+        total += count
+        skipped.extend(line_skipped)
+        updated_lines.append(line)
+
+    trailing_newline = "\n" if text.endswith("\n") else ""
+    return "\n".join(updated_lines) + trailing_newline, total, skipped
+
+
+def linkify_candidate_files(root: Path, args: argparse.Namespace) -> list[Path]:
+    files: set[Path] = set()
+    for dirname in LINKIFY_DEFAULT_DIRS:
+        directory = root / dirname
+        if directory.exists():
+            files.update(path for path in directory.rglob("*.md") if path.is_file())
+    for rel in LINKIFY_DEFAULT_FILES:
+        file_path = root / rel
+        if file_path.is_file():
+            files.add(file_path)
+    if getattr(args, "include_worklog_daily", False):
+        daily = root / "worklog" / "daily"
+        if daily.exists():
+            files.update(path for path in daily.rglob("*.md") if path.is_file())
+    if getattr(args, "include_archive", False):
+        archive = root / "archive"
+        if archive.exists():
+            files.update(path for path in archive.rglob("*.md") if path.is_file())
+    return sorted(files)
+
+
+def linkify_command(args: argparse.Namespace) -> int:
+    if getattr(args, "format", "markdown") != "markdown":
+        raise SystemExit("linkify currently supports only --format markdown")
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    changed_files: list[Path] = []
+    updated_entries: list[dict[str, object]] = []
+    skipped_entries: list[dict[str, str]] = []
+    for md_file in linkify_candidate_files(root, args):
+        original = read_text(md_file)
+        updated, replacements, skipped = linkify_markdown_text(
+            root,
+            md_file,
+            original,
+            allow_missing=bool(getattr(args, "allow_missing", False)),
+        )
+        rel_file = md_file.relative_to(root).as_posix()
+        skipped_entries.extend({"file": rel_file, **entry} for entry in skipped)
+        if updated == original:
+            continue
+        changed_files.append(md_file)
+        updated_entries.append({"path": rel_file, "replacements": replacements})
+        if not dry_run:
+            atomic_write_text(md_file, updated)
+
+    check_result = maybe_check_after(args, root)
+    action = "would linkify" if dry_run else "linkified"
+    return emit_write_result(
+        args,
+        "linkify",
+        f"{action} {len(changed_files)} file(s)",
+        changed_files,
+        check_result,
+        extra_payload={
+            "format": args.format,
+            "updated": updated_entries,
+            "skipped": skipped_entries,
+        },
+    )
+
+
+def link_add_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    target_file = resolve_context_markdown_file(root, args.file)
+    link_target_file = resolve_context_file(root, args.target)
+    target_fragment = ""
+    if args.target_heading:
+        if link_target_file.suffix.lower() != ".md":
+            raise SystemExit("--target-heading requires a Markdown target file")
+        anchor = markdown_heading_anchor_for(read_text(link_target_file), args.target_heading)
+        if anchor is None:
+            raise SystemExit(f"target heading was not found: {args.target_heading}")
+        target_fragment = anchor
+    link_href = markdown_link_target_for(target_file, link_target_file, target_fragment)
+    context_target_display = link_target_file.relative_to(root).as_posix()
+    default_text = f"{context_target_display}#{target_fragment}" if target_fragment else context_target_display
+    link_text = args.text or default_text
+    bullet = f"- {render_markdown_link(link_text, link_href)}"
+
+    original = read_text(target_file)
+    original_lines = original.splitlines()
+    body = section_body(original_lines, find_section(original_lines, args.heading))
+    duplicate_markers = {f"]({link_href})", f"](<{link_href}>)"}
+    if not args.force and any(marker in body for marker in duplicate_markers):
+        raise SystemExit(f"link already exists in section: {link_href}")
+    updated = append_section_text(original, args.heading, bullet)
+    changed_files = [target_file] if updated != original else []
+    if changed_files and not dry_run:
+        atomic_write_text(target_file, updated)
+
+    check_result = maybe_check_after(args, root)
+    action = "would add" if dry_run else "added"
+    return emit_write_result(
+        args,
+        "link add",
+        f"{action} link to {target_file}",
+        changed_files,
+        check_result,
+        extra_payload={
+            "file": target_file.relative_to(root).as_posix(),
+            "heading": args.heading,
+            "link": bullet,
+            "target": context_target_display,
+            "target_heading": args.target_heading,
+        },
+    )
 
 
 def heading_level(line: str) -> int | None:
@@ -3217,7 +3556,7 @@ def insert_section_before(text: str, anchor_heading: str, heading: str, body: st
 
 
 def normalize_plan_reference_path(value: str) -> str:
-    normalized = value.strip().strip("`").replace("\\", "/")
+    normalized = strip_code_ticks(value).replace("\\", "/")
     while normalized.startswith("./"):
         normalized = normalized[2:]
     parts = normalized.split("/")
@@ -3243,11 +3582,11 @@ def normalize_plan_reference_purpose(value: str) -> str:
 
 
 def render_plan_reference(reference: PlanReference) -> str:
-    return f"- `{reference.path}`：{reference.purpose}"
+    return f"- [{reference.path}](../{reference.path})：{reference.purpose}"
 
 
 def render_plan_reference_input(reference: PlanReference) -> str:
-    return f"`{reference.path}`：{reference.purpose}"
+    return f"[{reference.path}](../{reference.path})：{reference.purpose}"
 
 
 def render_plan_reference_section(
@@ -3284,7 +3623,7 @@ def parse_plan_references_from_body(body: str) -> tuple[list[PlanReference], lis
             continue
         if PLACEHOLDER_RE.search(line):
             continue
-        path = normalize_plan_reference_path(match.group("path"))
+        path = normalize_plan_reference_path(match.group("path") or match.group("link_path") or "")
         purpose = normalize_plan_reference_purpose(match.group("purpose"))
         if path in seen:
             warnings.append(f"ignored duplicate plan reference path: {path}")
@@ -3325,7 +3664,7 @@ def standard_reference_line_path(line: str) -> str | None:
     match = PLAN_REFERENCE_BULLET_RE.match(line.strip())
     if not match or PLACEHOLDER_RE.search(line):
         return None
-    return normalize_plan_reference_path(match.group("path"))
+    return normalize_plan_reference_path(match.group("path") or match.group("link_path") or "")
 
 
 def sync_current_task_reference_text(
@@ -8482,15 +8821,156 @@ def should_check_ref(ref: str) -> bool:
     return True
 
 
-def resolve_ref(root: Path, md_file: Path, ref: str) -> Path | None:
-    normalized = ref.replace("\\", "/")
-    root_candidate = root / normalized
-    if root_candidate.exists():
-        return root_candidate
-    relative_candidate = md_file.parent / normalized
-    if relative_candidate.exists():
-        return relative_candidate
+def clean_markdown_link_target(value: str) -> str:
+    target = value.strip()
+    if target.startswith("<") and target.endswith(">"):
+        target = target[1:-1].strip()
+    return target
+
+
+def split_ref_fragment(ref: str) -> tuple[str, str]:
+    if "#" not in ref:
+        return ref, ""
+    target, fragment = ref.split("#", 1)
+    return target, fragment
+
+
+def is_uri_ref(ref: str) -> bool:
+    return re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", ref) is not None
+
+
+def is_local_link_ref(ref: str) -> bool:
+    cleaned = clean_markdown_link_target(ref)
+    if not cleaned or PLACEHOLDER_RE.search(cleaned) or "*" in cleaned:
+        return False
+    if cleaned in {"path", "url"}:
+        return False
+    if cleaned.startswith("$"):
+        return False
+    if is_uri_ref(cleaned):
+        return False
+    return True
+
+
+def normalize_ref_path(ref: str) -> str:
+    return unquote(ref.replace("\\", "/"))
+
+
+def resolve_ref_path(root: Path, md_file: Path, ref: str) -> Path | None:
+    normalized = normalize_ref_path(ref)
+    root = root.resolve()
+    project_root = infer_project_root(root).resolve()
+    candidates = [
+        (root / normalized).resolve(),
+        (md_file.parent / normalized).resolve(),
+        (project_root / normalized).resolve(),
+    ]
+    for candidate in candidates:
+        if candidate.exists() and is_relative_to(candidate, project_root):
+            return candidate
     return None
+
+
+def resolve_ref(root: Path, md_file: Path, ref: str) -> Path | None:
+    ref_path, _fragment = split_ref_fragment(clean_markdown_link_target(ref))
+    return resolve_ref_path(root, md_file, ref_path)
+
+
+def markdown_heading_slug(value: str) -> str:
+    text = unicodedata.normalize("NFKC", value.strip()).lower()
+    text = re.sub(r"\s+", "-", text)
+    chars: list[str] = []
+    for char in text:
+        category = unicodedata.category(char)
+        if char.isalnum() or category.startswith(("L", "N")):
+            chars.append(char)
+        elif char in {"-", "_"}:
+            chars.append(char)
+    slug = re.sub(r"-+", "-", "".join(chars)).strip("-")
+    return slug
+
+
+def markdown_heading_text(line: str) -> str | None:
+    match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+    if not match:
+        return None
+    return re.sub(r"\s+#+\s*$", "", match.group(2)).strip()
+
+
+def markdown_heading_anchors(text: str) -> set[str]:
+    anchors: set[str] = set()
+    seen: dict[str, int] = {}
+    for line in text.splitlines():
+        heading = markdown_heading_text(line)
+        if heading is None:
+            continue
+        base = markdown_heading_slug(heading)
+        index = seen.get(base, 0)
+        seen[base] = index + 1
+        anchors.add(base if index == 0 else f"{base}-{index}")
+    return anchors
+
+
+def markdown_heading_anchor_for(text: str, heading: str) -> str | None:
+    wanted = heading.strip()
+    if wanted.startswith("#"):
+        wanted = wanted.lstrip("#").strip()
+    seen: dict[str, int] = {}
+    for line in text.splitlines():
+        current = markdown_heading_text(line)
+        if current is None:
+            continue
+        base = markdown_heading_slug(current)
+        index = seen.get(base, 0)
+        seen[base] = index + 1
+        anchor = base if index == 0 else f"{base}-{index}"
+        if current.strip() == wanted:
+            return anchor
+    return None
+
+
+def iter_non_fenced_lines(text: str) -> Iterable[tuple[int, str]]:
+    in_fence = False
+    fence_marker = ""
+    for index, line in enumerate(text.splitlines(), start=1):
+        stripped = line.lstrip()
+        fence = re.match(r"^(```+|~~~+)", stripped)
+        if fence:
+            marker = fence.group(1)[:3]
+            if not in_fence:
+                in_fence = True
+                fence_marker = marker
+            elif marker == fence_marker:
+                in_fence = False
+                fence_marker = ""
+            continue
+        if not in_fence:
+            yield index, line
+
+
+def validate_local_markdown_link(
+    root: Path,
+    md_file: Path,
+    rel_file: str,
+    raw_target: str,
+    errors: list[str],
+) -> None:
+    target = clean_markdown_link_target(raw_target)
+    if not is_local_link_ref(target):
+        return
+    target_ref, fragment = split_ref_fragment(target)
+    if target_ref == "":
+        target_path = md_file
+    else:
+        target_path = resolve_ref_path(root, md_file, target_ref)
+        if target_path is None:
+            errors.append(f"{rel_file}: broken markdown link `{target}`")
+            return
+    if fragment and target_path.suffix.lower() == ".md":
+        anchors = markdown_heading_anchors(read_text(target_path))
+        normalized_fragment = markdown_heading_slug(unquote(fragment))
+        if fragment not in anchors and normalized_fragment not in anchors:
+            errors.append(f"{rel_file}: broken markdown link anchor `{target}`")
 
 
 def is_placeholder(value: str) -> bool:
@@ -8514,6 +8994,9 @@ def strip_code_ticks(value: str) -> str:
     value = value.strip()
     if value.startswith("`") and value.endswith("`"):
         return value[1:-1]
+    link_match = MARKDOWN_LINK_RE.fullmatch(value)
+    if link_match:
+        return link_match.group(2).strip() or clean_markdown_link_target(link_match.group(3))
     return value
 
 
@@ -9279,8 +9762,14 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
         for ref in MARKDOWN_REF_RE.findall(text):
             if not should_check_ref(ref):
                 continue
+            if not is_linkify_path_candidate(ref):
+                continue
             if resolve_ref(path, md_file, ref) is None:
                 errors.append(f"{rel_file}: broken markdown reference `{ref}`")
+
+        for _line_number, line in iter_non_fenced_lines(text):
+            for link_match in MARKDOWN_LINK_RE.finditer(line):
+                validate_local_markdown_link(path, md_file, rel_file, link_match.group(3), errors)
 
         warnings.extend(legacy_acf_marker_warnings(rel_file, text))
 
@@ -9637,6 +10126,36 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("--strict", action="store_true", help="treat placeholders as errors")
     add_json_argument(check_parser)
     check_parser.set_defaults(func=check_command)
+
+    linkify_parser = subparsers.add_parser(
+        "linkify",
+        help="convert path references in context Markdown files to clickable Markdown links",
+    )
+    linkify_parser.add_argument("path", nargs="?", type=Path)
+    linkify_parser.add_argument("--format", choices=("markdown",), default="markdown")
+    linkify_parser.add_argument("--include-archive", action="store_true", help="also linkify archive detail files")
+    linkify_parser.add_argument(
+        "--include-worklog-daily",
+        action="store_true",
+        help="also linkify daily worklog files",
+    )
+    linkify_parser.add_argument("--allow-missing", action="store_true", help="linkify paths even when targets do not exist")
+    add_write_arguments(linkify_parser)
+    linkify_parser.set_defaults(func=linkify_command)
+
+    link_parser = subparsers.add_parser("link", help="manage explicit Markdown links")
+    link_subparsers = link_parser.add_subparsers(dest="link_command", required=True)
+
+    link_add_parser = link_subparsers.add_parser("add", help="append a Markdown link bullet to a section")
+    link_add_parser.add_argument("path", nargs="?", type=Path)
+    link_add_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
+    link_add_parser.add_argument("--heading", required=True, help="exact section heading to append to")
+    link_add_parser.add_argument("--target", type=Path, required=True, help="local target file inside the context root")
+    link_add_parser.add_argument("--target-heading", default=None, help="target Markdown heading to link to")
+    link_add_parser.add_argument("--text", default=None, help="link text; defaults to target path plus anchor")
+    link_add_parser.add_argument("--force", action="store_true", help="allow duplicate links")
+    add_write_arguments(link_add_parser)
+    link_add_parser.set_defaults(func=link_add_command)
 
     log_parser = subparsers.add_parser("log", help="manage global acf usage logs")
     log_subparsers = log_parser.add_subparsers(dest="log_command", required=True)

@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.34` 是当前推荐的真实项目接入/升级版本，保留 active -> reference 规划依据追溯能力，并新增标准 profile 的 `human/` 人工异步笔记层、统一 `【ACF:KEY|提示】` 模板占位符和 canonical ACF marker。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.35` 是当前推荐的真实项目接入/升级版本，保留 active -> reference 规划依据追溯能力，并新增标准 profile 的 `human/` 人工异步笔记层、统一 `【ACF:KEY|提示】` 模板占位符、canonical ACF marker 和可点击 Markdown 链接维护能力。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -109,6 +109,8 @@ template/
 
 可以把项目 `docs/` 作为 Obsidian vault 根目录，用 `[[双链]]` 连接 `docs/ai/` 和其他项目文档。双链只服务人工查看和编辑；ACF 不解析、不校验、不依赖 Obsidian 双链，CLI 结构化引用仍使用普通 Markdown 路径。
 
+ACF 结构化引用优先使用普通 Markdown 链接，例如 `[reference/System_Manual.md](../reference/System_Manual.md)`。`acf check` 会校验上下文内本地 Markdown 链接和图片链接的文件是否存在，并校验 `.md#anchor` 能匹配目标文件标题；URL 和其他 URI scheme 不做网络校验。需要批量转换时使用 `acf linkify [target] --format markdown --dry-run --json`；需要向指定小节追加确定性链接时使用 `acf link add [target] <file> --heading "## 输入材料" --target reference/X.md --json`。
+
 ## 注意力治理
 
 ACF 不追求保存更多上下文，而是维护一个低噪声、高权威、任务相关的默认注意力入口。
@@ -169,7 +171,7 @@ acf status --json
 
 后续发布后，用户可通过包名或 Git URL 安装，例如 `uv tool install ai-context-framework` 或 `uv tool install git+<repo-url>`。
 
-“任意目录可运行 `acf`”表示命令已进入 PATH；是否能自动找到上下文，取决于当前目录是否位于包含 `docs/ai` 或上下文根目录的项目中。
+“任意目录可运行 `acf`”表示命令已进入 PATH；是否能自动找到上下文，取决于当前目录是否位于包含 `docs/ai`、`docs-acf/ai` 或上下文根目录的项目中。
 
 ### 常用命令
 
@@ -249,6 +251,8 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `upgrade`：非破坏式补齐新版本上下文结构，包括标准 profile 的 human 层、反馈归档目录和 active -> reference 规划依据追溯入口；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 canonical marker 包围的升级说明块。
 - `plan init|add-task|set-task|focus|status`、`plan reference list|add|remove` 和 `plan stage list|add|set|done`：维护 `active/Task_Plan.md` 中的大任务、子任务板、`## 规划依据` 和 `## 任务阶段` 表；`plan reference add --path reference/X.md --purpose "用途"` 只记录 reference 路径和一句话用途，可用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md` 的输入材料；Task Stage CLI 只维护任务阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
 - `plan complete`：在子任务完成后将大任务计划标记为 Done。
+- `linkify`：把默认范围内安全识别到的本地路径引用转换为可点击 Markdown 链接；默认处理 active、reference、rules、decisions、Worklog_Index 和 Archive_Index，跳过 archive 详情和 daily worklog；`--include-archive` / `--include-worklog-daily` 可显式扩大范围，`--allow-missing` 可允许缺失目标。
+- `link add`：向上下文内指定 Markdown 文件的小节追加链接 bullet；`--target-heading` 会生成并校验 Markdown heading anchor，重复链接默认拒绝，`--force` 才允许重复。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
@@ -267,7 +271,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `log enable|disable|status|tail|summarize|feedback|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭；普通 usage event 不记录正文，显式 `log feedback --text/--input` 才记录人工反馈正文。
 - `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
 
-`check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
+`check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai`、`docs-acf/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 
 `status`、`check`、`review stale`、`audit context`、`workstream status|list|archive-candidates|show` 和 `edit section get` 支持 `--json` 输出。`archive-draft`、`archive`、`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
 
