@@ -51,7 +51,7 @@ Updated through P2-7 Markdown link traceability and Obsidian-friendly navigation
 | 产品定位 | Markdown-first、模型无关、人工可审阅、CLI 确定性、不做事实裁判 | 已实现 | [reference/ACF_Top_Level_Design.md](ACF_Top_Level_Design.md); [../../README.md](../../../README.md); [../Automation.md](../../Automation.md) | 无代码缺口；后续新增功能需持续检查 | Done | 作为所有后续 PR gate |
 | 内容分层 | `active/reference/worklog/archive/rules/decisions` 职责明确 | 已实现 | `AGENTS.md`; [reference/System_Manual.md](System_Manual.md); `template/` | 旧项目可能仍有历史漂移，只能通过 audit/curation 处理 | Done | 不新增规则；继续通过 check/audit 发现漂移 |
 | Human notes layer | 人工异步笔记可在 ACF 上下文内保存，但不污染 active 默认注意力 | 已实现 | [human/Human_Notes.md](../human/Human_Notes.md); `template/human/`; [reference/System_Manual.md](System_Manual.md); `acf upgrade` | 无独立 human 命令；符合当前边界 | Done / P2 | standard profile 维护 human 层，minimal 不补；AI 按需读取 |
-| Markdown link traceability | 面向人的导航应可被 Obsidian/GitHub 点击，同时保持 ACF Markdown-first、非 Obsidian 绑定 | 已实现 | `acf linkify`; `acf link add`; `acf check` 本地 Markdown link / image / heading anchor 校验；`System_Manual.md` | 第一版不自动修改 archive 详情和 daily worklog；不解析 `[[双链]]`；不做 backlink/index graph | Done / P2 | 默认保守 linkify，后续仅在真实使用需要时评估更强批量范围 |
+| Markdown link traceability | 面向人的导航应可被 Obsidian/GitHub 点击，同时保持 ACF Markdown-first、非 Obsidian 绑定 | 已实现 | `acf linkify`; `acf link add`; `acf check` 本地 Markdown link / image / heading anchor 校验；`archive current-task/task-plan` 移动重写本地链接；`System_Manual.md` | `linkify` 第一版仍不默认修改 archive 详情和 daily worklog；不解析 `[[双链]]`；不做 backlink/index graph | Done / P2 | 默认保守 linkify，后续仅在真实使用需要时评估更强批量范围 |
 | 唯一事实源 | 写入前判断权威位置，索引不替代详情 | 部分实现 | Workstream 详情 front matter 作为事实源；`acf workstream sync`; [rules/Always_Active.md](../rules/Always_Active.md) | 仅 Workstream 有强 sync/check；Knowledge/ADR/Archive 尚未设计 generated view | P2 | 后续如做 sync 扩展，先设计 generated marker |
 | Task | 主线任务使用 [active/Task_Plan.md](../active/Task_Plan.md) / [active/Current_Task.md](../active/Current_Task.md) | 已实现 | `acf plan`; `acf task`; [tests/test_cli.py](../../../tests/test_cli.py) | 无 | Done | 保持 table-first |
 | Active-reference traceability | active 层必须能追溯当前大任务对齐的 reference 设计、路线或差距文档 | 已实现当前 P2 薄切片 | [active/Task_Plan.md](../active/Task_Plan.md) 的 `## 规划依据`; `acf plan reference list/add/remove`; `task start` 继承有效依据到 [active/Current_Task.md](../active/Current_Task.md); `acf upgrade` 非破坏式补结构 | 未接入 `acf check` 断链门禁；未做更重的 plan init reference wizard | Done / P2 | 后续可评估 `acf plan init --reference`、reference 存在性 warning/check 或批量替换占位符工具 |
@@ -244,9 +244,11 @@ acf link add docs/ai active/Current_Task.md --heading "## 输入材料" --target
 
 `acf linkify` 第一版只支持 `--format markdown`，默认处理 active、reference、rules、decisions、[worklog/Worklog_Index.md](../worklog/Worklog_Index.md) 和 [archive/Archive_Index.md](../archive/Archive_Index.md)，保守跳过 archive 详情和 daily worklog；缺失目标默认跳过并报告，`--allow-missing` 才生成链接。`acf link add` 第一版只向指定 section 追加链接 bullet，要求目标在上下文内，`--target-heading` 会生成并校验 anchor，重复链接默认拒绝。
 
+`v0.0.3.37` 已补通用本地 Markdown 链接移动重写 helper，并接入 `acf archive current-task/task-plan`：归档当前任务或计划时会按归档文件的新位置重写已有本地相对链接，避免 `--check-after --strict` 在工具刚写完后因移动断链失败。该能力不重写 URL/URI、缺失目标或代码块内链接。
+
 ### P2-5 Context matrix audit fixture expansion
 
-推荐作为下一代码切片。
+状态：已完成。
 
 理由：
 
@@ -266,6 +268,8 @@ acf link add docs/ai active/Current_Task.md --heading "## 输入材料" --target
 1. `uv run python -m unittest` 通过。
 2. `uv run acf check docs/ai --strict --json` 通过。
 3. `uv run python [scripts/minimal_smoke.py](../../../scripts/minimal_smoke.py)` 不需要扩大，除非 fixture 暴露了现有 smoke 缺口。
+
+完成记录：已新增 `tests/fixtures/context_matrix/audit_stale_stage` 和 `tests/fixtures/context_matrix/audit_terminal_merge`，并在 [tests/test_context_matrix.py](../../../tests/test_context_matrix.py) 覆盖 stale Current_Task / stale Workstream stage、ReadyToMerge merge input 和 Done 缺 `merge_resolution` 的 advisory candidates；未新增 audit rule，未接入 strict。
 
 ### P2 Active-reference traceability
 
@@ -294,20 +298,20 @@ acf plan reference list docs/ai --json
 
 ## Next Code PR Decision
 
-下一批代码 PR 不应是新增 audit 规则，也不应直接扩 Knowledge / ADR / Archive sync。
+下一批代码 PR 不应是新增 audit 规则，也不应直接扩 curation draft 语义能力。
 
 推荐下一 PR：
 
 ```text
-P2-5 Context matrix audit fixture expansion
+Generated marker design for Knowledge / ADR / Archive sync
 ```
 
 原因：
 
-1. 当前路线已完成 JSON contract、Workstream stage、upgrade matrix、Task Stage CLI、active-reference traceability、Workstream archive 闭环和 Markdown link traceability。
-2. 剩余最小确定缺口是 audit MVP 缺少 `audit_stale_stage` / `audit_terminal_merge` 的 context_matrix fixture。
-3. 该 PR 只加 fixture 和测试，不改变 CLI 输出语义，不扩大 strict，不做事实裁决。
-4. 它为后续 audit message 调优或 curation draft 增强提供低噪声样本。
+1. 当前路线已完成 JSON contract、Workstream stage、upgrade matrix、Task Stage CLI、active-reference traceability、Workstream archive、Markdown link traceability 和 P2-5 audit fixture expansion。
+2. Knowledge / ADR / Archive sync 仍缺 generated marker 边界、事实源归属和删除策略，直接实现 sync 风险过高。
+3. marker design 可以先形成可审阅契约，不改变 CLI 行为，也不扩大 strict。
+4. curation draft 增强和 high-risk audit rules 都应基于更多 fixture 与多项目观察之后再推进。
 
 拒绝的替代：
 
@@ -331,7 +335,7 @@ uv run acf audit context docs/ai --json
 
 不需要运行完整 unittest，因为本轮不改 CLI 代码、不改模板行为、不改变 JSON 输出。
 
-如果下一阶段进入 P2-5 fixture expansion，则需要运行：
+如果下一阶段进入代码切片，则需要运行：
 
 ```bash
 uv run python -m unittest
@@ -343,13 +347,13 @@ uv run python scripts/minimal_smoke.py
 
 ## 结论
 
-ACF 继续保持受控实施阶段，但下一步应补 audit fixture 矩阵，而不是继续扩 audit 规则或直接实现新 sync。
+ACF 继续保持受控实施阶段；audit fixture 矩阵已补齐，下一步应先设计 generated marker，而不是直接实现 Knowledge / ADR / Archive sync。
 
 推荐顺序：
 
-1. P2-5：context_matrix audit fixture expansion。
-2. Generated marker design for Knowledge / ADR / Archive sync。
-3. Curation draft enhancement，必须基于 P2-5 fixture 和多项目观察。
-4. high-risk audit rules 继续暂缓。
+1. Generated marker design for Knowledge / ADR / Archive sync。
+2. Curation draft enhancement，必须基于 P2-5 fixture 和多项目观察。
+3. high-risk audit rules 继续暂缓。
+4. 真实项目继续只读或 dry-run 观察，写入前单独建任务。
 
-当前进度：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-6 与 active-reference traceability 已完成；下一入口仍是 P2-5 audit fixture expansion，除非 human layer dogfooding 暴露新的通用结构缺口。
+当前进度：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6 与 active-reference traceability 已完成；下一入口是 generated marker design，除非 human layer dogfooding 暴露新的通用结构缺口。

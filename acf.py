@@ -22,7 +22,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.36"
+VERSION = "v0.0.3.37"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -3150,10 +3150,77 @@ def markdown_link_target_for(md_file: Path, target_file: Path, fragment: str = "
     return relative
 
 
-def render_markdown_link(text: str, target: str) -> str:
+def render_markdown_link_target(target: str) -> str:
     if any(char in target for char in " ()"):
-        target = f"<{target}>"
-    return f"[{text}]({target})"
+        return f"<{target}>"
+    return target
+
+
+def render_markdown_link(text: str, target: str) -> str:
+    return f"[{text}]({render_markdown_link_target(target)})"
+
+
+def render_existing_markdown_link(prefix: str, text: str, target: str) -> str:
+    return f"{prefix}[{text}]({render_markdown_link_target(target)})"
+
+
+def rewrite_local_markdown_links_for_move(
+    root: Path,
+    source_md_file: Path,
+    destination_md_file: Path,
+    text: str,
+) -> tuple[str, int]:
+    updated_lines: list[str] = []
+    replacements = 0
+    in_fence = False
+    fence_marker = ""
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        fence = re.match(r"^(```+|~~~+)", stripped)
+        if fence:
+            marker = fence.group(1)[:3]
+            if not in_fence:
+                in_fence = True
+                fence_marker = marker
+            elif marker == fence_marker:
+                in_fence = False
+                fence_marker = ""
+            updated_lines.append(line)
+            continue
+        if in_fence:
+            updated_lines.append(line)
+            continue
+
+        chunks: list[str] = []
+        last = 0
+        line_replacements = 0
+        for match in MARKDOWN_LINK_RE.finditer(line):
+            raw_target = match.group(3)
+            target = clean_markdown_link_target(raw_target)
+            if not is_local_link_ref(target):
+                continue
+            target_ref, fragment = split_ref_fragment(target)
+            if target_ref == "":
+                continue
+            resolved = resolve_ref_path(root, source_md_file, target_ref)
+            if resolved is None:
+                continue
+            rewritten_target = markdown_link_target_for(destination_md_file, resolved, fragment)
+            if rewritten_target == target:
+                continue
+            chunks.append(line[last : match.start()])
+            chunks.append(render_existing_markdown_link(match.group(1), match.group(2), rewritten_target))
+            last = match.end()
+            line_replacements += 1
+        if line_replacements:
+            chunks.append(line[last:])
+            updated_lines.append("".join(chunks))
+            replacements += line_replacements
+        else:
+            updated_lines.append(line)
+
+    trailing_newline = "\n" if text.endswith("\n") else ""
+    return "\n".join(updated_lines) + trailing_newline, replacements
 
 
 def path_candidate_from_ref(root: Path, md_file: Path, ref_path: str, *, allow_missing: bool) -> Path | None:
@@ -5701,7 +5768,8 @@ def archive_file(root: Path, source: Path, kind: str, reason: str, force: bool, 
     if dry_run:
         return changed
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(read_text(source), encoding="utf-8")
+    archived_text, _rewritten_links = rewrite_local_markdown_links_for_move(root, source, destination, read_text(source))
+    destination.write_text(archived_text, encoding="utf-8")
     index_path.parent.mkdir(parents=True, exist_ok=True)
     if not index_path.exists():
         index_path.write_text(render_archive_index(), encoding="utf-8")

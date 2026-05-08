@@ -1,0 +1,7 @@
+{
+  "kind": "audit_stale_stage",
+  "profile": "minimal",
+  "risk_tags": ["audit", "stale_current_task_or_workstream_stage", "current_task", "workstream_stage"],
+  "intent": "Verify audit context reports stale active task and active Workstream stage candidates from an independent context_matrix fixture.",
+  "expected_behavior": "acf audit context reports one Current_Task stale candidate and one Workstream current_stage stale candidate without turning them into strict check errors."
+}

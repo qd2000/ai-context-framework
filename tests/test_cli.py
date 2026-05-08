@@ -3716,6 +3716,81 @@ class CliTests(unittest.TestCase):
             self.assertIn("## 大任务状态\n\nEmpty", (target / "active" / "Task_Plan.md").read_text(encoding="utf-8"))
             self.assertTrue(list((target / "archive" / "plans").glob("*.md")))
 
+    def test_archive_rewrites_local_markdown_links_for_new_location(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            target = project / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "standard"])
+            for path in target.rglob("*.md"):
+                text = path.read_text(encoding="utf-8")
+                path.write_text(acf.PLACEHOLDER_RE.sub("placeholder", text), encoding="utf-8")
+            (target / "reference" / "Sources_Index.md").write_text(
+                "## 核心资料\n\n"
+                "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| 暂无 |  |  |  |  |  |  |\n",
+                encoding="utf-8",
+            )
+            (target / "decisions" / "ADR-0001-template.md").write_text(
+                "## 状态\n\nProposed\n\n## 日期\n\n2099-01-01\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Task_Plan.md").write_text(acf.render_empty_task_plan(), encoding="utf-8")
+            (project / "template").mkdir(parents=True)
+            (project / "template" / "AGENTS.md").write_text("# Template Agent\n", encoding="utf-8")
+            (target / "reference" / "System_Manual.md").write_text("# Manual\n\n## manual\n\n内容。\n", encoding="utf-8")
+            (target / "reference" / "asset.png").write_text("png", encoding="utf-8")
+            current = target / "active" / "Current_Task.md"
+            current.write_text(
+                "## 当前任务状态\n\nDone\n\n"
+                "## 任务名称\n\nArchive Link Rewrite\n\n"
+                "## 输入材料\n\n"
+                "- [manual](../reference/System_Manual.md#manual)\n"
+                "- ![asset](../reference/asset.png)\n"
+                "- [template](../../../template/AGENTS.md)\n"
+                "- [self](#输入材料)\n"
+                "- [external](https://example.com/file.md)\n"
+                "```\n"
+                "[code](../reference/System_Manual.md)\n"
+                "```\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["archive", "current-task", str(target), "--reason", "done", "--check-after", "--strict", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            self.assert_success_json_contract(self.json_payload(stdout), "archive current-task")
+            archived_task = next((target / "archive" / "tasks").glob("*archive-link-rewrite.md"))
+            archived_text = archived_task.read_text(encoding="utf-8")
+            self.assertIn("[manual](../../reference/System_Manual.md#manual)", archived_text)
+            self.assertIn("![asset](../../reference/asset.png)", archived_text)
+            self.assertIn("[template](../../../../template/AGENTS.md)", archived_text)
+            self.assertIn("[self](#输入材料)", archived_text)
+            self.assertIn("[code](../reference/System_Manual.md)", archived_text)
+
+            plan = target / "active" / "Task_Plan.md"
+            plan.write_text(
+                "## 大任务状态\n\nDone\n\n"
+                "## 大任务名称\n\nArchive Plan Links\n\n"
+                "## 规划依据\n\n"
+                "- [manual](../reference/System_Manual.md#manual)\n"
+                "- [template](../../../template/AGENTS.md)\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["archive", "task-plan", str(target), "--reason", "done", "--check-after", "--strict", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            self.assert_success_json_contract(self.json_payload(stdout), "archive task-plan")
+            archived_plan = next((target / "archive" / "plans").glob("*archive-plan-links.md"))
+            archived_plan_text = archived_plan.read_text(encoding="utf-8")
+            self.assertIn("[manual](../../reference/System_Manual.md#manual)", archived_plan_text)
+            self.assertIn("[template](../../../../template/AGENTS.md)", archived_plan_text)
+
     def test_knowledge_draft_and_apply(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

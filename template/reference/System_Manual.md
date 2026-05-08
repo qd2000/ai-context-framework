@@ -97,6 +97,7 @@ ACF 的结构化引用优先使用普通 Markdown 链接，例如 `[reference/Sy
 1. 文档中引用上下文内其他文件时，优先使用相对 Markdown 链接，链接目标按当前文件所在目录计算。
 2. 需要链接到标题时使用 `path.md#heading-anchor`；`acf check` 会校验本地 Markdown 链接目标是否存在，并校验 `.md#anchor` 是否能匹配目标文件标题。
 3. `acf linkify [target] --format markdown` 可把安全识别到的本地路径引用转换为 Markdown 链接；默认只处理 active、reference、rules、decisions、Worklog_Index 和 Archive_Index，不修改 archive 详情或 daily worklog。
+4. `acf archive current-task|task-plan` 归档移动当前任务或计划时，会按归档文件的新位置重写已有本地 Markdown 相对链接；URL、URI、缺失目标和代码块内链接保持原样。
 4. `acf link add [target] <file> --heading "## 输入材料" --target reference/X.md` 可向指定小节追加一个确定性链接 bullet；它不做语义判断、不自动猜 section、不批量替换。
 5. `http://`、`https://` 和其他 URI scheme 不做本地存在性校验；本地图片链接 `![alt](path)` 会按文件存在性校验。
 
@@ -354,7 +355,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf linkify [target] --format markdown --dry-run --json`：把默认范围内安全识别到的本地路径引用转换为可点击 Markdown 链接；默认跳过 archive 详情和 daily worklog，可用 `--include-archive` / `--include-worklog-daily` 显式扩大范围，缺失目标默认跳过并报告，可用 `--allow-missing` 显式允许。
 - `acf link add [target] <file> --heading "## 输入材料" --target reference/X.md --json`：向上下文内指定 Markdown 文件的小节追加链接 bullet；`--target-heading` 会生成并校验 Markdown heading anchor，重复链接默认拒绝，`--force` 才允许重复。
 - `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
-- `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
+- `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引；归档 current task / task plan 时会按归档文件的新位置重写本地 Markdown 相对链接。
 - `acf knowledge draft|apply|list|show|mark [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
 - `acf review stale [target]`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json`、`--days` 和 `--today`。
 - `acf audit context [target]`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告长 active section、陈旧当前任务 / Workstream 阶段和 ReadyToMerge 待合并或 Done 缺合并结果候选；支持 `--json`。

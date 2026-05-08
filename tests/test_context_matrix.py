@@ -94,6 +94,8 @@ class ContextMatrixTests(unittest.TestCase):
             "workstream_stage_flow",
             "task_stage_registry",
             "workstream_lifecycle_archive",
+            "audit_stale_stage",
+            "audit_terminal_merge",
         }
         actual = {path.name for path in FIXTURE_ROOT.iterdir() if path.is_dir()}
         self.assertTrue(expected.issubset(actual))
@@ -140,6 +142,128 @@ class ContextMatrixTests(unittest.TestCase):
             self.assertEqual(len(long_candidates), 1, payload)
             self.assertEqual(long_candidates[0]["section"], "Deep Detail")
             self.assertNotIn("Active Context Wrapper", {item.get("section") for item in long_candidates})
+
+    def test_audit_stale_stage_fixture_reports_current_task_and_workstream_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_context(tmp, "audit_stale_stage")
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS030",
+                        "--title",
+                        "Audit stale stage fixture",
+                        "--owner",
+                        "codex",
+                        "--output",
+                        "stale stage evidence",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "set", "WS030", str(target), "--status", "Active"]), 0)
+            detail = target / "active" / "workstreams" / "WS030.md"
+            detail_text = detail.read_text(encoding="utf-8")
+            detail_text = detail_text.replace("title: Audit stale stage fixture\n", "title: Audit stale stage fixture\ncurrent_stage: WS030.1\n")
+            detail_text = detail_text.replace(
+                "## 目标\n\n待补充。",
+                "## 目标\n\nAudit stale stage fixture.\n\n"
+                "## 阶段\n\n"
+                + acf.WORKSTREAM_STAGE_TABLE_HEADER
+                + "\n|---|---|---|---|---|---|---|\n"
+                + "| WS030.1 | Active | Stale audit stage | 无。 | fixture output | 2000-01-01 stale evidence | 等待复核 |\n",
+            )
+            detail.write_text(detail_text, encoding="utf-8")
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nActive\n\n"
+                "## 任务名称\n\nStale fixture task\n\n"
+                "## 当前执行线\n\n2020-01-01：等待复核。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, payload, stderr = self.run_cli_json(["audit", "context", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            stale = [item for item in payload["candidates"] if item["kind"] == "stale_current_task_or_workstream_stage"]
+            self.assertEqual({item["path"] for item in stale}, {"active/Current_Task.md", "active/workstreams/WS030.md"})
+            self.assertEqual(payload["summary"]["by_kind"]["stale_current_task_or_workstream_stage"], 2)
+            self.assertTrue(all(item["severity"] == "P1-candidate" for item in stale))
+            exit_code, check_payload, stderr = self.run_cli_json(["check", str(target), "--strict", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(check_payload["ok"])
+
+    def test_audit_terminal_merge_fixture_reports_ready_and_done_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_context(tmp, "audit_terminal_merge")
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            for workstream_id, title in (
+                ("WS031", "Ready merge audit fixture"),
+                ("WS032", "Done merge audit fixture"),
+            ):
+                self.assertEqual(
+                    self.run_cli(
+                        [
+                            "workstream",
+                            "add",
+                            str(target),
+                            "--id",
+                            workstream_id,
+                            "--title",
+                            title,
+                            "--owner",
+                            "codex",
+                            "--output",
+                            "merge audit evidence",
+                        ]
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    self.run_cli(
+                        [
+                            "workstream",
+                            "merge-request",
+                            workstream_id,
+                            str(target),
+                            "--target",
+                            "active/Context.md",
+                            "--summary",
+                            f"Merge {workstream_id} conclusion.",
+                            "--verification",
+                            "Fixture verification.",
+                        ]
+                    ),
+                    0,
+                )
+
+            self.assertEqual(self.run_cli(["workstream", "set", "WS031", str(target), "--status", "Active"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS031", str(target)]), 0)
+
+            done_detail = target / "active" / "workstreams" / "WS032.md"
+            done_detail.write_text(
+                done_detail.read_text(encoding="utf-8").replace("status: Open", "status: Done"),
+                encoding="utf-8",
+            )
+            index = target / "active" / "Workstreams.md"
+            index.write_text(
+                index.read_text(encoding="utf-8").replace("| WS032 | Open |", "| WS032 | Done |"),
+                encoding="utf-8",
+            )
+
+            exit_code, payload, stderr = self.run_cli_json(["audit", "context", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            terminal = [item for item in payload["candidates"] if item["kind"] == "terminal_conclusion_not_merged"]
+            self.assertEqual({item["path"] for item in terminal}, {"active/workstreams/WS031.md", "active/workstreams/WS032.md"})
+            self.assertEqual(payload["summary"]["by_kind"]["terminal_conclusion_not_merged"], 2)
+            self.assertEqual(payload["summary"]["by_severity"]["P0-candidate"], 2)
+            reasons = {item["path"]: item["reason"] for item in terminal}
+            self.assertIn("ReadyToMerge", reasons["active/workstreams/WS031.md"])
+            self.assertIn("no merge_resolution", reasons["active/workstreams/WS032.md"])
 
     def test_workstream_complex_fixture_passes_strict_and_sync_noops(self):
         with tempfile.TemporaryDirectory() as tmp:

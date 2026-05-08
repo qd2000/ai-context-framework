@@ -1,0 +1,7 @@
+{
+  "kind": "audit_terminal_merge",
+  "profile": "minimal",
+  "risk_tags": ["audit", "terminal_conclusion_not_merged", "workstream", "merge_resolution"],
+  "intent": "Verify terminal Workstream merge-state audit candidates are covered by a context_matrix fixture.",
+  "expected_behavior": "acf audit context reports ReadyToMerge merge inputs and Done-without-merge-resolution as advisory candidates without adding new audit rules."
+}
