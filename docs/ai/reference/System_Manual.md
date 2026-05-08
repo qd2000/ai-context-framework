@@ -21,7 +21,7 @@
 
 Workstream 归档生命周期以 [reference/Workstream_Lifecycle_Archive_Design.md](Workstream_Lifecycle_Archive_Design.md) 为准。当前提供 `workstream archive-candidates`、`workstream archive-draft` 和显式 `workstream archive` 闭环；`workstream sync` 和 `upgrade` 都不自动归档 Done / Cancelled Workstream。
 
-Knowledge、ADR 和 Archive 后续 sync 的 generated marker 契约以 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md) 为准。实现 sync 前必须先保护 marker 外人工内容，并明确缺详情、重复 marker、不成对 marker 和删除策略。
+Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md) 为准。修改 sync 前必须保护 marker 外人工内容，并明确缺详情、重复 marker、不成对 marker 和删除策略。
 
 ---
 
@@ -176,4 +176,4 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 3. 补充或更新 init/upgrade 单元测试，覆盖新项目生成和旧项目 dry-run/正式 upgrade。
 4. 验证 `uv run acf check template`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf check docs/ai --strict --json`、`uv run python -m unittest` 和 upgrade compatibility quick/full 模式。
 
-ACF 维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START -->` 与对应 `END` marker，例如 `ACF:UPGRADE:NOTES`、`ACF:WORKSTREAM:ARCHIVE-RECORD`、`ACF:KNOWLEDGE:INDEX-GENERATED`、`ACF:DECISIONS:INDEX-GENERATED` 和 `ACF:ARCHIVE:INDEX-GENERATED`；旧 marker 保持兼容，但 `check` 会给出 future warning。`acf knowledge sync` 只重算 `ACF:KNOWLEDGE:INDEX-GENERATED` marker 内表格，旧 Knowledge_Index 首次接入需显式 `--init-marker`。模板占位符统一使用 ACF-keyed placeholder form，表格单元格内使用无提示形式，避免 `|` 破坏 Markdown 表格。
+ACF 维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START -->` 与对应 `END` marker，例如 `ACF:UPGRADE:NOTES`、`ACF:WORKSTREAM:ARCHIVE-RECORD`、`ACF:KNOWLEDGE:INDEX-GENERATED`、`ACF:DECISIONS:INDEX-GENERATED` 和 `ACF:ARCHIVE:INDEX-GENERATED`；旧 marker 保持兼容，但 `check` 会给出 future warning。`acf knowledge sync`、`acf decisions sync` 和 `acf archive sync` 只重算对应 generated marker 内表格，旧索引首次接入需显式 `--init-marker`。模板占位符统一使用 ACF-keyed placeholder form，表格单元格内使用无提示形式，避免 `|` 破坏 Markdown 表格。

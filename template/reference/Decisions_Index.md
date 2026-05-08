@@ -16,9 +16,11 @@
 
 ## 当前有效决策
 
+<!-- ACF:DECISIONS:INDEX-GENERATED:START -->
 | ID | 标题 | 状态 | 摘要 | 详情 |
 |---|---|---|---|---|
 | 暂无 |  |  |  |  |
+<!-- ACF:DECISIONS:INDEX-GENERATED:END -->
 
 ---
 

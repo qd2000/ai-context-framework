@@ -373,7 +373,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 1. 使用 [reference/Top_Level_Implementation_Gap.md](Top_Level_Implementation_Gap.md) 作为进入新代码 PR 前的 gap-driven 实施依据。
 2. JSON contract consistency tests、Workstream stage flow fixture、upgrade matrix expansion、Task Stage CLI 薄切片、active-reference traceability 与 Workstream archive-candidates / archive-draft / explicit archive 闭环已完成。
 3. P2-5 audit fixture expansion 已完成：`audit_stale_stage` 和 `audit_terminal_merge` 已进入 context_matrix fixtures；未新增 audit rule，未接入 strict。
-4. Knowledge / ADR / Archive sync 的 generated marker 设计已完成，见 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md)；generated marker helper 和 Knowledge sync MVP 已完成，下一代码切片应评估 Decisions / Archive sync 复用。
+4. Knowledge / ADR / Archive sync 的 generated marker 设计已完成，见 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md)；generated marker helper、Knowledge sync MVP、Decisions sync MVP 和 Archive sync MVP 已完成。
 5. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge。
 6. 后续每个新能力先补 fixture，再实现命令或规则。
 7. human layer、Obsidian 边界、统一占位符和 canonical marker 已作为 P2-6 完成；后续不为 Obsidian 新增 CLI，除非出现可抽象、可测试的通用维护需求。
@@ -391,7 +391,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 9. P2-4：实现 `workstream archive-draft` 和显式 `workstream archive`。已完成：draft 写入 `worklog/archive-drafts/`，archive 移动单个终态 Workstream、清理 active index、写入 Archive_Index 和 marker，不修改 merge target 或当前事实文件。
 10. P2-6：human layer、Obsidian 边界、统一占位符和 canonical marker。已完成：standard init / upgrade 维护 `human/`，minimal 不补；template 占位符迁移为 ACF-keyed placeholder form；ACF marker 迁移为 `ACF:<DOMAIN>:<PURPOSE>` 并兼容旧格式。
 11. P2-5：扩展 context_matrix audit fixtures。已完成：新增 `audit_stale_stage` 和 `audit_terminal_merge` fixtures，固化已实现 audit MVP 的防过拟合样本，不改变 CLI 行为。
-12. Generated marker helper and Knowledge sync MVP：已完成 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md) 对应的第一批实现；后续 Decisions / Archive sync 必须复用该 marker helper 和删除策略。
+12. Generated marker helper、Knowledge sync MVP、Decisions sync MVP 和 Archive sync MVP：已完成 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md) 对应的三批 sync 实现；后续仅根据真实使用反馈补小边界。
 
 ---
 

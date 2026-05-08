@@ -3791,6 +3791,120 @@ class CliTests(unittest.TestCase):
             self.assertIn("[manual](../../reference/System_Manual.md#manual)", archived_plan_text)
             self.assertIn("[template](../../../../template/AGENTS.md)", archived_plan_text)
 
+    def write_archive_sync_details(self, target):
+        task = target / "archive" / "tasks" / "2026-05-01-old-task.md"
+        task.parent.mkdir(parents=True, exist_ok=True)
+        task.write_text("## 任务名称\n\nOld Task\n\n## 当前任务状态\n\nDone\n", encoding="utf-8")
+        plan = target / "archive" / "plans" / "2026-05-02-old-plan.md"
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        plan.write_text("## 大任务名称\n\nOld Plan\n\n## 大任务状态\n\nDone\n", encoding="utf-8")
+        workstream = target / "archive" / "workstreams" / "WS001.md"
+        workstream.parent.mkdir(parents=True, exist_ok=True)
+        workstream.write_text(
+            "---\n"
+            "id: WS001\n"
+            "status: Done\n"
+            "---\n\n"
+            "# WS001\n\n"
+            f"{acf.WORKSTREAM_ARCHIVE_MARKER_START}\n"
+            "## 归档记录\n\n"
+            "- archived_at: 2026-05-03\n"
+            "- source_path: active/workstreams/WS001.md\n"
+            "- archive_path: `archive/workstreams/WS001.md`\n"
+            "- archive_reason: merged after review\n"
+            f"{acf.WORKSTREAM_ARCHIVE_MARKER_END}\n",
+            encoding="utf-8",
+        )
+        undated = target / "archive" / "tasks" / "old-undated-task.md"
+        undated.write_text("## 任务名称\n\nUndated Task\n", encoding="utf-8")
+
+    def test_archive_sync_requires_marker_unless_initialized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            index_path = target / "archive" / "Archive_Index.md"
+            index_text = index_path.read_text(encoding="utf-8")
+            index_path.write_text(
+                index_text.replace(acf.ARCHIVE_INDEX_MARKER_START + "\n", "").replace(acf.ARCHIVE_INDEX_MARKER_END + "\n", ""),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(["archive", "sync", str(target), "--json"])
+
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            self.assert_failure_json_contract(self.json_payload(stdout), "generated_marker_missing", "archive")
+
+    def test_archive_sync_init_marker_dry_run_and_write_preserves_old_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.write_archive_sync_details(target)
+            index_path = target / "archive" / "Archive_Index.md"
+            index_path.write_text(
+                "## 归档条目\n\n"
+                "| 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| 2026-04-30 | Task | Legacy Task | 无。 | `archive/tasks/2026-05-01-old-task.md` | Archived | legacy reason |\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["archive", "sync", str(target), "--init-marker", "--dry-run", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "archive sync")
+            self.assertEqual(payload["generated_count"], 3)
+            self.assertIn("Task/Plan archive reason is not recoverable", payload["warnings"][0])
+            self.assertTrue(any(item["reason"] == "archive date not recoverable" for item in payload["skipped_items"]))
+            self.assertIn("| 2026-05-01 | Task | Old Task | active/Current_Task.md | `archive/tasks/2026-05-01-old-task.md` | Archived | 未记录。 |", payload["planned_block"])
+            self.assertNotIn(acf.ARCHIVE_INDEX_MARKER_START, index_path.read_text(encoding="utf-8"))
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["archive", "sync", str(target), "--init-marker", "--check-after", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "archive sync")
+            index_text = index_path.read_text(encoding="utf-8")
+            self.assertIn(acf.ARCHIVE_INDEX_MARKER_START, index_text)
+            self.assertIn("| 2026-05-03 | workstream | WS001 | active/workstreams/WS001.md | `archive/workstreams/WS001.md` | Done | merged after review |", index_text)
+            self.assertIn("| 2026-04-30 | Task | Legacy Task | 无。 | `archive/tasks/2026-05-01-old-task.md` | Archived | legacy reason |", index_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(["archive", "sync", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["changed_files"], [])
+
+    def test_archive_sync_replaces_existing_generated_block_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.write_archive_sync_details(target)
+            index_path = target / "archive" / "Archive_Index.md"
+            index_path.write_text(
+                "## 归档条目\n\n"
+                f"{acf.ARCHIVE_INDEX_MARKER_START}\n"
+                "| 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| 2026-01-01 | Task | Stale | active/Current_Task.md | `archive/tasks/missing.md` | Archived | stale |\n"
+                f"{acf.ARCHIVE_INDEX_MARKER_END}\n\n"
+                "Manual archive note outside generated block.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["archive", "sync", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertTrue(any(item.get("id") == "Stale" for item in payload["skipped_items"]))
+            index_text = index_path.read_text(encoding="utf-8")
+            self.assertIn("| 2026-05-02 | Plan | Old Plan | active/Task_Plan.md | `archive/plans/2026-05-02-old-plan.md` | Archived | 未记录。 |", index_text)
+            self.assertNotIn("| 2026-01-01 | Task | Stale |", index_text)
+            self.assertIn("Manual archive note outside generated block.", index_text)
+
     def test_knowledge_draft_and_apply(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
@@ -3950,6 +4064,111 @@ class CliTests(unittest.TestCase):
             self.assertIn("| K001 | Markdown editing lesson | Active | cli, docs | Keep generated blocks bounded. |", index_text)
             self.assertNotIn("K999", index_text)
             self.assertIn("Manual note outside generated block.", index_text)
+
+    def write_valid_decision_detail(self, target, name="ADR-0001.md", status="Active"):
+        path = target / "decisions" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "# ADR-0001 - Use generated decision index sync\n\n"
+            "## 状态\n\n"
+            f"{status}\n\n"
+            "## 日期\n\n"
+            "2026-05-08\n\n"
+            "## 决策\n\n"
+            "Generate the decision index from ADR detail files.\n\n"
+            "## 理由\n\n"
+            "1. ADR details are the durable source.\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_decisions_sync_requires_marker_unless_initialized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            index_path = target / "reference" / "Decisions_Index.md"
+            index_text = index_path.read_text(encoding="utf-8")
+            index_path.write_text(
+                index_text.replace(acf.DECISIONS_INDEX_MARKER_START + "\n", "").replace(acf.DECISIONS_INDEX_MARKER_END + "\n", ""),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(["decisions", "sync", str(target), "--json"])
+
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(payload, "generated_marker_missing", "decisions")
+
+    def test_decisions_sync_init_marker_dry_run_and_write_preserves_outside_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.write_valid_decision_detail(target)
+            index_path = target / "reference" / "Decisions_Index.md"
+            original = index_path.read_text(encoding="utf-8")
+            original = original.replace(acf.DECISIONS_INDEX_MARKER_START + "\n", "").replace(acf.DECISIONS_INDEX_MARKER_END + "\n", "")
+            index_path.write_text(original + "\nManual decision note outside generated block.\n", encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["decisions", "sync", str(target), "--init-marker", "--dry-run", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "decisions sync")
+            self.assertEqual(payload["generated_count"], 1)
+            self.assertIn("ADR-0001", payload["planned_block"])
+            self.assertNotIn(acf.DECISIONS_INDEX_MARKER_START, index_path.read_text(encoding="utf-8"))
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["decisions", "sync", str(target), "--init-marker", "--check-after", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "decisions sync")
+            index_text = index_path.read_text(encoding="utf-8")
+            self.assertIn(acf.DECISIONS_INDEX_MARKER_START, index_text)
+            self.assertIn(
+                "| ADR-0001 | Use generated decision index sync | Active | Generate the decision index from ADR detail files. | `decisions/ADR-0001.md` |",
+                index_text,
+            )
+            self.assertIn("Manual decision note outside generated block.", index_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(["decisions", "sync", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["changed_files"], [])
+
+    def test_decisions_sync_replaces_existing_generated_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.write_valid_decision_detail(target)
+            index_path = target / "reference" / "Decisions_Index.md"
+            index_path.write_text(
+                "## 当前有效决策\n\n"
+                f"{acf.DECISIONS_INDEX_MARKER_START}\n"
+                "| ID | 标题 | 状态 | 摘要 | 详情 |\n"
+                "|---|---|---|---|---|\n"
+                "| ADR-9999 | Stale | Active | stale | `decisions/ADR-9999.md` |\n"
+                f"{acf.DECISIONS_INDEX_MARKER_END}\n\n"
+                "Manual decision note outside generated block.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["decisions", "sync", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["skipped_items"][0]["id"], "ADR-9999")
+            index_text = index_path.read_text(encoding="utf-8")
+            self.assertIn(
+                "| ADR-0001 | Use generated decision index sync | Active | Generate the decision index from ADR detail files. | `decisions/ADR-0001.md` |",
+                index_text,
+            )
+            self.assertNotIn("ADR-9999", index_text)
+            self.assertIn("Manual decision note outside generated block.", index_text)
 
     def test_knowledge_draft_uses_unicode_slug_and_strict_rejects_draft_placeholders(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4441,6 +4660,8 @@ This records a reusable write-safety pattern instead of a current task fact.
                 ("audit context", ["audit", "context", str(target), "--json"]),
                 ("review stale", ["review", "stale", str(target), "--today", "2026-05-05", "--json"]),
                 ("curate draft", ["curate", "draft", str(target), "--today", "2026-05-05", "--dry-run", "--json"]),
+                ("archive sync", ["archive", "sync", str(target), "--dry-run", "--json"]),
+                ("decisions sync", ["decisions", "sync", str(target), "--dry-run", "--json"]),
                 ("knowledge sync", ["knowledge", "sync", str(target), "--dry-run", "--json"]),
                 ("workstream status", ["workstream", "status", str(target), "--json"]),
                 ("workstream list", ["workstream", "list", str(target), "--json"]),

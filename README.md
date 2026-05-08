@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.38` 是当前推荐的真实项目接入/升级版本，保留 active -> reference 规划依据追溯能力，并新增标准 profile 的 `human/` 人工异步笔记层、统一 `【ACF:KEY|提示】` 模板占位符、canonical ACF marker、可点击 Markdown 链接维护能力和 Knowledge index generated marker sync MVP；`archive current-task/task-plan` 会在归档移动时重写本地 Markdown 相对链接。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.40` 是当前推荐的真实项目接入/升级版本，保留 active -> reference 规划依据追溯能力，并新增标准 profile 的 `human/` 人工异步笔记层、统一 `【ACF:KEY|提示】` 模板占位符、canonical ACF marker、可点击 Markdown 链接维护能力、Knowledge / Decisions / Archive index sync MVP；`archive current-task/task-plan` 会在归档移动时重写本地 Markdown 相对链接。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -254,7 +254,8 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `linkify`：把默认范围内安全识别到的本地路径引用转换为可点击 Markdown 链接；默认处理 active、reference、rules、decisions、Worklog_Index 和 Archive_Index，跳过 archive 详情和 daily worklog；`--include-archive` / `--include-worklog-daily` 可显式扩大范围，`--allow-missing` 可允许缺失目标。
 - `link add`：向上下文内指定 Markdown 文件的小节追加链接 bullet；`--target-heading` 会生成并校验 Markdown heading anchor，重复链接默认拒绝，`--force` 才允许重复。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
-- `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引；归档 current task / task plan 时会按归档文件的新位置重写本地 Markdown 相对链接。
+- `archive current-task|task-plan|list|sync`：归档旧当前任务或旧大任务计划，并更新 archive 索引；归档 current task / task plan 时会按归档文件的新位置重写本地 Markdown 相对链接；`sync` 从 `archive/tasks`、`archive/plans` 和 `archive/workstreams` 重算 `ACF:ARCHIVE:INDEX-GENERATED` marker 内表格，旧索引首次接入 sync 时需显式 `--init-marker`，旧手写表会保留在 marker 外。
+- `decisions sync`：从 `decisions/ADR-*.md` 重算 `ACF:DECISIONS:INDEX-GENERATED` marker 内表格；旧索引首次接入 sync 时需显式 `--init-marker`，命令只替换 marker 内内容，不修改 ADR 正文。
 - `knowledge draft|apply|list|show|mark|sync`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引，并可用 `sync` 从 `reference/knowledge/K*.md` 重算 `ACF:KNOWLEDGE:INDEX-GENERATED` marker 内表格；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖；旧索引首次接入 sync 时需显式 `--init-marker`。
 - `review stale`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json` 和 `--days`。JSON 输出包含 `summary.total`、`summary.by_kind`、`summary.by_path`，每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
 - `audit context`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告 `active_section_too_long`、`stale_current_task_or_workstream_stage` 和 `terminal_conclusion_not_merged`（ReadyToMerge 待合并或 Done 缺合并结果）。JSON 输出包含 `candidates`、`summary.total`、`summary.by_kind`、`summary.by_path`、`summary.by_severity` 和 `next_actions`。

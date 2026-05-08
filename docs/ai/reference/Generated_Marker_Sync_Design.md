@@ -1,6 +1,6 @@
 # Generated Marker Sync Design
 
-本文定义 Knowledge、ADR 和 Archive 后续 sync 命令之前必须先稳定的 generated marker 契约。它是设计文档，不表示这些 sync 命令已经实现。
+本文定义 Knowledge、ADR 和 Archive sync 命令共同遵守的 generated marker 契约。它是长期设计文档；当前 `knowledge sync`、`decisions sync` 和 `archive sync` MVP 已按该契约落地，后续扩展仍以本文边界为准。
 
 ---
 
@@ -14,12 +14,12 @@ Draft
 
 当前 ACF 已实现 Workstream sync：详情文件是事实源，[active/Workstreams.md](../active/Workstreams.md) 是索引视图，sync 只更新索引中的可派生字段，并保留无法安全判断的旧行。
 
-Knowledge、ADR 和 Archive 仍主要依赖人工或专用创建命令维护索引。直接实现 `knowledge sync`、`decisions sync` 或 `archive sync` 有两个风险：
+Knowledge、ADR 和 Archive 曾主要依赖人工或专用创建命令维护索引。实现 `knowledge sync`、`decisions sync` 或 `archive sync` 时有两个风险：
 
 1. 误删人工维护的历史行或说明。
 2. 把索引内容和详情事实源的责任边界混在一起。
 
-因此下一步先定义 generated marker，再实现任何跨文件 sync。
+因此先定义 generated marker，再按同一契约逐步实现跨文件 sync。
 
 ---
 
@@ -207,17 +207,29 @@ generated 目标：
 1. 新增 marker helper 单元测试：缺 marker、重复 marker、不成对 marker、替换 marker 内内容、保留 marker 外人工内容。
 2. 新增 `knowledge_sync_generated_marker` fixture：详情文件生成 Knowledge_Index marker block。
 3. 新增 `knowledge sync --dry-run --json`，只实现 Knowledge。
-4. 再按同一契约扩到 `decisions sync`。
-5. Archive sync 最后做，因为历史行和多类型归档文件最多。
+4. 已按同一契约扩到 `decisions sync`。
+5. 已按同一契约扩到 `archive sync`，Archive sync 最后做，因为历史行和多类型归档文件最多。
 
 ---
 
 ## 下一代码切片
 
-推荐下一 PR：
+已完成的第一批 PR：
 
 ```text
 Generated marker helper and Knowledge sync MVP
+```
+
+已完成的第二批 PR：
+
+```text
+Decisions sync MVP
+```
+
+已完成的第三批 PR：
+
+```text
+Archive sync MVP
 ```
 
 范围：
@@ -225,13 +237,14 @@ Generated marker helper and Knowledge sync MVP
 1. 通用 marker replace helper。
 2. `acf knowledge sync --dry-run --json`。
 3. `--init-marker` 第一版。
-4. 不实现 decisions/archive sync。
-5. 不接入 strict。
+4. `acf decisions sync --dry-run --json`。
+5. `acf archive sync --dry-run --json`，覆盖 `archive/tasks`、`archive/plans` 和 `archive/workstreams`。
+6. 不接入 strict。
 
 验收：
 
 1. marker helper tests 通过。
-2. Knowledge sync JSON contract tests 通过。
+2. Knowledge sync、Decisions sync 和 Archive sync JSON contract tests 通过。
 3. `uv run python -m unittest` 通过。
 4. `uv run acf check docs/ai --strict --json` 通过。
 5. minimal smoke 不必扩大，除非新增命令进入 smoke 主路径。

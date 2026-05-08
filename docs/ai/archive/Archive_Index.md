@@ -9,6 +9,39 @@
 
 ## 归档条目
 
+<!-- ACF:ARCHIVE:INDEX-GENERATED:START -->
+| 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
+|---|---|---|---|---|---|---|
+| 2026-04-30 | Plan | 反馈入口与回写流程 dogfooding 改进 | active/Task_Plan.md | `archive/plans/2026-04-30-反馈入口与回写流程-dogfooding-改进.md` | Archived | 未记录。 |
+| 2026-04-30 | Plan | 并行 Workstream 任务与信息管理方案 | active/Task_Plan.md | `archive/plans/2026-04-30-并行-workstream-任务与信息管理方案.md` | Archived | 未记录。 |
+| 2026-04-30 | Plan | 真实项目接入与旧上下文升级验证 | active/Task_Plan.md | `archive/plans/2026-04-30-真实项目接入与旧上下文升级验证.md` | Archived | 未记录。 |
+| 2026-05-03 | Plan | v0.0.3.17 稳定安装与跨项目评测 | active/Task_Plan.md | `archive/plans/2026-05-03-v0.0.3.17-稳定安装与跨项目评测.md` | Archived | 未记录。 |
+| 2026-05-03 | Plan | 复现分类 .acf.lock 残留 | active/Task_Plan.md | `archive/plans/2026-05-03-复现分类-.acf.lock-残留.md` | Archived | 未记录。 |
+| 2026-05-03 | Plan | 最小 smoke runner 设计与实现 | active/Task_Plan.md | `archive/plans/2026-05-03-最小-smoke-runner-设计与实现.md` | Archived | 未记录。 |
+| 2026-05-03 | Plan | 真实项目试点审查问题修复 | active/Task_Plan.md | `archive/plans/2026-05-03-真实项目试点审查问题修复.md` | Archived | 未记录。 |
+| 2026-05-03 | Task | 复现分类 .acf.lock 残留 | active/Current_Task.md | `archive/tasks/2026-05-03-复现分类-.acf.lock-残留.md` | Archived | 未记录。 |
+| 2026-05-03 | Task | 实现最小 smoke runner | active/Current_Task.md | `archive/tasks/2026-05-03-实现最小-smoke-runner.md` | Archived | 未记录。 |
+| 2026-05-03 | Task | 用户旅程摩擦点整理 | active/Current_Task.md | `archive/tasks/2026-05-03-用户旅程摩擦点整理.md` | Archived | 未记录。 |
+| 2026-05-07 | Plan | EcSOS upgrade rehearsal plan | active/Task_Plan.md | `archive/plans/2026-05-07-ecsos-upgrade-rehearsal-plan.md` | Archived | 未记录。 |
+| 2026-05-07 | Task | Draft EcSOS upgrade rehearsal plan | active/Current_Task.md | `archive/tasks/2026-05-07-draft-ecsos-upgrade-rehearsal-plan.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | Archive Sync MVP | active/Task_Plan.md | `archive/plans/2026-05-08-archive-sync-mvp.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | Decisions Sync MVP | active/Task_Plan.md | `archive/plans/2026-05-08-decisions-sync-mvp.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | Generated Marker Sync Design | active/Task_Plan.md | `archive/plans/2026-05-08-generated-marker-sync-design.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | Knowledge Sync MVP | active/Task_Plan.md | `archive/plans/2026-05-08-knowledge-sync-mvp.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | P2-4 Workstream Archive Draft and Index Cleanup Design | active/Task_Plan.md | `archive/plans/2026-05-08-p2-4-workstream-archive-draft-and-index-cleanup-design.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | P2-5 Gap Audit Refresh and Next Slice Selection | active/Task_Plan.md | `archive/plans/2026-05-08-p2-5-gap-audit-refresh-and-next-slice-selection.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | P2-7 Markdown Link Traceability | active/Task_Plan.md | `archive/plans/2026-05-08-p2-7-markdown-link-traceability.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | P2-8 Context Attention Cleanup and P2-5 Readiness | active/Task_Plan.md | `archive/plans/2026-05-08-p2-8-context-attention-cleanup-and-p2-5-readiness.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | Define archive draft and cleanup contract | active/Current_Task.md | `archive/tasks/2026-05-08-define-archive-draft-and-cleanup-contract.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | Document and dogfood clickable links | active/Current_Task.md | `archive/tasks/2026-05-08-document-and-dogfood-clickable-links.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | Document and verify knowledge sync | active/Current_Task.md | `archive/tasks/2026-05-08-document-and-verify-knowledge-sync.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | Implement archive sync MVP | active/Current_Task.md | `archive/tasks/2026-05-08-implement-archive-sync-mvp.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | Implement decisions sync MVP | active/Current_Task.md | `archive/tasks/2026-05-08-implement-decisions-sync-mvp.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | Prepare P2-5 audit fixture slice | active/Current_Task.md | `archive/tasks/2026-05-08-prepare-p2-5-audit-fixture-slice.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | Update roadmap and current facts | active/Current_Task.md | `archive/tasks/2026-05-08-update-roadmap-and-current-facts.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | Verify and record route calibration | active/Current_Task.md | `archive/tasks/2026-05-08-verify-and-record-route-calibration.md` | Archived | 未记录。 |
+<!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
+
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
 |---|---|---|---|---|---|---|
 | 2026-04-30 | Plan | 反馈入口与回写流程 dogfooding 改进 | 无。 | [archive/plans/2026-04-30-反馈入口与回写流程-dogfooding-改进.md](plans/2026-04-30-反馈入口与回写流程-dogfooding-改进.md) | Archived | 反馈入口与回写流程 dogfooding 改进已完成，切换到并行 Workstream 任务与信息管理方案 |
@@ -35,3 +68,5 @@
 | 2026-05-08 | Plan | Generated Marker Sync Design | 无。 | `archive/plans/2026-05-08-generated-marker-sync-design.md` | Archived | Generated marker sync design completed and roadmap updated. |
 | 2026-05-08 | Task | Document and verify knowledge sync | 无。 | `archive/tasks/2026-05-08-document-and-verify-knowledge-sync.md` | Archived | Knowledge sync MVP completed and verified |
 | 2026-05-08 | Plan | Knowledge Sync MVP | 无。 | `archive/plans/2026-05-08-knowledge-sync-mvp.md` | Archived | Knowledge sync MVP completed and verified |
+| 2026-05-08 | Task | Implement decisions sync MVP | 无。 | `archive/tasks/2026-05-08-implement-decisions-sync-mvp.md` | Archived | Decisions sync MVP completed and verified |
+| 2026-05-08 | Plan | Decisions Sync MVP | 无。 | `archive/plans/2026-05-08-decisions-sync-mvp.md` | Archived | Decisions sync MVP completed and verified |

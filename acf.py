@@ -22,7 +22,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.38"
+VERSION = "v0.0.3.40"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -225,6 +225,10 @@ WORKSTREAM_ARCHIVE_DIR_REL = "archive/workstreams"
 ACF_MARKER_RE = re.compile(r"<!--\s*ACF:([A-Z0-9_-]+):([A-Z0-9_-]+):(START|END)\s*-->")
 KNOWLEDGE_INDEX_MARKER_START = "<!-- ACF:KNOWLEDGE:INDEX-GENERATED:START -->"
 KNOWLEDGE_INDEX_MARKER_END = "<!-- ACF:KNOWLEDGE:INDEX-GENERATED:END -->"
+DECISIONS_INDEX_MARKER_START = "<!-- ACF:DECISIONS:INDEX-GENERATED:START -->"
+DECISIONS_INDEX_MARKER_END = "<!-- ACF:DECISIONS:INDEX-GENERATED:END -->"
+ARCHIVE_INDEX_MARKER_START = "<!-- ACF:ARCHIVE:INDEX-GENERATED:START -->"
+ARCHIVE_INDEX_MARKER_END = "<!-- ACF:ARCHIVE:INDEX-GENERATED:END -->"
 WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:START -->"
 WORKSTREAM_ARCHIVE_MARKER_END = "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:END -->"
 LEGACY_WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM-ARCHIVE:START -->"
@@ -1242,7 +1246,7 @@ def write_command_context_root(args: argparse.Namespace) -> Path | None:
         }:
             return require_context_root(getattr(args, "path", None))
         return None
-    if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "knowledge", "curate", "linkify"}:
+    if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "decisions", "knowledge", "curate", "linkify"}:
         return require_context_root(getattr(args, "path", None))
     if command == "link":
         if getattr(args, "link_command", None) == "add":
@@ -1801,6 +1805,8 @@ def command_label(args: argparse.Namespace) -> str:
         return f"task {getattr(args, 'task_command', '')}".strip()
     if command == "archive":
         return f"archive {getattr(args, 'archive_command', '')}".strip()
+    if command == "decisions":
+        return f"decisions {getattr(args, 'decisions_command', '')}".strip()
     if command == "knowledge":
         return f"knowledge {getattr(args, 'knowledge_command', '')}".strip()
     if command == "review":
@@ -1842,7 +1848,7 @@ def context_location_for_args(args: argparse.Namespace) -> ContextLocation:
         return make_context_location(require_context_root(getattr(args, "path", None)))
     if command == "edit":
         return make_context_location(require_context_root(getattr(args, "context", None)))
-    if command in {"plan", "task", "archive", "knowledge", "review", "audit", "workstream"}:
+    if command in {"plan", "task", "archive", "decisions", "knowledge", "review", "audit", "workstream"}:
         return make_context_location(require_context_root(getattr(args, "path", None)))
     raise SystemExit("usage log is not available for this command")
 
@@ -2778,6 +2784,143 @@ def update_decisions_index(
     rows.sort(key=row_date)
     updated = lines[:table_start] + rows + lines[table_end:]
     index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
+def decisions_index_path(root: Path) -> Path:
+    return root / "reference" / "Decisions_Index.md"
+
+
+def decision_title_from_text(text: str, fallback: str) -> str:
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    title = re.sub(r"^#\s*", "", first_line).strip()
+    title = re.sub(r"^ADR-\d{4}\s*[-：:]\s*", "", title).strip()
+    title = re.sub(r"^ADR[：:]\s*", "", title).strip()
+    return title or fallback
+
+
+def decision_summary_from_text(text: str) -> str:
+    summary = safe_section_body_from_text(text, "## 摘要")
+    if not summary:
+        summary = safe_section_body_from_text(text, "## 决策")
+    return next((line.strip() for line in summary.splitlines() if line.strip()), "") or "无。"
+
+
+def render_decisions_index_table(rows: Sequence[dict[str, str]]) -> str:
+    lines = [
+        "| ID | 标题 | 状态 | 摘要 | 详情 |",
+        "|---|---|---|---|---|",
+    ]
+    if rows:
+        for row in rows:
+            lines.append(render_table_row([row["id"], row["title"], row["status"], row["summary"], f"`{row['detail']}`"]))
+    else:
+        lines.append("| 暂无 |  |  |  |  |")
+    return "\n".join(lines)
+
+
+def collect_decision_sync_rows(root: Path) -> tuple[list[dict[str, str]], list[dict[str, str]], list[str]]:
+    rows: list[dict[str, str]] = []
+    skipped: list[dict[str, str]] = []
+    warnings: list[str] = []
+    decisions_dir = root / "decisions"
+    if not decisions_dir.exists():
+        return rows, skipped, warnings
+
+    for path in sorted(decisions_dir.glob("ADR-*.md")):
+        if path.name == "ADR-0001-template.md":
+            continue
+        match = re.match(r"^(ADR-\d{4})\.md$", path.name)
+        rel = path.relative_to(root).as_posix()
+        if match is None:
+            skipped.append({"path": rel, "reason": "decision file name does not use ADR-NNNN.md"})
+            continue
+        status = extract_heading_value(path, "## 状态") or ""
+        if status not in VALID_DECISION_STATUSES:
+            skipped.append({"id": match.group(1), "path": rel, "reason": f"invalid or missing decision status `{status}`"})
+            warnings.append(f"{rel}: skipped invalid or missing decision status `{status}`")
+            continue
+        text = read_text(path)
+        rows.append(
+            {
+                "id": match.group(1),
+                "title": decision_title_from_text(text, match.group(1)),
+                "status": status,
+                "summary": decision_summary_from_text(text),
+                "detail": rel,
+            }
+        )
+    return rows, skipped, warnings
+
+
+def skipped_missing_generated_decision_details(root: Path, index_text: str) -> list[dict[str, str]]:
+    if DECISIONS_INDEX_MARKER_START not in index_text or DECISIONS_INDEX_MARKER_END not in index_text:
+        return []
+    start = index_text.index(DECISIONS_INDEX_MARKER_START) + len(DECISIONS_INDEX_MARKER_START)
+    end = index_text.index(DECISIONS_INDEX_MARKER_END, start)
+    marker_body = index_text[start:end]
+    skipped: list[dict[str, str]] = []
+    index_path = decisions_index_path(root)
+    for cells in parse_markdown_table_rows(marker_body):
+        if len(cells) < 5 or cells[0] in {"ID", "暂无"}:
+            continue
+        ref = strip_code_ticks(cells[4])
+        if should_check_ref(ref) and resolve_ref(root, index_path, ref) is None:
+            skipped.append({"id": cells[0], "path": ref, "reason": "detail source is missing"})
+    return skipped
+
+
+def decisions_sync_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    index_path = decisions_index_path(root)
+    if not index_path.exists():
+        raise SystemExit(f"sync_source_invalid: decisions index does not exist: {index_path}")
+    original = read_text(index_path)
+    rows, skipped, warnings = collect_decision_sync_rows(root)
+    skipped.extend(skipped_missing_generated_decision_details(root, original))
+    generated_table = render_decisions_index_table(rows)
+
+    if DECISIONS_INDEX_MARKER_START in original or DECISIONS_INDEX_MARKER_END in original:
+        updated, changed = replace_generated_marker_block(
+            original,
+            DECISIONS_INDEX_MARKER_START,
+            DECISIONS_INDEX_MARKER_END,
+            generated_table,
+        )
+        initialized_marker = False
+    elif args.init_marker:
+        updated, changed = insert_generated_marker_block_after_heading(
+            original,
+            "## 当前有效决策",
+            DECISIONS_INDEX_MARKER_START,
+            DECISIONS_INDEX_MARKER_END,
+            generated_table,
+            replace_empty_table_header="| ID | 标题 | 状态 | 摘要 | 详情 |",
+        )
+        initialized_marker = True
+    else:
+        raise SystemExit("generated_marker_missing: reference/Decisions_Index.md is missing ACF:DECISIONS:INDEX-GENERATED markers")
+
+    changed_files = [index_path] if changed else []
+    if changed_files and not dry_run_enabled(args):
+        index_path.write_text(updated, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would sync" if dry_run_enabled(args) else "synced"
+    extra_payload: dict[str, object] = {
+        "generated_count": len(rows),
+        "skipped_items": skipped,
+        "initialized_marker": initialized_marker,
+    }
+    if dry_run_enabled(args):
+        extra_payload["planned_block"] = generated_table
+    return emit_write_result(
+        args,
+        "decisions sync",
+        f"{action} Decisions index generated block",
+        changed_files,
+        check_result,
+        extra_payload=extra_payload,
+        warnings=warnings,
+    )
 
 
 def source_index_row(
@@ -4414,9 +4557,11 @@ def render_archive_index() -> str:
 
 ## 归档条目
 
+{ARCHIVE_INDEX_MARKER_START}
 {ARCHIVE_TABLE_HEADER}
 |---|---|---|---|---|---|---|
 | 暂无 |  |  |  |  |  |  |
+{ARCHIVE_INDEX_MARKER_END}
 """
 
 
@@ -5827,6 +5972,208 @@ def append_archive_index_entry(
 
 def update_archive_index(index_path: Path, archive_date: str, item_type: str, title: str, reason: str, detail: str) -> None:
     append_archive_index_entry(index_path, archive_date, item_type, title, "无。", detail, "Archived", reason)
+
+
+ARCHIVE_FILENAME_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)$")
+
+
+def archive_date_from_file_name(path: Path) -> str | None:
+    match = ARCHIVE_FILENAME_DATE_RE.match(path.stem)
+    if not match:
+        return None
+    value = match.group(1)
+    return value if DATE_RE.match(value) else None
+
+
+def archive_title_fallback(path: Path) -> str:
+    match = ARCHIVE_FILENAME_DATE_RE.match(path.stem)
+    return match.group(2) if match else path.stem
+
+
+def render_archive_index_table(rows: Sequence[dict[str, str]]) -> str:
+    lines = [ARCHIVE_TABLE_HEADER, "|---|---|---|---|---|---|---|"]
+    if rows:
+        for row in sorted(rows, key=lambda item: (item["date"], item["type"], item["id"])):
+            lines.append(
+                render_table_row(
+                    [
+                        row["date"],
+                        row["type"],
+                        row["id"],
+                        row["source_path"],
+                        f"`{row['archive_path']}`",
+                        row["status"],
+                        row["reason"],
+                    ]
+                )
+            )
+    else:
+        lines.append("| 暂无 |  |  |  |  |  |  |")
+    return "\n".join(lines)
+
+
+def collect_task_plan_archive_rows(root: Path) -> tuple[list[dict[str, str]], list[dict[str, str]], int]:
+    rows: list[dict[str, str]] = []
+    skipped: list[dict[str, str]] = []
+    fallback_reason_count = 0
+    sources = (
+        ("Task", root / "archive" / "tasks", "## 任务名称", "active/Current_Task.md"),
+        ("Plan", root / "archive" / "plans", "## 大任务名称", "active/Task_Plan.md"),
+    )
+    for item_type, directory, title_heading, source_path in sources:
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("*.md")):
+            rel = path.relative_to(root).as_posix()
+            archive_date = archive_date_from_file_name(path)
+            if archive_date is None:
+                skipped.append({"path": rel, "reason": "archive date not recoverable"})
+                continue
+            rows.append(
+                {
+                    "date": archive_date,
+                    "type": item_type,
+                    "id": extract_heading_value(path, title_heading) or archive_title_fallback(path),
+                    "source_path": source_path,
+                    "archive_path": rel,
+                    "status": "Archived",
+                    "reason": "未记录。",
+                }
+            )
+            fallback_reason_count += 1
+    return rows, skipped, fallback_reason_count
+
+
+def workstream_archive_marker_fields(text: str) -> dict[str, str] | None:
+    if WORKSTREAM_ARCHIVE_MARKER_START not in text or WORKSTREAM_ARCHIVE_MARKER_END not in text:
+        return None
+    start = text.find(WORKSTREAM_ARCHIVE_MARKER_START)
+    end = text.find(WORKSTREAM_ARCHIVE_MARKER_END, start + len(WORKSTREAM_ARCHIVE_MARKER_START))
+    if end < 0:
+        return None
+    body = text[start + len(WORKSTREAM_ARCHIVE_MARKER_START) : end]
+    fields: dict[str, str] = {}
+    for line in body.splitlines():
+        match = re.match(r"^-\s+([A-Za-z_]+):\s*(.+?)\s*$", line.strip())
+        if match:
+            fields[match.group(1)] = strip_code_ticks(match.group(2))
+    return fields
+
+
+def collect_workstream_archive_rows(root: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    rows: list[dict[str, str]] = []
+    skipped: list[dict[str, str]] = []
+    directory = root / WORKSTREAM_ARCHIVE_DIR_REL
+    if not directory.exists():
+        return rows, skipped
+    for path in sorted(directory.glob("*.md")):
+        rel = path.relative_to(root).as_posix()
+        match = re.match(r"^(WS\d{3})\.md$", path.name)
+        if match is None:
+            skipped.append({"path": rel, "reason": "workstream archive file name does not use WSNNN.md"})
+            continue
+        text = read_text(path)
+        marker = workstream_archive_marker_fields(text)
+        archive_date = marker.get("archived_at", "") if marker else ""
+        if not DATE_RE.match(archive_date):
+            skipped.append({"id": match.group(1), "path": rel, "reason": "archive date not recoverable"})
+            continue
+        metadata, _body, _diagnostics = parse_front_matter(text)
+        status = metadata.get("status") if isinstance(metadata, dict) else None
+        rows.append(
+            {
+                "date": archive_date,
+                "type": "workstream",
+                "id": match.group(1),
+                "source_path": marker.get("source_path", f"{WORKSTREAM_DIR_REL}/{match.group(1)}.md") if marker else f"{WORKSTREAM_DIR_REL}/{match.group(1)}.md",
+                "archive_path": marker.get("archive_path", rel) if marker else rel,
+                "status": status if isinstance(status, str) and status.strip() else "Archived",
+                "reason": marker.get("archive_reason", "未记录。") if marker else "未记录。",
+            }
+        )
+    return rows, skipped
+
+
+def collect_archive_sync_rows(root: Path) -> tuple[list[dict[str, str]], list[dict[str, str]], list[str]]:
+    task_plan_rows, skipped, fallback_reason_count = collect_task_plan_archive_rows(root)
+    workstream_rows, workstream_skipped = collect_workstream_archive_rows(root)
+    warnings: list[str] = []
+    if fallback_reason_count:
+        warnings.append(
+            "Task/Plan archive reason is not recoverable from archived files; "
+            f"{fallback_reason_count} rows used fallback reason."
+        )
+    return task_plan_rows + workstream_rows, skipped + workstream_skipped, warnings
+
+
+def skipped_missing_generated_archive_details(root: Path, index_text: str) -> list[dict[str, str]]:
+    if ARCHIVE_INDEX_MARKER_START not in index_text or ARCHIVE_INDEX_MARKER_END not in index_text:
+        return []
+    start = index_text.index(ARCHIVE_INDEX_MARKER_START) + len(ARCHIVE_INDEX_MARKER_START)
+    end = index_text.index(ARCHIVE_INDEX_MARKER_END, start)
+    marker_body = index_text[start:end]
+    skipped: list[dict[str, str]] = []
+    index_path = archive_index_path(root)
+    for cells in parse_markdown_table_rows(marker_body):
+        if len(cells) < 7 or cells[0] in {"日期", "暂无"}:
+            continue
+        ref = strip_code_ticks(cells[4])
+        if should_check_ref(ref) and resolve_ref(root, index_path, ref) is None:
+            skipped.append({"id": cells[2], "path": ref, "reason": "detail source is missing"})
+    return skipped
+
+
+def archive_sync_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    index_path = archive_index_path(root)
+    original = read_text(index_path) if index_path.exists() else render_archive_index()
+    rows, skipped, warnings = collect_archive_sync_rows(root)
+    skipped.extend(skipped_missing_generated_archive_details(root, original))
+    generated_table = render_archive_index_table(rows)
+
+    if ARCHIVE_INDEX_MARKER_START in original or ARCHIVE_INDEX_MARKER_END in original:
+        updated, changed = replace_generated_marker_block(
+            original,
+            ARCHIVE_INDEX_MARKER_START,
+            ARCHIVE_INDEX_MARKER_END,
+            generated_table,
+        )
+        initialized_marker = False
+    elif args.init_marker:
+        updated, changed = insert_generated_marker_block_after_heading(
+            original,
+            "## 归档条目",
+            ARCHIVE_INDEX_MARKER_START,
+            ARCHIVE_INDEX_MARKER_END,
+            generated_table,
+            replace_empty_table_header=ARCHIVE_TABLE_HEADER,
+        )
+        initialized_marker = True
+    else:
+        raise SystemExit("generated_marker_missing: archive/Archive_Index.md is missing ACF:ARCHIVE:INDEX-GENERATED markers")
+
+    changed_files = [index_path] if changed or not index_path.exists() else []
+    if changed_files and not dry_run_enabled(args):
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(updated, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would sync" if dry_run_enabled(args) else "synced"
+    extra_payload: dict[str, object] = {
+        "generated_count": len(rows),
+        "skipped_items": skipped,
+        "initialized_marker": initialized_marker,
+    }
+    if dry_run_enabled(args):
+        extra_payload["planned_block"] = generated_table
+    return emit_write_result(
+        args,
+        "archive sync",
+        f"{action} Archive index generated block",
+        changed_files,
+        check_result,
+        extra_payload=extra_payload,
+        warnings=warnings,
+    )
 
 
 def archive_file(root: Path, source: Path, kind: str, reason: str, force: bool, dry_run: bool) -> list[Path]:
@@ -10858,6 +11205,21 @@ def build_parser() -> argparse.ArgumentParser:
     archive_list_parser.add_argument("path", nargs="?", type=Path)
     add_json_argument(archive_list_parser)
     archive_list_parser.set_defaults(func=archive_list_command)
+
+    archive_sync_parser = archive_subparsers.add_parser("sync", help="sync the generated Archive index block")
+    archive_sync_parser.add_argument("path", nargs="?", type=Path)
+    archive_sync_parser.add_argument("--init-marker", action="store_true", help="insert generated markers when missing")
+    add_write_arguments(archive_sync_parser)
+    archive_sync_parser.set_defaults(func=archive_sync_command)
+
+    decisions_parser = subparsers.add_parser("decisions", help="manage decision index sync")
+    decisions_subparsers = decisions_parser.add_subparsers(dest="decisions_command", required=True)
+
+    decisions_sync_parser = decisions_subparsers.add_parser("sync", help="sync the generated Decisions index block")
+    decisions_sync_parser.add_argument("path", nargs="?", type=Path)
+    decisions_sync_parser.add_argument("--init-marker", action="store_true", help="insert generated markers when missing")
+    add_write_arguments(decisions_sync_parser)
+    decisions_sync_parser.set_defaults(func=decisions_sync_command)
 
     knowledge_parser = subparsers.add_parser("knowledge", help="manage reusable knowledge drafts and entries")
     knowledge_subparsers = knowledge_parser.add_subparsers(dest="knowledge_command", required=True)

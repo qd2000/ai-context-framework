@@ -10,9 +10,11 @@
 
 ## 归档条目
 
+<!-- ACF:ARCHIVE:INDEX-GENERATED:START -->
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
 |---|---|---|---|---|---|---|
 | 暂无 |  |  |  |  |  |  |
+<!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 ---
 
