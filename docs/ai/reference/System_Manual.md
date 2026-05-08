@@ -41,37 +41,37 @@ Workstream 归档生命周期以 [reference/Workstream_Lifecycle_Archive_Design.
 ## 常用维护命令
 
 - `uv run acf status --json`
-- `uv run acf upgrade docs-acf/ai --dry-run --json`
+- `uv run acf upgrade docs/ai --dry-run --json`
 - 通用升级形式：`acf upgrade [target]`
 - `uv run acf check --strict`
-- `uv run acf linkify docs-acf/ai --format markdown --dry-run --json`
-- `uv run acf link add docs-acf/ai active/Current_Task.md --heading "## 输入材料" --target reference/System_Manual.md --target-heading "Markdown 链接与人工导航" --json`
-- `uv run acf workstream status docs-acf/ai --json`
-- `uv run acf workstream add docs-acf/ai --id WS002 --title "并行线" --owner "主 agent" --goal "验证并行目标线。" --output "验证记录" --dry-run --json`
-- `uv run acf workstream set WS002 docs-acf/ai --goal "补充或替换目标。" --dry-run --json`
-- `uv run acf workstream merge-request WS001 docs-acf/ai --target Context --summary "候选摘要" --verification "测试通过" --dry-run --json`
-- `uv run acf workstream claim WS001 docs-acf/ai --read reference/Architecture.md --write "draft: worklog/writeback-drafts/WS001-note.md" --dry-run --json`
-- `uv run acf workstream note WS001 docs-acf/ai --section 当前发现 --text "记录一个局部发现。" --dry-run --json`
-- `uv run acf workstream show WS001 docs-acf/ai --json`
-- `uv run acf workstream stage add WS001 docs-acf/ai --id WS001.1 --title "内部阶段" --json`
-- `uv run acf workstream stage list WS001 docs-acf/ai --json`
-- `uv run acf workstream focus WS001 WS001.1 docs-acf/ai --json`
-- `uv run acf workstream stage done WS001 WS001.1 docs-acf/ai --evidence "worklog/daily/YYYY-MM-DD.md" --clear-current --json`
-- `uv run acf workstream archive-candidates docs-acf/ai --json`
-- `uv run acf workstream archive-draft docs-acf/ai --date YYYY-MM-DD --json`
-- `uv run acf workstream archive WS001 docs-acf/ai --reason "reviewed in worklog/archive-drafts/YYYY-MM-DD draft" --json`
-- `uv run acf plan status docs-acf/ai --json`
-- `uv run acf plan stage add docs-acf/ai --id T001.1 --parent T001 --title "任务阶段" --json`
-- `uv run acf plan stage list docs-acf/ai --json`
-- `uv run acf plan stage set docs-acf/ai --id T001.1 --status Active --next-action "完成阶段" --json`
-- `uv run acf plan stage done docs-acf/ai --id T001.1 --evidence "worklog/daily/YYYY-MM-DD.md" --json`
-- `uv run acf review stale docs-acf/ai --json`
-- `uv run acf audit context docs-acf/ai --json`
-- `uv run acf curate draft docs-acf/ai --dry-run --json`
+- `uv run acf linkify docs/ai --format markdown --dry-run --json`
+- `uv run acf link add docs/ai active/Current_Task.md --heading "## 输入材料" --target reference/System_Manual.md --target-heading "Markdown 链接与人工导航" --json`
+- `uv run acf workstream status docs/ai --json`
+- `uv run acf workstream add docs/ai --id WS002 --title "并行线" --owner "主 agent" --goal "验证并行目标线。" --output "验证记录" --dry-run --json`
+- `uv run acf workstream set WS002 docs/ai --goal "补充或替换目标。" --dry-run --json`
+- `uv run acf workstream merge-request WS001 docs/ai --target Context --summary "候选摘要" --verification "测试通过" --dry-run --json`
+- `uv run acf workstream claim WS001 docs/ai --read reference/Architecture.md --write "draft: worklog/writeback-drafts/WS001-note.md" --dry-run --json`
+- `uv run acf workstream note WS001 docs/ai --section 当前发现 --text "记录一个局部发现。" --dry-run --json`
+- `uv run acf workstream show WS001 docs/ai --json`
+- `uv run acf workstream stage add WS001 docs/ai --id WS001.1 --title "内部阶段" --json`
+- `uv run acf workstream stage list WS001 docs/ai --json`
+- `uv run acf workstream focus WS001 WS001.1 docs/ai --json`
+- `uv run acf workstream stage done WS001 WS001.1 docs/ai --evidence "worklog/daily/YYYY-MM-DD.md" --clear-current --json`
+- `uv run acf workstream archive-candidates docs/ai --json`
+- `uv run acf workstream archive-draft docs/ai --date YYYY-MM-DD --json`
+- `uv run acf workstream archive WS001 docs/ai --reason "reviewed in worklog/archive-drafts/YYYY-MM-DD draft" --json`
+- `uv run acf plan status docs/ai --json`
+- `uv run acf plan stage add docs/ai --id T001.1 --parent T001 --title "任务阶段" --json`
+- `uv run acf plan stage list docs/ai --json`
+- `uv run acf plan stage set docs/ai --id T001.1 --status Active --next-action "完成阶段" --json`
+- `uv run acf plan stage done docs/ai --id T001.1 --evidence "worklog/daily/YYYY-MM-DD.md" --json`
+- `uv run acf review stale docs/ai --json`
+- `uv run acf audit context docs/ai --json`
+- `uv run acf curate draft docs/ai --dry-run --json`
 - 需要整理、归纳、精简上下文时，按需读取 [reference/Context_Curation_Prompt.md](Context_Curation_Prompt.md)；默认产物是整理建议，不是文件修改。
-- `uv run acf log feedback docs-acf/ai --type Problem --source manual --text "实际使用反馈。" --json`
+- `uv run acf log feedback docs/ai --type Problem --source manual --text "实际使用反馈。" --json`
 - `uv run acf log summarize --days 7 --json`
-- `uv run acf new worklog docs-acf/ai --summary "补记一次上下文维护。" --append --dry-run --json`
+- `uv run acf new worklog docs/ai --summary "补记一次上下文维护。" --append --dry-run --json`
 - `uv run acf version show --json`
 - `uv run acf version set v0.0.3.30 --dry-run --json`
 - `uv run python scripts/upgrade_matrix.py --mode quick`
@@ -101,10 +101,10 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 
 | 目标状态 | 推荐命令 | 结果 |
 |---|---|---|
-| 不确定是否已有今日 worklog | `uv run acf new worklog docs-acf/ai --summary "..." --dry-run --json` | 根据 `error_code` 判断下一步 |
-| 今日 worklog 不存在 | `uv run acf new worklog docs-acf/ai --summary "..." --json` | 创建 |
-| 今日 worklog 已存在，想补记 | `uv run acf new worklog docs-acf/ai --summary "..." --append --json` | 追加到稳定 anchor |
-| 今日 worklog 已存在，想重建 | `uv run acf new worklog docs-acf/ai --summary "..." --force --json` | 替换 |
+| 不确定是否已有今日 worklog | `uv run acf new worklog docs/ai --summary "..." --dry-run --json` | 根据 `error_code` 判断下一步 |
+| 今日 worklog 不存在 | `uv run acf new worklog docs/ai --summary "..." --json` | 创建 |
+| 今日 worklog 已存在，想补记 | `uv run acf new worklog docs/ai --summary "..." --append --json` | 追加到稳定 anchor |
+| 今日 worklog 已存在，想重建 | `uv run acf new worklog docs/ai --summary "..." --force --json` | 替换 |
 | anchor 缺失 | 不自动修复 | 返回 `ANCHOR_NOT_FOUND` |
 
 `new worklog --append` 的 JSON 面向 AI 稳定解析：`target` 和 `changed_files` 使用 repo-relative POSIX slash 路径；成功输出包含结构化 `warnings` 数组；`insert_after_line` 是 1-based 行号；`--dry-run --json` 不写文件；append 不是幂等操作，每运行一次都会新增一段内容。目标已存在但未传 `--append` 或 `--force` 时，`error_code=TARGET_EXISTS_APPEND_REQUIRED`；`--append --force` 返回 `APPEND_FORCE_CONFLICT`；anchor 缺失返回 `ANCHOR_NOT_FOUND`。
@@ -171,6 +171,6 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 1. 新增目录或文件时，同步更新 init 文件清单、upgrade 补齐清单和 `pyproject.toml` data-files。
 2. 修改入口、手册或默认读取顺序时，检查 `acf upgrade` 是否能非破坏式更新旧 AGENTS/System Manual，不能安全重排时应追加 marker notes。
 3. 补充或更新 init/upgrade 单元测试，覆盖新项目生成和旧项目 dry-run/正式 upgrade。
-4. 验证 `uv run acf check template`、`uv run acf upgrade docs-acf/ai --dry-run --json`、`uv run acf check docs-acf/ai --strict --json`、`uv run python -m unittest` 和 upgrade compatibility quick/full 模式。
+4. 验证 `uv run acf check template`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf check docs/ai --strict --json`、`uv run python -m unittest` 和 upgrade compatibility quick/full 模式。
 
 ACF 维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START -->` 与对应 `END` marker，例如 `ACF:UPGRADE:NOTES` 和 `ACF:WORKSTREAM:ARCHIVE-RECORD`；旧 marker 保持兼容，但 `check` 会给出 future warning。模板占位符统一使用 ACF-keyed placeholder form，表格单元格内使用无提示形式，避免 `|` 破坏 Markdown 表格。

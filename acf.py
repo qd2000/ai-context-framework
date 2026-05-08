@@ -22,7 +22,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.35"
+VERSION = "v0.0.3.36"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -3812,9 +3812,17 @@ def is_table_separator(line: str) -> bool:
     return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell.replace(" ", "")) for cell in cells)
 
 
+def table_header_matches(line: str, header: str | None) -> bool:
+    if header is None:
+        return True
+    if not is_table_line(line):
+        return False
+    return split_table_line(line) == split_table_line(header)
+
+
 def find_table(lines: Sequence[str], header: str | None) -> TableRange:
     for index, line in enumerate(lines[:-1]):
-        if header is not None and line.strip() != header.strip():
+        if not table_header_matches(line, header):
             continue
         if not is_table_line(line) or not is_table_separator(lines[index + 1]):
             continue

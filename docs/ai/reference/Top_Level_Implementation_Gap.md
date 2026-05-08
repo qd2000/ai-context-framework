@@ -236,8 +236,8 @@ Obsidian 边界已写入手册：项目可以把 `docs/` 作为 vault 根目录�
 ### P2-7 Markdown link traceability
 
 ```bash
-acf linkify docs-acf/ai --format markdown --dry-run --json
-acf link add docs-acf/ai active/Current_Task.md --heading "## 输入材料" --target reference/System_Manual.md --target-heading "Markdown 链接与人工导航" --json
+acf linkify docs/ai --format markdown --dry-run --json
+acf link add docs/ai active/Current_Task.md --heading "## 输入材料" --target reference/System_Manual.md --target-heading "Markdown 链接与人工导航" --json
 ```
 
 状态：已完成。ACF 仍不解析、不依赖 Obsidian `[[双链]]`，但结构化路径引用可以转换为普通 Markdown 链接，便于 Obsidian、GitHub 和其他 Markdown 工具点击导航。`acf check` 会校验本地 Markdown 链接和图片链接目标存在，并校验 `.md#anchor` 能匹配目标 Markdown 标题；URL 和其他 URI scheme 跳过网络校验。

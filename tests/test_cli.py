@@ -1295,6 +1295,24 @@ class CliTests(unittest.TestCase):
             errors = json.loads(stdout)["check"]["errors"]
             self.assertTrue(any("broken Workstream detail" in error for error in errors))
 
+    def test_workstream_check_accepts_padded_table_header(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(
+                index_path.read_text(encoding="utf-8").replace(
+                    "| ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |",
+                    "| ID    | 状态   | 标题 | Owner   | 写入范围 | 依赖 | 输出物 | 详情 |",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["check", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["ok"])
+
     def test_workstream_check_unindexed_detail_and_status_mismatch_severity(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
@@ -4050,6 +4068,28 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertIn("[reference/System_Manual.md](../reference/System_Manual.md)", frontmatter_text)
             self.assertEqual("- reference/System_Manual.md\n", daily.read_text(encoding="utf-8"))
 
+    def test_linkify_links_project_root_paths_from_docs_ai_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            target = project / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (project / "template").mkdir(parents=True)
+            (project / "template" / "AGENTS.md").write_text("# Template Agent\n", encoding="utf-8")
+            current = target / "active" / "Current_Task.md"
+            current.write_text(
+                "# Current Task\n\n"
+                "## 当前任务状态\n\nActive\n\n"
+                "## 输入材料\n\n"
+                "- template/AGENTS.md\n"
+                "- docs/ai/AGENTS.md\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_cli(["linkify", str(target)]), 0)
+            text = current.read_text(encoding="utf-8")
+            self.assertIn("[template/AGENTS.md](../../../template/AGENTS.md)", text)
+            self.assertIn("[docs/ai/AGENTS.md](../AGENTS.md)", text)
+
     def test_index_path_markup_can_be_checked_after_linkify(self):
         self.assertEqual(
             acf.strip_code_ticks("[worklog/daily/2026-05-08.md](daily/2026-05-08.md)"),
@@ -4383,7 +4423,7 @@ This records a reusable write-safety pattern instead of a current task fact.
             )
             (target / "active" / "Feedback_Inbox.md").write_text(
                 "## 反馈条目\n\n"
-                "| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |\n"
+                "| ID    | 状态   | 类型 | 内容 | 来源 | 后续处理 |\n"
                 "|---|---|---|---|---|---|\n"
                 "| F001 | Open | Problem | 2026-04-01 旧反馈 | user | 待整理 |\n",
                 encoding="utf-8",

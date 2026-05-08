@@ -54,7 +54,7 @@ P2-7 Markdown Link Traceability
 | T001 | Done | Implement Markdown link parser/checker | 无。 | check 校验本地 Markdown link、图片和 heading anchor | acf.py check/link helpers and targeted tests passed | 无。 |
 | T002 | Done | Implement linkify and link add | T001 | linkify 和 link add CLI、JSON、dry-run 和测试 | linkify/link add CLI implemented; targeted CLI tests passed | 无。 |
 | T003 | Done | Document and dogfood clickable links | T002 | README、template manual、docs-acf manual、gap 和当前上下文更新 | v0.0.3.35 set；check template/docs-acf strict/audit/unittest/upgrade_matrix quick/git diff --check completed；commit and push will be reported in final response | 无。 |
-| T004 | Done | Verify release and push | T003 | 验证结果、v0.0.3.35、Lore commit 和 push | v0.0.3.35 set；check template ok with expected placeholder warnings；docs-acf/ai strict ok；audit context ok with 2 advisory candidates；unittest 208 tests ok；upgrade_matrix quick ok；git diff --check ok | 提交并汇报 |
+| T004 | Done | Verify release and push | T003 | 验证结果、v0.0.3.35、Lore commit 和 push | v0.0.3.35 set；check template ok with expected placeholder warnings；docs/ai strict ok；audit context ok with 2 advisory candidates；unittest 208 tests ok；upgrade_matrix quick ok；git diff --check ok | 提交并汇报 |
 
 ---
 

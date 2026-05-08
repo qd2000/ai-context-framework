@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.35
+Version: 0.0.3.36
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -178,7 +178,7 @@ acf status --json
 
 后续发布后，用户可通过包名或 Git URL 安装，例如 `uv tool install ai-context-framework` 或 `uv tool install git+<repo-url>`。
 
-“任意目录可运行 `acf`”表示命令已进入 PATH；是否能自动找到上下文，取决于当前目录是否位于包含 `docs/ai` 或上下文根目录的项目中。
+“任意目录可运行 `acf`”表示命令已进入 PATH；是否能自动找到上下文，取决于当前目录是否位于包含 `docs/ai`、`docs-acf/ai` 或上下文根目录的项目中。
 
 ### 常用命令
 
@@ -278,7 +278,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `log enable|disable|status|tail|summarize|feedback|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭；普通 usage event 不记录正文，显式 `log feedback --text/--input` 才记录人工反馈正文。
 - `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
 
-`check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
+`check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai`、`docs-acf/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 
 `status`、`check`、`review stale`、`audit context`、`workstream status|list|archive-candidates|show` 和 `edit section get` 支持 `--json` 输出。`archive-draft`、`archive`、`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
 

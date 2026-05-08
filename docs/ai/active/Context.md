@@ -33,7 +33,7 @@ Dogfooding MVP / 框架稳定化。
 ### 当前阶段要做
 
 - 维护 `template/` 作为可复制的产品模板。
-- 维护 `docs-acf/ai/` 作为本仓库真实 dogfooding 上下文。
+- 维护 `docs/ai/` 作为本仓库真实 dogfooding 上下文。
 - 保持 CLI 无第三方运行依赖。
 - 用检查命令发现结构漂移、断链、状态不一致和索引遗漏。
 
@@ -50,19 +50,19 @@ Dogfooding MVP / 框架稳定化。
 ## 当前有效事实
 
 1. 本仓库的核心产物是 `template/` 标准 AI 上下文模板。
-2. `docs-acf/ai/` 是本仓库真实使用中的 standard dogfooding 上下文实例。
+2. `docs/ai/` 是本仓库真实使用中的 standard dogfooding 上下文实例。
 3. `acf` 是无第三方依赖的辅助 CLI，已支持 `status`、`init`、`simplify`、`check`、`new task`、`new source`、`new worklog`、`new adr`、`writeback draft`、`edit section`、`edit table upsert` 和 `log enable|disable|status|tail|summarize|prune`。
 4. `acf check --strict` 会把检查目标中的占位符残留视为错误。
 5. 本仓库已使用 `pyproject.toml` 和 `uv.lock` 建立最小 uv Python 环境，Python 版本约束为 `>=3.10`。
 6. 本仓库运行 Python 代码时，优先使用 `uv run python ...`。
-7. `docs-acf/ai/` 当前应通过 `uv run acf check --strict`。
+7. `docs/ai/` 当前应通过 `uv run acf check --strict`。
 8. 当前已有测试覆盖 CLI 的生成、检查、状态校验、索引一致性、strict 占位符检查、task/source/worklog/ADR 自动生成、writeback draft、上下文自动发现、status、JSON schema、错误分类、section/table 编辑、usage event log 和 console script 配置。
 9. `init --profile minimal` 和 `simplify` 不再向真实 minimal 实例复制 ADR 模板文件与 daily worklog 模板文件；真实 ADR 和 worklog 应通过 `new adr`、`new worklog` 生成，`simplify` 会保留已有真实 ADR 和 daily worklog。
 10. `acf init` 会在推断出的项目根目录生成缺失的薄入口 AGENTS.md；已有根入口默认不覆盖，需要 force root agent 参数才覆盖。
 11. 两层 AGENTS.md 设计已由 [decisions/ADR-0003.md](../decisions/ADR-0003.md) 记录：根目录薄入口负责发现和转发，上下文目录内入口负责完整导航。
 12. [../Automation.md](../../Automation.md) 记录自动化边界、后续 CLI 命令和 subagent 草案路线。
 13. `template/` 中的占位符是产品模板内容，不是本仓库事实。
-14. `template/` 是面向使用者的产品源，新增或修改前应确认是通用模板需求；本仓库 dogfooding 特例应写入根入口、`docs-acf/ai/` 或维护文档，不写入通用模板。
+14. `template/` 是面向使用者的产品源，新增或修改前应确认是通用模板需求；本仓库 dogfooding 特例应写入根入口、`docs/ai/` 或维护文档，不写入通用模板。
 15. `writeback draft` 只生成 `worklog/writeback-drafts/` 下的可审阅草案，不直接修改权威上下文文件。
 16. [decisions/ADR-0004.md](../decisions/ADR-0004.md) 已记录长期产品方向：`acf` 应演进为可安装、任意目录可调用、主要面向 AI 的上下文维护 CLI。
 17. [../Automation.md](../../Automation.md) 已记录 AI-facing CLI 的阶段路线：可安装与上下文发现、AI 友好输出、安全结构化编辑、草案/subagent 接入、跨项目 dogfooding 评测。
@@ -78,8 +78,8 @@ Dogfooding MVP / 框架稳定化。
 27. `acf edit table upsert` 已支持按 key column 更新或追加 Markdown 表格行，目标限制在上下文根目录内已有 `.md` 文件。
 28. 模板入口、minimal init 产物和当前 dogfooding 入口已补充 CLI 渐进式披露入口：默认只提示 `acf status --json`、`acf --help` 和按需读取系统手册，不在入口列完整命令手册。
 29. README 和产品手册已补充安装到 PATH 的说明：开发期可用 `uv tool install -e .` 安装可执行命令，并用 `uv tool update-shell`、`where acf` 或 `which acf` 验证。
-30. 后续维护 `docs-acf/ai/` 内上下文计划、规则、worklog 或索引时，应优先 dogfood `acf edit section` 或 `acf edit table upsert`，先用 `--dry-run --json` 预览高风险写入。
-31. `acf edit` 当前安全边界是 context-root 内已有 Markdown 文件；[../Automation.md](../../Automation.md) 等 `docs-acf/ai/` 外仓库级文档暂时仍通过常规补丁维护，项目级安全编辑能力需单独设计。
+30. 后续维护 `docs/ai/` 内上下文计划、规则、worklog 或索引时，应优先 dogfood `acf edit section` 或 `acf edit table upsert`，先用 `--dry-run --json` 预览高风险写入。
+31. `acf edit` 当前安全边界是 context-root 内已有 Markdown 文件；[../Automation.md](../../Automation.md) 等 `docs/ai/` 外仓库级文档暂时仍通过常规补丁维护，项目级安全编辑能力需单独设计。
 32. `acf log enable|disable|status|tail|summarize|feedback|prune` 已实现默认开启的用户级全局 usage event log，日志默认存放在 `%USERPROFILE%\.acf\projects\<project-id>\` 或 `~/.acf/projects/<project-id>/`，按项目子目录记录命令结果元数据和显式反馈事件用于 dogfooding 评测。
 33. 自动 usage event 不写入项目目录或 `worklog/`，不记录正文输入、stdin 内容、Markdown diff 或完整 stdout/stderr；实际使用反馈正文只能通过显式 `acf log feedback --text/--input` 记录；测试可用 `ACF_HOME` 指定隔离的日志根目录；日志写入带用户级锁，配置和 prune 重写使用原子替换。
 34. [active/Task_Plan.md](Task_Plan.md) 已成为当前大任务计划和轻量子任务板，默认读取但必须保持短、准、低噪音。
@@ -201,7 +201,7 @@ Dogfooding MVP / 框架稳定化。
 
 此前设计理念是"渐进式暴露"，但 `acf.py init` 的实现不完整：
 
-- **设计理念**：根目录 AGENTS.md（薄入口） + docs/ai/AGENTS.md（完整入口）
+- **设计理念**：根目录 AGENTS.md（薄入口） + [docs/ai/AGENTS.md](../AGENTS.md)（完整入口）
 - **README 说法**：第 46 行推荐"在项目根目录放置 AGENTS.md"
 - **旧实现**：`acf.py init docs/ai` 只生成上下文目录内入口，不生成根目录版本
 - **修复结果**：`acf.py init` 现在生成缺失的根薄入口，并保护已有根入口不被静默覆盖
@@ -212,11 +212,11 @@ Dogfooding MVP / 框架稳定化。
 
 1. **根目录 AGENTS.md**（薄入口）
    - 角色：最轻量级的仓库级配置
-   - 内容：简要说明 + "详见 docs/ai/AGENTS.md" 转发
+   - 内容：简要说明 + "详见 [docs/ai/AGENTS.md](../AGENTS.md)" 转发
    - 维护者：仓库框架维护者
    - 频率：很少改动
 
-2. **docs/ai/AGENTS.md**（完整入口）
+2. **[docs/ai/AGENTS.md](../AGENTS.md)**（完整入口）
    - 角色：项目当前上下文的完整导航
    - 内容：默认读取顺序 + 按需读取指引 + 事实源优先级
    - 维护者：项目团队 + AI 协作
