@@ -18,6 +18,7 @@ template/archive/feedback/.gitkeep
 template/archive/plans/.gitkeep
 template/archive/tasks/.gitkeep
 template/decisions/ADR-0001-template.md
+template/human/Human_Index.md
 template/human/Human_Notes.md
 template/human/reports/.gitkeep
 template/human/weekly/.gitkeep

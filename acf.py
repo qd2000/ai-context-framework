@@ -22,7 +22,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.43"
+VERSION = "v0.0.3.44"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -73,6 +73,7 @@ STANDARD_FILES = (
     "active/Current_Task.md",
     "active/Feedback_Inbox.md",
     "active/Task_Plan.md",
+    "human/Human_Index.md",
     "human/Human_Notes.md",
     "human/weekly/.gitkeep",
     "human/reports/.gitkeep",
@@ -149,6 +150,7 @@ VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Re
 VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
 VALID_FEEDBACK_STATUSES = {"Open", "Triaged", "Planned", "Done", "Rejected"}
 VALID_HUMAN_NOTE_STATUSES = {"Open", "Triaged", "Done", "Rejected"}
+VALID_HUMAN_INDEX_STATUSES = {"Open", "Reviewed", "Extracted", "Archived"}
 VALID_WORKSTREAM_STATUSES = {"Open", "Active", "Blocked", "ReadyToMerge", "Done", "Cancelled"}
 VALID_WORKSTREAM_STAGE_STATUSES = {"Pending", "Active", "Blocked", "Done", "Skipped", "Cancelled"}
 VALID_MERGE_RESOLUTIONS = {"merged", "rejected", "no_merge_required", "archived"}
@@ -218,6 +220,7 @@ TASK_TABLE_HEADER = "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | �
 TASK_STAGE_TABLE_HEADER = "| ID | 状态 | 父任务 | 名称 | 归属 Workstream | 依赖 | 输出物 | 证据 | 下一步 |"
 FEEDBACK_TABLE_HEADER = "| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |"
 HUMAN_NOTE_TABLE_HEADER = "| ID | 状态 | 类型 | 内容 | 关联位置 | AI 处理建议 | 证据 |"
+HUMAN_INDEX_TABLE_HEADER = "| ID | 状态 | 类型 | 标题 | 路径 | 日期 | 已整理到 | 备注 |"
 KNOWLEDGE_TABLE_HEADER = "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |"
 ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |"
 LEGACY_ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | 标题 | 原因 | 详情 |"
@@ -1011,6 +1014,10 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Mark the feedback Done or Rejected before archiving it."]
     if error_code == "human_notes_missing":
         return ["Use a standard context with human/ enabled, run upgrade if appropriate, or use `acf new feedback`."]
+    if error_code == "human_index_missing":
+        return ["Run `acf upgrade` or `acf human index sync` on a standard context."]
+    if error_code == "human_index_item_not_found":
+        return ["Run `acf human list --json` to find the item ID or path."]
     if error_code == "task_stage_duplicate_id":
         return ["Choose an unused Task Stage ID in active/Task_Plan.md."]
     if error_code == "task_stage_scope_invalid":
@@ -1266,6 +1273,12 @@ def write_command_context_root(args: argparse.Namespace) -> Path | None:
         return None
     if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "decisions", "knowledge", "curate", "linkify"}:
         return require_context_root(getattr(args, "path", None))
+    if command == "human":
+        if getattr(args, "human_command", None) == "mark":
+            return require_context_root(getattr(args, "path", None))
+        if getattr(args, "human_command", None) == "index" and getattr(args, "human_index_command", None) == "sync":
+            return require_context_root(getattr(args, "path", None))
+        return None
     if command == "link":
         if getattr(args, "link_command", None) == "add":
             return require_context_root(getattr(args, "path", None))
@@ -1311,6 +1324,7 @@ def required_files_for_check(root: Path, profile: str) -> tuple[str, ...]:
 
 def human_layer_paths(root: Path) -> list[Path]:
     return [
+        root / "human" / "Human_Index.md",
         root / "human" / "Human_Notes.md",
         root / "human" / "weekly" / ".gitkeep",
         root / "human" / "reports" / ".gitkeep",
@@ -3234,6 +3248,19 @@ def human_note_row(
     return render_table_row([note_id, status, note_type, content, related, suggestion, evidence])
 
 
+def human_index_row(
+    item_id: str,
+    status: str,
+    item_type: str,
+    title: str,
+    path: str,
+    item_date: str,
+    extracted_to: str,
+    note: str,
+) -> str:
+    return render_table_row([item_id, status, item_type, title, path, item_date, extracted_to, note])
+
+
 def replace_table_rows(
     text: str,
     header: str,
@@ -3302,6 +3329,10 @@ def human_notes_path(root: Path) -> Path:
     return root / "human" / "Human_Notes.md"
 
 
+def human_index_path(root: Path) -> Path:
+    return root / "human" / "Human_Index.md"
+
+
 def feedback_archive_path(root: Path, archive_date: date) -> Path:
     return root / "archive" / "feedback" / f"{archive_date.strftime('%Y-%m')}.md"
 
@@ -3320,6 +3351,188 @@ def validate_human_note_id(value: str) -> str:
     if not re.match(r"^H\d{3}$", value):
         raise argparse.ArgumentTypeError(f"invalid human note id `{value}`, expected HNNN")
     return value
+
+
+def human_note_status_to_index_status(status: str) -> str:
+    return {
+        "Open": "Open",
+        "Triaged": "Reviewed",
+        "Done": "Extracted",
+        "Rejected": "Archived",
+    }.get(status, "Open")
+
+
+def human_index_row_to_payload(row: dict[str, str]) -> dict[str, str]:
+    return {
+        "id": row.get("ID", ""),
+        "status": row.get("状态", ""),
+        "type": row.get("类型", ""),
+        "title": row.get("标题", ""),
+        "path": clean_human_index_path_cell(row.get("路径", "")),
+        "date": row.get("日期", ""),
+        "extracted_to": row.get("已整理到", ""),
+        "note": row.get("备注", ""),
+    }
+
+
+def human_index_row_from_payload(row: dict[str, str]) -> str:
+    return human_index_row(
+        row.get("ID", ""),
+        row.get("状态", ""),
+        row.get("类型", ""),
+        row.get("标题", ""),
+        row.get("路径", ""),
+        row.get("日期", ""),
+        row.get("已整理到", ""),
+        row.get("备注", ""),
+    )
+
+
+def read_human_index_rows(index_path: Path) -> list[dict[str, str]]:
+    return read_table_rows_by_header(index_path, HUMAN_INDEX_TABLE_HEADER)
+
+
+def clean_human_index_path_cell(value: str) -> str:
+    cleaned = value.strip().strip("`")
+    link_match = MARKDOWN_LINK_RE.fullmatch(cleaned)
+    if link_match:
+        cleaned = link_match.group(3)
+    cleaned = clean_markdown_link_target(cleaned).replace("\\", "/").strip()
+    if cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    if cleaned.startswith("human/"):
+        cleaned = cleaned[len("human/") :]
+    return cleaned
+
+
+def human_index_key(row: dict[str, str]) -> str:
+    item_id = row.get("ID", "").strip()
+    if item_id and item_id != "暂无":
+        return f"id:{item_id}"
+    return f"path:{clean_human_index_path_cell(row.get('路径', ''))}"
+
+
+def parse_date_from_text(value: str) -> str:
+    match = re.search(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", value)
+    return match.group(0) if match else "未标注"
+
+
+def markdown_title(path: Path) -> str:
+    try:
+        for line in read_text(path).splitlines():
+            match = re.match(r"^#\s+(.+?)\s*$", line)
+            if match:
+                return match.group(1).strip()
+    except UnicodeDecodeError:
+        pass
+    return path.stem.replace("_", " ").replace("-", " ").strip() or path.name
+
+
+def human_note_index_item(row: dict[str, str], today: str | None = None) -> dict[str, str]:
+    note_id = row.get("ID", "").strip()
+    content = row.get("内容", "").strip()
+    return {
+        "ID": note_id,
+        "状态": human_note_status_to_index_status(row.get("状态", "")),
+        "类型": row.get("类型", "").strip() or "笔记",
+        "标题": content[:80] if content else note_id,
+        "路径": "Human_Notes.md",
+        "日期": today or "未标注",
+        "已整理到": "未整理。",
+        "备注": row.get("AI 处理建议", "").strip() or "来自 Human_Notes.md。",
+    }
+
+
+def human_file_index_item(root: Path, path: Path, item_type: str) -> dict[str, str]:
+    rel = path.relative_to(root / "human").as_posix()
+    return {
+        "ID": "",
+        "状态": "Open",
+        "类型": item_type,
+        "标题": markdown_title(path),
+        "路径": rel,
+        "日期": parse_date_from_text(path.name),
+        "已整理到": "未整理。",
+        "备注": "由 human index sync 发现。",
+    }
+
+
+def collect_human_index_items(root: Path, *, note_date: str | None = None) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    note_path = human_notes_path(root)
+    if note_path.exists():
+        for row in read_table_rows_by_header(note_path, HUMAN_NOTE_TABLE_HEADER):
+            note_id = row.get("ID", "").strip()
+            if note_id and note_id != "暂无":
+                items.append(human_note_index_item(row, note_date))
+    for directory, item_type in ((root / "human" / "weekly", "weekly"), (root / "human" / "reports", "report")):
+        if not directory.is_dir():
+            continue
+        for md_file in sorted(directory.glob("*.md")):
+            items.append(human_file_index_item(root, md_file, item_type))
+    return items
+
+
+def merge_human_index_rows(existing_rows: Sequence[dict[str, str]], discovered: Sequence[dict[str, str]]) -> list[dict[str, str]]:
+    rows_by_key: dict[str, dict[str, str]] = {}
+    ordered_keys: list[str] = []
+    for row in existing_rows:
+        key = human_index_key(row)
+        if key in {"id:", "path:"}:
+            continue
+        rows_by_key[key] = dict(row)
+        ordered_keys.append(key)
+    for item in discovered:
+        key = human_index_key(item)
+        if key in {"id:", "path:"}:
+            continue
+        if key in rows_by_key:
+            existing = rows_by_key[key]
+            for field in ("类型", "标题", "日期"):
+                current = existing.get(field, "").strip()
+                candidate = item.get(field, "").strip()
+                if current in {"", "未标注", "无。"} and candidate and candidate not in {"未标注", "无。"}:
+                    existing[field] = candidate
+            continue
+        rows_by_key[key] = dict(item)
+        ordered_keys.append(key)
+    ordered_keys.sort(key=lambda key: (rows_by_key[key].get("日期", ""), rows_by_key[key].get("路径", ""), rows_by_key[key].get("ID", "")))
+    return [rows_by_key[key] for key in ordered_keys]
+
+
+def write_human_index(index_path: Path, rows: Sequence[dict[str, str]], dry_run: bool) -> bool:
+    text = read_text(index_path) if index_path.exists() else render_human_index()
+    rendered_rows = [human_index_row_from_payload(row) for row in rows] or ["| 暂无 |  |  |  |  |  |  |  |"]
+    updated = replace_table_rows(text, HUMAN_INDEX_TABLE_HEADER, rendered_rows)
+    changed = updated != text
+    if changed and not dry_run:
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(updated, encoding="utf-8")
+    return changed
+
+
+def sync_human_index(root: Path, dry_run: bool, *, note_date: str | None = None) -> tuple[bool, list[dict[str, str]], Path]:
+    index_path = human_index_path(root)
+    existed = index_path.exists()
+    if not index_path.exists() and not dry_run:
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(render_human_index(), encoding="utf-8")
+    existing_rows = read_human_index_rows(index_path) if index_path.exists() else []
+    rows = merge_human_index_rows(existing_rows, collect_human_index_items(root, note_date=note_date))
+    changed = write_human_index(index_path, rows, dry_run) if index_path.exists() else True
+    if not existed:
+        changed = True
+    return changed, rows, index_path
+
+
+def find_human_index_row(rows: Sequence[dict[str, str]], target: str) -> dict[str, str] | None:
+    normalized = clean_human_index_path_cell(target)
+    for row in rows:
+        if row.get("ID", "") == target:
+            return row
+        if clean_human_index_path_cell(row.get("路径", "")) == normalized:
+            return row
+    return None
 
 
 def feedback_row_to_payload(row: dict[str, str]) -> dict[str, str]:
@@ -3887,7 +4100,15 @@ def new_human_note_command(args: argparse.Namespace) -> int:
     changed = updated_text != text
     if changed and not dry_run:
         note_path.write_text(updated_text, encoding="utf-8")
+    index_path = human_index_path(root)
+    index_changed = False
+    if changed and not dry_run:
+        index_changed, _rows, _index_path = sync_human_index(root, dry_run=False, note_date=date.today().isoformat())
+    elif changed or dry_run:
+        index_changed = True
     changed_files = [note_path] if changed or dry_run else []
+    if index_changed:
+        changed_files.append(index_path)
     check_result = maybe_check_after(args, root)
     action = "would create" if dry_run else "created"
     return emit_write_result(
@@ -3897,6 +4118,92 @@ def new_human_note_command(args: argparse.Namespace) -> int:
         changed_files,
         check_result,
         extra_payload={"id": note_id},
+    )
+
+
+def human_index_sync_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    changed, rows, index_path = sync_human_index(root, dry_run=dry_run)
+    changed_files = [index_path] if changed or dry_run else []
+    check_result = maybe_check_after(args, root)
+    action = "would sync" if dry_run else "synced"
+    return emit_write_result(
+        args,
+        "human index sync",
+        f"{action} human index",
+        changed_files,
+        check_result,
+        extra_payload={
+            "indexed_total": len(rows),
+            "items": [human_index_row_to_payload(row) for row in rows],
+        },
+    )
+
+
+def human_list_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    index_path = human_index_path(root)
+    if not index_path.exists():
+        raise SystemExit("human_index_missing: human/Human_Index.md does not exist; run `acf upgrade` or `acf human index sync`")
+    rows = read_human_index_rows(index_path)
+    items = [human_index_row_to_payload(row) for row in rows]
+    if args.status:
+        items = [item for item in items if item.get("status") == args.status]
+    if args.type:
+        items = [item for item in items if item.get("type") == args.type]
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": "human list",
+        "ok": True,
+        "context": str(root),
+        "changed_files": [],
+        "items": items,
+        "summary": {
+            "total": len(items),
+            "by_status": count_by_key(items, "status"),
+            "by_type": count_by_key(items, "type"),
+        },
+        "error_code": None,
+        "next_actions": ["No human index items matched."] if not items else [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        if not items:
+            print("no human index items")
+        for item in items:
+            print(f"{item['id'] or item['path']} [{item['status']}] {item['title']}")
+    return 0
+
+
+def human_mark_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    index_path = human_index_path(root)
+    if not index_path.exists():
+        raise SystemExit("human_index_missing: human/Human_Index.md does not exist; run `acf upgrade` or `acf human index sync`")
+    rows = read_human_index_rows(index_path)
+    target = find_human_index_row(rows, args.target)
+    if target is None:
+        raise SystemExit(f"human_index_item_not_found: {args.target}")
+    target["状态"] = args.status
+    if args.extracted_to:
+        target["已整理到"] = args.extracted_to.strip()
+    if args.note:
+        target["备注"] = args.note.strip()
+    changed = write_human_index(index_path, rows, dry_run)
+    changed_files = [index_path] if changed or dry_run else []
+    check_result = maybe_check_after(args, root)
+    action = "would mark" if dry_run else "marked"
+    return emit_write_result(
+        args,
+        "human mark",
+        f"{action} human index item {args.target}",
+        changed_files,
+        check_result,
+        extra_payload={"item": human_index_row_to_payload(target)},
     )
 
 
@@ -5276,6 +5583,32 @@ def render_human_notes() -> str:
 """
 
 
+def render_human_index() -> str:
+    return f"""# Human Index
+
+本文件是 human 层的可发现索引。`human/` 保存人类给 AI 上下文系统留下的主观、半结构化材料，包括理解、规划、疑问、解释、整理、随笔、复盘和汇报。
+
+`human/` 默认不进入 AI 必读路径；只有用户明确要求整理/修改 human 内容、当前任务显式引用 human 材料，或需要追溯人工判断来源时才读取。
+
+---
+
+## Materials
+
+{HUMAN_INDEX_TABLE_HEADER}
+|---|---|---|---|---|---|---|---|
+| 暂无 |  |  |  |  |  |  |  |
+
+---
+
+## 使用规则
+
+1. `human/` 是输入信号层，不是 active 当前事实源。
+2. `Human_Index.md` 只负责发现、状态和追溯，不代表索引条目已经被确认。
+3. 已确认事实应整理到 `active/`、ADR、Knowledge、reference 或 worklog 的权威位置。
+4. 工具可以机械同步索引；是否已整理为事实必须由人或 AI 语义判断。
+"""
+
+
 def render_task_plan(
     status: str,
     title: str,
@@ -5784,6 +6117,9 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         elif path.name == "Human_Notes.md":
             template_human = TEMPLATE_DIR / "human" / "Human_Notes.md"
             path.write_text(read_text(template_human) if template_human.exists() else render_human_notes(), encoding="utf-8")
+        elif path.name == "Human_Index.md":
+            template_human_index = TEMPLATE_DIR / "human" / "Human_Index.md"
+            path.write_text(read_text(template_human_index) if template_human_index.exists() else render_human_index(), encoding="utf-8")
         else:
             path.write_text("", encoding="utf-8")
 
@@ -10595,6 +10931,41 @@ def check_worklog(root: Path, errors: list[str]) -> None:
             )
 
 
+def check_human_index(root: Path, errors: list[str]) -> None:
+    index_path = human_index_path(root)
+    if not index_path.exists():
+        return
+    try:
+        rows = read_human_index_rows(index_path)
+    except SystemExit as exc:
+        errors.append(f"human/Human_Index.md: {exc}")
+        return
+    seen_ids: set[str] = set()
+    seen_paths: set[str] = set()
+    human_root = (root / "human").resolve()
+    for row in rows:
+        item_id = row.get("ID", "").strip()
+        status = row.get("状态", "").strip()
+        rel_path = clean_human_index_path_cell(row.get("路径", ""))
+        label = item_id or rel_path or "unknown"
+        if status and status not in VALID_HUMAN_INDEX_STATUSES:
+            errors.append(f"human/Human_Index.md: invalid status `{status}` for `{label}`")
+        if item_id and item_id != "暂无":
+            if item_id in seen_ids:
+                errors.append(f"human/Human_Index.md: duplicate ID `{item_id}`")
+            seen_ids.add(item_id)
+        if not rel_path or rel_path == "暂无":
+            continue
+        target_ref, _fragment = split_ref_fragment(rel_path)
+        target = (human_root / target_ref).resolve()
+        if not is_relative_to(target, human_root) or not target.exists():
+            errors.append(f"human/Human_Index.md: missing indexed path `{rel_path}`")
+        if not item_id:
+            if rel_path in seen_paths:
+                errors.append(f"human/Human_Index.md: duplicate path `{rel_path}`")
+            seen_paths.add(rel_path)
+
+
 def safe_section_body(path: Path, heading: str) -> str | None:
     try:
         lines = read_text(path).splitlines()
@@ -11233,6 +11604,7 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
     check_decisions(path, errors)
     check_sources(path, errors)
     check_worklog(path, errors)
+    check_human_index(path, errors)
     check_task_plan(path, errors)
     check_archive(path, errors)
     check_knowledge(path, errors, warnings, strict)
@@ -12179,6 +12551,33 @@ def build_parser() -> argparse.ArgumentParser:
     feedback_archive_parser.add_argument("--date", type=validate_date, default=None, help="archive date in YYYY-MM-DD; defaults to today")
     add_write_arguments(feedback_archive_parser)
     feedback_archive_parser.set_defaults(func=feedback_archive_command)
+
+    human_parser = subparsers.add_parser("human", help="manage human layer index and materials")
+    human_subparsers = human_parser.add_subparsers(dest="human_command", required=True)
+
+    human_index_parser = human_subparsers.add_parser("index", help="manage human/Human_Index.md")
+    human_index_subparsers = human_index_parser.add_subparsers(dest="human_index_command", required=True)
+
+    human_index_sync_parser = human_index_subparsers.add_parser("sync", help="sync human/Human_Index.md from notes, weekly, and reports")
+    human_index_sync_parser.add_argument("path", nargs="?", type=Path)
+    add_write_arguments(human_index_sync_parser)
+    human_index_sync_parser.set_defaults(func=human_index_sync_command)
+
+    human_list_parser = human_subparsers.add_parser("list", help="list human index items")
+    human_list_parser.add_argument("path", nargs="?", type=Path)
+    human_list_parser.add_argument("--status", choices=tuple(sorted(VALID_HUMAN_INDEX_STATUSES)), default=None)
+    human_list_parser.add_argument("--type", default=None)
+    add_json_argument(human_list_parser)
+    human_list_parser.set_defaults(func=human_list_command)
+
+    human_mark_parser = human_subparsers.add_parser("mark", help="mark a human index item by ID or path")
+    human_mark_parser.add_argument("path", nargs="?", type=Path)
+    human_mark_parser.add_argument("target", help="human index ID or path, for example H001 or reports/example.md")
+    human_mark_parser.add_argument("--status", choices=tuple(sorted(VALID_HUMAN_INDEX_STATUSES)), required=True)
+    human_mark_parser.add_argument("--extracted-to", default="", help="path or note describing where the material was organized")
+    human_mark_parser.add_argument("--note", default="", help="status note")
+    add_write_arguments(human_mark_parser)
+    human_mark_parser.set_defaults(func=human_mark_command)
 
     review_parser = subparsers.add_parser("review", help="run read-only context review checks")
     review_subparsers = review_parser.add_subparsers(dest="review_command", required=True)

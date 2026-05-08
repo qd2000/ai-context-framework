@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.43
+Version: 0.0.3.44
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.43` 是当前推荐的真实项目接入/升级测试版本，保留 active -> reference 规划依据追溯能力，并新增标准 profile 的 `human/` 人工异步笔记层、统一 `【ACF:KEY|提示】` 模板占位符、canonical ACF marker、可点击 Markdown 链接维护能力、Knowledge / Decisions / Archive index sync MVP、Feedback 生命周期辅助命令、`new human-note`，以及 `new reference` / `new rule` / `new feedback` 安全创建能力；`archive current-task/task-plan` 会在归档移动时重写本地 Markdown 相对链接，并追加 `ACF:ARCHIVE:RECORD` marker 供 `archive sync` 恢复归档原因。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.44` 是当前推荐的真实项目接入/升级测试版本，保留 active -> reference 规划依据追溯能力，并固化标准 profile 的 `human/` 人类输入材料层和 `Human_Index.md` 治理能力，包含统一 `【ACF:KEY|提示】` 模板占位符、canonical ACF marker、可点击 Markdown 链接维护能力、Knowledge / Decisions / Archive index sync MVP、Feedback 生命周期辅助命令、`human index/list/mark`、`new human-note`，以及 `new reference` / `new rule` / `new feedback` 安全创建能力；`archive current-task/task-plan` 会在归档移动时重写本地 Markdown 相对链接，并追加 `ACF:ARCHIVE:RECORD` marker 供 `archive sync` 恢复归档原因。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -39,7 +39,11 @@ template/
     Feedback_Inbox.md    # 人工反馈、问题、需求和计划碎片
     Task_Plan.md         # 当前大任务计划、规划依据、轻量子任务板和可选任务阶段表
     Current_Task.md      # 当前具体小任务，可记录当前执行 Workstream
-  human/                 # 人工异步笔记、weekly 和 reports（AI 按需读取）
+  human/                 # 人类给 AI 的半结构化材料层（默认不读，按需读取）
+    Human_Index.md       # human 材料索引和处理状态
+    Human_Notes.md       # 人工随笔、疑问、规划草稿 inbox
+    weekly/              # 周记录
+    reports/             # 复盘、解释、整理和汇报材料
   rules/                 # 规则系统（分层加载）
     Always_Active.md     # 每次必须遵守的核心规则
     Project_Rules.md     # 项目级通用规则
@@ -87,7 +91,7 @@ template/
 | 层级 | 目录 | 读取时机 | 说明 |
 |------|------|----------|------|
 | 1 | active/ | 默认读取 | 当前阶段事实、人工反馈 inbox、当前大任务计划和当前小任务 |
-| 2 | human/ | 按需 | 人工异步笔记、周记录和汇报材料 |
+| 2 | human/ | 按需 | 人类给 AI 的理解、规划、疑问、解释、随笔、复盘和汇报材料 |
 | 3 | rules/ | Always_Active 默认，其余按需 | 行为规则 |
 | 4 | reference/ | 按需 | 背景资料、知识和索引 |
 | 5 | decisions/ | 按需 | 决策详情 |
@@ -112,7 +116,9 @@ template/
 
 ## 人工笔记与 Obsidian
 
-标准 profile 会生成 `docs/ai/human/`，用于人工异步笔记、weekly 进展和汇报材料。它默认不进入 AI 注意力，只在用户要求整理、追溯或生成汇报时按需读取；需要成为当前事实的内容，应整理到 `active/`、ADR、Knowledge 或 worklog 的权威位置。
+标准 profile 会生成 `docs/ai/human/`，用于人类给 AI 上下文系统留下的主观、半结构化材料，包括理解、规划、疑问、解释、整理、随笔、复盘和汇报。它默认不进入 AI 注意力，只在用户要求整理/修改 human 内容、当前任务显式引用 human 材料，或需要追溯人工判断来源时按需读取；需要成为当前事实的内容，应整理到 `active/`、ADR、Knowledge、reference 或 worklog 的权威位置。
+
+`human/Human_Index.md` 是 human 层的可发现索引；`acf human index sync` 会扫描 `Human_Notes.md`、`weekly/*.md` 和 `reports/*.md` 并补齐缺失索引行。工具只做机械索引维护，`Reviewed` / `Extracted` / `Archived` 等语义状态需要人或 AI 在整理后显式标记。
 
 可以把项目 `docs/` 作为 Obsidian vault 根目录，用 `[[双链]]` 连接 `docs/ai/` 和其他项目文档。双链只服务人工查看和编辑；ACF 不解析、不校验、不依赖 Obsidian 双链，CLI 结构化引用仍使用普通 Markdown 路径。
 
@@ -235,6 +241,9 @@ acf new reference --title "设计文档标题" --summary "一句话说明。" --
 acf new rule --title "规则标题" --condition "何时读取。" --purpose "索引用途。" --rule "具体规则。"
 acf new feedback --type "需求" --content "待整理反馈。" --source "2026-05-08 user"
 acf new human-note --type "想法" --content "人工异步笔记。"
+acf human index sync --json
+acf human list --status Open --json
+acf human mark reports/example.md --status Extracted --extracted-to reference/Example.md
 acf new worklog --summary "完成一次上下文维护。"
 acf new worklog --summary "补记一次上下文维护。" --append --json
 acf new adr --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
@@ -264,7 +273,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `init`：从 `template/` 生成标准或简化上下文目录。
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
-- `upgrade`：非破坏式补齐新版本上下文结构，包括标准 profile 的 human 层、反馈归档目录和 active -> reference 规划依据追溯入口；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 canonical marker 包围的升级说明块。
+- `upgrade`：非破坏式补齐新版本上下文结构，包括标准 profile 的 human 层和 `Human_Index.md`、反馈归档目录和 active -> reference 规划依据追溯入口；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 canonical marker 包围的升级说明块。
 - `plan init|add-task|set-task|focus|status`、`plan reference list|add|remove` 和 `plan stage list|add|set|done`：维护 `active/Task_Plan.md` 中的大任务、子任务板、`## 规划依据` 和 `## 任务阶段` 表；`plan reference add --path reference/X.md --purpose "用途"` 只记录 reference 路径和一句话用途，可用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md` 的输入材料；Task Stage CLI 只维护任务阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
 - `plan complete`：在子任务完成后将大任务计划标记为 Done。
 - `linkify`：把默认范围内安全识别到的本地路径引用转换为可点击 Markdown 链接；默认处理 active、reference、rules、decisions、Worklog_Index 和 Archive_Index，跳过 archive 详情和 daily worklog；`--include-archive` / `--include-worklog-daily` 可显式扩大范围，`--allow-missing` 可允许缺失目标。
@@ -273,7 +282,8 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `archive current-task|task-plan|list|sync`：归档旧当前任务或旧大任务计划，并更新 archive 索引；归档 current task / task plan 时会按归档文件的新位置重写本地 Markdown 相对链接，并追加 `ACF:ARCHIVE:RECORD` marker；`sync` 从 `archive/tasks`、`archive/plans` 和 `archive/workstreams` 重算 `ACF:ARCHIVE:INDEX-GENERATED` marker 内表格，优先使用归档 record marker 恢复 Task/Plan 归档原因，旧索引首次接入 sync 时需显式 `--init-marker`，旧手写表会保留在 marker 外。
 - `decisions sync`：从 `decisions/ADR-*.md` 重算 `ACF:DECISIONS:INDEX-GENERATED` marker 内表格；旧索引首次接入 sync 时需显式 `--init-marker`，命令只替换 marker 内内容，不修改 ADR 正文。
 - `knowledge draft|apply|list|show|mark|sync`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引，并可用 `sync` 从 `reference/knowledge/K*.md` 重算 `ACF:KNOWLEDGE:INDEX-GENERATED` marker 内表格；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖；旧索引首次接入 sync 时需显式 `--init-marker`。
-- `feedback list|triage|done|reject|archive-candidates|archive`：维护 `active/Feedback_Inbox.md` 的确定性生命周期；`triage/done/reject` 只更新状态和处理结果，不自动转写 Context、Task、ADR 或 Knowledge；`archive-candidates` 只读列出 Done/Rejected 候选，`archive` 只显式移动单条反馈到 `archive/feedback/YYYY-MM.md`。
+- `feedback list|triage|done|reject|archive-candidates|archive`：维护 `active/Feedback_Inbox.md` 的确定性生命周期；`triage/done/reject` 只更新状态和处理结果，不自动转写 Context、Task、ADR 或 Knowledge；`archive-candidates` 只读列出 Done/Rejected 候选，`archive` 只显式移动单条反馈到 archive/feedback/YYYY-MM dot md。
+- `human index sync|list|mark`：维护 `human/Human_Index.md`；`index sync` 机械扫描 `Human_Notes.md`、`human/weekly/*.md` 和 `human/reports/*.md` 并补缺失索引行，不删除旧行、不覆盖人工状态；`list` 按状态或类型查看 human 材料；`mark` 按 ID 或路径把条目标记为 `Reviewed`、`Extracted` 或 `Archived` 并可记录整理目标。
 - `review stale`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json` 和 `--days`。JSON 输出包含 `summary.total`、`summary.by_kind`、`summary.by_path`，每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
 - `audit context`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告 `active_section_too_long`、`stale_current_task_or_workstream_stage` 和 `terminal_conclusion_not_merged`（ReadyToMerge 待合并或 Done 缺合并结果）。JSON 输出包含 `candidates`、`summary.total`、`summary.by_kind`、`summary.by_path`、`summary.by_severity` 和 `next_actions`。
 - `curate draft`：复用 `review stale` 的 stale candidates 生成 `worklog/curation-drafts/YYYY-MM-DD.md` 注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days` 和 `--name`。
@@ -283,13 +293,13 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `new reference`：在 `reference/` 下创建长期按需读取的 Markdown 文档；默认使用标题 slug 生成文件名，也可用 `--file reference/X.md` 指定路径；拒绝写到 context 外或 `reference/knowledge/` 托管目录。
 - `new rule`：在 `rules/` 下创建按需规则文件，并更新 `rules/Rules_Index.md` 的按需规则表；minimal context 首次使用时会补一个轻量 Rules_Index，不把 whole context 升级为 standard。
 - `new feedback`：向 `active/Feedback_Inbox.md` 添加反馈行，自动分配下一个 `Fxxx`，默认状态为 Open，默认来源包含当天日期；重复 ID 需传入 `--force` 才能覆盖。
-- `new human-note`：向标准 profile 的 `human/Human_Notes.md` Inbox 添加人工异步笔记行，自动分配下一个 `Hxxx`；minimal context 没有 human 层时会拒绝，建议使用 `new feedback` 或先升级为 standard。
+- `new human-note`：向标准 profile 的 `human/Human_Notes.md` Inbox 添加人工异步笔记行，自动分配下一个 `Hxxx`，并同步更新 `human/Human_Index.md`；minimal context 没有 human 层时会拒绝，建议使用 `new feedback` 或先升级为 standard。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`；同日已有记录且需要补记时使用 `--append`，需要重建时使用 `--force`，二者不能混用。
 - `new adr`：生成下一个 ADR 文件，并更新 `reference/Decisions_Index.md`。
 - `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为注意力治理草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。
 - `edit section get|replace|append`：读取、替换或追加指定 Markdown 标题下的 section body。
 - `edit table upsert`：按 key column 更新或追加 Markdown 表格行。
-- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、状态枚举、索引一致性、任务板、任务阶段注册、archive、Knowledge 和显式启用的 Workstream；Workstream 检查包含 optional `current_stage` 与 `## 阶段` 表一致性、strict 下 Done 阶段 evidence、Workstreams 索引与详情 front matter 一致性、authority 写入门禁和 `merge_targets` 合并请求要求；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
+- `check`：检查目录结构、必需文件、乱码、空文件、内部引用、human index 路径、状态枚举、索引一致性、任务板、任务阶段注册、archive、Knowledge 和显式启用的 Workstream；Workstream 检查包含 optional `current_stage` 与 `## 阶段` 表一致性、strict 下 Done 阶段 evidence、Workstreams 索引与详情 front matter 一致性、authority 写入门禁和 `merge_targets` 合并请求要求；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
 - `log enable|disable|status|tail|summarize|feedback|prune`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭；普通 usage event 不记录正文，显式 `log feedback --text/--input` 才记录人工反馈正文。
 - `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
 
@@ -338,7 +348,7 @@ acf upgrade --check-after --json
 acf check --strict --json
 ```
 
-`upgrade` 只补齐当前 schema 缺失的 `active/Task_Plan.md`、标准 profile 的 human 层、archive、archive/feedback 和 Knowledge 文件/目录，并为旧 `active/Task_Plan.md` 补 `## 规划依据` 结构、为 Active `active/Current_Task.md` 的 `## 输入材料` 保守追加规划依据提示；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`，也不自动判断哪些 reference 是正确依据。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE:NOTES` marker 块而不是强行重排原文；旧 `ACF:UPGRADE-NOTES` marker 保持兼容并在可管理文档中迁移。
+`upgrade` 只补齐当前 schema 缺失的 `active/Task_Plan.md`、标准 profile 的 human 层（含 `human/Human_Index.md`）、archive、archive/feedback 和 Knowledge 文件/目录，并为旧 `active/Task_Plan.md` 补 `## 规划依据` 结构、为 Active `active/Current_Task.md` 的 `## 输入材料` 保守追加规划依据提示；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`，也不自动判断哪些 reference 是正确依据。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE:NOTES` marker 块而不是强行重排原文；旧 `ACF:UPGRADE-NOTES` marker 保持兼容并在可管理文档中迁移。
 
 模板占位符统一使用 `【ACF:KEY|提示】`。Markdown 表格单元格里使用无提示形式 `【ACF:KEY】`，避免 `|` 破坏表格。机器维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START --> ... END -->`，例如 `ACF:UPGRADE:NOTES`、`ACF:ARCHIVE:RECORD` 和 `ACF:WORKSTREAM:ARCHIVE-RECORD`；旧 marker 仍兼容，`check` 会给出 future warning。
 

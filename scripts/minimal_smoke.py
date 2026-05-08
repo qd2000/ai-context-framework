@@ -542,6 +542,23 @@ class SmokeRunner:
                 ]
             )
         )
+        report = context / "human" / "reports" / "smoke-report-2099-01-01.md"
+        report.write_text("# Smoke Human Report\n\nSmoke report body.\n", encoding="utf-8")
+        steps.append(self.run_acf(["human", "index", "sync", str(context), "--json"]))
+        steps.append(self.run_acf(["human", "list", str(context), "--status", "Open", "--json"]))
+        steps.append(
+            self.run_acf(
+                [
+                    "human",
+                    "mark",
+                    str(context),
+                    "reports/smoke-report-2099-01-01.md",
+                    "--status",
+                    "Reviewed",
+                    "--json",
+                ]
+            )
+        )
         missing_context = tmp / "human-note-minimal" / "docs" / "ai"
         steps.append(self.run_acf(["init", str(missing_context), "--profile", "minimal", "--json"]))
         steps.append(

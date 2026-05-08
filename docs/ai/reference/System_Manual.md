@@ -11,7 +11,7 @@
 3. [active/Task_Plan.md](../active/Task_Plan.md)：当前大任务计划、子任务板和 `## 规划依据`。
 4. [active/Current_Task.md](../active/Current_Task.md)：当前具体任务，`## 输入材料` 必须列出当前任务所需 active 文件和相关 reference 规划依据。
 5. [active/Workstreams.md](../active/Workstreams.md)：可选并行目标线索引，仅在显式启用且存在 Active、Blocked 或 ReadyToMerge workstream 时按需读取。
-6. `human/`：人工异步笔记、weekly 和 reports，默认不读取，只有整理人工笔记或汇报材料时按需读取。
+6. `human/`：人类给 AI 的理解、规划、疑问、解释、随笔、复盘和汇报材料，默认不读取，只有显式整理 human 内容或追溯人工判断时按需读取。
 7. `rules/`：默认和按需规则。
 8. `reference/`：长期背景、架构、技术环境、决策和 Knowledge 索引。
 9. `worklog/`：历史工作记录。
@@ -106,7 +106,8 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 3. 长期 reference 文档用 `uv run acf new reference docs/ai --title "..." --summary "..." --body "..." --json`；可用 `--file reference/X.md` 指定路径，命令拒绝写到 context 外或 `reference/knowledge/` 托管目录。
 4. 按需规则文件用 `uv run acf new rule docs/ai --title "..." --condition "..." --purpose "..." --rule "..." --json`；命令会写 `rules/*.md` 并维护 `rules/Rules_Index.md`。
 5. 待整理反馈用 `uv run acf new feedback docs/ai --type "..." --content "..." --source "YYYY-MM-DD user" --json`；命令只写 Feedback_Inbox，不把反馈直接升格为事实。
-6. 人工异步笔记用 `uv run acf new human-note docs/ai --type "..." --content "..." --json`；命令只写 `human/Human_Notes.md`，不进入 active 默认注意力。
+6. 人工异步笔记用 `uv run acf new human-note docs/ai --type "..." --content "..." --json`；命令写 `human/Human_Notes.md` 并同步 `human/Human_Index.md`，不进入 active 默认注意力。
+7. human 材料治理用 `uv run acf human index sync docs/ai --json`、`uv run acf human list docs/ai --status Open --json` 和 `uv run acf human mark docs/ai <ID-or-path> --status Extracted --extracted-to reference/X.md --json`；命令只维护索引和显式状态，不自动提取事实。
 7. 重要决策仍使用 `uv run acf new adr docs/ai --title "..." --summary "..." --decision "..." --json`；可复用经验仍先走 `knowledge draft/apply`。
 
 ### AI 调用 worklog 模式
@@ -138,11 +139,12 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 
 ## 人工笔记与 Obsidian
 
-1. 标准上下文包含 [human/Human_Notes.md](../human/Human_Notes.md)、`human/weekly/` 和 `human/reports/`，用于人工异步笔记、周记录和汇报材料。
-2. `human/` 默认不读取，也不作为已确认当前事实；需要进入 AI 当前事实时，整理到 `active/`、ADR、Knowledge 或 worklog 的权威位置。
-3. 可以把项目 `docs/` 作为 Obsidian vault 根目录，使用 `[[双链]]` 方便人工查看和导航。
-4. ACF 不解析、不校验、不依赖 Obsidian 双链；CLI 和 AI 的结构化依据仍使用普通 Markdown 路径。
-5. [active/Feedback_Inbox.md](../active/Feedback_Inbox.md) 继续用于待处理反馈和需求碎片，`human/` 用于更自由的人工记录和汇报材料。
+1. 标准上下文包含 [human/Human_Index.md](../human/Human_Index.md)、[human/Human_Notes.md](../human/Human_Notes.md)、`human/weekly/` 和 `human/reports/`，用于人类给 AI 的理解、规划、疑问、解释、随笔、复盘和汇报材料。
+2. `human/` 默认不读取，也不作为已确认当前事实；需要进入 AI 当前事实时，整理到 `active/`、ADR、Knowledge、reference 或 worklog 的权威位置。
+3. `human/Human_Index.md` 是可发现索引；`acf human index sync` 可机械补齐缺失索引行，`acf human list` 可按状态查看，`acf human mark` 可显式标记 Reviewed / Extracted / Archived。
+4. 可以把项目 `docs/` 作为 Obsidian vault 根目录，使用 `[[双链]]` 方便人工查看和导航。
+5. ACF 不解析、不校验、不依赖 Obsidian 双链；CLI 和 AI 的结构化依据仍使用普通 Markdown 路径。
+6. [active/Feedback_Inbox.md](../active/Feedback_Inbox.md) 继续用于待处理反馈和需求碎片，`human/` 用于更自由的人工记录、复盘和汇报材料。
 
 ## Markdown 链接与人工导航
 

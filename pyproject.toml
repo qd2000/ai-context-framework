@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-context-framework"
-version = "0.0.3.43"
+version = "0.0.3.44"
 description = "Model-independent AI context framework templates and CLI."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,6 +42,7 @@ include-package-data = true
     "template/decisions/ADR-0001-template.md",
 ]
 "share/ai-context-framework/template/human" = [
+    "template/human/Human_Index.md",
     "template/human/Human_Notes.md",
 ]
 "share/ai-context-framework/template/human/reports" = [

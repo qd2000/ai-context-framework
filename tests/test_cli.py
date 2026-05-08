@@ -2558,6 +2558,7 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
             self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
             self.assertTrue((target / "reference" / "Context_Curation_Prompt.md").exists())
+            self.assertTrue((target / "human" / "Human_Index.md").exists())
             self.assertTrue((target / "human" / "Human_Notes.md").exists())
             self.assertTrue((target / "human" / "weekly" / ".gitkeep").exists())
             self.assertTrue((target / "human" / "reports" / ".gitkeep").exists())
@@ -2569,6 +2570,8 @@ class CliTests(unittest.TestCase):
             self.assertEqual(agents_text.count("reference/Context_Curation_Prompt.md"), 1)
             human_text = (target / "human" / "Human_Notes.md").read_text(encoding="utf-8")
             self.assertIn("[[双链]]", human_text)
+            human_index_text = (target / "human" / "Human_Index.md").read_text(encoding="utf-8")
+            self.assertIn("默认不进入 AI 必读路径", human_index_text)
             result = acf.check_context(target, "standard", strict=False)
             self.assertFalse(result.errors)
 
@@ -2960,7 +2963,9 @@ class CliTests(unittest.TestCase):
             standard_exit, standard_stdout, standard_stderr = self.run_cli_output(["upgrade", str(standard), "--json"])
             self.assertEqual(standard_exit, 0, standard_stderr)
             standard_payload = self.json_payload(standard_stdout)
+            self.assertIn(str((standard / "human" / "Human_Index.md").resolve()), standard_payload["changed_files"])
             self.assertIn(str((standard / "human" / "Human_Notes.md").resolve()), standard_payload["changed_files"])
+            self.assertTrue((standard / "human" / "Human_Index.md").exists())
             self.assertTrue((standard / "human" / "Human_Notes.md").exists())
             self.assertIn("human/Human_Notes.md", (standard / "AGENTS.md").read_text(encoding="utf-8"))
             self.assertIn("human", standard_payload["detected_features"])
@@ -6825,6 +6830,8 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(exit_code, 0)
             note_text = note_path.read_text(encoding="utf-8")
             self.assertIn("| H001 | Open | 想法 | 人工临时想法。 | reference/Product_Roadmap.md | 后续判断是否进入 Task_Plan。 | 未整理。 |", note_text)
+            index_text = (standard / "human" / "Human_Index.md").read_text(encoding="utf-8")
+            self.assertIn("| H001 | Open | 想法 | 人工临时想法。 | Human_Notes.md |", index_text)
 
             exit_code, stdout, _stderr = self.run_cli_output(
                 [
@@ -6840,6 +6847,63 @@ This records a reusable write-safety pattern instead of a current task fact.
             )
             self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
             self.assert_failure_json_contract(self.json_payload(stdout), "human_notes_missing", "new")
+
+    def test_human_index_sync_list_mark_and_check_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "standard"
+            self.run_cli(["init", str(target), "--profile", "standard"])
+            report = target / "human" / "reports" / "PetroSim_Runtime_Recovery_Notes_2026-05-07.md"
+            report.write_text("# PetroSim Runtime Recovery Notes\n\n人工复盘。\n", encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(["human", "index", "sync", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "human index sync")
+            self.assertEqual(payload["indexed_total"], 1)
+            self.assertEqual(payload["items"][0]["path"], "reports/PetroSim_Runtime_Recovery_Notes_2026-05-07.md")
+            self.assertEqual(payload["items"][0]["date"], "2026-05-07")
+            index_path = target / "human" / "Human_Index.md"
+            index_path.write_text(
+                index_path.read_text(encoding="utf-8").replace("| 2026-05-07 | 未整理。 |", "| 未标注 | 未整理。 |"),
+                encoding="utf-8",
+            )
+            exit_code, stdout, stderr = self.run_cli_output(["human", "index", "sync", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["items"][0]["date"], "2026-05-07")
+
+            exit_code, stdout, stderr = self.run_cli_output(["human", "list", str(target), "--status", "Open", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "human list")
+            self.assertEqual(payload["summary"]["total"], 1)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "human",
+                    "mark",
+                    str(target),
+                    "reports/PetroSim_Runtime_Recovery_Notes_2026-05-07.md",
+                    "--status",
+                    "Extracted",
+                    "--extracted-to",
+                    "reference/PetroSim_Runtime_Runbook.md",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "human mark")
+            self.assertEqual(payload["item"]["status"], "Extracted")
+            self.assertIn("reference/PetroSim_Runtime_Runbook.md", (target / "human" / "Human_Index.md").read_text(encoding="utf-8"))
+
+            index_text = (target / "human" / "Human_Index.md").read_text(encoding="utf-8")
+            (target / "human" / "Human_Index.md").write_text(
+                index_text.replace("reports/PetroSim_Runtime_Recovery_Notes_2026-05-07.md", "reports/Missing.md"),
+                encoding="utf-8",
+            )
+            result = acf.check_context(target, "standard", strict=True)
+            self.assertTrue(any("missing indexed path `reports/Missing.md`" in error for error in result.errors))
 
     def test_writeback_draft_creates_review_file_from_text(self):
         with tempfile.TemporaryDirectory() as tmp:
