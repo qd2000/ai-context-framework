@@ -94,6 +94,8 @@ ACF 应先收敛通用上下文治理蓝图，再按薄切片实现可验证能�
 5. ADR。
 6. Knowledge。
 7. Archive item。
+8. Reference document。
+9. Rule file。
 
 当前策略：
 
@@ -101,7 +103,8 @@ ACF 应先收敛通用上下文治理蓝图，再按薄切片实现可验证能�
 2. Workstream 使用详情文件 front matter + 正文 section。
 3. Workstream Stage 使用详情文件 `## 阶段` 表。
 4. ADR、Knowledge 和 Archive 继续通过索引 + 详情或草案维护。
-5. 不急于把 Task 全部拆成单文件对象。
+5. Reference document、Rule file 和 Feedback item 可通过 `new reference` / `new rule` / `new feedback` 安全创建；Rule file 同步维护 `rules/Rules_Index.md`，Feedback item 写入待整理入口而不是当前事实。
+6. 不急于把 Task 全部拆成单文件对象。
 
 ### 4. CLI 分层
 

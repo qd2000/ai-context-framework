@@ -4663,6 +4663,54 @@ This records a reusable write-safety pattern instead of a current task fact.
                 ("archive sync", ["archive", "sync", str(target), "--dry-run", "--json"]),
                 ("decisions sync", ["decisions", "sync", str(target), "--dry-run", "--json"]),
                 ("knowledge sync", ["knowledge", "sync", str(target), "--dry-run", "--json"]),
+                (
+                    "new reference",
+                    [
+                        "new",
+                        "reference",
+                        str(target),
+                        "--title",
+                        "Smoke Reference",
+                        "--summary",
+                        "Smoke reference summary.",
+                        "--dry-run",
+                        "--json",
+                    ],
+                ),
+                (
+                    "new rule",
+                    [
+                        "new",
+                        "rule",
+                        str(target),
+                        "--title",
+                        "Smoke Rule",
+                        "--condition",
+                        "Smoke condition.",
+                        "--purpose",
+                        "Smoke purpose.",
+                        "--rule",
+                        "Smoke rule.",
+                        "--dry-run",
+                        "--json",
+                    ],
+                ),
+                (
+                    "new feedback",
+                    [
+                        "new",
+                        "feedback",
+                        str(target),
+                        "--type",
+                        "需求",
+                        "--content",
+                        "Smoke feedback.",
+                        "--source",
+                        "2026-05-05 smoke",
+                        "--dry-run",
+                        "--json",
+                    ],
+                ),
                 ("workstream status", ["workstream", "status", str(target), "--json"]),
                 ("workstream list", ["workstream", "list", str(target), "--json"]),
                 ("workstream archive-candidates", ["workstream", "archive-candidates", str(target), "--json"]),
@@ -6253,6 +6301,278 @@ This records a reusable write-safety pattern instead of a current task fact.
             index_text = (target / "reference" / "Sources_Index.md").read_text(encoding="utf-8")
             self.assertIn("Updated relation.", index_text)
             self.assertNotIn("Initial relation.", index_text)
+
+    def test_new_reference_creates_safe_markdown_document(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "new",
+                    "reference",
+                    str(target),
+                    "--file",
+                    "reference/Feature_Guide.md",
+                    "--title",
+                    "Feature Guide",
+                    "--status",
+                    "Active",
+                    "--summary",
+                    "Reusable guidance for a core feature.",
+                    "--body",
+                    "Keep guidance stable and reviewable.",
+                    "--next-action",
+                    "Read before changing related commands.",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "new reference")
+            self.assertEqual(payload["target"], "reference/Feature_Guide.md")
+            self.assertFalse((target / "reference" / "Feature_Guide.md").exists())
+
+            exit_code = self.run_cli(
+                [
+                    "new",
+                    "reference",
+                    str(target),
+                    "--file",
+                    "reference/Feature_Guide.md",
+                    "--title",
+                    "Feature Guide",
+                    "--status",
+                    "Active",
+                    "--summary",
+                    "Reusable guidance for a core feature.",
+                    "--body",
+                    "Keep guidance stable and reviewable.",
+                    "--next-action",
+                    "Read before changing related commands.",
+                    "--check-after",
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+            text = (target / "reference" / "Feature_Guide.md").read_text(encoding="utf-8")
+            self.assertIn("# Feature Guide", text)
+            self.assertIn("## 状态\n\nActive", text)
+            self.assertIn("1. Keep guidance stable and reviewable.", text)
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertFalse(result.errors)
+
+    def test_new_reference_refuses_unsafe_or_managed_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "new",
+                        "reference",
+                        str(target),
+                        "--file",
+                        "../Outside.md",
+                        "--title",
+                        "Outside",
+                        "--summary",
+                        "Unsafe.",
+                    ]
+                ),
+                acf.EXIT_SAFETY_REFUSED,
+            )
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "new",
+                        "reference",
+                        str(target),
+                        "--file",
+                        "reference/knowledge/K999-bad.md",
+                        "--title",
+                        "Bad Knowledge",
+                        "--summary",
+                        "Managed by knowledge commands.",
+                    ]
+                ),
+                acf.EXIT_SAFETY_REFUSED,
+            )
+
+    def test_new_rule_creates_file_and_rules_index_for_minimal_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.assertFalse((target / "rules" / "Rules_Index.md").exists())
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "new",
+                    "rule",
+                    str(target),
+                    "--file",
+                    "rules/Testing_Rules.md",
+                    "--title",
+                    "Testing Rules",
+                    "--condition",
+                    "涉及测试、验证或回归检查。",
+                    "--purpose",
+                    "测试和验证规则。",
+                    "--rule",
+                    "修改 CLI 后运行相关测试。",
+                    "--rule",
+                    "文档变更后运行 context check。",
+                    "--check-after",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "new rule")
+            self.assertTrue(payload["index_updated"])
+            rule_text = (target / "rules" / "Testing_Rules.md").read_text(encoding="utf-8")
+            self.assertIn("# Testing Rules", rule_text)
+            self.assertIn("1. 修改 CLI 后运行相关测试。", rule_text)
+            self.assertIn("2. 文档变更后运行 context check。", rule_text)
+            index_text = (target / "rules" / "Rules_Index.md").read_text(encoding="utf-8")
+            self.assertIn("| `Testing_Rules.md` | 涉及测试、验证或回归检查。 | 测试和验证规则。 |", index_text)
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertFalse(result.errors)
+
+    def test_new_rule_refuses_duplicate_without_force_and_force_updates_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            args = [
+                "new",
+                "rule",
+                str(target),
+                "--file",
+                "rules/Testing_Rules.md",
+                "--title",
+                "Testing Rules",
+                "--condition",
+                "涉及测试。",
+                "--purpose",
+                "测试规则。",
+                "--rule",
+                "运行测试。",
+            ]
+            self.assertEqual(self.run_cli(args), 0)
+            self.assertEqual(self.run_cli(args), acf.EXIT_SAFETY_REFUSED)
+
+            self.assertEqual(
+                self.run_cli(
+                    args
+                    + [
+                        "--condition",
+                        "涉及回归测试。",
+                        "--purpose",
+                        "更新后的测试规则。",
+                        "--rule",
+                        "运行完整测试。",
+                        "--force",
+                    ]
+                ),
+                0,
+            )
+            index_text = (target / "rules" / "Rules_Index.md").read_text(encoding="utf-8")
+            self.assertIn("更新后的测试规则。", index_text)
+            self.assertNotIn("| `Testing_Rules.md` | 涉及测试。 | 测试规则。 |", index_text)
+
+    def test_new_feedback_adds_next_feedback_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "new",
+                    "feedback",
+                    str(target),
+                    "--type",
+                    "需求",
+                    "--content",
+                    "需要一个安全反馈写入命令。",
+                    "--source",
+                    "2026-05-08 user",
+                    "--next-action",
+                    "进入任务计划评估。",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "new feedback")
+            self.assertEqual(payload["id"], "F001")
+            inbox_path = target / "active" / "Feedback_Inbox.md"
+            self.assertNotIn("需要一个安全反馈写入命令。", inbox_path.read_text(encoding="utf-8"))
+
+            exit_code = self.run_cli(
+                [
+                    "new",
+                    "feedback",
+                    str(target),
+                    "--type",
+                    "需求",
+                    "--content",
+                    "需要一个安全反馈写入命令。",
+                    "--source",
+                    "2026-05-08 user",
+                    "--next-action",
+                    "进入任务计划评估。",
+                    "--check-after",
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+            inbox_text = inbox_path.read_text(encoding="utf-8")
+            self.assertIn(
+                "| F001 | Open | 需求 | 需要一个安全反馈写入命令。 | 2026-05-08 user | 进入任务计划评估。 |",
+                inbox_text,
+            )
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertFalse(result.errors)
+
+    def test_new_feedback_refuses_duplicate_id_without_force(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            args = [
+                "new",
+                "feedback",
+                str(target),
+                "--id",
+                "F007",
+                "--type",
+                "问题",
+                "--content",
+                "First feedback.",
+                "--source",
+                "2026-05-08 user",
+            ]
+            self.assertEqual(self.run_cli(args), 0)
+            self.assertEqual(self.run_cli(args), acf.EXIT_SAFETY_REFUSED)
+            self.assertEqual(
+                self.run_cli(
+                    args
+                    + [
+                        "--content",
+                        "Updated feedback.",
+                        "--next-action",
+                        "已更新。",
+                        "--force",
+                    ]
+                ),
+                0,
+            )
+            inbox_text = (target / "active" / "Feedback_Inbox.md").read_text(encoding="utf-8")
+            self.assertIn("Updated feedback.", inbox_text)
+            self.assertNotIn("First feedback.", inbox_text)
 
     def test_writeback_draft_creates_review_file_from_text(self):
         with tempfile.TemporaryDirectory() as tmp:

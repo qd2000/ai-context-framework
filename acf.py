@@ -22,7 +22,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.40"
+VERSION = "v0.0.3.42"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -147,6 +147,7 @@ VALID_SUBTASK_STATUSES = {"Pending", "Active", "Done", "Blocked", "Skipped", "Su
 VALID_DECISION_STATUSES = {"Active", "Proposed", "Superseded", "Rejected", "Deprecated"}
 VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Rejected"}
 VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
+VALID_FEEDBACK_STATUSES = {"Open", "Triaged", "Planned", "Done", "Rejected"}
 VALID_WORKSTREAM_STATUSES = {"Open", "Active", "Blocked", "ReadyToMerge", "Done", "Cancelled"}
 VALID_WORKSTREAM_STAGE_STATUSES = {"Pending", "Active", "Blocked", "Done", "Skipped", "Cancelled"}
 VALID_MERGE_RESOLUTIONS = {"merged", "rejected", "no_merge_required", "archived"}
@@ -211,6 +212,7 @@ WORKSTREAM_STAGE_ID_RE = re.compile(r"^WS\d{3}\.\d+$")
 DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
+RULES_INDEX_TABLE_HEADER = "| 文件 | 读取条件 | 作用 |"
 TASK_TABLE_HEADER = "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |"
 TASK_STAGE_TABLE_HEADER = "| ID | 状态 | 父任务 | 名称 | 归属 Workstream | 依赖 | 输出物 | 证据 | 下一步 |"
 FEEDBACK_TABLE_HEADER = "| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |"
@@ -1095,6 +1097,7 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "unfinished dependencies",
         "outside context root",
         "context is locked",
+        "managed by another command",
     )
     if any(marker in message for marker in safety_markers):
         return "safety_refused", EXIT_SAFETY_REFUSED
@@ -1407,6 +1410,10 @@ def insert_generated_marker_block_after_heading(
 
 def infer_context_profile(root: Path) -> str:
     standard_only_files = set(STANDARD_FILES) - set(MINIMAL_FILES)
+    # `acf new rule` may add Rules_Index.md to an otherwise minimal context.
+    # That single optional index should not opt the whole context into the
+    # standard profile's required file set.
+    standard_only_files.discard("rules/Rules_Index.md")
     if any((root / rel_path).exists() for rel_path in standard_only_files):
         return "standard"
     return "minimal"
@@ -2979,6 +2986,255 @@ def update_sources_index(
     index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
 
 
+def normalize_new_object_target(
+    root: Path,
+    raw_file: str | None,
+    title: str,
+    directory: str,
+    *,
+    forbidden_prefixes: Sequence[str] = (),
+) -> Path:
+    if raw_file:
+        normalized = raw_file.replace("\\", "/").strip()
+        if not normalized:
+            raise SystemExit("target file cannot be empty")
+        target = Path(normalized)
+    else:
+        target = Path(directory) / f"{slugify_file_stem(title)}.md"
+        normalized = target.as_posix()
+
+    if target.is_absolute():
+        raise SystemExit("target file must be relative to the context root")
+    if target.suffix.lower() != ".md":
+        raise SystemExit("target file must be Markdown (.md)")
+    if normalized.startswith("../") or "/../" in normalized or normalized in {".", ".."}:
+        raise SystemExit("target file is outside context root")
+    if not normalized.startswith(f"{directory}/"):
+        raise SystemExit(f"target file must live under {directory}/")
+    for prefix in forbidden_prefixes:
+        if normalized.startswith(prefix):
+            raise SystemExit(f"target file is managed by another command: {prefix}")
+
+    resolved = (root / target).resolve()
+    if not is_relative_to(resolved, root.resolve()):
+        raise SystemExit("target file is outside context root")
+    return resolved
+
+
+def render_reference_document(title: str, status: str, summary: str, body_items: Sequence[str], next_action: str) -> str:
+    body = "\n".join(f"{index}. {item}" for index, item in enumerate(body_items, start=1))
+    return f"""# {title}
+
+本文件记录可长期按需读取的 reference 内容。
+
+---
+
+## 状态
+
+{status}
+
+---
+
+## 摘要
+
+{summary}
+
+---
+
+## 内容
+
+{body}
+
+---
+
+## 后续动作
+
+{next_action}
+"""
+
+
+def render_rule_document(
+    title: str,
+    condition: str,
+    rules: Sequence[str],
+    rationale: str,
+    scope: str,
+    non_goal: str,
+) -> str:
+    rule_lines = "\n".join(f"{index}. {item}" for index, item in enumerate(rules, start=1))
+    return f"""# {title}
+
+本文件记录按需读取的项目规则。
+
+---
+
+## 读取条件
+
+{condition}
+
+---
+
+## 规则
+
+{rule_lines}
+
+---
+
+## 理由
+
+{rationale}
+
+---
+
+## 适用范围
+
+{scope}
+
+---
+
+## 非目标
+
+{non_goal}
+"""
+
+
+def render_rules_index() -> str:
+    template_path = TEMPLATE_DIR / "rules" / "Rules_Index.md"
+    if template_path.exists():
+        return read_text(template_path)
+    return f"""本文件是规则系统索引。
+
+规则按读取成本和触发条件分层。AI 不应默认读取全部规则，而应先读 `Always_Active.md`，再按任务类型补充读取。
+
+## 默认规则
+
+{RULES_INDEX_TABLE_HEADER}
+|---|---|---|
+| `Always_Active.md` | 每次协作默认读取 | 核心事实边界和上下文使用规则 |
+
+## 按需规则
+
+{RULES_INDEX_TABLE_HEADER}
+|---|---|---|
+
+## 冲突处理
+
+1. 用户当前消息优先于规则文件。
+2. 更具体的规则优先于更通用的规则。
+3. 如果规则和事实源冲突，先指出冲突，再按事实源优先级判断。
+4. 不确定时，只读取与当前任务直接相关的规则，避免扩大上下文噪音。
+"""
+
+
+def upsert_rules_index(
+    index_path: Path,
+    file_name: str,
+    condition: str,
+    purpose: str,
+    force: bool,
+    dry_run: bool,
+) -> bool:
+    if index_path.exists():
+        lines = read_text(index_path).splitlines()
+        created = False
+    else:
+        lines = render_rules_index().splitlines()
+        created = True
+
+    heading_index = next((index for index, line in enumerate(lines) if line.strip() == "## 按需规则"), None)
+    if heading_index is None:
+        raise SystemExit(f"rules index on-demand section was not found: {index_path}")
+    header_index = next(
+        (
+            index
+            for index in range(heading_index + 1, len(lines))
+            if lines[index].strip() == RULES_INDEX_TABLE_HEADER
+        ),
+        None,
+    )
+    if header_index is None or header_index + 1 >= len(lines):
+        raise SystemExit(f"rules index on-demand table was not found: {index_path}")
+
+    table_start = header_index + 2
+    table_end = table_start
+    while table_end < len(lines) and lines[table_end].strip().startswith("|"):
+        table_end += 1
+
+    existing_rows = lines[table_start:table_end]
+    file_cell = f"`{file_name}`"
+    if any(row_date(row) == file_cell for row in existing_rows) and not force:
+        raise SystemExit(f"rules index already contains rule: {file_name}")
+
+    new_row = render_table_row([file_cell, condition, purpose])
+    kept_rows = [row for row in existing_rows if row_date(row) not in {file_cell, "暂无"} and row.strip()]
+    rows = kept_rows + [new_row]
+    rows.sort(key=row_date)
+    updated = lines[:table_start] + rows + lines[table_end:]
+    updated_text = "\n".join(updated).rstrip() + "\n"
+    changed = created or updated_text != (read_text(index_path) if index_path.exists() else "")
+    if changed and not dry_run:
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(updated_text, encoding="utf-8")
+    return changed
+
+
+def next_feedback_id(rows: Sequence[dict[str, str]]) -> str:
+    numbers: list[int] = []
+    for row in rows:
+        match = re.match(r"^F(\d{3})$", row.get("ID", ""))
+        if match:
+            numbers.append(int(match.group(1)))
+    return f"F{(max(numbers) + 1) if numbers else 1:03d}"
+
+
+def feedback_index_row(
+    feedback_id: str,
+    status: str,
+    feedback_type: str,
+    content: str,
+    source: str,
+    next_action: str,
+) -> str:
+    return render_table_row([feedback_id, status, feedback_type, content, source, next_action])
+
+
+def upsert_feedback_inbox(
+    inbox_path: Path,
+    feedback_id: str,
+    status: str,
+    feedback_type: str,
+    content: str,
+    source: str,
+    next_action: str,
+    force: bool,
+    dry_run: bool,
+) -> bool:
+    if not inbox_path.exists():
+        raise SystemExit(f"feedback inbox does not exist: {inbox_path}")
+
+    text = read_text(inbox_path)
+    lines = text.splitlines()
+    table = find_table(lines, FEEDBACK_TABLE_HEADER)
+    existing_rows = lines[table.body_start : table.body_end]
+    if any(row_date(row) == feedback_id for row in existing_rows) and not force:
+        raise SystemExit(f"feedback inbox already contains id: {feedback_id}")
+
+    new_row = feedback_index_row(feedback_id, status, feedback_type, content, source, next_action)
+    kept_rows = [
+        row
+        for row in existing_rows
+        if row_date(row) not in {feedback_id, "暂无"} and row.strip()
+    ]
+    rows = kept_rows + [new_row]
+    rows.sort(key=row_date)
+    updated = lines[: table.body_start] + rows + lines[table.body_end :]
+    updated_text = "\n".join(updated).rstrip() + "\n"
+    changed = updated_text != text
+    if changed and not dry_run:
+        inbox_path.write_text(updated_text, encoding="utf-8")
+    return changed
+
+
 def init_command(args: argparse.Namespace) -> int:
     target = args.target.resolve()
     dry_run = dry_run_enabled(args)
@@ -3248,6 +3504,150 @@ def new_source_command(args: argparse.Namespace) -> int:
     check_result = maybe_check_after(args, root)
     action = "would create" if dry_run else "created"
     return emit_write_result(args, "new source", f"{action} source entry {title}", [index_path], check_result)
+
+
+def new_reference_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+
+    title = args.title.strip()
+    summary = args.summary.strip()
+    next_action = args.next_action.strip() or "无。"
+    if not title:
+        raise SystemExit("reference title cannot be empty")
+    if not summary:
+        raise SystemExit("reference summary cannot be empty")
+    body_items = normalize_items(args.body, ("待补充。",))
+    target = normalize_new_object_target(
+        root,
+        args.file,
+        title,
+        "reference",
+        forbidden_prefixes=("reference/knowledge/",),
+    )
+    if target.exists() and not args.force:
+        raise SystemExit(f"reference file already exists: {target}")
+
+    if not dry_run:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            render_reference_document(title, args.status, summary, body_items, next_action),
+            encoding="utf-8",
+        )
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    rel = target.relative_to(root).as_posix()
+    return emit_write_result(
+        args,
+        "new reference",
+        f"{action} reference {rel}",
+        [target],
+        check_result,
+        extra_payload={"target": rel},
+    )
+
+
+def new_rule_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+
+    title = args.title.strip()
+    condition = args.condition.strip()
+    purpose = args.purpose.strip()
+    rationale = args.rationale.strip() or "该规则由当前上下文维护流程提出，用于降低后续协作歧义。"
+    scope = args.scope.strip() or "本上下文内按读取条件触发的协作任务。"
+    non_goal = args.non_goal.strip() or "不替代用户当前指令；不要求默认读取全部规则。"
+    if not title:
+        raise SystemExit("rule title cannot be empty")
+    if not condition:
+        raise SystemExit("rule condition cannot be empty")
+    if not purpose:
+        raise SystemExit("rule purpose cannot be empty")
+    rules = normalize_items(args.rule, ())
+    if not rules:
+        raise SystemExit("rule command requires at least one --rule")
+
+    target = normalize_new_object_target(root, args.file, title, "rules")
+    if target.exists() and not args.force:
+        raise SystemExit(f"rule file already exists: {target}")
+
+    index_path = root / "rules" / "Rules_Index.md"
+    index_changed = upsert_rules_index(
+        index_path,
+        target.relative_to(root / "rules").as_posix(),
+        condition,
+        purpose,
+        args.force,
+        dry_run,
+    )
+
+    if not dry_run:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            render_rule_document(title, condition, rules, rationale, scope, non_goal),
+            encoding="utf-8",
+        )
+    changed_files = [target]
+    if index_changed or not index_path.exists() or dry_run:
+        changed_files.append(index_path)
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    rel = target.relative_to(root).as_posix()
+    return emit_write_result(
+        args,
+        "new rule",
+        f"{action} rule {rel}",
+        changed_files,
+        check_result,
+        extra_payload={"target": rel, "index_updated": index_changed},
+    )
+
+
+def new_feedback_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+
+    inbox_path = root / "active" / "Feedback_Inbox.md"
+    if not inbox_path.exists():
+        raise SystemExit(f"feedback inbox does not exist: {inbox_path}")
+
+    existing_rows = read_feedback_rows(inbox_path)
+    feedback_id = (args.id or next_feedback_id(existing_rows)).strip()
+    if not re.match(r"^F\d{3}$", feedback_id):
+        raise SystemExit("feedback id must use FNNN format, for example F019")
+    feedback_type = args.type.strip()
+    content = args.content.strip()
+    source = args.source.strip() if args.source else f"{date.today().isoformat()} manual"
+    next_action = args.next_action.strip() or "待 triage。"
+    if not feedback_type:
+        raise SystemExit("feedback type cannot be empty")
+    if not content:
+        raise SystemExit("feedback content cannot be empty")
+    if not source:
+        raise SystemExit("feedback source cannot be empty")
+
+    changed = upsert_feedback_inbox(
+        inbox_path,
+        feedback_id,
+        args.status,
+        feedback_type,
+        content,
+        source,
+        next_action,
+        args.force,
+        dry_run,
+    )
+    changed_files = [inbox_path] if changed or dry_run else []
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(
+        args,
+        "new feedback",
+        f"{action} feedback {feedback_id}",
+        changed_files,
+        check_result,
+        extra_payload={"id": feedback_id},
+    )
 
 
 def read_writeback_input(args: argparse.Namespace) -> str:
@@ -11351,6 +11751,44 @@ def build_parser() -> argparse.ArgumentParser:
     source_parser.add_argument("--force", action="store_true", help="replace an existing source row")
     add_write_arguments(source_parser)
     source_parser.set_defaults(func=new_source_command)
+
+    reference_parser = new_subparsers.add_parser("reference", help="create a reference Markdown document")
+    reference_parser.add_argument("path", nargs="?", type=Path)
+    reference_parser.add_argument("--file", default=None, help="target path under reference/, defaults to reference/<title-slug>.md")
+    reference_parser.add_argument("--title", required=True, help="reference title")
+    reference_parser.add_argument("--status", choices=("Draft", "Active", "Archived"), default="Draft")
+    reference_parser.add_argument("--summary", required=True, help="one-line reference summary")
+    reference_parser.add_argument("--body", action="append", default=None, help="reference body item; can be repeated")
+    reference_parser.add_argument("--next-action", default="无。", help="next action for this reference")
+    reference_parser.add_argument("--force", action="store_true", help="replace an existing reference file")
+    add_write_arguments(reference_parser)
+    reference_parser.set_defaults(func=new_reference_command)
+
+    rule_parser = new_subparsers.add_parser("rule", help="create a rule file and update Rules_Index.md")
+    rule_parser.add_argument("path", nargs="?", type=Path)
+    rule_parser.add_argument("--file", default=None, help="target path under rules/, defaults to rules/<title-slug>.md")
+    rule_parser.add_argument("--title", required=True, help="rule title")
+    rule_parser.add_argument("--condition", required=True, help="when this rule should be read")
+    rule_parser.add_argument("--purpose", required=True, help="one-line purpose for Rules_Index.md")
+    rule_parser.add_argument("--rule", action="append", required=True, help="rule statement; can be repeated")
+    rule_parser.add_argument("--rationale", default="", help="why this rule exists")
+    rule_parser.add_argument("--scope", default="", help="where this rule applies")
+    rule_parser.add_argument("--non-goal", default="", help="what this rule does not do")
+    rule_parser.add_argument("--force", action="store_true", help="replace an existing rule file or index row")
+    add_write_arguments(rule_parser)
+    rule_parser.set_defaults(func=new_rule_command)
+
+    feedback_parser = new_subparsers.add_parser("feedback", help="add a row to active/Feedback_Inbox.md")
+    feedback_parser.add_argument("path", nargs="?", type=Path)
+    feedback_parser.add_argument("--id", default=None, help="feedback id in F001 format; defaults to next id")
+    feedback_parser.add_argument("--status", choices=tuple(sorted(VALID_FEEDBACK_STATUSES)), default="Open")
+    feedback_parser.add_argument("--type", required=True, help="feedback type, for example 需求, 问题, 改进")
+    feedback_parser.add_argument("--content", required=True, help="feedback content summary")
+    feedback_parser.add_argument("--source", default=None, help="feedback source; defaults to today's date plus manual")
+    feedback_parser.add_argument("--next-action", default="待 triage。", help="planned next handling step")
+    feedback_parser.add_argument("--force", action="store_true", help="replace an existing feedback row with the same id")
+    add_write_arguments(feedback_parser)
+    feedback_parser.set_defaults(func=new_feedback_command)
 
     writeback_parser = subparsers.add_parser("writeback", help="create reviewable writeback drafts")
     writeback_subparsers = writeback_parser.add_subparsers(dest="writeback_command", required=True)

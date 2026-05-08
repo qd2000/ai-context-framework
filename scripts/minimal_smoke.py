@@ -419,12 +419,72 @@ class SmokeRunner:
         )
         steps.append(self.run_acf(["check", str(context), "--json"]))
 
+    def new_object_minimal_happy_path(self, tmp: Path, steps: list[dict[str, Any]]) -> None:
+        context = tmp / "new-object" / "docs" / "ai"
+        steps.append(self.run_acf(["init", str(context), "--profile", "minimal", "--json"]))
+        steps.append(
+            self.run_acf(
+                [
+                    "new",
+                    "reference",
+                    str(context),
+                    "--file",
+                    "reference/Smoke_Guide.md",
+                    "--title",
+                    "Smoke Guide",
+                    "--summary",
+                    "Smoke reference summary.",
+                    "--body",
+                    "Smoke reference body.",
+                    "--json",
+                ]
+            )
+        )
+        steps.append(
+            self.run_acf(
+                [
+                    "new",
+                    "rule",
+                    str(context),
+                    "--file",
+                    "rules/Smoke_Rules.md",
+                    "--title",
+                    "Smoke Rules",
+                    "--condition",
+                    "Smoke verification.",
+                    "--purpose",
+                    "Smoke rule purpose.",
+                    "--rule",
+                    "Smoke rule body.",
+                    "--json",
+                ]
+            )
+        )
+        steps.append(
+            self.run_acf(
+                [
+                    "new",
+                    "feedback",
+                    str(context),
+                    "--type",
+                    "需求",
+                    "--content",
+                    "Smoke feedback entry.",
+                    "--source",
+                    "2026-05-08 smoke",
+                    "--json",
+                ]
+            )
+        )
+        steps.append(self.run_acf(["check", str(context), "--json"]))
+
     def run(self) -> dict[str, Any]:
         self.scenario("init -> nested status/check", self.init_status_check)
         self.scenario("worklog create/append/error_code", self.worklog_create_append_error_code)
         self.scenario("workstream minimal happy path", self.workstream_minimal_happy_path)
         self.scenario("task stage minimal happy path", self.task_stage_minimal_happy_path)
         self.scenario("plan reference minimal happy path", self.plan_reference_minimal_happy_path)
+        self.scenario("new object minimal happy path", self.new_object_minimal_happy_path)
         ok = all(scenario["ok"] for scenario in self.scenarios)
         return {
             "schema_version": 1,

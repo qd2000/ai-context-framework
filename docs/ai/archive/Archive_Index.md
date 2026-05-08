@@ -26,17 +26,21 @@
 | 2026-05-07 | Task | Draft EcSOS upgrade rehearsal plan | active/Current_Task.md | `archive/tasks/2026-05-07-draft-ecsos-upgrade-rehearsal-plan.md` | Archived | 未记录。 |
 | 2026-05-08 | Plan | Archive Sync MVP | active/Task_Plan.md | `archive/plans/2026-05-08-archive-sync-mvp.md` | Archived | 未记录。 |
 | 2026-05-08 | Plan | Decisions Sync MVP | active/Task_Plan.md | `archive/plans/2026-05-08-decisions-sync-mvp.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | Feedback Entry CLI | active/Task_Plan.md | `archive/plans/2026-05-08-feedback-entry-cli.md` | Archived | 未记录。 |
 | 2026-05-08 | Plan | Generated Marker Sync Design | active/Task_Plan.md | `archive/plans/2026-05-08-generated-marker-sync-design.md` | Archived | 未记录。 |
 | 2026-05-08 | Plan | Knowledge Sync MVP | active/Task_Plan.md | `archive/plans/2026-05-08-knowledge-sync-mvp.md` | Archived | 未记录。 |
 | 2026-05-08 | Plan | P2-4 Workstream Archive Draft and Index Cleanup Design | active/Task_Plan.md | `archive/plans/2026-05-08-p2-4-workstream-archive-draft-and-index-cleanup-design.md` | Archived | 未记录。 |
 | 2026-05-08 | Plan | P2-5 Gap Audit Refresh and Next Slice Selection | active/Task_Plan.md | `archive/plans/2026-05-08-p2-5-gap-audit-refresh-and-next-slice-selection.md` | Archived | 未记录。 |
 | 2026-05-08 | Plan | P2-7 Markdown Link Traceability | active/Task_Plan.md | `archive/plans/2026-05-08-p2-7-markdown-link-traceability.md` | Archived | 未记录。 |
 | 2026-05-08 | Plan | P2-8 Context Attention Cleanup and P2-5 Readiness | active/Task_Plan.md | `archive/plans/2026-05-08-p2-8-context-attention-cleanup-and-p2-5-readiness.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | Safe Context Object Creation CLI | active/Task_Plan.md | `archive/plans/2026-05-08-safe-context-object-creation-cli.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Define archive draft and cleanup contract | active/Current_Task.md | `archive/tasks/2026-05-08-define-archive-draft-and-cleanup-contract.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Document and dogfood clickable links | active/Current_Task.md | `archive/tasks/2026-05-08-document-and-dogfood-clickable-links.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Document and verify knowledge sync | active/Current_Task.md | `archive/tasks/2026-05-08-document-and-verify-knowledge-sync.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Implement archive sync MVP | active/Current_Task.md | `archive/tasks/2026-05-08-implement-archive-sync-mvp.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Implement decisions sync MVP | active/Current_Task.md | `archive/tasks/2026-05-08-implement-decisions-sync-mvp.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | Implement new feedback command | active/Current_Task.md | `archive/tasks/2026-05-08-implement-new-feedback-command.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | Implement new reference and rule commands | active/Current_Task.md | `archive/tasks/2026-05-08-implement-new-reference-and-rule-commands.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Prepare P2-5 audit fixture slice | active/Current_Task.md | `archive/tasks/2026-05-08-prepare-p2-5-audit-fixture-slice.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Update roadmap and current facts | active/Current_Task.md | `archive/tasks/2026-05-08-update-roadmap-and-current-facts.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Verify and record route calibration | active/Current_Task.md | `archive/tasks/2026-05-08-verify-and-record-route-calibration.md` | Archived | 未记录。 |

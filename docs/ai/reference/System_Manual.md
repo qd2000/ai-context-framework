@@ -99,6 +99,15 @@ Done / Cancelled Workstream 留在 `active/workstreams/` 时，应有 `keep_acti
 
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。
 
+### AI 创建上下文对象
+
+1. 当前具体任务用 `uv run acf new task docs/ai --title "..." --goal "..." --json`，Active 任务未归档时默认拒绝覆盖。
+2. 外部资料索引用 `uv run acf new source docs/ai --title "..." --type "..." --location "..." --relation "..." --json`。
+3. 长期 reference 文档用 `uv run acf new reference docs/ai --title "..." --summary "..." --body "..." --json`；可用 `--file reference/X.md` 指定路径，命令拒绝写到 context 外或 `reference/knowledge/` 托管目录。
+4. 按需规则文件用 `uv run acf new rule docs/ai --title "..." --condition "..." --purpose "..." --rule "..." --json`；命令会写 `rules/*.md` 并维护 `rules/Rules_Index.md`。
+5. 待整理反馈用 `uv run acf new feedback docs/ai --type "..." --content "..." --source "YYYY-MM-DD user" --json`；命令只写 Feedback_Inbox，不把反馈直接升格为事实。
+6. 重要决策仍使用 `uv run acf new adr docs/ai --title "..." --summary "..." --decision "..." --json`；可复用经验仍先走 `knowledge draft/apply`。
+
 ### AI 调用 worklog 模式
 
 | 目标状态 | 推荐命令 | 结果 |

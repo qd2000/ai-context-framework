@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.40` 是当前推荐的真实项目接入/升级版本，保留 active -> reference 规划依据追溯能力，并新增标准 profile 的 `human/` 人工异步笔记层、统一 `【ACF:KEY|提示】` 模板占位符、canonical ACF marker、可点击 Markdown 链接维护能力、Knowledge / Decisions / Archive index sync MVP；`archive current-task/task-plan` 会在归档移动时重写本地 Markdown 相对链接。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.42` 是当前推荐的真实项目接入/升级版本，保留 active -> reference 规划依据追溯能力，并新增标准 profile 的 `human/` 人工异步笔记层、统一 `【ACF:KEY|提示】` 模板占位符、canonical ACF marker、可点击 Markdown 链接维护能力、Knowledge / Decisions / Archive index sync MVP，以及 `new reference` / `new rule` / `new feedback` 安全创建能力；`archive current-task/task-plan` 会在归档移动时重写本地 Markdown 相对链接。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -219,6 +219,9 @@ acf workstream list
 acf workstream show WS001
 acf new task --title "实现一个维护任务" --goal "写清当前目标。"
 acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
+acf new reference --title "设计文档标题" --summary "一句话说明。" --body "核心内容。"
+acf new rule --title "规则标题" --condition "何时读取。" --purpose "索引用途。" --rule "具体规则。"
+acf new feedback --type "需求" --content "待整理反馈。" --source "2026-05-08 user"
 acf new worklog --summary "完成一次上下文维护。"
 acf new worklog --summary "补记一次上下文维护。" --append --json
 acf new adr --title "记录一个重要决策" --summary "一句话摘要。" --decision "具体决策。"
@@ -263,6 +266,9 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `workstream init|status|list|archive-candidates|archive-draft|archive|sync|show|add|set|block|cancel|merge-request|ready|done|claim|note|focus` 和 `workstream stage add|list|done`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim、详情备注、内部阶段焦点和显式归档；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive WS001 --reason "..."` 只在显式指定单个终态 Workstream 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 `active/workstreams/*.md` front matter 更新 `active/Workstreams.md`，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，Done 需要 `--merge-resolution` 写入合并结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。
+- `new reference`：在 `reference/` 下创建长期按需读取的 Markdown 文档；默认使用标题 slug 生成文件名，也可用 `--file reference/X.md` 指定路径；拒绝写到 context 外或 `reference/knowledge/` 托管目录。
+- `new rule`：在 `rules/` 下创建按需规则文件，并更新 `rules/Rules_Index.md` 的按需规则表；minimal context 首次使用时会补一个轻量 Rules_Index，不把 whole context 升级为 standard。
+- `new feedback`：向 `active/Feedback_Inbox.md` 添加反馈行，自动分配下一个 `Fxxx`，默认状态为 Open，默认来源包含当天日期；重复 ID 需传入 `--force` 才能覆盖。
 - `new worklog`：按日期生成 daily worklog，并更新 `worklog/Worklog_Index.md`；同日已有记录且需要补记时使用 `--append`，需要重建时使用 `--force`，二者不能混用。
 - `new adr`：生成下一个 ADR 文件，并更新 `reference/Decisions_Index.md`。
 - `writeback draft`：把不能安全直接落盘的会话结束回写建议保存为注意力治理草案；可确定的任务、计划、worklog、Knowledge 或归档变化应优先写入对应文件或草案。

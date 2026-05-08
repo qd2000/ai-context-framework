@@ -53,13 +53,13 @@ Dogfooding MVP / 框架稳定化。
 
 1. 本仓库维护模型无关、Markdown-first 的 AI 上下文管理框架；核心产品源是 `template/`，真实 dogfooding 实例是 `docs/ai/`。
 2. `acf` 是主要面向 AI 的上下文维护 CLI；它负责确定性检查、生成、结构化编辑、归档、草案和审计，不替代人的事实判断，也不扩展为通用 Markdown 编辑器或常驻 runtime。
-3. 当前版本事实为 `v0.0.3.40`：`acf --version`、`pyproject.toml`、`uv.lock` 和本地包元数据应保持同步。
+3. 当前版本事实为 `v0.0.3.42`：`acf --version`、`pyproject.toml`、`uv.lock` 和本地包元数据应保持同步。
 4. 本仓库使用 uv Python 环境，Python 版本约束为 `>=3.10`；运行项目 Python 或 CLI 时优先使用 `uv run python ...` 和 `uv run acf ...`。
 5. `docs/ai/` 当前应保持 `uv run acf check --strict` 通过；CLI 或模板行为变更后还应运行 `uv run acf check template`、`uv run python -m unittest`，必要时运行 upgrade matrix。
 
 ### 已落地能力摘要
 
-1. 基础维护：`init`、`simplify`、`status`、`check`、`new task/source/worklog/adr`、`writeback draft`、`version show/set` 已形成可安装 CLI 主链路。
+1. 基础维护：`init`、`simplify`、`status`、`check`、`new task/source/reference/rule/feedback/worklog/adr`、`writeback draft`、`version show/set` 已形成可安装 CLI 主链路。
 2. AI 友好契约：主要命令支持 `--json`、`--dry-run`、`--check-after`、稳定 `schema_version/ok/error_code/next_actions`、changed files 和分层退出码。
 3. 安全编辑：`edit section get|replace|append` 和 `edit table upsert` 仅允许在 context root 内既有 Markdown 文件上做结构化修改。
 4. 计划与历史：`plan`、`task`、`archive`、`decisions`、`knowledge`、`workstream` 系列命令已提供当前任务板、当前任务、旧任务/旧计划归档、Archive / Decisions / Knowledge index sync MVP 和可选并行 Workstream 层的第一版。
@@ -69,7 +69,7 @@ Dogfooding MVP / 框架稳定化。
 
 ### 当前进展与未完成项
 
-1. 当前阶段处在 P2 收尾和阶段 6「事实与注意力治理」深化之间；Archive sync MVP 当前任务和计划已归档。
+1. 当前阶段处在 P2 收尾和阶段 6「事实与注意力治理」深化之间；Feedback Entry CLI 当前任务和计划已归档。
 2. 当前无活跃计划；[active/Task_Plan.md](Task_Plan.md) 为 Empty。
 3. 当前无活跃任务；[active/Current_Task.md](Current_Task.md) 为 Empty。
 4. Knowledge / ADR / Archive sync 的 generated marker 设计已落地 [reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)；通用 marker helper、`acf knowledge sync` MVP、`acf decisions sync` MVP 和 `acf archive sync` MVP 已实现。
@@ -114,7 +114,7 @@ Dogfooding MVP / 框架稳定化。
 1. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
 2. 是否需要 writeback-curator subagent 生成更高质量的回写分类草案。
 3. 是否需要为 `docs/ai/` 外的仓库级维护文档设计安全的 project-root scoped edit 能力，还是继续保持常规补丁维护。
-4. 是否需要新增 `acf new rule`、`acf new reference` 等文件创建命令，让 AI 能安全创建新的上下文文档。
+4. 是否需要继续新增 `acf new human-note` 等文件创建命令，让 AI 能覆盖更多上下文对象创建路径。
 5. 异常硬中断持锁进程会留下 `.acf.lock`；正常串行读写和正常并发撞锁拒绝后未复现残留。后续仅需判断是否补充清理提示、`.gitignore` 或仓库卫生说明。
 6. 是否需要为 Context 审阅标记、“上次更新”和其他时间字段提供分钟级统一格式及 CLI 生成能力。
 
@@ -208,4 +208,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-05-08
-- 更新原因：完成 `acf archive sync` MVP，同步 `v0.0.3.40` 当前版本事实。
+- 更新原因：实现 `acf new feedback`，同步 `v0.0.3.42` 当前版本事实。
