@@ -6,7 +6,7 @@
 
 ## 状态
 
-Updated through active-reference traceability implementation.
+Updated through P2-4 Workstream archive-draft and explicit archive implementation.
 
 ---
 
@@ -26,7 +26,7 @@ Updated through active-reference traceability implementation.
 10. Workstream stage flow。
 11. 测试与多项目验证矩阵。
 
-本轮不实现新 CLI，不新增 strict 规则，不扩展 high-risk audit rules。
+本轮是路线校准，不实现新 CLI，不新增 strict 规则，不扩展 high-risk audit rules。
 
 ---
 
@@ -67,9 +67,9 @@ Updated through active-reference traceability implementation.
 | upgrade | 非破坏式补结构，不改事实，不自动归档 | 已实现当前 P1 兼容矩阵 | `acf upgrade`; `scripts/upgrade_matrix.py`; `tests/fixtures/upgrade_matrix/*`; `tests/test_upgrade_matrix.py` | 已覆盖 old without Workstreams、old Workstreams without current_stage、old ADR without front matter、custom AGENTS + missing reference combo；后续新对象层仍需随功能增量补 fixture | Done | 新增结构时同步扩 upgrade matrix |
 | JSON contract | AI-facing 命令稳定 `schema_version/ok/command/next_actions`，失败有 `error_code/message` | 已实现基础契约测试 | `tests/test_cli.py#test_ai_facing_success_json_contracts`; `tests/test_cli.py#test_ai_facing_failure_json_contracts`; `acf.py` | 仍不是全命令同形重排；后续新增 AI-facing 命令必须复用 contract helper | Done | 新命令新增时补契约测试 |
 | error_code recovery | 常见失败路径有稳定 error_code 和 next_actions | 已实现基础契约测试 | JSON contract failure tests; workstream stage errors; check/status input errors | 不是完整 error catalog；安全拒绝仍可保留通用 `safety_refused` | Done / P2 | 如做 error catalog，单独设计 |
-| context_matrix | minimal/legacy/audit/workstream/authority 防过拟合 fixture | 部分实现 | `tests/fixtures/context_matrix/*`; `tests/test_context_matrix.py` | `workstream_stage_flow` 已补；仍缺 `task_stage_registry`、`audit_stale_stage`、`audit_terminal_merge` | P2 | 后续按具体规则补 fixture |
+| context_matrix | minimal/legacy/audit/workstream/authority 防过拟合 fixture | 部分实现 | `tests/fixtures/context_matrix/*`; `tests/test_context_matrix.py` | `task_stage_registry`、`workstream_stage_flow` 和 `workstream_lifecycle_archive` 已补；audit stale / terminal merge 仍只有单元测试，缺独立 fixture | P2 | 下一代码切片优先补 `audit_stale_stage` 和 `audit_terminal_merge` fixtures |
 | minimal smoke | 快速覆盖 init/status/check/worklog/workstream/task-stage 主路径 | 已实现当前 P2 范围 | `scripts/minimal_smoke.py` 包含 Workstream stage add/focus/done、workstream sync dry-run no-op、audit context clean、archive-candidates / archive-draft / archive 主路径，以及 Task Stage add/list/done | 仍是 release smoke，不替代全量单元/fixture 测试 | Done | 保持轻量 |
-| 多项目验证 | ACF/FCC/EcSOS/minimal/legacy/fixtures 共同验证 | 部分实现 | worklog 记录 FCC/EcSOS dogfooding；context/upgrade fixtures; `workstream_stage_flow` synthetic fixture | Workstream stage flow synthetic 已补；真实项目只读复核可继续积累，但不应阻塞 P1-3 | P1 | 下一步扩 upgrade matrix |
+| 多项目验证 | ACF/FCC/EcSOS/minimal/legacy/fixtures 共同验证 | 部分实现 | worklog 记录 FCC/EcSOS dogfooding；context/upgrade fixtures; Workstream stage / archive synthetic fixtures | P1/P2 主链路已有 synthetic 和部分真实项目只读验证；新 archive apply 尚未在外部真实项目执行 | P2 | 先补 audit fixtures；真实项目继续只读或 dry-run，写入前单独确认 |
 | Task object 文件 | 不急于 `active/tasks/T001` 单文件化 | 不应实现 | `ACF_Top_Level_Design.md` | 无 | Deferred | 暂不做 |
 | high-risk audit | duplicate、strong claim、volatile wrong location | 不应现在实现 | `Context_Audit_Design.md`; `Product_Roadmap.md` | 需要多项目样本和 fixture 后再评估 | Deferred | 暂缓 |
 | agent runtime / scheduler | 非目标 | 不应实现 | Top-Level non-goals; Workstream Design | 无 | Never | 不做 |
@@ -221,6 +221,29 @@ acf workstream archive WS001 docs/ai --reason "reviewed in worklog/archive-draft
 
 状态：已完成。`archive-draft` 写入 worklog/archive-drafts/YYYY-MM-DD dot md，包含 candidates + blocked、候选建议命令和 blocked suggested_action；默认不覆盖已有草案，支持 `--name`、`--force` 和 `--dry-run`。`archive` 复用候选 blocker，只允许 Done / Cancelled 单个 Workstream，移动详情到 `archive/workstreams/`，删除 active index 对应行并重算 Workstream 状态，追加 `archive/Archive_Index.md` 7 列记录和 `ACF:WORKSTREAM-ARCHIVE` marker；不修改 merge target、Context、Current_Task 或 Task_Plan。已覆盖 CLI 单元测试、context_matrix draft-to-archive flow 和 minimal smoke。
 
+### P2-5 Context matrix audit fixture expansion
+
+推荐作为下一代码切片。
+
+理由：
+
+1. 它不改变产品行为，只把已实现的 audit MVP 用独立 fixture 固化，风险低。
+2. 当前 `audit_stale_stage` 和 `audit_terminal_merge` 只有单元测试，缺 context_matrix 级防过拟合样本。
+3. 它符合“每个新能力先补 fixture，再实现命令或规则”的路线，且能为后续 audit 调优提供基线。
+4. 它比直接扩 Knowledge / ADR / Archive sync 更小；后者需要先设计 generated marker 和删除策略。
+
+建议范围：
+
+1. 新增 `tests/fixtures/context_matrix/audit_stale_stage`，覆盖 Active Current_Task / Workstream stage stale candidate 的可解释输出。
+2. 新增 `tests/fixtures/context_matrix/audit_terminal_merge`，覆盖 ReadyToMerge 待合并或 Done 缺合并结果的 advisory candidate。
+3. 更新 fixture inventory 和 context_matrix tests；不新增 audit rule，不接入 strict。
+
+验收：
+
+1. `uv run python -m unittest` 通过。
+2. `uv run acf check docs/ai --strict --json` 通过。
+3. `uv run python scripts/minimal_smoke.py` 不需要扩大，除非 fixture 暴露了现有 smoke 缺口。
+
 ### P2 Active-reference traceability
 
 ```bash
@@ -246,31 +269,31 @@ acf plan reference list docs/ai --json
 
 ---
 
-## First Code PR Decision
+## Next Code PR Decision
 
-第一批代码 PR 不应是新增 audit 规则，也不应是 Task Stage CLI。
+下一批代码 PR 不应是新增 audit 规则，也不应直接扩 Knowledge / ADR / Archive sync。
 
-推荐第一 PR：
+推荐下一 PR：
 
 ```text
-JSON contract consistency tests
+P2-5 Context matrix audit fixture expansion
 ```
 
 原因：
 
-1. 它直接服务顶层设计的 AI-facing CLI 契约。
-2. 风险低，主要是测试和兼容性记录。
-3. 能为后续 Workstream stage fixture、upgrade matrix 和 Task Stage CLI 提供统一测试 helper。
-4. 不改变业务语义，不触碰事实裁决边界。
+1. 当前路线已完成 JSON contract、Workstream stage、upgrade matrix、Task Stage CLI、active-reference traceability 和 Workstream archive 闭环。
+2. 剩余最小确定缺口是 audit MVP 缺少 `audit_stale_stage` / `audit_terminal_merge` 的 context_matrix fixture。
+3. 该 PR 只加 fixture 和测试，不改变 CLI 输出语义，不扩大 strict，不做事实裁决。
+4. 它为后续 audit message 调优或 curation draft 增强提供低噪声样本。
 
 拒绝的替代：
 
 | 替代 | 暂不选择原因 |
 |---|---|
 | 直接扩 high-risk audit rules | 误报风险高，违反当前路线。 |
-| 直接做 Task Stage CLI | 当前 check 能守住边界，缺口不如 JSON contract 基础。 |
-| 直接做 Workstream archive 命令 | 生命周期设计和 fixture 还不足。 |
-| 直接扩 Knowledge / ADR sync | generated marker 和删除策略尚未设计。 |
+| 直接做 Knowledge / ADR / Archive sync | 需要先设计 generated marker、事实源边界和删除策略。 |
+| 扩 curation draft 语义能力 | 需要先有更多 audit fixture 和多项目样本，避免草案噪声。 |
+| 做自动 Context merge | 明确非目标。 |
 
 ---
 
@@ -285,28 +308,25 @@ uv run acf audit context docs/ai --json
 
 不需要运行完整 unittest，因为本轮不改 CLI 代码、不改模板行为、不改变 JSON 输出。
 
-如果下一阶段进入 JSON contract tests，则需要运行：
+如果下一阶段进入 P2-5 fixture expansion，则需要运行：
 
 ```bash
 uv run python -m unittest
-uv run acf check template --json
 uv run acf check docs/ai --strict --json
-uv run python scripts/minimal_smoke.py --acf uv run acf
+uv run python scripts/minimal_smoke.py
 ```
 
 ---
 
 ## 结论
 
-ACF 可以进入受控实施阶段，但下一步应先补基础契约和验证矩阵，而不是继续扩 audit 规则。
+ACF 继续保持受控实施阶段，但下一步应补 audit fixture 矩阵，而不是继续扩 audit 规则或直接实现新 sync。
 
 推荐顺序：
 
-1. JSON contract consistency tests。
-2. Workstream stage flow fixture + minimal smoke 补强。
-3. Upgrade matrix expansion。
-4. Task Stage CLI 评估。已完成。
-5. Workstream lifecycle / archive helper 设计与只读 `archive-candidates`。已完成。
-6. high-risk audit rules 继续暂缓。
+1. P2-5：context_matrix audit fixture expansion。
+2. Generated marker design for Knowledge / ADR / Archive sync。
+3. Curation draft enhancement，必须基于 P2-5 fixture 和多项目观察。
+4. high-risk audit rules 继续暂缓。
 
-当前进度：P1-1、P1-2、P1-3、P2-1、P2-2 与 P2-3 已完成；下一入口应继续保持 gap-driven，可优先评估 archive draft / Workstream archive index cleanup design，或转向生成式索引 sync 设计；不扩展 high-risk audit rules。
+当前进度：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4 与 active-reference traceability 已完成；下一入口是 P2-5 audit fixture expansion。

@@ -16,19 +16,19 @@ Done
 
 ## 任务名称
 
-Verify and record route calibration
+Define archive draft and cleanup contract
 
 ---
 
 ## 所属大任务
 
-P2-5 Gap Audit Refresh and Next Slice Selection
+P2-4 Workstream Archive Draft and Index Cleanup Design
 
 ---
 
 ## 子任务 ID
 
-T003
+T001
 
 ---
 
@@ -40,14 +40,14 @@ T003
 
 ## 本次任务目标
 
-1. Run docs checks, audit context, and commit docs-only calibration
-2. 产出并验证输出物：Clean checks, worklog entry, and committed route calibration
+1. Update Workstream lifecycle design and gap audit with P2-4 boundaries
+2. 产出并验证输出物：Updated lifecycle/gap design boundaries
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T003，所属大任务为“P2-5 Gap Audit Refresh and Next Slice Selection”。依赖记录：T002
+该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P2-4 Workstream Archive Draft and Index Cleanup Design”。依赖记录：无明确依赖。
 
 ---
 
@@ -57,24 +57,23 @@ T003
 
 - `active/Task_Plan.md`。
 - `active/Context.md`。
-- `reference/ACF_Top_Level_Design.md`：上位架构、边界和非目标。
-- `reference/Top_Level_Implementation_Gap.md`：当前实现差距矩阵和候选切片依据。
-- `reference/System_Manual.md`：dogfooding 维护命令和上下文治理规则。
-- `reference/Product_Roadmap.md`：近期优先级和下一批候选任务。
-- 依赖 T002 证据：Updated Product_Roadmap.md to recommend P2-5 context_matrix audit fixture expansion before generated sync design or curation draft enhancement.
+- `reference/ACF_Top_Level_Design.md`：上位架构和边界。
+- `reference/Product_Roadmap.md`：阶段路线和近期优先级。
+- `reference/Top_Level_Implementation_Gap.md`：实现差距矩阵和当前 P2 backlog。
+- `reference/Workstream_Lifecycle_Archive_Design.md`：Workstream archive/draft/index cleanup 设计边界。
 
 ---
 
 ## 输出要求
 
-- Clean checks, worklog entry, and committed route calibration
+- Updated lifecycle/gap design boundaries
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：Clean checks, worklog entry, and committed route calibration
-2. 子任务 T003 的完成证据已写回任务板。
+1. 输出物已完成：Updated lifecycle/gap design boundaries
+2. 子任务 T001 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---
