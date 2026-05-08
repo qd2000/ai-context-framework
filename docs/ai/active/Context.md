@@ -9,7 +9,7 @@
 ## 审阅标记
 
 - Last reviewed: 2026-05-08
-- Review scope: 文件级；确认当前事实保持渐进式披露入口，并同步 archive 链接重写修复后的版本事实。
+- Review scope: 文件级；同步 Feedback 生命周期、Task/Plan archive record marker 与 human-note RC 能力后的版本事实。
 
 ---
 
@@ -53,27 +53,27 @@ Dogfooding MVP / 框架稳定化。
 
 1. 本仓库维护模型无关、Markdown-first 的 AI 上下文管理框架；核心产品源是 `template/`，真实 dogfooding 实例是 `docs/ai/`。
 2. `acf` 是主要面向 AI 的上下文维护 CLI；它负责确定性检查、生成、结构化编辑、归档、草案和审计，不替代人的事实判断，也不扩展为通用 Markdown 编辑器或常驻 runtime。
-3. 当前版本事实为 `v0.0.3.42`：`acf --version`、`pyproject.toml`、`uv.lock` 和本地包元数据应保持同步。
+3. 当前版本事实为 `v0.0.3.43`：`acf --version`、`pyproject.toml`、`uv.lock` 和本地包元数据应保持同步。
 4. 本仓库使用 uv Python 环境，Python 版本约束为 `>=3.10`；运行项目 Python 或 CLI 时优先使用 `uv run python ...` 和 `uv run acf ...`。
 5. `docs/ai/` 当前应保持 `uv run acf check --strict` 通过；CLI 或模板行为变更后还应运行 `uv run acf check template`、`uv run python -m unittest`，必要时运行 upgrade matrix。
 
 ### 已落地能力摘要
 
-1. 基础维护：`init`、`simplify`、`status`、`check`、`new task/source/reference/rule/feedback/worklog/adr`、`writeback draft`、`version show/set` 已形成可安装 CLI 主链路。
+1. 基础维护：`init`、`simplify`、`status`、`check`、`new task/source/reference/rule/feedback/human-note/worklog/adr`、`writeback draft`、`version show/set` 已形成可安装 CLI 主链路。
 2. AI 友好契约：主要命令支持 `--json`、`--dry-run`、`--check-after`、稳定 `schema_version/ok/error_code/next_actions`、changed files 和分层退出码。
 3. 安全编辑：`edit section get|replace|append` 和 `edit table upsert` 仅允许在 context root 内既有 Markdown 文件上做结构化修改。
-4. 计划与历史：`plan`、`task`、`archive`、`decisions`、`knowledge`、`workstream` 系列命令已提供当前任务板、当前任务、旧任务/旧计划归档、Archive / Decisions / Knowledge index sync MVP 和可选并行 Workstream 层的第一版。
+4. 计划与历史：`plan`、`task`、`archive`、`decisions`、`knowledge`、`feedback`、`workstream` 系列命令已提供当前任务板、当前任务、旧任务/旧计划归档、Feedback 生命周期、Archive / Decisions / Knowledge index sync MVP 和可选并行 Workstream 层的第一版。
 5. 观测与评测：usage event log 默认开启并写入用户级目录；`scripts/minimal_smoke.py` 和 `scripts/upgrade_matrix.py` 覆盖最小 smoke 与旧上下文升级兼容性。
 6. 注意力治理：`review stale`、`curate draft` 和 [reference/Context_Curation_Prompt.md](../reference/Context_Curation_Prompt.md) 已提供机械 stale signal 与可审阅整理草案；CLI 不裁决事实真假。
 7. 链接治理：P2-7 已实现 Markdown link check/linkify/link add 能力，并完成 README、template manual、dogfooding manual 和 gap 文档同步。
 
 ### 当前进展与未完成项
 
-1. 当前阶段处在 P2 收尾和阶段 6「事实与注意力治理」深化之间；Feedback Entry CLI 当前任务和计划已归档。
+1. 当前阶段处在 P2 收尾和阶段 6「事实与注意力治理」深化之间；Feedback lifecycle、Task/Plan archive record marker 和 human-note RC 能力已实现并通过完整验证，可进入短期上线测试。
 2. 当前无活跃计划；[active/Task_Plan.md](Task_Plan.md) 为 Empty。
 3. 当前无活跃任务；[active/Current_Task.md](Current_Task.md) 为 Empty。
 4. Knowledge / ADR / Archive sync 的 generated marker 设计已落地 [reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)；通用 marker helper、`acf knowledge sync` MVP、`acf decisions sync` MVP 和 `acf archive sync` MVP 已实现。
-5. `acf archive current-task/task-plan` 已修复移动 Markdown 文件后相对链接断裂问题：归档写入前会按新文件位置重写已有本地 Markdown 链接；F018 已处理完成。
+5. `acf archive current-task/task-plan` 已修复移动 Markdown 文件后相对链接断裂问题：归档写入前会按新文件位置重写已有本地 Markdown 链接，并追加 `ACF:ARCHIVE:RECORD` marker 供后续 sync 恢复归档原因。
 6. 新反馈 F016 要求 Context 采用渐进式披露；本文件已改为核心事实 + 索引结构，细节不再线性堆放在默认注意力入口。
 7. 新反馈 F017 要求“上次修改/上次更新”精确到分钟并工具化；已 triage，尚未设计统一格式或 CLI 生成能力。
 
@@ -114,7 +114,7 @@ Dogfooding MVP / 框架稳定化。
 1. 根薄入口生成是否需要支持少量用户自定义仓库规则字段。
 2. 是否需要 writeback-curator subagent 生成更高质量的回写分类草案。
 3. 是否需要为 `docs/ai/` 外的仓库级维护文档设计安全的 project-root scoped edit 能力，还是继续保持常规补丁维护。
-4. 是否需要继续新增 `acf new human-note` 等文件创建命令，让 AI 能覆盖更多上下文对象创建路径。
+4. 是否需要继续新增 weekly/report 创建命令，或保持 human layer 只通过 `new human-note` 写 Inbox。
 5. 异常硬中断持锁进程会留下 `.acf.lock`；正常串行读写和正常并发撞锁拒绝后未复现残留。后续仅需判断是否补充清理提示、`.gitignore` 或仓库卫生说明。
 6. 是否需要为 Context 审阅标记、“上次更新”和其他时间字段提供分钟级统一格式及 CLI 生成能力。
 

@@ -3707,6 +3707,11 @@ class CliTests(unittest.TestCase):
             )
             self.assertIn("## 当前任务状态\n\nEmpty", (target / "active" / "Current_Task.md").read_text(encoding="utf-8"))
             self.assertTrue(list((target / "archive" / "tasks").glob("*.md")))
+            archived_task = next((target / "archive" / "tasks").glob("*.md"))
+            archived_task_text = archived_task.read_text(encoding="utf-8")
+            self.assertIn(acf.ARCHIVE_RECORD_MARKER_START, archived_task_text)
+            self.assertIn("- source_path: active/Current_Task.md", archived_task_text)
+            self.assertIn("- archive_reason: completed", archived_task_text)
 
             exit_code = self.run_cli(
                 ["archive", "task-plan", str(target), "--reason", "completed", "--force"]
@@ -3715,6 +3720,11 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn("## 大任务状态\n\nEmpty", (target / "active" / "Task_Plan.md").read_text(encoding="utf-8"))
             self.assertTrue(list((target / "archive" / "plans").glob("*.md")))
+            archived_plan = next((target / "archive" / "plans").glob("*.md"))
+            archived_plan_text = archived_plan.read_text(encoding="utf-8")
+            self.assertIn(acf.ARCHIVE_RECORD_MARKER_START, archived_plan_text)
+            self.assertIn("- source_path: active/Task_Plan.md", archived_plan_text)
+            self.assertIn("- archive_reason: completed", archived_plan_text)
 
     def test_archive_rewrites_local_markdown_links_for_new_location(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3794,7 +3804,19 @@ class CliTests(unittest.TestCase):
     def write_archive_sync_details(self, target):
         task = target / "archive" / "tasks" / "2026-05-01-old-task.md"
         task.parent.mkdir(parents=True, exist_ok=True)
-        task.write_text("## 任务名称\n\nOld Task\n\n## 当前任务状态\n\nDone\n", encoding="utf-8")
+        task.write_text(
+            "## 任务名称\n\nOld Task\n\n## 当前任务状态\n\nDone\n\n"
+            f"{acf.ARCHIVE_RECORD_MARKER_START}\n"
+            "- archived_at: 2026-05-01\n"
+            "- item_type: Task\n"
+            "- item_id: Old Task\n"
+            "- source_path: active/Current_Task.md\n"
+            "- archive_path: `archive/tasks/2026-05-01-old-task.md`\n"
+            "- status: Archived\n"
+            "- archive_reason: task marker reason\n"
+            f"{acf.ARCHIVE_RECORD_MARKER_END}\n",
+            encoding="utf-8",
+        )
         plan = target / "archive" / "plans" / "2026-05-02-old-plan.md"
         plan.parent.mkdir(parents=True, exist_ok=True)
         plan.write_text("## 大任务名称\n\nOld Plan\n\n## 大任务状态\n\nDone\n", encoding="utf-8")
@@ -3858,7 +3880,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["generated_count"], 3)
             self.assertIn("Task/Plan archive reason is not recoverable", payload["warnings"][0])
             self.assertTrue(any(item["reason"] == "archive date not recoverable" for item in payload["skipped_items"]))
-            self.assertIn("| 2026-05-01 | Task | Old Task | active/Current_Task.md | `archive/tasks/2026-05-01-old-task.md` | Archived | 未记录。 |", payload["planned_block"])
+            self.assertIn("| 2026-05-01 | Task | Old Task | active/Current_Task.md | `archive/tasks/2026-05-01-old-task.md` | Archived | task marker reason |", payload["planned_block"])
             self.assertNotIn(acf.ARCHIVE_INDEX_MARKER_START, index_path.read_text(encoding="utf-8"))
 
             exit_code, stdout, stderr = self.run_cli_output(
@@ -3870,6 +3892,7 @@ class CliTests(unittest.TestCase):
             self.assert_success_json_contract(payload, "archive sync")
             index_text = index_path.read_text(encoding="utf-8")
             self.assertIn(acf.ARCHIVE_INDEX_MARKER_START, index_text)
+            self.assertIn("| 2026-05-01 | Task | Old Task | active/Current_Task.md | `archive/tasks/2026-05-01-old-task.md` | Archived | task marker reason |", index_text)
             self.assertIn("| 2026-05-03 | workstream | WS001 | active/workstreams/WS001.md | `archive/workstreams/WS001.md` | Done | merged after review |", index_text)
             self.assertIn("| 2026-04-30 | Task | Legacy Task | 无。 | `archive/tasks/2026-05-01-old-task.md` | Archived | legacy reason |", index_text)
 
@@ -4636,6 +4659,21 @@ This records a reusable write-safety pattern instead of a current task fact.
                     "Contract stage",
                 ]
             )
+            self.run_cli(
+                [
+                    "new",
+                    "feedback",
+                    str(target),
+                    "--id",
+                    "F001",
+                    "--type",
+                    "需求",
+                    "--content",
+                    "Contract feedback.",
+                    "--source",
+                    "2026-05-05 contract",
+                ]
+            )
 
             cases = [
                 ("status", ["status", str(target), "--json"]),
@@ -4663,6 +4701,21 @@ This records a reusable write-safety pattern instead of a current task fact.
                 ("archive sync", ["archive", "sync", str(target), "--dry-run", "--json"]),
                 ("decisions sync", ["decisions", "sync", str(target), "--dry-run", "--json"]),
                 ("knowledge sync", ["knowledge", "sync", str(target), "--dry-run", "--json"]),
+                ("feedback list", ["feedback", "list", str(target), "--json"]),
+                ("feedback archive-candidates", ["feedback", "archive-candidates", str(target), "--json"]),
+                (
+                    "feedback triage",
+                    [
+                        "feedback",
+                        "triage",
+                        str(target),
+                        "F001",
+                        "--next-action",
+                        "Contract next action.",
+                        "--dry-run",
+                        "--json",
+                    ],
+                ),
                 (
                     "new reference",
                     [
@@ -6573,6 +6626,220 @@ This records a reusable write-safety pattern instead of a current task fact.
             inbox_text = (target / "active" / "Feedback_Inbox.md").read_text(encoding="utf-8")
             self.assertIn("Updated feedback.", inbox_text)
             self.assertNotIn("First feedback.", inbox_text)
+
+    def test_feedback_lifecycle_commands_update_and_archive_one_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "new",
+                    "feedback",
+                    str(target),
+                    "--id",
+                    "F019",
+                    "--type",
+                    "改进",
+                    "--content",
+                    "需要反馈生命周期命令。",
+                    "--source",
+                    "2026-05-08 user",
+                ]
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["feedback", "list", str(target), "--status", "Open", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "feedback list")
+            self.assertEqual(payload["items"][0]["id"], "F019")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "feedback",
+                    "triage",
+                    str(target),
+                    "F019",
+                    "--next-action",
+                    "进入 RC 计划。",
+                    "--evidence",
+                    "active/Task_Plan.md T003",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assert_success_json_contract(self.json_payload(stdout), "feedback triage")
+            inbox_text = (target / "active" / "Feedback_Inbox.md").read_text(encoding="utf-8")
+            self.assertIn("| F019 | Triaged | 改进 | 需要反馈生命周期命令。 | 2026-05-08 user | 进入 RC 计划。 证据：active/Task_Plan.md T003 |", inbox_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "feedback",
+                    "done",
+                    str(target),
+                    "F019",
+                    "--result",
+                    "已实现反馈生命周期命令。",
+                    "--evidence",
+                    "tests/test_cli.py",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assert_success_json_contract(self.json_payload(stdout), "feedback done")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["feedback", "archive-candidates", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "feedback archive-candidates")
+            self.assertEqual(payload["candidates"][0]["id"], "F019")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "feedback",
+                    "archive",
+                    str(target),
+                    "F019",
+                    "--reason",
+                    "RC 已关闭。",
+                    "--date",
+                    "2026-05-08",
+                    "--check-after",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "feedback archive")
+            self.assertEqual(payload["archive_path"], "archive/feedback/2026-05.md")
+            self.assertNotIn("F019", (target / "active" / "Feedback_Inbox.md").read_text(encoding="utf-8"))
+            archive_text = (target / "archive" / "feedback" / "2026-05.md").read_text(encoding="utf-8")
+            self.assertIn("| 2026-05-08 | F019 | Done | 改进 | 需要反馈生命周期命令。 | 2026-05-08 user | 已实现反馈生命周期命令。 证据：tests/test_cli.py | RC 已关闭。 |", archive_text)
+
+    def test_feedback_archive_refuses_open_or_missing_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(
+                [
+                    "new",
+                    "feedback",
+                    str(target),
+                    "--id",
+                    "F020",
+                    "--type",
+                    "问题",
+                    "--content",
+                    "Open item.",
+                    "--source",
+                    "2026-05-08 user",
+                ]
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["feedback", "archive", str(target), "F020", "--reason", "too early", "--json"]
+            )
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            self.assert_failure_json_contract(self.json_payload(stdout), "feedback_archive_blocked", "feedback")
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["feedback", "done", str(target), "F999", "--result", "none", "--evidence", "none", "--json"]
+            )
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            self.assert_failure_json_contract(self.json_payload(stdout), "feedback_not_found", "feedback")
+
+            self.run_cli(
+                [
+                    "new",
+                    "feedback",
+                    str(target),
+                    "--id",
+                    "F021",
+                    "--type",
+                    "需求",
+                    "--content",
+                    "Reject item.",
+                    "--source",
+                    "2026-05-08 user",
+                ]
+            )
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["feedback", "reject", str(target), "F021", "--reason", "不采纳。", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "feedback reject")
+            self.assertEqual(payload["item"]["status"], "Rejected")
+            self.assertIn("Rejected：不采纳。", (target / "active" / "Feedback_Inbox.md").read_text(encoding="utf-8"))
+
+    def test_new_human_note_writes_standard_human_inbox_and_refuses_minimal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            standard = Path(tmp) / "standard"
+            minimal = Path(tmp) / "minimal"
+            self.run_cli(["init", str(standard), "--profile", "standard"])
+            self.run_cli(["init", str(minimal), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "new",
+                    "human-note",
+                    str(standard),
+                    "--type",
+                    "想法",
+                    "--content",
+                    "人工临时想法。",
+                    "--related",
+                    "reference/Product_Roadmap.md",
+                    "--suggestion",
+                    "后续判断是否进入 Task_Plan。",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "new human-note")
+            self.assertEqual(payload["id"], "H001")
+            note_path = standard / "human" / "Human_Notes.md"
+            self.assertNotIn("人工临时想法。", note_path.read_text(encoding="utf-8"))
+
+            exit_code = self.run_cli(
+                [
+                    "new",
+                    "human-note",
+                    str(standard),
+                    "--type",
+                    "想法",
+                    "--content",
+                    "人工临时想法。",
+                    "--related",
+                    "reference/Product_Roadmap.md",
+                    "--suggestion",
+                    "后续判断是否进入 Task_Plan。",
+                    "--check-after",
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+            note_text = note_path.read_text(encoding="utf-8")
+            self.assertIn("| H001 | Open | 想法 | 人工临时想法。 | reference/Product_Roadmap.md | 后续判断是否进入 Task_Plan。 | 未整理。 |", note_text)
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                [
+                    "new",
+                    "human-note",
+                    str(minimal),
+                    "--type",
+                    "想法",
+                    "--content",
+                    "Minimal should refuse.",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            self.assert_failure_json_contract(self.json_payload(stdout), "human_notes_missing", "new")
 
     def test_writeback_draft_creates_review_file_from_text(self):
         with tempfile.TemporaryDirectory() as tmp:

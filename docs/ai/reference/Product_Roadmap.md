@@ -96,6 +96,8 @@ ACF 应先收敛通用上下文治理蓝图，再按薄切片实现可验证能�
 7. Archive item。
 8. Reference document。
 9. Rule file。
+10. Feedback item。
+11. Human note。
 
 当前策略：
 
@@ -103,7 +105,8 @@ ACF 应先收敛通用上下文治理蓝图，再按薄切片实现可验证能�
 2. Workstream 使用详情文件 front matter + 正文 section。
 3. Workstream Stage 使用详情文件 `## 阶段` 表。
 4. ADR、Knowledge 和 Archive 继续通过索引 + 详情或草案维护。
-5. Reference document、Rule file 和 Feedback item 可通过 `new reference` / `new rule` / `new feedback` 安全创建；Rule file 同步维护 `rules/Rules_Index.md`，Feedback item 写入待整理入口而不是当前事实。
+5. Reference document、Rule file、Feedback item 和 Human note 可通过 `new reference` / `new rule` / `new feedback` / `new human-note` 安全创建；Rule file 同步维护 `rules/Rules_Index.md`，Feedback item 写入待整理入口而不是当前事实，Human note 写入 `human/Human_Notes.md` 且默认不进入 active。
+6. Feedback item 可通过 `feedback list|triage|done|reject|archive-candidates|archive` 做确定性生命周期维护；这些命令只维护状态、处理结果和单条显式归档，不做自动事实归属或转写。
 6. 不急于把 Task 全部拆成单文件对象。
 
 ### 4. CLI 分层
@@ -376,7 +379,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 1. 使用 [reference/Top_Level_Implementation_Gap.md](Top_Level_Implementation_Gap.md) 作为进入新代码 PR 前的 gap-driven 实施依据。
 2. JSON contract consistency tests、Workstream stage flow fixture、upgrade matrix expansion、Task Stage CLI 薄切片、active-reference traceability 与 Workstream archive-candidates / archive-draft / explicit archive 闭环已完成。
 3. P2-5 audit fixture expansion 已完成：`audit_stale_stage` 和 `audit_terminal_merge` 已进入 context_matrix fixtures；未新增 audit rule，未接入 strict。
-4. Knowledge / ADR / Archive sync 的 generated marker 设计已完成，见 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md)；generated marker helper、Knowledge sync MVP、Decisions sync MVP 和 Archive sync MVP 已完成。
+4. Knowledge / ADR / Archive sync 的 generated marker 设计已完成，见 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md)；generated marker helper、Knowledge sync MVP、Decisions sync MVP 和 Archive sync MVP 已完成，Task/Plan archive record marker 已补齐归档原因可恢复性。
 5. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge。
 6. 后续每个新能力先补 fixture，再实现命令或规则。
 7. human layer、Obsidian 边界、统一占位符和 canonical marker 已作为 P2-6 完成；后续不为 Obsidian 新增 CLI，除非出现可抽象、可测试的通用维护需求。
@@ -394,7 +397,8 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 9. P2-4：实现 `workstream archive-draft` 和显式 `workstream archive`。已完成：draft 写入 `worklog/archive-drafts/`，archive 移动单个终态 Workstream、清理 active index、写入 Archive_Index 和 marker，不修改 merge target 或当前事实文件。
 10. P2-6：human layer、Obsidian 边界、统一占位符和 canonical marker。已完成：standard init / upgrade 维护 `human/`，minimal 不补；template 占位符迁移为 ACF-keyed placeholder form；ACF marker 迁移为 `ACF:<DOMAIN>:<PURPOSE>` 并兼容旧格式。
 11. P2-5：扩展 context_matrix audit fixtures。已完成：新增 `audit_stale_stage` 和 `audit_terminal_merge` fixtures，固化已实现 audit MVP 的防过拟合样本，不改变 CLI 行为。
-12. Generated marker helper、Knowledge sync MVP、Decisions sync MVP 和 Archive sync MVP：已完成 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md) 对应的三批 sync 实现；后续仅根据真实使用反馈补小边界。
+12. Generated marker helper、Knowledge sync MVP、Decisions sync MVP 和 Archive sync MVP：已完成 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md) 对应的三批 sync 实现，并为 Task/Plan archive 增加 `ACF:ARCHIVE:RECORD`；后续仅根据真实使用反馈补小边界。
+13. Feedback lifecycle 与 human-note：已完成 `acf feedback list|triage|done|reject|archive-candidates|archive` 和 `acf new human-note`，用于短期上线测试；仍不自动转写事实源。
 
 ---
 

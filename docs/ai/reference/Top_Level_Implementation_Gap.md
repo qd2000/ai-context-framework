@@ -50,10 +50,10 @@ Updated through P2-7 Markdown link traceability and Obsidian-friendly navigation
 |---|---|---|---|---|---|---|
 | 产品定位 | Markdown-first、模型无关、人工可审阅、CLI 确定性、不做事实裁判 | 已实现 | [reference/ACF_Top_Level_Design.md](ACF_Top_Level_Design.md); [../../README.md](../../../README.md); [../Automation.md](../../Automation.md) | 无代码缺口；后续新增功能需持续检查 | Done | 作为所有后续 PR gate |
 | 内容分层 | `active/reference/worklog/archive/rules/decisions` 职责明确 | 已实现 | `AGENTS.md`; [reference/System_Manual.md](System_Manual.md); `template/` | 旧项目可能仍有历史漂移，只能通过 audit/curation 处理 | Done | 不新增规则；继续通过 check/audit 发现漂移 |
-| 安全对象创建 | AI 应能通过确定性 CLI 创建常见上下文文件，避免直接手写路径和索引 | 已实现当前 MVP | `acf new task/source/reference/rule/feedback/worklog/adr`; [tests/test_cli.py](../../../tests/test_cli.py); [reference/System_Manual.md](System_Manual.md) | 第一版仍不自动判断内容应归属哪个事实源；Feedback 只写待整理入口 | Done / P2 | 后续按真实反馈评估 human-note 创建命令 |
-| Human notes layer | 人工异步笔记可在 ACF 上下文内保存，但不污染 active 默认注意力 | 已实现 | [human/Human_Notes.md](../human/Human_Notes.md); `template/human/`; [reference/System_Manual.md](System_Manual.md); `acf upgrade` | 无独立 human 命令；符合当前边界 | Done / P2 | standard profile 维护 human 层，minimal 不补；AI 按需读取 |
+| 安全对象创建 | AI 应能通过确定性 CLI 创建常见上下文文件，避免直接手写路径和索引 | 已实现当前 MVP | `acf new task/source/reference/rule/feedback/human-note/worklog/adr`; [tests/test_cli.py](../../../tests/test_cli.py); [reference/System_Manual.md](System_Manual.md) | 第一版仍不自动判断内容应归属哪个事实源；Feedback 和 Human note 只写待整理入口 | Done / P2 | 后续按真实反馈评估更细对象创建命令 |
+| Human notes layer | 人工异步笔记可在 ACF 上下文内保存，但不污染 active 默认注意力 | 已实现 | [human/Human_Notes.md](../human/Human_Notes.md); `template/human/`; [reference/System_Manual.md](System_Manual.md); `acf upgrade`; `acf new human-note` | 不支持 weekly/report 创建；符合当前边界 | Done / P2 | standard profile 维护 human 层，minimal 不补；AI 按需读取 |
 | Markdown link traceability | 面向人的导航应可被 Obsidian/GitHub 点击，同时保持 ACF Markdown-first、非 Obsidian 绑定 | 已实现 | `acf linkify`; `acf link add`; `acf check` 本地 Markdown link / image / heading anchor 校验；`archive current-task/task-plan` 移动重写本地链接；`System_Manual.md` | `linkify` 第一版仍不默认修改 archive 详情和 daily worklog；不解析 `[[双链]]`；不做 backlink/index graph | Done / P2 | 默认保守 linkify，后续仅在真实使用需要时评估更强批量范围 |
-| 唯一事实源 | 写入前判断权威位置，索引不替代详情 | 已实现当前 MVP | Workstream 详情 front matter 作为事实源；`acf workstream sync`; `acf knowledge sync`; `acf decisions sync`; `acf archive sync`; [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md); [rules/Always_Active.md](../rules/Always_Active.md) | Archive sync 第一版不恢复旧 Task/Plan 归档原因，只生成 `未记录。` fallback | Done / P2 | 后续仅按真实反馈评估 archive record marker |
+| 唯一事实源 | 写入前判断权威位置，索引不替代详情 | 已实现当前 MVP | Workstream 详情 front matter 作为事实源；`acf workstream sync`; `acf knowledge sync`; `acf decisions sync`; `acf archive sync`; `ACF:ARCHIVE:RECORD`; [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md); [rules/Always_Active.md](../rules/Always_Active.md) | 旧 Task/Plan archive 没有 record marker 时仍只能 fallback；新归档已可恢复 reason | Done / P2 | 后续仅按真实反馈评估更细 archive record 字段 |
 | Task | 主线任务使用 [active/Task_Plan.md](../active/Task_Plan.md) / [active/Current_Task.md](../active/Current_Task.md) | 已实现 | `acf plan`; `acf task`; [tests/test_cli.py](../../../tests/test_cli.py) | 无 | Done | 保持 table-first |
 | Active-reference traceability | active 层必须能追溯当前大任务对齐的 reference 设计、路线或差距文档 | 已实现当前 P2 薄切片 | [active/Task_Plan.md](../active/Task_Plan.md) 的 `## 规划依据`; `acf plan reference list/add/remove`; `task start` 继承有效依据到 [active/Current_Task.md](../active/Current_Task.md); `acf upgrade` 非破坏式补结构 | 未接入 `acf check` 断链门禁；未做更重的 plan init reference wizard | Done / P2 | 后续可评估 `acf plan init --reference`、reference 存在性 warning/check 或批量替换占位符工具 |
 | Task Stage | `T001.4` 必须注册，父任务和 Workstream 引用可检查 | 已实现当前 P2 薄切片 | `acf check` 已接入 Task Stage registry；`acf plan stage list/add/set/done` 维护 [active/Task_Plan.md](../active/Task_Plan.md) 的 `## 任务阶段` 表 | 未做 task object 单文件；未做 [active/Current_Task.md](../active/Current_Task.md) 自动切换，符合顶层边界 | Done / P2 | 后续仅在表格能力不足时再评估更重对象模型 |
@@ -101,7 +101,10 @@ Updated through P2-7 Markdown link traceability and Obsidian-friendly navigation
 14. 统一模板占位符和 canonical ACF marker，兼容旧 marker 并给出 future warning。
 15. `upgrade` 非破坏式结构补齐主路径。
 16. `new reference` / `new rule` / `new feedback` 安全创建常见上下文文件，并维护 Rules_Index / Feedback_Inbox。
-17. context_matrix 和 upgrade_matrix 基础设施。
+17. `feedback list|triage|done|reject|archive-candidates|archive` 维护 Feedback_Inbox 生命周期，单条显式归档到 archive/feedback/YYYY-MM dot md。
+18. `new human-note` 安全写入标准 profile 的 `human/Human_Notes.md` Inbox。
+19. `ACF:ARCHIVE:RECORD` 让新 Task/Plan 归档可被 `archive sync` 恢复原因。
+20. context_matrix 和 upgrade_matrix 基础设施。
 
 ### 部分实现
 
@@ -353,9 +356,8 @@ ACF 继续保持受控实施阶段；audit fixture 矩阵、generated marker 设
 推荐顺序：
 
 1. Knowledge / Decisions / Archive sync 后续只根据真实使用反馈补小边界，不扩大为语义去重。
-2. Archive current-task/task-plan 若未来需要完整恢复归档原因，应单独设计 `ACF:ARCHIVE:RECORD` marker。
-3. Curation draft enhancement，必须基于 P2-5 fixture 和多项目观察。
-4. high-risk audit rules 继续暂缓。
-5. 真实项目继续只读或 dry-run 观察，写入前单独建任务。
+2. Curation draft enhancement，必须基于 P2-5 fixture 和多项目观察。
+3. high-risk audit rules 继续暂缓。
+4. 真实项目继续只读或 dry-run 观察，写入前单独建任务。
 
-当前进度：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、active-reference traceability、generated marker design、marker helper、Knowledge sync MVP、Decisions sync MVP、Archive sync MVP 与 safe context object creation MVP 已完成；下一入口应由真实 dogfooding 反馈决定，除非 human layer 暴露新的通用结构缺口。
+当前进度：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、active-reference traceability、generated marker design、marker helper、Knowledge sync MVP、Decisions sync MVP、Archive sync MVP、Task/Plan archive record marker、Feedback lifecycle、human-note 与 safe context object creation MVP 已完成；下一入口应由真实 dogfooding 反馈决定。

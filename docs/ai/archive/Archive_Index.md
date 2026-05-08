@@ -24,6 +24,7 @@
 | 2026-05-03 | Task | 用户旅程摩擦点整理 | active/Current_Task.md | `archive/tasks/2026-05-03-用户旅程摩擦点整理.md` | Archived | 未记录。 |
 | 2026-05-07 | Plan | EcSOS upgrade rehearsal plan | active/Task_Plan.md | `archive/plans/2026-05-07-ecsos-upgrade-rehearsal-plan.md` | Archived | 未记录。 |
 | 2026-05-07 | Task | Draft EcSOS upgrade rehearsal plan | active/Current_Task.md | `archive/tasks/2026-05-07-draft-ecsos-upgrade-rehearsal-plan.md` | Archived | 未记录。 |
+| 2026-05-08 | Plan | ACF RC hardening for feedback, archive, and human notes | active/Task_Plan.md | `archive/plans/2026-05-08-acf-rc-hardening-for-feedback-archive-and-human-notes.md` | Archived | ACF RC hardening v0.0.3.43 completed and verified. |
 | 2026-05-08 | Plan | Archive Sync MVP | active/Task_Plan.md | `archive/plans/2026-05-08-archive-sync-mvp.md` | Archived | 未记录。 |
 | 2026-05-08 | Plan | Decisions Sync MVP | active/Task_Plan.md | `archive/plans/2026-05-08-decisions-sync-mvp.md` | Archived | 未记录。 |
 | 2026-05-08 | Plan | Feedback Entry CLI | active/Task_Plan.md | `archive/plans/2026-05-08-feedback-entry-cli.md` | Archived | 未记录。 |
@@ -42,6 +43,7 @@
 | 2026-05-08 | Task | Implement new feedback command | active/Current_Task.md | `archive/tasks/2026-05-08-implement-new-feedback-command.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Implement new reference and rule commands | active/Current_Task.md | `archive/tasks/2026-05-08-implement-new-reference-and-rule-commands.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Prepare P2-5 audit fixture slice | active/Current_Task.md | `archive/tasks/2026-05-08-prepare-p2-5-audit-fixture-slice.md` | Archived | 未记录。 |
+| 2026-05-08 | Task | RC hardening verification | active/Current_Task.md | `archive/tasks/2026-05-08-rc-hardening-verification.md` | Archived | ACF RC hardening v0.0.3.43 completed and verified. |
 | 2026-05-08 | Task | Update roadmap and current facts | active/Current_Task.md | `archive/tasks/2026-05-08-update-roadmap-and-current-facts.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Verify and record route calibration | active/Current_Task.md | `archive/tasks/2026-05-08-verify-and-record-route-calibration.md` | Archived | 未记录。 |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->

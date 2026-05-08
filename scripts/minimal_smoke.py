@@ -476,7 +476,90 @@ class SmokeRunner:
                 ]
             )
         )
+        steps.append(self.run_acf(["feedback", "list", str(context), "--status", "Open", "--json"]))
+        steps.append(
+            self.run_acf(
+                [
+                    "feedback",
+                    "triage",
+                    str(context),
+                    "F001",
+                    "--next-action",
+                    "Smoke triage next action.",
+                    "--json",
+                ]
+            )
+        )
+        steps.append(
+            self.run_acf(
+                [
+                    "feedback",
+                    "done",
+                    str(context),
+                    "F001",
+                    "--result",
+                    "Smoke feedback resolved.",
+                    "--evidence",
+                    "minimal_smoke",
+                    "--json",
+                ]
+            )
+        )
+        steps.append(self.run_acf(["feedback", "archive-candidates", str(context), "--json"]))
+        steps.append(
+            self.run_acf(
+                [
+                    "feedback",
+                    "archive",
+                    str(context),
+                    "F001",
+                    "--reason",
+                    "Smoke feedback archived.",
+                    "--date",
+                    "2026-05-08",
+                    "--json",
+                ]
+            )
+        )
         steps.append(self.run_acf(["check", str(context), "--json"]))
+
+    def human_note_standard_happy_path(self, tmp: Path, steps: list[dict[str, Any]]) -> None:
+        context = tmp / "human-note" / "docs" / "ai"
+        steps.append(self.run_acf(["init", str(context), "--profile", "standard", "--json"]))
+        steps.append(
+            self.run_acf(
+                [
+                    "new",
+                    "human-note",
+                    str(context),
+                    "--type",
+                    "想法",
+                    "--content",
+                    "Smoke human note.",
+                    "--related",
+                    "reference/System_Manual.md",
+                    "--json",
+                ]
+            )
+        )
+        missing_context = tmp / "human-note-minimal" / "docs" / "ai"
+        steps.append(self.run_acf(["init", str(missing_context), "--profile", "minimal", "--json"]))
+        steps.append(
+            self.run_acf(
+                [
+                    "new",
+                    "human-note",
+                    str(missing_context),
+                    "--type",
+                    "想法",
+                    "--content",
+                    "Should refuse.",
+                    "--json",
+                ],
+                expect_exit=2,
+                expect_error_code="human_notes_missing",
+            )
+        )
 
     def run(self) -> dict[str, Any]:
         self.scenario("init -> nested status/check", self.init_status_check)
@@ -485,6 +568,7 @@ class SmokeRunner:
         self.scenario("task stage minimal happy path", self.task_stage_minimal_happy_path)
         self.scenario("plan reference minimal happy path", self.plan_reference_minimal_happy_path)
         self.scenario("new object minimal happy path", self.new_object_minimal_happy_path)
+        self.scenario("human note standard happy path", self.human_note_standard_happy_path)
         ok = all(scenario["ok"] for scenario in self.scenarios)
         return {
             "schema_version": 1,

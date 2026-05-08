@@ -106,7 +106,8 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 3. 长期 reference 文档用 `uv run acf new reference docs/ai --title "..." --summary "..." --body "..." --json`；可用 `--file reference/X.md` 指定路径，命令拒绝写到 context 外或 `reference/knowledge/` 托管目录。
 4. 按需规则文件用 `uv run acf new rule docs/ai --title "..." --condition "..." --purpose "..." --rule "..." --json`；命令会写 `rules/*.md` 并维护 `rules/Rules_Index.md`。
 5. 待整理反馈用 `uv run acf new feedback docs/ai --type "..." --content "..." --source "YYYY-MM-DD user" --json`；命令只写 Feedback_Inbox，不把反馈直接升格为事实。
-6. 重要决策仍使用 `uv run acf new adr docs/ai --title "..." --summary "..." --decision "..." --json`；可复用经验仍先走 `knowledge draft/apply`。
+6. 人工异步笔记用 `uv run acf new human-note docs/ai --type "..." --content "..." --json`；命令只写 `human/Human_Notes.md`，不进入 active 默认注意力。
+7. 重要决策仍使用 `uv run acf new adr docs/ai --title "..." --summary "..." --decision "..." --json`；可复用经验仍先走 `knowledge draft/apply`。
 
 ### AI 调用 worklog 模式
 
@@ -133,6 +134,7 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 7. 历史过程进入 worklog。
 8. 可复用经验进入 Knowledge 草案流程。
 9. Done/Rejected 条目必须保留证据位置或拒绝原因；超过 10 条，或完成超过 30 天且不再支撑当前计划时，整理到 `archive/feedback/`。
+10. Feedback 生命周期优先使用 `uv run acf feedback list|triage|done|reject|archive-candidates|archive docs/ai ... --json`；这些命令只维护状态、处理结果和单条显式归档，不自动转写事实源。
 
 ## 人工笔记与 Obsidian
 
@@ -150,7 +152,7 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 4. `acf check` 会校验本地 Markdown 链接和图片链接的目标文件是否存在；对 `.md#anchor` 会校验目标标题 anchor。`http://`、`https://` 和其他 URI scheme 不做本地校验。
 5. `acf linkify [target] --format markdown` 可把安全识别到的本地路径引用转换为 Markdown 链接；默认只处理 active、reference、rules、decisions、Worklog_Index 和 Archive_Index。
 6. `acf link add [target] <file> --heading "## 输入材料" --target reference/X.md` 可向指定小节追加确定性链接 bullet，不做语义判断、不自动猜 section。
-7. `acf archive current-task|task-plan` 归档移动当前任务或计划时，会按归档文件的新位置重写已有本地 Markdown 相对链接；URL、URI、缺失目标和代码块内链接保持原样。
+7. `acf archive current-task|task-plan` 归档移动当前任务或计划时，会按归档文件的新位置重写已有本地 Markdown 相对链接，并追加 `ACF:ARCHIVE:RECORD` marker 供 `archive sync` 恢复归档原因；URL、URI、缺失目标和代码块内链接保持原样。
 
 ## 注意力治理
 
@@ -185,4 +187,4 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 3. 补充或更新 init/upgrade 单元测试，覆盖新项目生成和旧项目 dry-run/正式 upgrade。
 4. 验证 `uv run acf check template`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf check docs/ai --strict --json`、`uv run python -m unittest` 和 upgrade compatibility quick/full 模式。
 
-ACF 维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START -->` 与对应 `END` marker，例如 `ACF:UPGRADE:NOTES`、`ACF:WORKSTREAM:ARCHIVE-RECORD`、`ACF:KNOWLEDGE:INDEX-GENERATED`、`ACF:DECISIONS:INDEX-GENERATED` 和 `ACF:ARCHIVE:INDEX-GENERATED`；旧 marker 保持兼容，但 `check` 会给出 future warning。`acf knowledge sync`、`acf decisions sync` 和 `acf archive sync` 只重算对应 generated marker 内表格，旧索引首次接入需显式 `--init-marker`。模板占位符统一使用 ACF-keyed placeholder form，表格单元格内使用无提示形式，避免 `|` 破坏 Markdown 表格。
+ACF 维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START -->` 与对应 `END` marker，例如 `ACF:UPGRADE:NOTES`、`ACF:ARCHIVE:RECORD`、`ACF:WORKSTREAM:ARCHIVE-RECORD`、`ACF:KNOWLEDGE:INDEX-GENERATED`、`ACF:DECISIONS:INDEX-GENERATED` 和 `ACF:ARCHIVE:INDEX-GENERATED`；旧 marker 保持兼容，但 `check` 会给出 future warning。`acf knowledge sync`、`acf decisions sync` 和 `acf archive sync` 只重算对应 generated marker 内表格，旧索引首次接入需显式 `--init-marker`。模板占位符统一使用 ACF-keyed placeholder form，表格单元格内使用无提示形式，避免 `|` 破坏 Markdown 表格。

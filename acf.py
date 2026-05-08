@@ -22,7 +22,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.42"
+VERSION = "v0.0.3.43"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -148,6 +148,7 @@ VALID_DECISION_STATUSES = {"Active", "Proposed", "Superseded", "Rejected", "Depr
 VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Rejected"}
 VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
 VALID_FEEDBACK_STATUSES = {"Open", "Triaged", "Planned", "Done", "Rejected"}
+VALID_HUMAN_NOTE_STATUSES = {"Open", "Triaged", "Done", "Rejected"}
 VALID_WORKSTREAM_STATUSES = {"Open", "Active", "Blocked", "ReadyToMerge", "Done", "Cancelled"}
 VALID_WORKSTREAM_STAGE_STATUSES = {"Pending", "Active", "Blocked", "Done", "Skipped", "Cancelled"}
 VALID_MERGE_RESOLUTIONS = {"merged", "rejected", "no_merge_required", "archived"}
@@ -216,6 +217,7 @@ RULES_INDEX_TABLE_HEADER = "| 文件 | 读取条件 | 作用 |"
 TASK_TABLE_HEADER = "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |"
 TASK_STAGE_TABLE_HEADER = "| ID | 状态 | 父任务 | 名称 | 归属 Workstream | 依赖 | 输出物 | 证据 | 下一步 |"
 FEEDBACK_TABLE_HEADER = "| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |"
+HUMAN_NOTE_TABLE_HEADER = "| ID | 状态 | 类型 | 内容 | 关联位置 | AI 处理建议 | 证据 |"
 KNOWLEDGE_TABLE_HEADER = "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |"
 ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |"
 LEGACY_ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | 标题 | 原因 | 详情 |"
@@ -231,6 +233,8 @@ DECISIONS_INDEX_MARKER_START = "<!-- ACF:DECISIONS:INDEX-GENERATED:START -->"
 DECISIONS_INDEX_MARKER_END = "<!-- ACF:DECISIONS:INDEX-GENERATED:END -->"
 ARCHIVE_INDEX_MARKER_START = "<!-- ACF:ARCHIVE:INDEX-GENERATED:START -->"
 ARCHIVE_INDEX_MARKER_END = "<!-- ACF:ARCHIVE:INDEX-GENERATED:END -->"
+ARCHIVE_RECORD_MARKER_START = "<!-- ACF:ARCHIVE:RECORD:START -->"
+ARCHIVE_RECORD_MARKER_END = "<!-- ACF:ARCHIVE:RECORD:END -->"
 WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:START -->"
 WORKSTREAM_ARCHIVE_MARKER_END = "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:END -->"
 LEGACY_WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM-ARCHIVE:START -->"
@@ -1001,6 +1005,12 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Review the existing archive target and choose a different manual recovery path before retrying."]
     if error_code == "workstream_archive_duplicate_index":
         return ["Fix duplicate rows in active/Workstreams.md before archiving."]
+    if error_code == "feedback_not_found":
+        return ["Run `acf feedback list --json` and choose an existing feedback ID."]
+    if error_code == "feedback_archive_blocked":
+        return ["Mark the feedback Done or Rejected before archiving it."]
+    if error_code == "human_notes_missing":
+        return ["Use a standard context with human/ enabled, run upgrade if appropriate, or use `acf new feedback`."]
     if error_code == "task_stage_duplicate_id":
         return ["Choose an unused Task Stage ID in active/Task_Plan.md."]
     if error_code == "task_stage_scope_invalid":
@@ -1082,7 +1092,12 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "generated_marker_unclosed",
         "sync_source_invalid",
     )
-    for code in (*workstream_codes, *task_stage_codes, *generated_marker_codes):
+    feedback_codes = (
+        "feedback_not_found",
+        "feedback_archive_blocked",
+        "human_notes_missing",
+    )
+    for code in (*workstream_codes, *task_stage_codes, *generated_marker_codes, *feedback_codes):
         if message.startswith(f"{code}:"):
             return code, EXIT_INPUT_ERROR
     if message.startswith("curation_draft_exists:"):
@@ -3187,6 +3202,15 @@ def next_feedback_id(rows: Sequence[dict[str, str]]) -> str:
     return f"F{(max(numbers) + 1) if numbers else 1:03d}"
 
 
+def next_human_note_id(rows: Sequence[dict[str, str]]) -> str:
+    numbers: list[int] = []
+    for row in rows:
+        match = re.match(r"^H(\d{3})$", row.get("ID", ""))
+        if match:
+            numbers.append(int(match.group(1)))
+    return f"H{(max(numbers) + 1) if numbers else 1:03d}"
+
+
 def feedback_index_row(
     feedback_id: str,
     status: str,
@@ -3196,6 +3220,41 @@ def feedback_index_row(
     next_action: str,
 ) -> str:
     return render_table_row([feedback_id, status, feedback_type, content, source, next_action])
+
+
+def human_note_row(
+    note_id: str,
+    status: str,
+    note_type: str,
+    content: str,
+    related: str,
+    suggestion: str,
+    evidence: str,
+) -> str:
+    return render_table_row([note_id, status, note_type, content, related, suggestion, evidence])
+
+
+def replace_table_rows(
+    text: str,
+    header: str,
+    rows: Sequence[str],
+) -> str:
+    lines = text.splitlines()
+    table = find_table(lines, header)
+    updated = lines[: table.body_start] + list(rows) + lines[table.body_end :]
+    return "\n".join(updated).rstrip() + "\n"
+
+
+def read_table_rows_by_header(path: Path, header: str) -> list[dict[str, str]]:
+    text = read_text(path)
+    table = find_table(text.splitlines(), header)
+    rows: list[dict[str, str]] = []
+    for line in text.splitlines()[table.body_start : table.body_end]:
+        cells = split_table_line(line)
+        if len(cells) < len(table.headers) or cells[0] == "暂无":
+            continue
+        rows.append(dict(zip(table.headers, cells)))
+    return rows
 
 
 def upsert_feedback_inbox(
@@ -3232,6 +3291,148 @@ def upsert_feedback_inbox(
     changed = updated_text != text
     if changed and not dry_run:
         inbox_path.write_text(updated_text, encoding="utf-8")
+    return changed
+
+
+def feedback_inbox_path(root: Path) -> Path:
+    return root / "active" / "Feedback_Inbox.md"
+
+
+def human_notes_path(root: Path) -> Path:
+    return root / "human" / "Human_Notes.md"
+
+
+def feedback_archive_path(root: Path, archive_date: date) -> Path:
+    return root / "archive" / "feedback" / f"{archive_date.strftime('%Y-%m')}.md"
+
+
+def find_feedback_row(rows: Sequence[dict[str, str]], feedback_id: str) -> dict[str, str] | None:
+    return next((row for row in rows if row.get("ID") == feedback_id), None)
+
+
+def validate_feedback_id(value: str) -> str:
+    if not re.match(r"^F\d{3}$", value):
+        raise argparse.ArgumentTypeError(f"invalid feedback id `{value}`, expected FNNN")
+    return value
+
+
+def validate_human_note_id(value: str) -> str:
+    if not re.match(r"^H\d{3}$", value):
+        raise argparse.ArgumentTypeError(f"invalid human note id `{value}`, expected HNNN")
+    return value
+
+
+def feedback_row_to_payload(row: dict[str, str]) -> dict[str, str]:
+    return {
+        "id": row.get("ID", ""),
+        "status": row.get("状态", ""),
+        "type": row.get("类型", ""),
+        "content": row.get("内容", ""),
+        "source": row.get("来源", ""),
+        "next_action": row.get("后续处理", ""),
+    }
+
+
+def feedback_row_from_payload(row: dict[str, str]) -> str:
+    return feedback_index_row(
+        row.get("ID", ""),
+        row.get("状态", ""),
+        row.get("类型", ""),
+        row.get("内容", ""),
+        row.get("来源", ""),
+        row.get("后续处理", ""),
+    )
+
+
+def update_feedback_row(
+    inbox_path: Path,
+    feedback_id: str,
+    updates: dict[str, str],
+    dry_run: bool,
+) -> tuple[bool, dict[str, str]]:
+    if not inbox_path.exists():
+        raise SystemExit(f"feedback inbox does not exist: {inbox_path}")
+    text = read_text(inbox_path)
+    rows = read_feedback_rows(inbox_path)
+    target = find_feedback_row(rows, feedback_id)
+    if target is None:
+        raise SystemExit(f"feedback_not_found: {feedback_id}")
+    target.update(updates)
+    rendered_rows = [feedback_row_from_payload(row) for row in rows]
+    updated_text = replace_table_rows(text, FEEDBACK_TABLE_HEADER, rendered_rows)
+    changed = updated_text != text
+    if changed and not dry_run:
+        inbox_path.write_text(updated_text, encoding="utf-8")
+    return changed, target
+
+
+def remove_feedback_row(
+    inbox_path: Path,
+    feedback_id: str,
+    dry_run: bool,
+) -> tuple[bool, dict[str, str]]:
+    if not inbox_path.exists():
+        raise SystemExit(f"feedback inbox does not exist: {inbox_path}")
+    text = read_text(inbox_path)
+    rows = read_feedback_rows(inbox_path)
+    target = find_feedback_row(rows, feedback_id)
+    if target is None:
+        raise SystemExit(f"feedback_not_found: {feedback_id}")
+    remaining = [row for row in rows if row.get("ID") != feedback_id]
+    rendered_rows = [feedback_row_from_payload(row) for row in remaining] or ["| 暂无 |  |  |  |  |  |"]
+    updated_text = replace_table_rows(text, FEEDBACK_TABLE_HEADER, rendered_rows)
+    changed = updated_text != text
+    if changed and not dry_run:
+        inbox_path.write_text(updated_text, encoding="utf-8")
+    return changed, target
+
+
+def render_feedback_archive(archive_month: str) -> str:
+    return f"""# Feedback Archive {archive_month}
+
+本文件保存已从 active/Feedback_Inbox.md 移出的反馈条目。归档条目是历史记录，不是当前事实源。
+
+| 归档日期 | ID | 状态 | 类型 | 内容 | 来源 | 处理结果 | 归档原因 |
+|---|---|---|---|---|---|---|---|
+| 暂无 |  |  |  |  |  |  |  |
+"""
+
+
+def append_feedback_archive_row(
+    archive_path: Path,
+    archive_date: date,
+    row: dict[str, str],
+    reason: str,
+    dry_run: bool,
+) -> bool:
+    text = read_text(archive_path) if archive_path.exists() else render_feedback_archive(archive_path.stem)
+    lines = text.splitlines()
+    header = "| 归档日期 | ID | 状态 | 类型 | 内容 | 来源 | 处理结果 | 归档原因 |"
+    table = find_table(lines, header)
+    existing_rows = [
+        line
+        for line in lines[table.body_start : table.body_end]
+        if row_date(line) not in {"暂无", archive_date.isoformat()} or split_table_line(line)[1:2] != [row.get("ID", "")]
+    ]
+    new_row = render_table_row(
+        [
+            archive_date.isoformat(),
+            row.get("ID", ""),
+            row.get("状态", ""),
+            row.get("类型", ""),
+            row.get("内容", ""),
+            row.get("来源", ""),
+            row.get("后续处理", ""),
+            reason,
+        ]
+    )
+    rendered_rows = existing_rows + [new_row]
+    updated = lines[: table.body_start] + rendered_rows + lines[table.body_end :]
+    updated_text = "\n".join(updated).rstrip() + "\n"
+    changed = updated_text != text
+    if changed and not dry_run:
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        archive_path.write_text(updated_text, encoding="utf-8")
     return changed
 
 
@@ -3607,7 +3808,7 @@ def new_feedback_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
 
-    inbox_path = root / "active" / "Feedback_Inbox.md"
+    inbox_path = feedback_inbox_path(root)
     if not inbox_path.exists():
         raise SystemExit(f"feedback inbox does not exist: {inbox_path}")
 
@@ -3647,6 +3848,228 @@ def new_feedback_command(args: argparse.Namespace) -> int:
         changed_files,
         check_result,
         extra_payload={"id": feedback_id},
+    )
+
+
+def new_human_note_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+
+    note_path = human_notes_path(root)
+    if not note_path.exists():
+        raise SystemExit("human_notes_missing: human/Human_Notes.md does not exist; use a standard context or `acf new feedback`")
+
+    existing_rows = read_table_rows_by_header(note_path, HUMAN_NOTE_TABLE_HEADER)
+    note_id = (args.id or next_human_note_id(existing_rows)).strip()
+    if not re.match(r"^H\d{3}$", note_id):
+        raise SystemExit("human note id must use HNNN format, for example H001")
+    note_type = args.type.strip()
+    content = args.content.strip()
+    related = args.related.strip() if args.related else "无。"
+    suggestion = args.suggestion.strip() if args.suggestion else "AI 看到后先判断是否需要整理到 active、ADR、Knowledge 或 worklog。"
+    evidence = args.evidence.strip() if args.evidence else "未整理。"
+    if not note_type:
+        raise SystemExit("human note type cannot be empty")
+    if not content:
+        raise SystemExit("human note content cannot be empty")
+
+    text = read_text(note_path)
+    lines = text.splitlines()
+    table = find_table(lines, HUMAN_NOTE_TABLE_HEADER)
+    existing_lines = lines[table.body_start : table.body_end]
+    if any(row_date(row) == note_id for row in existing_lines) and not args.force:
+        raise SystemExit(f"human notes already contains id: {note_id}")
+    new_row = human_note_row(note_id, args.status, note_type, content, related, suggestion, evidence)
+    kept_rows = [row for row in existing_lines if row_date(row) not in {note_id, "暂无"} and row.strip()]
+    rows = kept_rows + [new_row]
+    rows.sort(key=row_date)
+    updated_text = replace_table_rows(text, HUMAN_NOTE_TABLE_HEADER, rows)
+    changed = updated_text != text
+    if changed and not dry_run:
+        note_path.write_text(updated_text, encoding="utf-8")
+    changed_files = [note_path] if changed or dry_run else []
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(
+        args,
+        "new human-note",
+        f"{action} human note {note_id}",
+        changed_files,
+        check_result,
+        extra_payload={"id": note_id},
+    )
+
+
+def feedback_list_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    inbox_path = feedback_inbox_path(root)
+    rows = read_feedback_rows(inbox_path)
+    if args.status:
+        rows = [row for row in rows if row.get("状态") == args.status]
+    items = [feedback_row_to_payload(row) for row in rows]
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": "feedback list",
+        "ok": True,
+        "context": str(root),
+        "changed_files": [],
+        "items": items,
+        "summary": {
+            "total": len(items),
+            "by_status": count_by_key(items, "status"),
+        },
+        "error_code": None,
+        "next_actions": ["No feedback items matched."] if not items else [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        if not items:
+            print("no feedback items")
+        for item in items:
+            print(f"{item['id']}\t{item['status']}\t{item['type']}\t{item['content']}")
+    return 0
+
+
+def feedback_archive_candidates_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    rows = read_feedback_rows(feedback_inbox_path(root))
+    candidates = [feedback_row_to_payload(row) for row in rows if row.get("状态") in {"Done", "Rejected"}]
+    blocked = [feedback_row_to_payload(row) for row in rows if row.get("状态") not in {"Done", "Rejected"}]
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": "feedback archive-candidates",
+        "ok": True,
+        "context": str(root),
+        "changed_files": [],
+        "candidates": candidates,
+        "blocked": blocked,
+        "summary": {
+            "candidate_total": len(candidates),
+            "blocked_total": len(blocked),
+            "by_status": count_by_key([*candidates, *blocked], "status"),
+        },
+        "error_code": None,
+        "next_actions": ["Archive candidates with `acf feedback archive <ID> --reason ...`."] if candidates else [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        if not candidates:
+            print("no feedback archive candidates")
+        for item in candidates:
+            print(f"{item['id']}\t{item['status']}\t{item['content']}")
+    return 0
+
+
+def feedback_triage_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    next_action = args.next_action.strip()
+    if not next_action:
+        raise SystemExit("feedback triage requires non-empty --next-action")
+    evidence = args.evidence.strip() if args.evidence else ""
+    updates = {"状态": "Triaged", "后续处理": next_action if not evidence else f"{next_action} 证据：{evidence}"}
+    changed, row = update_feedback_row(feedback_inbox_path(root), args.id, updates, dry_run)
+    changed_files = [feedback_inbox_path(root)] if changed or dry_run else []
+    check_result = maybe_check_after(args, root)
+    action = "would triage" if dry_run else "triaged"
+    return emit_write_result(
+        args,
+        "feedback triage",
+        f"{action} feedback {args.id}",
+        changed_files,
+        check_result,
+        extra_payload={"id": args.id, "item": feedback_row_to_payload(row)},
+    )
+
+
+def feedback_done_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    result = args.result.strip()
+    evidence = args.evidence.strip()
+    if not result:
+        raise SystemExit("feedback done requires non-empty --result")
+    if not evidence:
+        raise SystemExit("feedback done requires non-empty --evidence")
+    updates = {"状态": "Done", "后续处理": f"{result} 证据：{evidence}"}
+    changed, row = update_feedback_row(feedback_inbox_path(root), args.id, updates, dry_run)
+    changed_files = [feedback_inbox_path(root)] if changed or dry_run else []
+    check_result = maybe_check_after(args, root)
+    action = "would mark done" if dry_run else "marked done"
+    return emit_write_result(
+        args,
+        "feedback done",
+        f"{action} feedback {args.id}",
+        changed_files,
+        check_result,
+        extra_payload={"id": args.id, "item": feedback_row_to_payload(row)},
+    )
+
+
+def feedback_reject_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    reason = args.reason.strip()
+    if not reason:
+        raise SystemExit("feedback reject requires non-empty --reason")
+    updates = {"状态": "Rejected", "后续处理": f"Rejected：{reason}"}
+    changed, row = update_feedback_row(feedback_inbox_path(root), args.id, updates, dry_run)
+    changed_files = [feedback_inbox_path(root)] if changed or dry_run else []
+    check_result = maybe_check_after(args, root)
+    action = "would reject" if dry_run else "rejected"
+    return emit_write_result(
+        args,
+        "feedback reject",
+        f"{action} feedback {args.id}",
+        changed_files,
+        check_result,
+        extra_payload={"id": args.id, "item": feedback_row_to_payload(row)},
+    )
+
+
+def feedback_archive_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    archive_date = date.fromisoformat(args.date) if args.date else date.today()
+    reason = args.reason.strip()
+    if not reason:
+        raise SystemExit("feedback archive requires non-empty --reason")
+    inbox_path = feedback_inbox_path(root)
+    rows = read_feedback_rows(inbox_path)
+    row = find_feedback_row(rows, args.id)
+    if row is None:
+        raise SystemExit(f"feedback_not_found: {args.id}")
+    if row.get("状态") not in {"Done", "Rejected"}:
+        raise SystemExit(f"feedback_archive_blocked: {args.id} status is {row.get('状态', 'Unknown')}")
+    archive_path = feedback_archive_path(root, archive_date)
+    if archive_path.exists():
+        archive_rows = parse_markdown_table_rows(read_text(archive_path))
+        if any(len(cells) >= 2 and cells[1] == args.id for cells in archive_rows):
+            raise SystemExit(f"feedback archive already contains id: {args.id}")
+    inbox_changed, removed = remove_feedback_row(inbox_path, args.id, dry_run)
+    archive_changed = append_feedback_archive_row(archive_path, archive_date, removed, reason, dry_run)
+    changed_files = []
+    if inbox_changed or dry_run:
+        changed_files.append(inbox_path)
+    if archive_changed or dry_run:
+        changed_files.append(archive_path)
+    check_result = maybe_check_after(args, root)
+    action = "would archive" if dry_run else "archived"
+    return emit_write_result(
+        args,
+        "feedback archive",
+        f"{action} feedback {args.id}",
+        changed_files,
+        check_result,
+        extra_payload={
+            "id": args.id,
+            "archive_path": archive_path.relative_to(root).as_posix(),
+            "item": feedback_row_to_payload(removed),
+        },
     )
 
 
@@ -6390,6 +6813,43 @@ def archive_title_fallback(path: Path) -> str:
     return match.group(2) if match else path.stem
 
 
+def archive_record_marker(
+    archive_date: str,
+    item_type: str,
+    item_id: str,
+    source_rel: str,
+    archive_rel: str,
+    status: str,
+    reason: str,
+) -> str:
+    return f"""{ARCHIVE_RECORD_MARKER_START}
+- archived_at: {archive_date}
+- item_type: {item_type}
+- item_id: {item_id}
+- source_path: {source_rel}
+- archive_path: `{archive_rel}`
+- status: {status}
+- archive_reason: {reason}
+{ARCHIVE_RECORD_MARKER_END}
+"""
+
+
+def marker_fields(text: str, start_marker: str, end_marker: str) -> dict[str, str] | None:
+    if start_marker not in text or end_marker not in text:
+        return None
+    start = text.find(start_marker)
+    end = text.find(end_marker, start + len(start_marker))
+    if end < 0:
+        return None
+    body = text[start + len(start_marker) : end]
+    fields: dict[str, str] = {}
+    for line in body.splitlines():
+        match = re.match(r"^-\s+([A-Za-z_]+):\s*(.+?)\s*$", line.strip())
+        if match:
+            fields[match.group(1)] = strip_code_ticks(match.group(2))
+    return fields
+
+
 def render_archive_index_table(rows: Sequence[dict[str, str]]) -> str:
     lines = [ARCHIVE_TABLE_HEADER, "|---|---|---|---|---|---|---|"]
     if rows:
@@ -6425,39 +6885,33 @@ def collect_task_plan_archive_rows(root: Path) -> tuple[list[dict[str, str]], li
             continue
         for path in sorted(directory.glob("*.md")):
             rel = path.relative_to(root).as_posix()
-            archive_date = archive_date_from_file_name(path)
-            if archive_date is None:
+            text = read_text(path)
+            marker = marker_fields(text, ARCHIVE_RECORD_MARKER_START, ARCHIVE_RECORD_MARKER_END)
+            archive_date = marker.get("archived_at", "") if marker else archive_date_from_file_name(path)
+            if not archive_date or not DATE_RE.match(archive_date):
                 skipped.append({"path": rel, "reason": "archive date not recoverable"})
                 continue
+            item_id = marker.get("item_id", "") if marker else ""
+            status = marker.get("status", "") if marker else ""
+            reason = marker.get("archive_reason", "") if marker else ""
             rows.append(
                 {
                     "date": archive_date,
-                    "type": item_type,
-                    "id": extract_heading_value(path, title_heading) or archive_title_fallback(path),
-                    "source_path": source_path,
-                    "archive_path": rel,
-                    "status": "Archived",
-                    "reason": "未记录。",
+                    "type": marker.get("item_type", item_type) if marker else item_type,
+                    "id": item_id or extract_heading_value(path, title_heading) or archive_title_fallback(path),
+                    "source_path": marker.get("source_path", source_path) if marker else source_path,
+                    "archive_path": marker.get("archive_path", rel) if marker else rel,
+                    "status": status or "Archived",
+                    "reason": reason or "未记录。",
                 }
             )
-            fallback_reason_count += 1
+            if marker is None or not reason:
+                fallback_reason_count += 1
     return rows, skipped, fallback_reason_count
 
 
 def workstream_archive_marker_fields(text: str) -> dict[str, str] | None:
-    if WORKSTREAM_ARCHIVE_MARKER_START not in text or WORKSTREAM_ARCHIVE_MARKER_END not in text:
-        return None
-    start = text.find(WORKSTREAM_ARCHIVE_MARKER_START)
-    end = text.find(WORKSTREAM_ARCHIVE_MARKER_END, start + len(WORKSTREAM_ARCHIVE_MARKER_START))
-    if end < 0:
-        return None
-    body = text[start + len(WORKSTREAM_ARCHIVE_MARKER_START) : end]
-    fields: dict[str, str] = {}
-    for line in body.splitlines():
-        match = re.match(r"^-\s+([A-Za-z_]+):\s*(.+?)\s*$", line.strip())
-        if match:
-            fields[match.group(1)] = strip_code_ticks(match.group(2))
-    return fields
+    return marker_fields(text, WORKSTREAM_ARCHIVE_MARKER_START, WORKSTREAM_ARCHIVE_MARKER_END)
 
 
 def collect_workstream_archive_rows(root: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
@@ -6594,6 +7048,21 @@ def archive_file(root: Path, source: Path, kind: str, reason: str, force: bool, 
         return changed
     destination.parent.mkdir(parents=True, exist_ok=True)
     archived_text, _rewritten_links = rewrite_local_markdown_links_for_move(root, source, destination, read_text(source))
+    archive_rel = destination.relative_to(root).as_posix()
+    source_rel = source.relative_to(root).as_posix()
+    archived_text = (
+        archived_text.rstrip()
+        + "\n\n---\n\n"
+        + archive_record_marker(
+            archive_date,
+            kind,
+            title,
+            source_rel,
+            archive_rel,
+            "Archived",
+            reason.strip() or "归档旧内容。",
+        )
+    )
     destination.write_text(archived_text, encoding="utf-8")
     index_path.parent.mkdir(parents=True, exist_ok=True)
     if not index_path.exists():
@@ -6604,7 +7073,7 @@ def archive_file(root: Path, source: Path, kind: str, reason: str, force: bool, 
         kind,
         title,
         reason.strip() or "归档旧内容。",
-        destination.relative_to(root).as_posix(),
+        archive_rel,
     )
     if kind == "Task":
         source.write_text(render_empty_current_task(), encoding="utf-8")
@@ -11666,6 +12135,51 @@ def build_parser() -> argparse.ArgumentParser:
     add_write_arguments(knowledge_sync_parser)
     knowledge_sync_parser.set_defaults(func=knowledge_sync_command)
 
+    feedback_parser = subparsers.add_parser("feedback", help="manage active/Feedback_Inbox.md lifecycle")
+    feedback_subparsers = feedback_parser.add_subparsers(dest="feedback_command", required=True)
+
+    feedback_list_parser = feedback_subparsers.add_parser("list", help="list feedback inbox rows")
+    feedback_list_parser.add_argument("path", nargs="?", type=Path)
+    feedback_list_parser.add_argument("--status", choices=tuple(sorted(VALID_FEEDBACK_STATUSES)), default=None)
+    add_json_argument(feedback_list_parser)
+    feedback_list_parser.set_defaults(func=feedback_list_command)
+
+    feedback_candidates_parser = feedback_subparsers.add_parser("archive-candidates", help="list feedback rows ready for explicit archive")
+    feedback_candidates_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(feedback_candidates_parser)
+    feedback_candidates_parser.set_defaults(func=feedback_archive_candidates_command)
+
+    feedback_triage_parser = feedback_subparsers.add_parser("triage", help="mark feedback Triaged and update next action")
+    feedback_triage_parser.add_argument("path", nargs="?", type=Path)
+    feedback_triage_parser.add_argument("id", type=validate_feedback_id)
+    feedback_triage_parser.add_argument("--next-action", required=True, help="deterministic next handling step")
+    feedback_triage_parser.add_argument("--evidence", default="", help="optional evidence or destination reference")
+    add_write_arguments(feedback_triage_parser)
+    feedback_triage_parser.set_defaults(func=feedback_triage_command)
+
+    feedback_done_parser = feedback_subparsers.add_parser("done", help="mark feedback Done")
+    feedback_done_parser.add_argument("path", nargs="?", type=Path)
+    feedback_done_parser.add_argument("id", type=validate_feedback_id)
+    feedback_done_parser.add_argument("--result", required=True, help="handling result")
+    feedback_done_parser.add_argument("--evidence", required=True, help="evidence or destination reference")
+    add_write_arguments(feedback_done_parser)
+    feedback_done_parser.set_defaults(func=feedback_done_command)
+
+    feedback_reject_parser = feedback_subparsers.add_parser("reject", help="mark feedback Rejected")
+    feedback_reject_parser.add_argument("path", nargs="?", type=Path)
+    feedback_reject_parser.add_argument("id", type=validate_feedback_id)
+    feedback_reject_parser.add_argument("--reason", required=True, help="rejection reason")
+    add_write_arguments(feedback_reject_parser)
+    feedback_reject_parser.set_defaults(func=feedback_reject_command)
+
+    feedback_archive_parser = feedback_subparsers.add_parser("archive", help="archive one Done or Rejected feedback row")
+    feedback_archive_parser.add_argument("path", nargs="?", type=Path)
+    feedback_archive_parser.add_argument("id", type=validate_feedback_id)
+    feedback_archive_parser.add_argument("--reason", required=True, help="archive reason or destination evidence")
+    feedback_archive_parser.add_argument("--date", type=validate_date, default=None, help="archive date in YYYY-MM-DD; defaults to today")
+    add_write_arguments(feedback_archive_parser)
+    feedback_archive_parser.set_defaults(func=feedback_archive_command)
+
     review_parser = subparsers.add_parser("review", help="run read-only context review checks")
     review_subparsers = review_parser.add_subparsers(dest="review_command", required=True)
 
@@ -11789,6 +12303,19 @@ def build_parser() -> argparse.ArgumentParser:
     feedback_parser.add_argument("--force", action="store_true", help="replace an existing feedback row with the same id")
     add_write_arguments(feedback_parser)
     feedback_parser.set_defaults(func=new_feedback_command)
+
+    human_note_parser = new_subparsers.add_parser("human-note", help="add a row to human/Human_Notes.md")
+    human_note_parser.add_argument("path", nargs="?", type=Path)
+    human_note_parser.add_argument("--id", type=validate_human_note_id, default=None, help="human note id in H001 format; defaults to next id")
+    human_note_parser.add_argument("--status", choices=tuple(sorted(VALID_HUMAN_NOTE_STATUSES)), default="Open")
+    human_note_parser.add_argument("--type", required=True, help="human note type, for example 想法, 疑问, 计划")
+    human_note_parser.add_argument("--content", required=True, help="human note content summary")
+    human_note_parser.add_argument("--related", default="", help="related path or topic")
+    human_note_parser.add_argument("--suggestion", default="", help="AI handling suggestion")
+    human_note_parser.add_argument("--evidence", default="", help="optional evidence")
+    human_note_parser.add_argument("--force", action="store_true", help="replace an existing human note row with the same id")
+    add_write_arguments(human_note_parser)
+    human_note_parser.set_defaults(func=new_human_note_command)
 
     writeback_parser = subparsers.add_parser("writeback", help="create reviewable writeback drafts")
     writeback_subparsers = writeback_parser.add_subparsers(dest="writeback_command", required=True)

@@ -355,9 +355,10 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf linkify [target] --format markdown --dry-run --json`：把默认范围内安全识别到的本地路径引用转换为可点击 Markdown 链接；默认跳过 archive 详情和 daily worklog，可用 `--include-archive` / `--include-worklog-daily` 显式扩大范围，缺失目标默认跳过并报告，可用 `--allow-missing` 显式允许。
 - `acf link add [target] <file> --heading "## 输入材料" --target reference/X.md --json`：向上下文内指定 Markdown 文件的小节追加链接 bullet；`--target-heading` 会生成并校验 Markdown heading anchor，重复链接默认拒绝，`--force` 才允许重复。
 - `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
-- `acf archive current-task|task-plan|list|sync [target]`：归档旧当前任务或旧大任务计划，并维护归档索引；归档 current task / task plan 时会按归档文件的新位置重写本地 Markdown 相对链接；`sync` 从 `archive/tasks`、`archive/plans` 和 `archive/workstreams` 重算 `ACF:ARCHIVE:INDEX-GENERATED` marker block，旧索引首次接入时需显式 `--init-marker`。
+- `acf archive current-task|task-plan|list|sync [target]`：归档旧当前任务或旧大任务计划，并维护归档索引；归档 current task / task plan 时会按归档文件的新位置重写本地 Markdown 相对链接，并追加 `ACF:ARCHIVE:RECORD` marker；`sync` 从 `archive/tasks`、`archive/plans` 和 `archive/workstreams` 重算 `ACF:ARCHIVE:INDEX-GENERATED` marker block，优先使用归档 record marker 恢复 Task/Plan 归档原因，旧索引首次接入时需显式 `--init-marker`。
 - `acf decisions sync [target]`：从 `decisions/ADR-*.md` 重算 `reference/Decisions_Index.md` 的 `ACF:DECISIONS:INDEX-GENERATED` marker block；旧索引首次接入时需显式 `--init-marker`，命令只替换 marker 内内容，不修改 ADR 正文。
 - `acf knowledge draft|apply|list|show|mark|sync [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态；`sync` 从 `reference/knowledge/K*.md` 重算 `reference/Knowledge_Index.md` 的 `ACF:KNOWLEDGE:INDEX-GENERATED` marker block，旧索引首次接入时需显式 `--init-marker`；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
+- `acf feedback list|triage|done|reject|archive-candidates|archive [target]`：维护 `active/Feedback_Inbox.md` 的确定性生命周期；`triage/done/reject` 只更新状态和处理结果，不自动转写 Context、Task、ADR 或 Knowledge；`archive-candidates` 只读列出 Done/Rejected 候选，`archive` 只显式移动单条反馈到 archive/feedback/YYYY-MM dot md。
 - `acf review stale [target]`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json`、`--days` 和 `--today`。
 - `acf audit context [target]`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告长 active section、陈旧当前任务 / Workstream 阶段和 ReadyToMerge 待合并或 Done 缺合并结果候选；支持 `--json`。
 - `acf curate draft [target]`：复用 `review stale` 的 stale candidates 生成 curation-drafts 目录下的日期命名注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days`、`--today` 和 `--name`。
@@ -367,6 +368,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf new reference [target] --title "..." --summary "..."`：在 `reference/` 下创建长期按需读取的 Markdown 文档；可用 `--file reference/X.md` 指定文件，拒绝写到 context 外或 `reference/knowledge/` 托管目录。
 - `acf new rule [target] --title "..." --condition "..." --purpose "..." --rule "..."`：在 `rules/` 下创建按需规则文件，并更新 `rules/Rules_Index.md`；minimal context 首次使用时会补 Rules_Index，但不要求补齐 standard profile 规则文件。
 - `acf new feedback [target] --type "..." --content "..."`：向 `active/Feedback_Inbox.md` 添加反馈行，自动分配下一个 `Fxxx`，默认 Open，重复 ID 需 `--force`。
+- `acf new human-note [target] --type "..." --content "..."`：向标准 profile 的 `human/Human_Notes.md` Inbox 添加人工异步笔记行，自动分配下一个 `Hxxx`；minimal context 没有 human 层时会拒绝，建议使用 `new feedback` 或先升级为 standard。
 - `acf new worklog [target] --summary "..."`：生成 daily worklog 并更新工作记录索引；同日已有记录且需要补记时使用 `--append`，需要重建时使用 `--force`，二者不能混用。
 - `acf new adr [target] --title "..." --summary "..." --decision "..."`：生成 ADR 并更新决策索引。
 - `acf writeback draft [target] --text "..."`：生成注意力治理式会话回写草案，供人工审阅后再决定是否写入权威上下文。
@@ -401,7 +403,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 `upgrade` 是非破坏式命令，只补齐当前 schema 缺失的 `active/Task_Plan.md`、标准 profile 的 human 层、archive、archive/feedback 和 Knowledge 文件/目录，并为旧 `active/Task_Plan.md` 补 `## 规划依据` 结构、为 Active `active/Current_Task.md` 的 `## 输入材料` 保守追加规划依据提示；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`，也不自动判断哪些 reference 是正确依据。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE:NOTES` marker 块而不是强行重排原文；旧 `ACF:UPGRADE-NOTES` marker 会被兼容识别并在可管理文档中迁移。
 
-维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档、init/upgrade 单元测试和 upgrade compatibility runner；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。ACF 维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START -->` 与对应 `END` marker，例如 `ACF:UPGRADE:NOTES`、`ACF:WORKSTREAM:ARCHIVE-RECORD`、`ACF:KNOWLEDGE:INDEX-GENERATED`、`ACF:DECISIONS:INDEX-GENERATED` 和 `ACF:ARCHIVE:INDEX-GENERATED`；旧 marker 保持兼容，但 `check` 会给出 future warning。
+维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档、init/upgrade 单元测试和 upgrade compatibility runner；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。ACF 维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START -->` 与对应 `END` marker，例如 `ACF:UPGRADE:NOTES`、`ACF:ARCHIVE:RECORD`、`ACF:WORKSTREAM:ARCHIVE-RECORD`、`ACF:KNOWLEDGE:INDEX-GENERATED`、`ACF:DECISIONS:INDEX-GENERATED` 和 `ACF:ARCHIVE:INDEX-GENERATED`；旧 marker 保持兼容，但 `check` 会给出 future warning。
 
 模板占位符统一使用 `【ACF:KEY|提示】`，便于代码快速匹配和替换。Markdown 表格单元格内如需占位符，应使用无提示形式 `【ACF:KEY】`，避免 `|` 破坏表格。`acf check template` 会对旧式中文括号占位符给出 warning；正式项目 strict 下仍只把残留占位符视为项目内容问题，不额外要求格式迁移。
 
