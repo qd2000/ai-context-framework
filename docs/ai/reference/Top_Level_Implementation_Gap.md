@@ -6,7 +6,7 @@
 
 ## 状态
 
-Updated through P1-3 Upgrade matrix expansion.
+Updated through active-reference traceability implementation.
 
 ---
 
@@ -52,7 +52,8 @@ Updated through P1-3 Upgrade matrix expansion.
 | 内容分层 | `active/reference/worklog/archive/rules/decisions` 职责明确 | 已实现 | `AGENTS.md`; `reference/System_Manual.md`; `template/` | 旧项目可能仍有历史漂移，只能通过 audit/curation 处理 | Done | 不新增规则；继续通过 check/audit 发现漂移 |
 | 唯一事实源 | 写入前判断权威位置，索引不替代详情 | 部分实现 | Workstream 详情 front matter 作为事实源；`acf workstream sync`; `rules/Always_Active.md` | 仅 Workstream 有强 sync/check；Knowledge/ADR/Archive 尚未设计 generated view | P2 | 后续如做 sync 扩展，先设计 generated marker |
 | Task | 主线任务使用 `active/Task_Plan.md` / `active/Current_Task.md` | 已实现 | `acf plan`; `acf task`; `tests/test_cli.py` | 无 | Done | 保持 table-first |
-| Task Stage | `T001.4` 必须注册，父任务和 Workstream 引用可检查 | 已实现当前 P2 薄切片 | `acf check` 已接入 Task Stage registry；`acf plan stage list/add/set/done` 维护 `active/Task_Plan.md` 的 `## 任务阶段` 表 | 未做 task object 单文件；未做 Current_Task 自动切换，符合顶层边界 | Done / P2 | 后续仅在表格能力不足时再评估更重对象模型 |
+| Active-reference traceability | active 层必须能追溯当前大任务对齐的 reference 设计、路线或差距文档 | 已实现当前 P2 薄切片 | `active/Task_Plan.md` 的 `## 规划依据`; `acf plan reference list/add/remove`; `task start` 继承有效依据到 `active/Current_Task.md`; `acf upgrade` 非破坏式补结构 | 未接入 `acf check` 断链门禁；未做更重的 plan init reference wizard | Done / P2 | 后续可评估 `acf plan init --reference`、reference 存在性 warning/check 或批量替换占位符工具 |
+| Task Stage | `T001.4` 必须注册，父任务和 Workstream 引用可检查 | 已实现当前 P2 薄切片 | `acf check` 已接入 Task Stage registry；`acf plan stage list/add/set/done` 维护 `active/Task_Plan.md` 的 `## 任务阶段` 表 | 未做 task object 单文件；未做 `active/Current_Task.md` 自动切换，符合顶层边界 | Done / P2 | 后续仅在表格能力不足时再评估更重对象模型 |
 | Workstream | 可选并行目标线，不是 runtime / 调度器 / 权限系统 | 已实现 | `acf workstream init/add/set/block/cancel/ready/done/claim/note/show/list/status/archive-candidates`; `Workstream_Design.md` | 显式移动文件的 Workstream archive 命令未实现，当前只提供只读候选 helper | P2 | 如继续，应先设计 archive draft 或索引 cleanup 策略，不直接扩大自动移动 |
 | Workstream Stage | stage add/list/focus/done；focus 拒绝多 Active；done 要 evidence | 已实现 | `acf.py`; `tests/test_cli.py`; `tests/fixtures/context_matrix/workstream_stage_flow`; `tests/test_context_matrix.py`; `scripts/minimal_smoke.py`; `System_Manual.md` | synthetic fixture 和 smoke 已覆盖；真实复杂样本复核仍可作为 dogfooding 观察，不阻塞下一切片 | Done | 后续真实项目只读复核只记录观察，不新增规则 |
 | Workstream lifecycle | Done / Cancelled 短期留 active 必须 keep-active，长期进入 archive | 已完成只读候选 helper | `acf check` keep-active gate; `acf workstream archive-candidates`; `Workstream_Lifecycle_Archive_Design.md`; `tests/fixtures/context_matrix/workstream_lifecycle_archive` | 没有 archive draft 或移动命令；索引 cleanup 策略仍未设计 | P2 | 下一步如继续，优先 archive draft 或 generated/index cleanup design |
@@ -89,6 +90,7 @@ Updated through P1-3 Upgrade matrix expansion.
 7. `audit context` MVP。
 8. `review stale` 和 `curate draft` 最小链路。
 9. writeback / knowledge draft 草案边界。
+10. active -> reference 规划依据追溯，含模板、upgrade、task start 继承和 `plan reference` 确定性编辑命令。
 10. `upgrade` 非破坏式结构补齐主路径。
 11. context_matrix 和 upgrade_matrix 基础设施。
 
@@ -212,6 +214,17 @@ acf workstream archive-candidates docs/ai --json
 ```
 
 状态：已完成。该命令只读输出 `candidates`、`blocked`、`blocked_by`、`changed_files: []` 和 summary，不修改文件、不移动详情、不修改索引、不接入 strict。已覆盖 CLI 单元测试、AI-facing JSON contract、context_matrix lifecycle fixture 和 minimal smoke。
+
+### P2 Active-reference traceability
+
+```bash
+acf plan reference add docs/ai --path reference/Product_Roadmap.md --purpose "阶段路线和近期优先级"
+acf plan reference list docs/ai --json
+```
+
+状态：模板 / upgrade / 生成逻辑已补齐。`active/Task_Plan.md` 现在有稳定 `## 规划依据` 小节；`task start` 会把有效 reference bullets 带入 `active/Current_Task.md` 的 `## 输入材料`；`upgrade` 会给旧计划非破坏式补结构，并给 Active 当前任务追加查看计划依据的提示；`plan reference list|add|remove` 可确定性维护路径和一句话用途，支持 `--allow-missing`、`--force`、`--missing-ok` 和显式 `--sync-current-task`。
+
+后续可能增强：`acf plan init --reference`、`acf plan reference check`、`acf check` 对规划依据断链给 warning、或统一占位符批量替换命令。本轮不把 reference 存在性接入 `check`，避免旧项目和模板占位符产生迁移噪声。
 
 ### Deferred audit rules
 

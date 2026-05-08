@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.30"
+VERSION = "v0.0.3.31"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -176,6 +176,7 @@ WORKSTREAM_STATE_TRANSITIONS = {
 }
 PLACEHOLDER_RE = re.compile(r"【[^】]+】")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
+PLAN_REFERENCE_BULLET_RE = re.compile(r"^-\s+`(?P<path>reference/[^`\n]+\.md)`[：:]\s*(?P<purpose>.+?)\s*$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
 TASK_ID_RE = re.compile(r"^T(\d{3})$")
@@ -199,6 +200,14 @@ WORKSTREAM_STAGE_TABLE_HEADER = "| ID | 状态 | 阶段 | 依赖 | 输出物 | �
 WORKSTREAM_INDEX_REL = "active/Workstreams.md"
 WORKSTREAM_DIR_REL = "active/workstreams"
 WORKSTREAM_ARCHIVE_DIR_REL = "archive/workstreams"
+PLAN_REFERENCE_HEADING = "## 规划依据"
+PLAN_REFERENCE_EMPTY = "- 无。"
+PLAN_REFERENCE_SECTION_INTRO = (
+    "列出当前大任务必须对齐的 reference 设计、路线或差距文档；"
+    "只放路径和一句话用途，不复制详细规划。"
+)
+PLAN_REFERENCE_UPGRADE_PROMPT = "- 使用 `acf plan reference add` 添加当前大任务必须对齐的 reference 规划依据。"
+CURRENT_TASK_REFERENCE_PROMPT = "- 相关 reference 规划依据请查看 `active/Task_Plan.md` 的 `## 规划依据`。"
 WORKSTREAM_METADATA_FIELDS = (
     "id",
     "status",
@@ -274,7 +283,7 @@ MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本�
 1. `active/Context.md`
 2. `rules/Always_Active.md`
 3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）
-4. `active/Task_Plan.md`
+4. `active/Task_Plan.md`（读取后按 `## 规划依据` 追溯当前大任务需要对齐的 reference 规划文档）
 5. `active/Current_Task.md`（仅当任务状态为 Active 时）
 
 如果用户在当前消息中已给出明确任务，以用户当前消息为准。
@@ -286,7 +295,7 @@ MINIMAL_AGENTS = """本文件告诉 AI 助手如何进入、理解和协助本�
 如果项目可用 `acf` 命令，维护上下文时优先考虑使用它完成确定性操作。
 
 - 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
-- 新增或更新当前计划、当前任务、资料索引、知识草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`、`acf task`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
+- 新增或更新当前计划、规划依据、当前任务、资料索引、知识草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`（包括 `acf plan reference`）、`acf task`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
 - 需要参数细节时，先查看 `acf --help`；如果项目包含系统手册，再按需读取 System Manual。
 
 `acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。
@@ -427,6 +436,12 @@ class SectionRange:
     body_start: int
     body_end: int
     level: int
+
+
+@dataclass(frozen=True)
+class PlanReference:
+    path: str
+    purpose: str
 
 
 @dataclass
@@ -2384,6 +2399,8 @@ def render_current_task(
 
 ## 输入材料
 
+当前任务应列出必要 active 文件和相关 reference 规划依据；不要只写 `active/Context.md`。
+
 {bullet_list(inputs)}
 
 ---
@@ -3087,6 +3104,205 @@ def append_section_text(original: str, heading: str, addition: str) -> str:
     return apply_section_body(lines, section, body_lines, suffix)
 
 
+def insert_section_after(text: str, anchor_heading: str, heading: str, body: str) -> str:
+    lines = text.splitlines()
+    anchor = find_section(lines, anchor_heading)
+    insert_at = anchor.body_end
+    while insert_at > anchor.body_start and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    if insert_at > anchor.body_start and lines[insert_at - 1].strip() == "---":
+        insert_at -= 1
+        while insert_at > anchor.body_start and not lines[insert_at - 1].strip():
+            insert_at -= 1
+    section_lines = ["", "---", "", heading, "", *normalized_section_body_lines(body), ""]
+    updated = lines[:insert_at] + section_lines + lines[insert_at:]
+    return "\n".join(updated).rstrip() + "\n"
+
+
+def insert_section_before(text: str, anchor_heading: str, heading: str, body: str) -> str:
+    lines = text.splitlines()
+    anchor = find_section(lines, anchor_heading)
+    insert_at = anchor.heading_index
+    while insert_at > 0 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    section_lines = [heading, "", *normalized_section_body_lines(body), "", "---", ""]
+    updated = lines[:insert_at] + section_lines + lines[insert_at:]
+    return "\n".join(updated).rstrip() + "\n"
+
+
+def normalize_plan_reference_path(value: str) -> str:
+    normalized = value.strip().strip("`").replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    parts = normalized.split("/")
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or "\\" in normalized
+        or any(part in {"", ".", ".."} for part in parts)
+        or parts[0] != "reference"
+        or not normalized.lower().endswith(".md")
+    ):
+        raise SystemExit("plan reference path must be a relative reference/*.md path")
+    return "/".join(parts)
+
+
+def normalize_plan_reference_purpose(value: str) -> str:
+    purpose = value.strip()
+    if not purpose:
+        raise SystemExit("plan reference purpose cannot be empty")
+    if purpose[-1] not in "。.！!?？":
+        purpose += "。"
+    return purpose
+
+
+def render_plan_reference(reference: PlanReference) -> str:
+    return f"- `{reference.path}`：{reference.purpose}"
+
+
+def render_plan_reference_section(
+    references: Sequence[PlanReference],
+    *,
+    placeholder: bool = False,
+    upgrade_prompt: bool = False,
+) -> str:
+    if placeholder:
+        bullets = [
+            "- `reference/【规划依据文档 1】.md`：【该规划依据的用途】。",
+            "- `reference/【规划依据文档 2】.md`：【该规划依据的用途】。",
+        ]
+    elif upgrade_prompt:
+        bullets = [PLAN_REFERENCE_EMPTY, PLAN_REFERENCE_UPGRADE_PROMPT]
+    else:
+        bullets = [render_plan_reference(reference) for reference in references] or [PLAN_REFERENCE_EMPTY]
+    return "\n".join([PLAN_REFERENCE_SECTION_INTRO, "", *bullets])
+
+
+def parse_plan_references_from_body(body: str) -> tuple[list[PlanReference], list[str]]:
+    references: list[PlanReference] = []
+    warnings: list[str] = []
+    seen: set[str] = set()
+    for raw_line in normalized_section_body_lines(body):
+        line = raw_line.strip()
+        if not line.startswith("-"):
+            continue
+        if line in {PLAN_REFERENCE_EMPTY, "- 暂无。", PLAN_REFERENCE_UPGRADE_PROMPT}:
+            continue
+        match = PLAN_REFERENCE_BULLET_RE.match(line)
+        if not match:
+            warnings.append(f"ignored non-standard plan reference line: {line}")
+            continue
+        if PLACEHOLDER_RE.search(line):
+            continue
+        path = normalize_plan_reference_path(match.group("path"))
+        purpose = normalize_plan_reference_purpose(match.group("purpose"))
+        if path in seen:
+            warnings.append(f"ignored duplicate plan reference path: {path}")
+            continue
+        seen.add(path)
+        references.append(PlanReference(path, purpose))
+    return references, warnings
+
+
+def read_plan_references(plan_path: Path) -> tuple[list[PlanReference], list[str]]:
+    section = find_section(read_text(plan_path).splitlines(), PLAN_REFERENCE_HEADING)
+    return parse_plan_references_from_body(section_body(read_text(plan_path).splitlines(), section))
+
+
+def write_plan_references_text(text: str, references: Sequence[PlanReference]) -> str:
+    return replace_section_text(text, PLAN_REFERENCE_HEADING, render_plan_reference_section(references))
+
+
+def valid_plan_reference_input_lines(plan_path: Path) -> list[str]:
+    try:
+        references, _warnings = read_plan_references(plan_path)
+    except SystemExit:
+        return [CURRENT_TASK_REFERENCE_PROMPT]
+    return [render_plan_reference(reference) for reference in references] or [CURRENT_TASK_REFERENCE_PROMPT]
+
+
+def current_task_has_active_status(text: str) -> bool:
+    try:
+        section = find_section(text.splitlines(), "## 当前任务状态")
+    except SystemExit:
+        return False
+    return section_body(text.splitlines(), section).splitlines()[0].strip() == "Active" if section_body(text.splitlines(), section).strip() else False
+
+
+def standard_reference_line_path(line: str) -> str | None:
+    match = PLAN_REFERENCE_BULLET_RE.match(line.strip())
+    if not match or PLACEHOLDER_RE.search(line):
+        return None
+    return normalize_plan_reference_path(match.group("path"))
+
+
+def sync_current_task_reference_text(
+    text: str,
+    reference: PlanReference,
+    *,
+    operation: str,
+    force: bool = False,
+) -> tuple[str, list[str]]:
+    warnings: list[str] = []
+    if not current_task_has_active_status(text):
+        warnings.append("active/Current_Task.md is not Active; skipped reference sync")
+        return text, warnings
+    lines = text.splitlines()
+    try:
+        section = find_section(lines, "## 输入材料")
+    except SystemExit:
+        warnings.append("active/Current_Task.md has no ## 输入材料 section; skipped reference sync")
+        return text, warnings
+
+    body_lines, suffix = section_content_and_suffix(lines, section)
+    target_line = render_plan_reference(reference)
+    existing_index: int | None = None
+    nonstandard_same_path = False
+    for index, line in enumerate(body_lines):
+        line_path = standard_reference_line_path(line)
+        if line_path == reference.path:
+            existing_index = index
+            break
+        if f"`{reference.path}`" in line:
+            nonstandard_same_path = True
+
+    if operation == "add":
+        if existing_index is not None:
+            if body_lines[existing_index].strip() == target_line:
+                return text, warnings
+            if force:
+                body_lines[existing_index] = target_line
+            else:
+                warnings.append(f"active/Current_Task.md already references `{reference.path}` with a different purpose")
+                return text, warnings
+        elif nonstandard_same_path:
+            warnings.append(f"active/Current_Task.md contains a non-standard reference line for `{reference.path}`; skipped reference sync")
+            return text, warnings
+        else:
+            stripped = [line.strip() for line in body_lines if line.strip()]
+            if stripped == [PLAN_REFERENCE_EMPTY]:
+                body_lines = [target_line]
+            else:
+                insert_at = len(body_lines)
+                while insert_at > 0 and not body_lines[insert_at - 1].strip():
+                    insert_at -= 1
+                body_lines.insert(insert_at, target_line)
+    elif operation == "remove":
+        if existing_index is None:
+            if nonstandard_same_path:
+                warnings.append(f"active/Current_Task.md keeps a non-standard reference line for `{reference.path}`")
+            return text, warnings
+        if body_lines[existing_index].strip() == target_line:
+            body_lines.pop(existing_index)
+        else:
+            warnings.append(f"active/Current_Task.md reference for `{reference.path}` differs from the plan entry; skipped reference sync")
+            return text, warnings
+    else:
+        raise SystemExit(f"unknown reference sync operation: {operation}")
+
+    return apply_section_body(lines, section, body_lines, suffix), warnings
+
+
 def edit_section_get_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.context)
     target = resolve_context_markdown_file(root, args.file)
@@ -3542,6 +3758,12 @@ def render_task_plan(
 
 ---
 
+## 规划依据
+
+{render_plan_reference_section(())}
+
+---
+
 ## 当前焦点
 
 {focus}
@@ -3568,8 +3790,9 @@ def render_task_plan(
 
 1. 本文件保持轻量，只放任务板和必要摘要。
 2. 子任务完成证据优先引用 worklog、测试结果或输出文件路径。
-3. 已失效的大任务计划应归档到 `archive/plans/`。
-4. 不要把历史过程、完整日志或详细推理写入本文件。
+3. 当前大任务依赖 reference 规划时，必须在 `## 规划依据` 列出路径和一句话用途。
+4. 已失效的大任务计划应归档到 `archive/plans/`。
+5. 不要把历史过程、完整日志或详细推理写入本文件。
 """
 
 
@@ -3630,13 +3853,14 @@ def upgrade_notes_block(target: str) -> str:
         body = """## ACF Current Schema Upgrade Notes
 
 - 默认读取顺序应包含 `active/Feedback_Inbox.md` 和 `active/Task_Plan.md`，并位于 `active/Current_Task.md` 之前。
-- 结构化维护优先使用 `acf plan`、`acf task`、`acf archive` 和 `acf knowledge`。
+- 结构化维护优先使用 `acf plan`、`acf plan reference`、`acf task`、`acf archive` 和 `acf knowledge`。
+- `active/Task_Plan.md` 的 `## 规划依据` 用于追溯当前大任务必须对齐的 reference 文档。
 - Feedback_Inbox 已处理条目的长期归档位置是 `archive/feedback/`。
 - 旧任务或旧计划不会由 `acf upgrade` 自动移动；需要归档时显式运行 archive 命令。"""
     else:
         body = """## ACF Current Schema Upgrade Notes
 
-- `acf upgrade [target]` 只补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge 结构。
+- `acf upgrade [target]` 只补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback、Knowledge 结构和 active -> reference 规划依据追溯入口。
 - 推荐升级流程：`acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。
 - Active `active/Current_Task.md` 不会被覆盖，旧任务归档请显式使用 `acf archive current-task` 或 `acf archive task-plan`。"""
     return f"\n\n{UPGRADE_NOTES_START}\n{body}\n{UPGRADE_NOTES_END}\n"
@@ -3734,6 +3958,14 @@ def upgraded_agents_text(text: str) -> str:
         "新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时",
     )
     text = text.replace(
+        "新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时",
+        "新增或更新当前计划、规划依据、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时",
+    )
+    text = text.replace(
+        "`acf plan`、`acf task`",
+        "`acf plan`（包括 `acf plan reference`）、`acf task`",
+    )
+    text = text.replace(
         "新增或更新当前任务、资料索引、worklog、ADR、section 或 table 时",
         "新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时",
     )
@@ -3797,13 +4029,13 @@ def upgraded_system_manual_text(text: str) -> str:
                 marker,
                 marker
                 + "\n\n"
-                + "- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge 结构。\n"
-                + "- `acf plan init|add-task|set-task|focus|complete|status [target]`：维护当前大任务计划和子任务板，并在完成后标记计划 Done。\n"
+                + "- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive、archive/feedback、Knowledge 结构和 active -> reference 规划依据追溯入口。\n"
+                + "- `acf plan init|add-task|set-task|focus|complete|status [target]` / `acf plan reference list|add|remove [target]`：维护当前大任务计划、子任务板和 `## 规划依据`，并在完成后标记计划 Done。\n"
                 + "- `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务。\n"
                 + "- `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。\n",
             )
     if "旧版本上下文升级" not in text and "CLI 辅助工具" in text:
-        insertion = """\n\n### 旧版本上下文升级\n\n推荐流程：`acf status --json` -> `acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。\n\n`upgrade` 只补齐缺失结构，不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。旧任务或旧计划需要归档时，升级后显式运行 `acf archive current-task` 或 `acf archive task-plan`；已处理反馈需要长期保存时整理到 `archive/feedback/`。\n"""
+        insertion = """\n\n### 旧版本上下文升级\n\n推荐流程：`acf status --json` -> `acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。\n\n`upgrade` 只补齐缺失结构和 active -> reference 规划依据追溯入口，不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。旧任务或旧计划需要归档时，升级后显式运行 `acf archive current-task` 或 `acf archive task-plan`；已处理反馈需要长期保存时整理到 `archive/feedback/`。\n"""
         text = text.rstrip() + insertion + "\n"
     if "PowerShell 中反引号是转义字符" not in text:
         text = text.rstrip() + "\n\nPowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。\n"
@@ -3834,7 +4066,7 @@ def upgraded_system_manual_text(text: str) -> str:
         if system_manual_line in text:
             text = text.replace(system_manual_line, f"{prompt_line}\n{system_manual_line}")
     if "旧版本上下文升级" not in text and "CLI 辅助工具" in text:
-        insertion = """\n\n### 旧版本上下文升级\n\n推荐流程：`acf status --json` -> `acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。\n\n`upgrade` 只补齐缺失结构，不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。旧任务或旧计划需要归档时，升级后显式运行 `acf archive current-task` 或 `acf archive task-plan`；已处理反馈需要长期保存时整理到 `archive/feedback/`。\n"""
+        insertion = """\n\n### 旧版本上下文升级\n\n推荐流程：`acf status --json` -> `acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。\n\n`upgrade` 只补齐缺失结构和 active -> reference 规划依据追溯入口，不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。旧任务或旧计划需要归档时，升级后显式运行 `acf archive current-task` 或 `acf archive task-plan`；已处理反馈需要长期保存时整理到 `archive/feedback/`。\n"""
         text = text.rstrip() + insertion + "\n"
     if "修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为" not in text and "旧版本上下文升级" in text:
         addition = "\n\n维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档、init/upgrade 单元测试和 upgrade compatibility runner；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。\n"
@@ -3846,10 +4078,46 @@ def upgraded_system_manual_text(text: str) -> str:
     return text
 
 
+def upgraded_task_plan_text(text: str) -> tuple[str, str | None]:
+    if section_exists(text, PLAN_REFERENCE_HEADING):
+        return text, None
+    body = render_plan_reference_section((), upgrade_prompt=True)
+    try:
+        return insert_section_after(text, "## 成功标准", PLAN_REFERENCE_HEADING, body), None
+    except SystemExit:
+        pass
+    try:
+        return insert_section_before(text, "## 当前焦点", PLAN_REFERENCE_HEADING, body), None
+    except SystemExit:
+        return text, "active/Task_Plan.md: could not safely insert ## 规划依据; no known anchor matched"
+
+
+def upgraded_current_task_text(text: str) -> tuple[str, str | None]:
+    if not current_task_has_active_status(text):
+        return text, None
+    try:
+        section = find_section(text.splitlines(), "## 输入材料")
+    except SystemExit:
+        return text, "active/Current_Task.md: could not append plan reference prompt because ## 输入材料 was not found"
+    if CURRENT_TASK_REFERENCE_PROMPT in text:
+        return text, None
+    body_lines, suffix = section_content_and_suffix(text.splitlines(), section)
+    stripped = [line.strip() for line in body_lines if line.strip()]
+    if stripped == [PLAN_REFERENCE_EMPTY]:
+        body_lines = [CURRENT_TASK_REFERENCE_PROMPT]
+    else:
+        insert_at = len(body_lines)
+        while insert_at > 0 and not body_lines[insert_at - 1].strip():
+            insert_at -= 1
+        body_lines.insert(insert_at, CURRENT_TASK_REFERENCE_PROMPT)
+    return apply_section_body(text.splitlines(), section, body_lines, suffix), None
+
+
 def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], list[str]]:
     planned = [
         root / "active" / "Feedback_Inbox.md",
         root / "active" / "Task_Plan.md",
+        root / "active" / "Current_Task.md",
         root / "archive" / "Archive_Index.md",
         root / "reference" / "Knowledge_Index.md",
         root / "reference" / "Context_Curation_Prompt.md",
@@ -3862,9 +4130,25 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
     changed = [path for path in planned if not path.exists()]
     agents = root / "AGENTS.md"
     feedback = root / "active" / "Feedback_Inbox.md"
+    task_plan = root / "active" / "Task_Plan.md"
+    current_task = root / "active" / "Current_Task.md"
     project_rules = root / "rules" / "Project_Rules.md"
     manual = root / "reference" / "System_Manual.md"
     warnings: list[str] = []
+    if task_plan.exists():
+        original_plan = read_text(task_plan)
+        updated_plan, warning = upgraded_task_plan_text(original_plan)
+        if updated_plan != original_plan:
+            changed.append(task_plan)
+        if warning:
+            warnings.append(f"{task_plan}: {warning}")
+    if current_task.exists():
+        original_task = read_text(current_task)
+        updated_task, warning = upgraded_current_task_text(original_task)
+        if updated_task != original_task:
+            changed.append(current_task)
+        if warning:
+            warnings.append(f"{current_task}: {warning}")
     if agents.exists():
         original_agents = read_text(agents)
         updated_agents = upgraded_agents_text(original_agents)
@@ -3923,6 +4207,18 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         updated = upgraded_feedback_inbox_text(text)
         if updated != text:
             feedback.write_text(updated, encoding="utf-8")
+
+    if task_plan.exists():
+        text = read_text(task_plan)
+        updated, _warning = upgraded_task_plan_text(text)
+        if updated != text:
+            task_plan.write_text(updated, encoding="utf-8")
+
+    if current_task.exists():
+        text = read_text(current_task)
+        updated, _warning = upgraded_current_task_text(text)
+        if updated != text:
+            current_task.write_text(updated, encoding="utf-8")
 
     if project_rules.exists():
         text = read_text(project_rules)
@@ -4013,6 +4309,194 @@ def upgrade_command(args: argparse.Namespace) -> int:
 
 def task_plan_path(root: Path) -> Path:
     return root / "active" / "Task_Plan.md"
+
+
+def plan_reference_payload(root: Path, plan_path: Path) -> dict[str, object]:
+    references, warnings = read_plan_references(plan_path)
+    payload: dict[str, object] = {
+        "references": [{"path": reference.path, "purpose": reference.purpose} for reference in references],
+        "count": len(references),
+    }
+    if warnings:
+        payload["reference_warnings"] = warnings
+    return payload
+
+
+def ensure_plan_reference_target(root: Path, ref_path: str, allow_missing: bool) -> list[str]:
+    target = root / ref_path
+    if target.exists():
+        return []
+    if allow_missing:
+        return [f"plan reference target does not exist: {ref_path}"]
+    raise SystemExit(f"plan reference target does not exist: {ref_path}; use --allow-missing to add it anyway")
+
+
+def replace_or_add_plan_reference(
+    references: Sequence[PlanReference],
+    reference: PlanReference,
+    *,
+    force: bool,
+) -> tuple[list[PlanReference], bool]:
+    updated: list[PlanReference] = []
+    replaced = False
+    for existing in references:
+        if existing.path == reference.path:
+            if not force:
+                raise SystemExit(f"plan reference already exists: {reference.path}; use --force to update it")
+            updated.append(reference)
+            replaced = True
+        else:
+            updated.append(existing)
+    if not replaced:
+        updated.append(reference)
+    return updated, replaced
+
+
+def remove_plan_reference(
+    references: Sequence[PlanReference],
+    path: str,
+    *,
+    missing_ok: bool,
+) -> tuple[list[PlanReference], PlanReference | None]:
+    removed: PlanReference | None = None
+    kept: list[PlanReference] = []
+    for reference in references:
+        if reference.path == path:
+            removed = reference
+        else:
+            kept.append(reference)
+    if removed is None and not missing_ok:
+        raise SystemExit(f"plan reference was not found: {path}; use --missing-ok for an idempotent no-op")
+    return kept, removed
+
+
+def plan_reference_list_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    plan_path = task_plan_path(root)
+    payload = {
+        "command": "plan reference list",
+        "ok": True,
+        "context": str(root),
+        **plan_reference_payload(root, plan_path),
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        references = [PlanReference(item["path"], item["purpose"]) for item in payload["references"]]  # type: ignore[index]
+        if references:
+            print("\n".join(render_plan_reference(reference) for reference in references))
+        else:
+            print("无。")
+        for warning in payload.get("reference_warnings", []):
+            print(f"WARN: {warning}", file=sys.stderr)
+    return 0
+
+
+def plan_reference_add_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    ref_path = normalize_plan_reference_path(args.ref_path)
+    reference = PlanReference(ref_path, normalize_plan_reference_purpose(args.purpose))
+    warnings = ensure_plan_reference_target(root, ref_path, args.allow_missing)
+    references, parse_warnings = read_plan_references(plan_path)
+    warnings.extend(parse_warnings)
+    updated_references, _replaced = replace_or_add_plan_reference(references, reference, force=args.force)
+
+    changed_files: list[Path] = []
+    original_plan = read_text(plan_path)
+    updated_plan = write_plan_references_text(original_plan, updated_references)
+    if updated_plan != original_plan:
+        changed_files.append(plan_path)
+
+    current_task = current_task_path(root)
+    updated_current_task: str | None = None
+    if args.sync_current_task and current_task.exists():
+        original_task = read_text(current_task)
+        updated_task, sync_warnings = sync_current_task_reference_text(
+            original_task,
+            reference,
+            operation="add",
+            force=args.force,
+        )
+        warnings.extend(sync_warnings)
+        if updated_task != original_task:
+            updated_current_task = updated_task
+            changed_files.append(current_task)
+
+    if not dry_run:
+        if updated_plan != original_plan:
+            plan_path.write_text(updated_plan, encoding="utf-8")
+        if updated_current_task is not None:
+            current_task.write_text(updated_current_task, encoding="utf-8")
+
+    check_result = maybe_check_after(args, root)
+    action = "would add" if dry_run else "added"
+    return emit_write_result(
+        args,
+        "plan reference add",
+        f"{action} plan reference {ref_path}",
+        changed_files,
+        check_result,
+        extra_payload=plan_reference_payload(root, plan_path) if not dry_run else {
+            "references": [{"path": item.path, "purpose": item.purpose} for item in updated_references],
+            "count": len(updated_references),
+        },
+        warnings=warnings,
+    )
+
+
+def plan_reference_remove_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    plan_path = task_plan_path(root)
+    ref_path = normalize_plan_reference_path(args.ref_path)
+    references, parse_warnings = read_plan_references(plan_path)
+    warnings = list(parse_warnings)
+    updated_references, removed = remove_plan_reference(references, ref_path, missing_ok=args.missing_ok)
+
+    changed_files: list[Path] = []
+    original_plan = read_text(plan_path)
+    updated_plan = write_plan_references_text(original_plan, updated_references)
+    if updated_plan != original_plan:
+        changed_files.append(plan_path)
+
+    current_task = current_task_path(root)
+    updated_current_task: str | None = None
+    if args.sync_current_task and removed is not None and current_task.exists():
+        original_task = read_text(current_task)
+        updated_task, sync_warnings = sync_current_task_reference_text(
+            original_task,
+            removed,
+            operation="remove",
+            force=False,
+        )
+        warnings.extend(sync_warnings)
+        if updated_task != original_task:
+            updated_current_task = updated_task
+            changed_files.append(current_task)
+
+    if not dry_run:
+        if updated_plan != original_plan:
+            plan_path.write_text(updated_plan, encoding="utf-8")
+        if updated_current_task is not None:
+            current_task.write_text(updated_current_task, encoding="utf-8")
+
+    check_result = maybe_check_after(args, root)
+    action = "would remove" if dry_run else "removed"
+    return emit_write_result(
+        args,
+        "plan reference remove",
+        f"{action} plan reference {ref_path}",
+        changed_files,
+        check_result,
+        extra_payload=plan_reference_payload(root, plan_path) if not dry_run else {
+            "references": [{"path": item.path, "purpose": item.purpose} for item in updated_references],
+            "count": len(updated_references),
+        },
+        warnings=warnings,
+    )
 
 
 def read_task_rows(plan_path: Path) -> list[dict[str, str]]:
@@ -4214,6 +4698,7 @@ def build_task_start_fields(
     dependency_summary = meaningful_task_cell(row.get("依赖"), "无明确依赖。")
 
     inputs = ["`active/Task_Plan.md`。", "`active/Context.md`。"]
+    inputs.extend(valid_plan_reference_input_lines(plan_path))
     row_by_id = {candidate.get("ID", ""): candidate for candidate in rows}
     for dependency_id in dependency_ids:
         dependency = row_by_id.get(dependency_id)
@@ -7556,6 +8041,8 @@ def extract_heading_value(path: Path, heading: str) -> str | None:
 def should_check_ref(ref: str) -> bool:
     if "*" in ref:
         return False
+    if PLACEHOLDER_RE.search(ref):
+        return False
     if ref.startswith(("http://", "https://", "file://")):
         return False
     if ref.startswith("<") or ref.startswith("$"):
@@ -8982,6 +9469,32 @@ def build_parser() -> argparse.ArgumentParser:
     plan_status_parser.add_argument("path", nargs="?", type=Path)
     add_json_argument(plan_status_parser)
     plan_status_parser.set_defaults(func=plan_status_command)
+
+    plan_reference_parser = plan_subparsers.add_parser("reference", help="manage plan reference basis entries")
+    plan_reference_subparsers = plan_reference_parser.add_subparsers(dest="plan_reference_command", required=True)
+
+    plan_reference_list_parser = plan_reference_subparsers.add_parser("list", help="list plan reference basis entries")
+    plan_reference_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(plan_reference_list_parser)
+    plan_reference_list_parser.set_defaults(func=plan_reference_list_command)
+
+    plan_reference_add_parser = plan_reference_subparsers.add_parser("add", help="add or update a plan reference basis entry")
+    plan_reference_add_parser.add_argument("path", nargs="?", type=Path)
+    plan_reference_add_parser.add_argument("--path", dest="ref_path", required=True, help="reference/*.md path")
+    plan_reference_add_parser.add_argument("--purpose", required=True, help="one-sentence purpose for this reference")
+    plan_reference_add_parser.add_argument("--allow-missing", action="store_true", help="allow adding a reference file path that does not exist yet")
+    plan_reference_add_parser.add_argument("--force", action="store_true", help="update an existing reference with the same path")
+    plan_reference_add_parser.add_argument("--sync-current-task", action="store_true", help="also sync a standard bullet into an Active Current_Task input list")
+    add_write_arguments(plan_reference_add_parser)
+    plan_reference_add_parser.set_defaults(func=plan_reference_add_command)
+
+    plan_reference_remove_parser = plan_reference_subparsers.add_parser("remove", help="remove a plan reference basis entry")
+    plan_reference_remove_parser.add_argument("path", nargs="?", type=Path)
+    plan_reference_remove_parser.add_argument("--path", dest="ref_path", required=True, help="reference/*.md path")
+    plan_reference_remove_parser.add_argument("--missing-ok", action="store_true", help="exit successfully when the reference is already absent")
+    plan_reference_remove_parser.add_argument("--sync-current-task", action="store_true", help="also remove the exact standard bullet from an Active Current_Task input list")
+    add_write_arguments(plan_reference_remove_parser)
+    plan_reference_remove_parser.set_defaults(func=plan_reference_remove_command)
 
     plan_stage_parser = plan_subparsers.add_parser("stage", help="manage task stages in active/Task_Plan.md")
     plan_stage_subparsers = plan_stage_parser.add_subparsers(dest="plan_stage_command", required=True)

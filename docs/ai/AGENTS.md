@@ -9,7 +9,7 @@
 1. `active/Context.md`
 2. `rules/Always_Active.md`
 3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）
-4. `active/Task_Plan.md`
+4. `active/Task_Plan.md`（读取后按 `## 规划依据` 追溯当前大任务需要对齐的 reference 规划文档）
 5. `active/Current_Task.md`（仅当任务状态为 Active 时）
 6. `active/Workstreams.md`（仅当存在 Active、Blocked 或 ReadyToMerge workstream，或需要整理并行协作时）
 
@@ -22,7 +22,7 @@
 如果项目可用 `acf` 命令，维护上下文时优先考虑使用它完成确定性操作。
 
 - 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
-- 新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`、`acf task`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
+- 新增或更新当前计划、规划依据、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`（包括 `acf plan reference`）、`acf task`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
 - 需要参数细节时，先查看 `acf --help`；如果项目包含系统手册，再按需读取 System Manual。
 
 `acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。
@@ -96,7 +96,7 @@ Knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 
 处理规则：
 
-1. 当前任务或计划状态变化：优先使用 `uv run acf task ...` 或 `uv run acf plan ...` 更新 `active/Current_Task.md`、`active/Task_Plan.md`；工具不能表达时，再用 `uv run acf edit ...` 精确更新相关 section 或表格。
+1. 当前任务、计划状态或规划依据变化：优先使用 `uv run acf task ...`、`uv run acf plan ...` 或 `uv run acf plan reference ...` 更新 `active/Current_Task.md`、`active/Task_Plan.md`；工具不能表达时，再用 `uv run acf edit ...` 精确更新相关 section 或表格。
 2. 新的人工反馈、问题、需求碎片：优先写入或更新 `active/Feedback_Inbox.md`；如果无法确定归属，生成 `uv run acf writeback draft ...` 草案，不把反馈直接写成当前事实。
 3. 已验证的当前事实：只在与当前阶段仍相关、且证据明确时更新 `active/Context.md`；写入前先查旧表述，能 replace 时不 append；一次性过程不写入 Context。
 4. 今日工作记录：完成了可复述的工作或验证后，优先使用 `uv run acf new worklog ...` 记录整理后的摘要；同日已有记录且需要补记时使用 `--append --json`，需要重建时才使用 `--force`；不要写入原始日志或大段命令输出。

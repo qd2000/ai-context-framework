@@ -72,6 +72,8 @@ Empty
 
 本次任务可使用的材料：
 
+当前任务应列出必要 active 文件和相关 reference 规划依据；不要只写 `active/Context.md`。
+
 - 【材料 1】
 - 【材料 2】
 - 【材料 3】

@@ -64,6 +64,11 @@ T001
 
 - `active/Task_Plan.md`。
 - `active/Context.md`。
+- 相关 reference 规划依据请查看 `active/Task_Plan.md` 的 `## 规划依据`。
+- `reference/ACF_Top_Level_Design.md`：上位架构和边界。
+- `reference/Product_Roadmap.md`：阶段路线和近期优先级。
+- `reference/Top_Level_Implementation_Gap.md`：实现差距矩阵和当前 P2 backlog。
+- `reference/Workstream_Lifecycle_Archive_Design.md`：Workstream archive/draft/index cleanup 设计边界。
 
 ---
 

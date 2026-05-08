@@ -2319,6 +2319,9 @@ class CliTests(unittest.TestCase):
             self.assertIn("active/Task_Plan.md", agents_text)
             self.assertIn("active/Feedback_Inbox.md", agents_text)
             self.assertIn("reference/Context_Curation_Prompt.md", agents_text)
+            plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
+            self.assertIn("## 规划依据", plan_text)
+            self.assertIn("reference/【规划依据文档 1】.md", plan_text)
             self.assertIn("acf status --json", agents_text)
             self.assertIn("acf --help", agents_text)
             result = acf.check_context(target, "minimal", strict=False)
@@ -2428,6 +2431,59 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn("Keep me", task_path.read_text(encoding="utf-8"))
             self.assertTrue((target / "active" / "Task_Plan.md").exists())
+
+    def test_upgrade_adds_missing_plan_reference_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            plan_path = target / "active" / "Task_Plan.md"
+            plan_path.write_text(
+                "## 大任务状态\n\nActive\n\n"
+                "## 大任务名称\n\nLegacy plan\n\n"
+                "## 成功标准\n\n1. Pass.\n\n"
+                "## 当前焦点\n\nT001\n\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["upgrade", str(target), "--dry-run", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn(str(plan_path.resolve()), payload["changed_files"])
+            self.assertNotIn("## 规划依据", plan_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
+            updated = plan_path.read_text(encoding="utf-8")
+            self.assertIn("## 规划依据", updated)
+            self.assertIn("acf plan reference add", updated)
+            self.assertLess(updated.index("## 成功标准"), updated.index("## 规划依据"))
+            self.assertLess(updated.index("## 规划依据"), updated.index("## 当前焦点"))
+
+    def test_upgrade_appends_current_task_reference_prompt_non_destructively(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            task_path = target / "active" / "Current_Task.md"
+            task_path.write_text(
+                "## 当前任务状态\n\nActive\n\n"
+                "## 任务名称\n\nKeep me\n\n"
+                "## 输入材料\n\n- 无。\n\n"
+                "## 输出要求\n\n- Keep output\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["upgrade", str(target), "--dry-run", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn(str(task_path.resolve()), payload["changed_files"])
+            self.assertIn("- 无。", task_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
+            updated = task_path.read_text(encoding="utf-8")
+            self.assertIn("Keep me", updated)
+            self.assertIn("相关 reference 规划依据请查看", updated)
+            self.assertNotIn("- 无。\n\n## 输出要求", updated)
 
     def test_upgrade_adds_missing_context_curation_prompt_without_overwriting_existing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2658,6 +2714,23 @@ class CliTests(unittest.TestCase):
                 ),
                 0,
             )
+            reference_path = target / "reference" / "Roadmap.md"
+            reference_path.write_text("# Roadmap\n", encoding="utf-8")
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "plan",
+                        "reference",
+                        "add",
+                        str(target),
+                        "--path",
+                        "reference/Roadmap.md",
+                        "--purpose",
+                        "Roadmap priority",
+                    ]
+                ),
+                0,
+            )
             self.assertEqual(
                 self.run_cli(
                     [
@@ -2682,6 +2755,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("T001", task_text)
             self.assertIn("产出并验证输出物：Slice output", task_text)
             self.assertIn("`active/Context.md`", task_text)
+            self.assertIn("- `reference/Roadmap.md`：Roadmap priority。", task_text)
             self.assertIn("保持 `active/Task_Plan.md` 与 `active/Current_Task.md` 状态同步", task_text)
             self.assertIn("## 当前焦点\n\nT001", (target / "active" / "Task_Plan.md").read_text(encoding="utf-8"))
 
@@ -2692,6 +2766,141 @@ class CliTests(unittest.TestCase):
             plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
             self.assertIn("| T001 | Done | First slice |", plan_text)
             self.assertIn("## 当前任务状态\n\nDone", (target / "active" / "Current_Task.md").read_text(encoding="utf-8"))
+
+    def test_plan_reference_commands_manage_basis_entries_and_sync_current_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+            self.run_cli(["task", "start", str(target), "--id", "T001"])
+            (target / "reference" / "roadmap").mkdir()
+            (target / "reference" / "roadmap" / "Plan.md").write_text("# Plan\n", encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "reference",
+                    "add",
+                    str(target),
+                    "--path",
+                    "reference\\roadmap\\Plan.md",
+                    "--purpose",
+                    "Roadmap priority",
+                    "--sync-current-task",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["references"], [{"path": "reference/roadmap/Plan.md", "purpose": "Roadmap priority。"}])
+            self.assertIn(str((target / "active" / "Task_Plan.md").resolve()), payload["changed_files"])
+            self.assertIn(str((target / "active" / "Current_Task.md").resolve()), payload["changed_files"])
+            task_text = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            self.assertIn("- `reference/roadmap/Plan.md`：Roadmap priority。", task_text)
+
+            duplicate_exit = self.run_cli(
+                [
+                    "plan",
+                    "reference",
+                    "add",
+                    str(target),
+                    "--path",
+                    "reference/roadmap/Plan.md",
+                    "--purpose",
+                    "New purpose",
+                ]
+            )
+            self.assertNotEqual(duplicate_exit, 0)
+
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "plan",
+                        "reference",
+                        "add",
+                        str(target),
+                        "--path",
+                        "reference/roadmap/Plan.md",
+                        "--purpose",
+                        "Updated priority",
+                        "--force",
+                        "--sync-current-task",
+                    ]
+                ),
+                0,
+            )
+            self.assertIn(
+                "- `reference/roadmap/Plan.md`：Updated priority。",
+                (target / "active" / "Current_Task.md").read_text(encoding="utf-8"),
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["plan", "reference", "list", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["count"], 1)
+
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "plan",
+                        "reference",
+                        "remove",
+                        str(target),
+                        "--path",
+                        "reference/roadmap/Plan.md",
+                        "--sync-current-task",
+                    ]
+                ),
+                0,
+            )
+            self.assertNotIn(
+                "reference/roadmap/Plan.md",
+                (target / "active" / "Current_Task.md").read_text(encoding="utf-8"),
+            )
+
+    def test_plan_reference_allows_missing_explicitly_and_skips_non_active_sync(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+
+            missing_exit = self.run_cli(
+                [
+                    "plan",
+                    "reference",
+                    "add",
+                    str(target),
+                    "--path",
+                    "reference/Missing.md",
+                    "--purpose",
+                    "Missing reference",
+                ]
+            )
+            self.assertNotEqual(missing_exit, 0)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "reference",
+                    "add",
+                    str(target),
+                    "--path",
+                    "reference/Missing.md",
+                    "--purpose",
+                    "Missing reference",
+                    "--allow-missing",
+                    "--sync-current-task",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(any("does not exist" in warning for warning in payload["warnings"]))
+            self.assertTrue(any("not Active" in warning for warning in payload["warnings"]))
+            self.assertEqual(payload["changed_files"], [str((target / "active" / "Task_Plan.md").resolve())])
 
     def test_task_start_blocks_unfinished_dependencies_and_reports_dry_run_summary(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -15,10 +15,10 @@
 - `status`：输出项目根、上下文目录、profile、当前任务状态和检查结果。
 - AI 友好输出第一版：`status` 和 `check` 支持 `--json`；写命令支持 `--json`、`--dry-run`、`--check-after` 并输出 changed files。
 - `init`：生成标准或简化上下文模板，并在推断出的项目根目录生成缺失的薄入口 AGENTS.md；已有根入口默认不覆盖，需要 `--force-root-agent` 才覆盖。
-- `upgrade`：非破坏式补齐旧上下文缺失的 `active/Feedback_Inbox.md`、`active/Task_Plan.md`、archive、archive/feedback 和 Knowledge 结构，不自动移动或覆盖 Active 当前任务。
+- `upgrade`：非破坏式补齐旧上下文缺失的 `active/Feedback_Inbox.md`、`active/Task_Plan.md`、archive、archive/feedback、Knowledge 结构和 active -> reference 规划依据追溯入口，不自动移动或覆盖 Active 当前任务。
 - `simplify`：从已有上下文导出简化版本，保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径；`--strict` 会将占位符残留视为错误。
-- `plan init|add-task|set-task|focus|status` 与 `plan stage list|add|set|done`：维护当前大任务计划、轻量子任务板和 `## 任务阶段` 表；Task Stage CLI 不创建 task object 单文件，也不自动修改 `Current_Task.md`。
+- `plan init|add-task|set-task|focus|status`、`plan reference list|add|remove` 与 `plan stage list|add|set|done`：维护当前大任务计划、轻量子任务板、`## 规划依据` 和 `## 任务阶段` 表；`plan reference` 只写 reference 路径和一句话用途，可用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md`；Task Stage CLI 不创建 task object 单文件，也不自动修改 `active/Current_Task.md`。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并维护 `archive/Archive_Index.md`。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引，并维护状态。
@@ -182,8 +182,8 @@ P1 命令：
 
 实施顺序：
 
-1. Task Stage registry：在 `Task_Plan.md` 增加 `## 任务阶段` 表，检查 `T001.4` 这类阶段编号的注册、父任务和 Workstream 绑定。
-2. Workstream Stage Focus：在 Workstream 详情中支持 optional `current_stage` 和 `## 阶段` 表，检查 `WS004.2` 这类内部阶段注册、归属、唯一 Active 阶段和终态 Workstream 阶段状态；第一版不实现 stage CLI，也不实现全局 `Current_Task.md` 阶段对齐。
+1. Task Stage registry：在 `active/Task_Plan.md` 增加 `## 任务阶段` 表，检查 `T001.4` 这类阶段编号的注册、父任务和 Workstream 绑定。
+2. Workstream Stage Focus：在 Workstream 详情中支持 optional `current_stage` 和 `## 阶段` 表，检查 `WS004.2` 这类内部阶段注册、归属、唯一 Active 阶段和终态 Workstream 阶段状态；第一版不实现 stage CLI，也不实现全局 `active/Current_Task.md` 阶段对齐。
 3. Authority write gate + `merge_targets`：禁止 Workstream 通过 `owned` / `assigned` 直接 claim 内置 authority path；需要影响权威文件时使用 `merge_targets` 和合并请求；本阶段不做 `merge_resolution`。
 4. Merge resolution + active retention gate：Done Workstream 必须有 evidence 和 `merge_resolution`；Done / Cancelled 留 active 必须有 `keep_active_reason` 和 `keep_active_until`。
 5. Workstream index consistency check, then sync：PR 4a 先检测 `active/Workstreams.md` 与详情 front matter 是否一致；PR 4b 引入 `acf workstream sync --dry-run --json`，只更新 `active/Workstreams.md`，不删除缺详情的旧索引行。
@@ -309,7 +309,7 @@ subagent 适合处理需要语义判断、但不应静默修改权威文件的�
 5. CLI 行为变化后运行 `uv run acf check --strict`、`uv run python -m unittest` 和 `uv run python -m py_compile acf.py tests\test_cli.py tests\test_upgrade_matrix.py scripts\minimal_smoke.py scripts\upgrade_matrix.py`。
 6. 修改 `upgrade`、模板结构或注意力治理入口时，发布前运行 `uv run python scripts/upgrade_matrix.py --mode full --acf uv run acf`。
 7. minimal 实例不保留 ADR 和 worklog 的占位模板文件，真实条目通过 `new adr` 和 `new worklog` 生成。
-8. 新增或重置当前任务时优先使用 `new task`，新增资料索引时优先使用 `new source`，重要设计决策优先使用 `new adr`，当天工作记录优先使用 `new worklog`。
+8. 新增或重置当前任务时优先使用 `new task`，维护大任务 reference 规划依据时优先使用 `plan reference`，新增资料索引时优先使用 `new source`，重要设计决策优先使用 `new adr`，当天工作记录优先使用 `new worklog`。
 9. 会话结束回写建议需要暂存时，优先使用 `writeback draft`，再由人或主代理审阅后决定是否写入权威上下文。
 10. 维护 `docs/ai/` 内已有 section 或 table 时，优先使用 `edit section` 或 `edit table upsert`，高风险写入先用 `--dry-run --json`。
 11. 修改 `docs/Automation.md` 等 `docs/ai/` 外仓库级文档时，当前仍使用常规补丁；是否提供项目级安全编辑能力应作为独立设计处理。

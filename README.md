@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.30` 是当前推荐的真实项目接入/升级版本，新增只读 `acf workstream archive-candidates`，用于报告可考虑归档的终态 Workstream 和阻止归档的机械 blocker；命令不移动文件、不修改索引、不接入 strict。普通 usage log 仍只记录元数据，显式 `acf log feedback` 可记录人工反馈正文。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.31` 是当前推荐的真实项目接入/升级版本，新增 active -> reference 规划依据追溯能力：`active/Task_Plan.md` 维护 `## 规划依据`，`task start` 会继承有效 reference bullets，`acf plan reference list|add|remove` 可确定性维护路径和一句话用途，`upgrade` 可非破坏式补齐旧结构。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -30,7 +30,7 @@ template/
   active/                # 当前有效上下文（AI 默认读取）
     Context.md           # 当前阶段目标、事实、约束
     Feedback_Inbox.md    # 人工反馈、问题、需求和计划碎片
-    Task_Plan.md         # 当前大任务计划、轻量子任务板和可选任务阶段表
+    Task_Plan.md         # 当前大任务计划、规划依据、轻量子任务板和可选任务阶段表
     Current_Task.md      # 当前具体小任务，可记录当前执行 Workstream
   rules/                 # 规则系统（分层加载）
     Always_Active.md     # 每次必须遵守的核心规则
@@ -222,7 +222,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.30 --dry-run --json
+acf version set v0.0.3.31 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -235,8 +235,8 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `init`：从 `template/` 生成标准或简化上下文目录。
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
-- `upgrade`：非破坏式补齐新版本上下文结构，包括反馈归档目录；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
-- `plan init|add-task|set-task|focus|status` 和 `plan stage list|add|set|done`：维护 `active/Task_Plan.md` 中的大任务、子任务板和 `## 任务阶段` 表；Task Stage CLI 只维护任务阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
+- `upgrade`：非破坏式补齐新版本上下文结构，包括反馈归档目录和 active -> reference 规划依据追溯入口；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
+- `plan init|add-task|set-task|focus|status`、`plan reference list|add|remove` 和 `plan stage list|add|set|done`：维护 `active/Task_Plan.md` 中的大任务、子任务板、`## 规划依据` 和 `## 任务阶段` 表；`plan reference add --path reference/X.md --purpose "用途"` 只记录 reference 路径和一句话用途，可用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md` 的输入材料；Task Stage CLI 只维护任务阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
 - `plan complete`：在子任务完成后将大任务计划标记为 Done。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并更新 archive 索引。
@@ -301,7 +301,7 @@ acf upgrade --check-after --json
 acf check --strict --json
 ```
 
-`upgrade` 只补齐当前 schema 缺失的 `Task_Plan`、archive、archive/feedback 和 Knowledge 文件/目录，不移动旧内容、不自动归档任务、不覆盖 Active `Current_Task.md`。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
+`upgrade` 只补齐当前 schema 缺失的 `active/Task_Plan.md`、archive、archive/feedback 和 Knowledge 文件/目录，并为旧 `active/Task_Plan.md` 补 `## 规划依据` 结构、为 Active `active/Current_Task.md` 的 `## 输入材料` 保守追加规划依据提示；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
 
 如果全局 `acf` 未安装，可在本仓库源码环境中对其他项目运行：
 

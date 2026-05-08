@@ -8,8 +8,8 @@
 
 1. `active/Context.md`：当前阶段事实。
 2. `active/Feedback_Inbox.md`：人工临时反馈、问题、需求和计划碎片。
-3. `active/Task_Plan.md`：当前大任务计划和子任务板。
-4. `active/Current_Task.md`：当前具体任务。
+3. `active/Task_Plan.md`：当前大任务计划、子任务板和 `## 规划依据`。
+4. `active/Current_Task.md`：当前具体任务，`## 输入材料` 必须列出当前任务所需 active 文件和相关 reference 规划依据。
 5. `active/Workstreams.md`：可选并行目标线索引，仅在显式启用且存在 Active、Blocked 或 ReadyToMerge workstream 时按需读取。
 6. `rules/`：默认和按需规则。
 7. `reference/`：长期背景、架构、技术环境、决策和 Knowledge 索引。
@@ -76,6 +76,8 @@ Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部
 
 Task Stage 仍以 `active/Task_Plan.md` 的 `## 任务阶段` 表为事实源；`plan stage list|add|set|done` 只维护该表，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。`plan stage add` 要求阶段 ID 使用 `T001.1` 格式且归属于已存在父任务，`--workstream` 只接受已存在的 Workstream ID 或空值；`plan stage done` 要求 `--evidence`。
 
+`active/Task_Plan.md` 必须在 `## 规划依据` 显式列出当前大任务必须对齐的 reference 设计、路线或差距文档，只放路径和一句话用途，不复制详细规划。`acf plan reference list|add|remove` 维护该小节；`add` 默认要求 `reference/*.md` 目标存在，可用 `--allow-missing` 显式允许缺失，用 `--force` 更新同一路径，用 `--sync-current-task` 显式同步标准 bullet 到 Active `active/Current_Task.md` 的 `## 输入材料`。
+
 `acf workstream archive-candidates --json` 只读扫描 Done / Cancelled Workstream，输出 `candidates`、`blocked`、`blocked_by` 和 `changed_files: []`；机械 blocker 包括 keep-active 未过期、当前执行线引用、当前任务阶段归属、缺 evidence、缺 merge_resolution 或缺 merge request。该命令不写文件、不修改 `active/Workstreams.md`、不移动详情文件、不接入 strict。
 
 `acf workstream sync --dry-run --json` 只根据 `active/workstreams/*.md` front matter 预览或更新 `active/Workstreams.md`；第一版不会删除索引中缺失详情文件的旧行，也不会移动 Done / Cancelled 文件。
@@ -105,11 +107,12 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 1. 人工可直接写入 `active/Feedback_Inbox.md`。
 2. AI 处理 Open 条目时，先判断归属。
 3. 可执行事项进入 `active/Task_Plan.md`。
-4. 当前事实进入 `active/Context.md`。
-5. 重要决策进入 ADR。
-6. 历史过程进入 worklog。
-7. 可复用经验进入 Knowledge 草案流程。
-8. Done/Rejected 条目必须保留证据位置或拒绝原因；超过 10 条，或完成超过 30 天且不再支撑当前计划时，整理到 `archive/feedback/`。
+4. 当前任务所需输入材料进入 Active `active/Current_Task.md` 的 `## 输入材料`，其中应包含相关 reference 规划依据。
+5. 当前事实进入 `active/Context.md`。
+6. 重要决策进入 ADR。
+7. 历史过程进入 worklog。
+8. 可复用经验进入 Knowledge 草案流程。
+9. Done/Rejected 条目必须保留证据位置或拒绝原因；超过 10 条，或完成超过 30 天且不再支撑当前计划时，整理到 `archive/feedback/`。
 
 ## 注意力治理
 

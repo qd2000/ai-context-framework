@@ -46,7 +46,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 1. `active/Context.md`
 2. `rules/Always_Active.md`
 3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）
-4. `active/Task_Plan.md`
+4. `active/Task_Plan.md`（读取后按 `## 规划依据` 追溯当前大任务需要对齐的 reference 规划文档）
 5. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）
 6. Workstreams 索引（仅当该可选文件存在，且存在 Active、Blocked 或 ReadyToMerge workstream，或需要整理并行协作时）
 
@@ -59,7 +59,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 如果项目可用 `acf` 命令，维护上下文时优先考虑使用它完成确定性操作。
 
 - 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
-- 新增或更新当前计划、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`、`acf task`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
+- 新增或更新当前计划、规划依据、当前任务、资料索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`（包括 `acf plan reference`）、`acf task`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
 - 需要参数细节时，先查看 `acf --help`；需要系统级说明时，再读取 `reference/System_Manual.md`。
 
 `acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。
@@ -125,7 +125,7 @@ Knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 - 长期目标 / 项目愿景：`reference/Project_Brief.md`
 - 当前阶段目标：`active/Context.md`
 - 人工反馈 / 问题 / 需求碎片：`active/Feedback_Inbox.md`
-- 当前大任务计划：`active/Task_Plan.md`
+- 当前大任务计划：`active/Task_Plan.md`；其中 `## 规划依据` 只列 reference 路径和一句话用途，详细规划事实源仍在 reference 文件
 - 当前具体任务：`active/Current_Task.md`
 - 当前用户临时需求：用户当前消息
 

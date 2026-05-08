@@ -18,7 +18,7 @@
 
 - `active/Context.md`：当前阶段事实源，记录当前阶段目标、范围、约束、有效事实和开放问题。
 - `active/Feedback_Inbox.md`：人工临时反馈、问题、需求和计划碎片的入口，允许不规范描述，但不直接作为已确认事实。
-- `active/Task_Plan.md`：当前大任务计划和轻量子任务板，记录子任务、可选任务阶段、证据和下一步。
+- `active/Task_Plan.md`：当前大任务计划和轻量子任务板，记录子任务、规划依据、可选任务阶段、证据和下一步。
 - `active/Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源；`当前执行线` 只记录正在执行的 Workstream，不记录历史依赖。
 - Workstreams 索引：可选并行目标线索引，仅在显式启用 Workstream 层且存在 Active、Blocked 或 ReadyToMerge workstream 时按需读取。
 
@@ -26,8 +26,8 @@
 
 1. 默认优先读取 `active/Context.md`。
 2. 有 Open 条目或需要整理人工反馈时读取 `active/Feedback_Inbox.md`。
-3. 默认读取 `active/Task_Plan.md`，但该文件必须保持轻量。
-4. 如果 `active/Current_Task.md` 状态为 Active，则读取它。
+3. 默认读取 `active/Task_Plan.md`，但该文件必须保持轻量；如果 `## 规划依据` 列出 reference 设计、路线或差距文档，应按任务需要读取这些依据。
+4. 如果 `active/Current_Task.md` 状态为 Active，则读取它；`## 输入材料` 必须列出当前任务所需 active 文件和相关 reference 规划依据。
 5. 如果存在 Active、Blocked 或 ReadyToMerge workstream，或当前任务需要整理并行协作，则读取 Workstreams 索引，再按需读取对应详情文件。
 6. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
 7. `active/` 中的信息应保持短、准、当前有效。
@@ -325,8 +325,8 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf init <target> --profile minimal`：生成简化模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `acf simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
-- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge 结构；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
-- `acf plan init|add-task|set-task|focus|complete|status [target]` / `acf plan stage list|add|set|done [target]`：维护当前大任务计划、子任务板和 `## 任务阶段` 表，并在完成后标记计划 Done；Task Stage CLI 只维护 `active/Task_Plan.md` 中的阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
+- `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、archive、archive/feedback、Knowledge 结构和 active -> reference 规划依据追溯入口；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
+- `acf plan init|add-task|set-task|focus|complete|status [target]` / `acf plan reference list|add|remove [target]` / `acf plan stage list|add|set|done [target]`：维护当前大任务计划、子任务板、`## 规划依据` 和 `## 任务阶段` 表，并在完成后标记计划 Done；`plan reference add --path reference/X.md --purpose "用途"` 只写 reference 路径和一句话用途，默认要求目标文件存在，可用 `--allow-missing` 显式允许缺失，用 `--force` 更新同一路径，用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md`；Task Stage CLI 只维护 `active/Task_Plan.md` 中的阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
 - `acf task start|done|block|clear [target]`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
 - `acf archive current-task|task-plan|list [target]`：归档旧当前任务或旧大任务计划，并维护归档索引。
 - `acf knowledge draft|apply|list|show|mark [target]`：生成 Knowledge 草案、审阅后写入可复用经验索引，并维护状态；`apply` 默认拒绝疑似重复条目，可用 `--allow-similar` 显式覆盖。
@@ -368,7 +368,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 4. `acf upgrade --check-after --json`：正式补齐结构并检查。
 5. `acf check --strict --json`：在正式项目中确认占位符和结构问题。
 
-`upgrade` 是非破坏式命令，只补齐当前 schema 缺失的 `active/Task_Plan.md`、archive、archive/feedback 和 Knowledge 文件/目录；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
+`upgrade` 是非破坏式命令，只补齐当前 schema 缺失的 `active/Task_Plan.md`、archive、archive/feedback 和 Knowledge 文件/目录，并为旧 `active/Task_Plan.md` 补 `## 规划依据` 结构、为 Active `active/Current_Task.md` 的 `## 输入材料` 保守追加规划依据提示；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
 
 维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档、init/upgrade 单元测试和 upgrade compatibility runner；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。
 

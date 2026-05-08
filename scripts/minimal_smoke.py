@@ -337,11 +337,65 @@ class SmokeRunner:
         )
         steps.append(self.run_acf(["check", str(context), "--json"]))
 
+    def plan_reference_minimal_happy_path(self, tmp: Path, steps: list[dict[str, Any]]) -> None:
+        context = tmp / "plan-reference" / "docs" / "ai"
+        reference = context / "reference" / "Smoke_Roadmap.md"
+        steps.append(self.run_acf(["init", str(context), "--profile", "minimal", "--json"]))
+        steps.append(
+            self.run_acf(
+                [
+                    "plan",
+                    "init",
+                    str(context),
+                    "--title",
+                    "Smoke plan",
+                    "--goal",
+                    "Verify plan references.",
+                    "--force",
+                    "--json",
+                ]
+            )
+        )
+        reference.write_text("# Smoke roadmap\n", encoding="utf-8")
+        steps.append(
+            self.run_acf(
+                [
+                    "plan",
+                    "reference",
+                    "add",
+                    str(context),
+                    "--path",
+                    "reference/Smoke_Roadmap.md",
+                    "--purpose",
+                    "Smoke reference basis",
+                    "--json",
+                ]
+            )
+        )
+        list_step = self.run_acf(["plan", "reference", "list", str(context), "--json"])
+        list_step["ok"] = list_step["ok"] and list_step["payload"].get("count") == 1
+        steps.append(list_step)
+        steps.append(
+            self.run_acf(
+                [
+                    "plan",
+                    "reference",
+                    "remove",
+                    str(context),
+                    "--path",
+                    "reference/Smoke_Roadmap.md",
+                    "--json",
+                ]
+            )
+        )
+        steps.append(self.run_acf(["check", str(context), "--json"]))
+
     def run(self) -> dict[str, Any]:
         self.scenario("init -> nested status/check", self.init_status_check)
         self.scenario("worklog create/append/error_code", self.worklog_create_append_error_code)
         self.scenario("workstream minimal happy path", self.workstream_minimal_happy_path)
         self.scenario("task stage minimal happy path", self.task_stage_minimal_happy_path)
+        self.scenario("plan reference minimal happy path", self.plan_reference_minimal_happy_path)
         ok = all(scenario["ok"] for scenario in self.scenarios)
         return {
             "schema_version": 1,

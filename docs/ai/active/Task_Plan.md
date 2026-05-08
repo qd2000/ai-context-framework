@@ -30,6 +30,17 @@ P2-4 Workstream Archive Draft and Index Cleanup Design
 
 ---
 
+## 规划依据
+
+列出当前大任务必须对齐的 reference 设计、路线或差距文档；只放路径和一句话用途，不复制详细规划。
+
+- `reference/ACF_Top_Level_Design.md`：上位架构和边界。
+- `reference/Product_Roadmap.md`：阶段路线和近期优先级。
+- `reference/Top_Level_Implementation_Gap.md`：实现差距矩阵和当前 P2 backlog。
+- `reference/Workstream_Lifecycle_Archive_Design.md`：Workstream archive/draft/index cleanup 设计边界。
+
+---
+
 ## 当前焦点
 
 T001
