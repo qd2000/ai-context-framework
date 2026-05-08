@@ -31,3 +31,7 @@
 | 2026-05-08 | Plan | P2-7 Markdown Link Traceability | 无。 | `archive/plans/2026-05-08-p2-7-markdown-link-traceability.md` | Archived | P2-7 Markdown link traceability completed and verified; moving old task plan out of active before context governance cleanup. |
 | 2026-05-08 | Task | Prepare P2-5 audit fixture slice | 无。 | `archive/tasks/2026-05-08-prepare-p2-5-audit-fixture-slice.md` | Archived | P2-8 context attention cleanup and P2-5 fixture expansion completed and verified. |
 | 2026-05-08 | Plan | P2-8 Context Attention Cleanup and P2-5 Readiness | 无。 | `archive/plans/2026-05-08-p2-8-context-attention-cleanup-and-p2-5-readiness.md` | Archived | P2-8 context attention cleanup and P2-5 fixture expansion completed and verified. |
+| 2026-05-08 | Task | Update roadmap and current facts | 无。 | `archive/tasks/2026-05-08-update-roadmap-and-current-facts.md` | Archived | Generated marker sync design completed and roadmap updated. |
+| 2026-05-08 | Plan | Generated Marker Sync Design | 无。 | `archive/plans/2026-05-08-generated-marker-sync-design.md` | Archived | Generated marker sync design completed and roadmap updated. |
+| 2026-05-08 | Task | Document and verify knowledge sync | 无。 | `archive/tasks/2026-05-08-document-and-verify-knowledge-sync.md` | Archived | Knowledge sync MVP completed and verified |
+| 2026-05-08 | Plan | Knowledge Sync MVP | 无。 | `archive/plans/2026-05-08-knowledge-sync-mvp.md` | Archived | Knowledge sync MVP completed and verified |

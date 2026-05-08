@@ -53,7 +53,7 @@ Dogfooding MVP / 框架稳定化。
 
 1. 本仓库维护模型无关、Markdown-first 的 AI 上下文管理框架；核心产品源是 `template/`，真实 dogfooding 实例是 `docs/ai/`。
 2. `acf` 是主要面向 AI 的上下文维护 CLI；它负责确定性检查、生成、结构化编辑、归档、草案和审计，不替代人的事实判断，也不扩展为通用 Markdown 编辑器或常驻 runtime。
-3. 当前版本事实为 `v0.0.3.37`：`acf --version`、`pyproject.toml`、`uv.lock` 和本地包元数据应保持同步。
+3. 当前版本事实为 `v0.0.3.38`：`acf --version`、`pyproject.toml`、`uv.lock` 和本地包元数据应保持同步。
 4. 本仓库使用 uv Python 环境，Python 版本约束为 `>=3.10`；运行项目 Python 或 CLI 时优先使用 `uv run python ...` 和 `uv run acf ...`。
 5. `docs/ai/` 当前应保持 `uv run acf check --strict` 通过；CLI 或模板行为变更后还应运行 `uv run acf check template`、`uv run python -m unittest`，必要时运行 upgrade matrix。
 
@@ -62,7 +62,7 @@ Dogfooding MVP / 框架稳定化。
 1. 基础维护：`init`、`simplify`、`status`、`check`、`new task/source/worklog/adr`、`writeback draft`、`version show/set` 已形成可安装 CLI 主链路。
 2. AI 友好契约：主要命令支持 `--json`、`--dry-run`、`--check-after`、稳定 `schema_version/ok/error_code/next_actions`、changed files 和分层退出码。
 3. 安全编辑：`edit section get|replace|append` 和 `edit table upsert` 仅允许在 context root 内既有 Markdown 文件上做结构化修改。
-4. 计划与历史：`plan`、`task`、`archive`、`knowledge`、`workstream` 系列命令已提供当前任务板、当前任务、旧任务/旧计划归档、Knowledge 草案和可选并行 Workstream 层的第一版。
+4. 计划与历史：`plan`、`task`、`archive`、`knowledge`、`workstream` 系列命令已提供当前任务板、当前任务、旧任务/旧计划归档、Knowledge 草案、Knowledge index sync MVP 和可选并行 Workstream 层的第一版。
 5. 观测与评测：usage event log 默认开启并写入用户级目录；`scripts/minimal_smoke.py` 和 `scripts/upgrade_matrix.py` 覆盖最小 smoke 与旧上下文升级兼容性。
 6. 注意力治理：`review stale`、`curate draft` 和 [reference/Context_Curation_Prompt.md](../reference/Context_Curation_Prompt.md) 已提供机械 stale signal 与可审阅整理草案；CLI 不裁决事实真假。
 7. 链接治理：P2-7 已实现 Markdown link check/linkify/link add 能力，并完成 README、template manual、dogfooding manual 和 gap 文档同步。
@@ -70,9 +70,9 @@ Dogfooding MVP / 框架稳定化。
 ### 当前进展与未完成项
 
 1. 当前阶段处在 P2 收尾和阶段 6「事实与注意力治理」深化之间；旧 P2-7 当前任务和计划已归档。
-2. 当前活跃计划是 [active/Task_Plan.md](Task_Plan.md)：已完成 Context 注意力整理和 P2-5 audit fixture 扩展，准备收尾验证。
+2. 当前活跃计划是 [active/Task_Plan.md](Task_Plan.md)：正在完成 Knowledge sync MVP 的文档与验证收口。
 3. 当前活跃任务是 [active/Current_Task.md](Current_Task.md)：以任务板中 Active 项为准。
-4. P2-5 已补 `audit_stale_stage` 和 `audit_terminal_merge` 的 context_matrix fixtures；下一入口转为 Knowledge / ADR / Archive sync 的 generated marker 设计。
+4. Knowledge / ADR / Archive sync 的 generated marker 设计已落地 [reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)；通用 marker helper 和 `acf knowledge sync` MVP 已实现，后续入口转为 Decisions / Archive sync 设计复用与实现。
 5. `acf archive current-task/task-plan` 已修复移动 Markdown 文件后相对链接断裂问题：归档写入前会按新文件位置重写已有本地 Markdown 链接；F018 已处理完成。
 6. 新反馈 F016 要求 Context 采用渐进式披露；本文件已改为核心事实 + 索引结构，细节不再线性堆放在默认注意力入口。
 7. 新反馈 F017 要求“上次修改/上次更新”精确到分钟并工具化；已 triage，尚未设计统一格式或 CLI 生成能力。
@@ -81,7 +81,7 @@ Dogfooding MVP / 框架稳定化。
 
 1. 产品目标和阶段路线：[reference/Project_Brief.md](../reference/Project_Brief.md)、[reference/Product_Roadmap.md](../reference/Product_Roadmap.md)。
 2. 架构与边界：[reference/ACF_Top_Level_Design.md](../reference/ACF_Top_Level_Design.md)、[../Automation.md](../../Automation.md)、[reference/System_Manual.md](../reference/System_Manual.md)。
-3. 实现差距与下一步：[reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md)、[active/Task_Plan.md](Task_Plan.md)、[active/Feedback_Inbox.md](Feedback_Inbox.md)。
+3. 实现差距与下一步：[reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md)、[reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)、[active/Task_Plan.md](Task_Plan.md)、[active/Feedback_Inbox.md](Feedback_Inbox.md)。
 4. 决策与规则：[reference/Decisions_Index.md](../reference/Decisions_Index.md)、[rules/Project_Rules.md](../rules/Project_Rules.md)、[decisions/ADR-0003.md](../decisions/ADR-0003.md)、[decisions/ADR-0004.md](../decisions/ADR-0004.md)、[decisions/ADR-0005.md](../decisions/ADR-0005.md)。
 5. 可复用经验与历史证据：[reference/Knowledge_Index.md](../reference/Knowledge_Index.md)、[worklog/Worklog_Index.md](../worklog/Worklog_Index.md)、[archive/Archive_Index.md](../archive/Archive_Index.md)；archive 默认不读，只有追溯历史时按需进入。
 
@@ -208,4 +208,4 @@ Dogfooding MVP / 框架稳定化。
 ## 上次更新
 
 - 日期：2026-05-08
-- 更新原因：完成 archive 移动时本地 Markdown 相对链接重写能力，同步 `v0.0.3.37` 当前版本事实。
+- 更新原因：完成通用 generated marker helper 和 `acf knowledge sync` MVP，同步 `v0.0.3.38` 当前版本事实。

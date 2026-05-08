@@ -1,0 +1,117 @@
+本文件记录当前正在处理的具体任务。
+
+- 长期目标请查看：`reference/Project_Brief.md`
+- 当前阶段目标请查看：`active/Context.md`
+- 本文件只维护当前具体任务
+
+如果用户在当前对话中提出了新的具体需求，并且该需求与本文件冲突，以用户当前消息为准。
+
+---
+
+## 当前任务状态
+
+Done
+
+---
+
+## 任务名称
+
+Update roadmap and current facts
+
+---
+
+## 所属大任务
+
+Generated Marker Sync Design
+
+---
+
+## 子任务 ID
+
+T002
+
+---
+
+## 当前执行线
+
+2026-05-08：同步 generated marker design 状态、路线文档和下一代码切片。
+
+---
+
+## 本次任务目标
+
+1. 同步 generated marker design 的状态和后续实现顺序
+2. 产出并验证输出物：Roadmap, gap, System Manual, and Context point to the next code slice
+
+---
+
+## 任务背景
+
+该任务来自 `active/Task_Plan.md` 中的子任务 T002，所属大任务为“Generated Marker Sync Design”。依赖记录：T001
+
+---
+
+## 输入材料
+
+当前任务应列出必要 active 文件和相关 reference 规划依据；不要只写 `active/Context.md`。
+
+- `active/Task_Plan.md`。
+- `active/Context.md`。
+- [reference/Product_Roadmap.md](../../reference/Product_Roadmap.md)：阶段路线和剩余功能优先级。
+- [reference/Top_Level_Implementation_Gap.md](../../reference/Top_Level_Implementation_Gap.md)：剩余实现缺口和下一代码切片依据。
+- [reference/System_Manual.md](../../reference/System_Manual.md)：命令分层、marker 规范和 sync 边界。
+- 依赖 T001 证据：Added reference/Generated_Marker_Sync_Design.md defining marker contract, sync boundaries, deletion policy, JSON contract, tests, and next code slice.
+
+---
+
+## 输出要求
+
+- Roadmap, gap, System Manual, and Context point to the next code slice
+
+---
+
+## 成功标准
+
+1. 输出物已完成：Roadmap, gap, System Manual, and Context point to the next code slice
+2. 子任务 T002 的完成证据已写回任务板。
+3. `acf plan status` 能显示任务板可继续推进。
+
+---
+
+## 失败信号
+
+1. 依赖任务未完成或证据不足。
+2. 输出物无法通过检查或人工复核验证。
+3. 执行中发现用户当前需求与任务板记录冲突。
+
+---
+
+## 约束条件
+
+1. 遵守当前项目规则和默认读取顺序。
+2. 保持 `active/Task_Plan.md` 与 `active/Current_Task.md` 状态同步。
+3. 不要把一次性过程或当前事实直接写入 Knowledge。
+
+---
+
+## 不允许做的事
+
+- 无。
+
+---
+
+## 需要 AI 协助判断的问题
+
+1. 执行过程中是否发现应回写 Context、ADR、rules、Knowledge 或 archive 的内容？
+
+---
+
+## 完成后的回写要求
+
+任务完成后，请整理以下内容，供人审核后写回项目系统：
+
+1. 应写入 `active/Context.md` 的新增当前事实。
+2. 应写入 `reference/Decisions_Index.md` 或 ADR 的重要决策。
+3. 应写入 rules 的新增规则。
+4. 应写入 `reference/Knowledge_Index.md` 或 Knowledge 条目的可复用经验。
+5. 应归档到 archive 的历史内容。

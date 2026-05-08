@@ -3818,6 +3818,139 @@ class CliTests(unittest.TestCase):
             index_text = (target / "reference" / "Knowledge_Index.md").read_text(encoding="utf-8")
             self.assertIn("| K001 | Markdown editing lesson | Draft |", index_text)
 
+    def test_generated_marker_block_replaces_only_marker_content(self):
+        original = "before\n<!-- ACF:TEST:BLOCK:START -->\nstale\n<!-- ACF:TEST:BLOCK:END -->\nafter\n"
+
+        updated, changed = acf.replace_generated_marker_block(
+            original,
+            "<!-- ACF:TEST:BLOCK:START -->",
+            "<!-- ACF:TEST:BLOCK:END -->",
+            "fresh",
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(updated, "before\n<!-- ACF:TEST:BLOCK:START -->\nfresh\n<!-- ACF:TEST:BLOCK:END -->\nafter\n")
+        with self.assertRaises(SystemExit) as missing:
+            acf.replace_generated_marker_block("before\nafter\n", "<!-- ACF:X:Y:START -->", "<!-- ACF:X:Y:END -->", "body")
+        self.assertIn("generated_marker_missing", str(missing.exception))
+        with self.assertRaises(SystemExit) as duplicate:
+            acf.replace_generated_marker_block(
+                "<!-- ACF:X:Y:START -->\n1\n<!-- ACF:X:Y:END -->\n<!-- ACF:X:Y:START -->\n2\n<!-- ACF:X:Y:END -->\n",
+                "<!-- ACF:X:Y:START -->",
+                "<!-- ACF:X:Y:END -->",
+                "body",
+            )
+        self.assertIn("generated_marker_duplicate", str(duplicate.exception))
+
+    def write_valid_knowledge_detail(self, target, name="K001-markdown-editing-lesson.md", status="Active"):
+        path = target / "reference" / "knowledge" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "# K001：Markdown editing lesson\n\n"
+            "## 状态\n\n"
+            f"{status}\n\n"
+            "## 标签\n\n"
+            "cli, docs\n\n"
+            "## 摘要\n\n"
+            "Keep generated blocks bounded.\n\n"
+            "## 结论\n\n"
+            "Only replace content inside generated markers.\n\n"
+            "## 适用场景\n\n"
+            "- Syncing maintained Markdown index tables.\n\n"
+            "## 不适用场景\n\n"
+            "- Manually curated prose outside generated markers.\n\n"
+            "## 来源\n\n"
+            "- `active/Context.md`\n\n"
+            "## 与现有事实源的关系\n\n"
+            "- Current facts remain in `active/Context.md`.\n\n"
+            "## 去重判断\n\n"
+            "This records a reusable index maintenance pattern.\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_knowledge_sync_requires_marker_unless_initialized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            index_path = target / "reference" / "Knowledge_Index.md"
+            index_text = index_path.read_text(encoding="utf-8")
+            index_path.write_text(
+                index_text.replace(acf.KNOWLEDGE_INDEX_MARKER_START + "\n", "").replace(acf.KNOWLEDGE_INDEX_MARKER_END + "\n", ""),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(["knowledge", "sync", str(target), "--json"])
+
+            self.assertEqual(exit_code, acf.EXIT_INPUT_ERROR)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(payload, "generated_marker_missing", "knowledge")
+
+    def test_knowledge_sync_init_marker_dry_run_and_write_preserves_outside_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.write_valid_knowledge_detail(target)
+            index_path = target / "reference" / "Knowledge_Index.md"
+            original = index_path.read_text(encoding="utf-8")
+            original = original.replace(acf.KNOWLEDGE_INDEX_MARKER_START + "\n", "").replace(acf.KNOWLEDGE_INDEX_MARKER_END + "\n", "")
+            index_path.write_text(original + "\nManual note outside generated block.\n", encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["knowledge", "sync", str(target), "--init-marker", "--dry-run", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "knowledge sync")
+            self.assertEqual(payload["generated_count"], 1)
+            self.assertIn("K001", payload["planned_block"])
+            self.assertNotIn(acf.KNOWLEDGE_INDEX_MARKER_START, index_path.read_text(encoding="utf-8"))
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["knowledge", "sync", str(target), "--init-marker", "--check-after", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "knowledge sync")
+            index_text = index_path.read_text(encoding="utf-8")
+            self.assertIn(acf.KNOWLEDGE_INDEX_MARKER_START, index_text)
+            self.assertIn("| K001 | Markdown editing lesson | Active | cli, docs | Keep generated blocks bounded. |", index_text)
+            self.assertIn("Manual note outside generated block.", index_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(["knowledge", "sync", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["changed_files"], [])
+
+    def test_knowledge_sync_replaces_existing_generated_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.write_valid_knowledge_detail(target)
+            index_path = target / "reference" / "Knowledge_Index.md"
+            index_path.write_text(
+                "## Knowledge 条目\n\n"
+                f"{acf.KNOWLEDGE_INDEX_MARKER_START}\n"
+                "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |\n"
+                "|---|---|---|---|---|---|\n"
+                "| K999 | Stale | Active | old | stale | `reference/knowledge/missing.md` |\n"
+                f"{acf.KNOWLEDGE_INDEX_MARKER_END}\n\n"
+                "Manual note outside generated block.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["knowledge", "sync", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["skipped_items"][0]["id"], "K999")
+            index_text = index_path.read_text(encoding="utf-8")
+            self.assertIn("| K001 | Markdown editing lesson | Active | cli, docs | Keep generated blocks bounded. |", index_text)
+            self.assertNotIn("K999", index_text)
+            self.assertIn("Manual note outside generated block.", index_text)
+
     def test_knowledge_draft_uses_unicode_slug_and_strict_rejects_draft_placeholders(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
@@ -4308,6 +4441,7 @@ This records a reusable write-safety pattern instead of a current task fact.
                 ("audit context", ["audit", "context", str(target), "--json"]),
                 ("review stale", ["review", "stale", str(target), "--today", "2026-05-05", "--json"]),
                 ("curate draft", ["curate", "draft", str(target), "--today", "2026-05-05", "--dry-run", "--json"]),
+                ("knowledge sync", ["knowledge", "sync", str(target), "--dry-run", "--json"]),
                 ("workstream status", ["workstream", "status", str(target), "--json"]),
                 ("workstream list", ["workstream", "list", str(target), "--json"]),
                 ("workstream archive-candidates", ["workstream", "archive-candidates", str(target), "--json"]),

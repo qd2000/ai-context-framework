@@ -248,7 +248,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 
 ### Phase C：对象模型补齐
 
-状态：后续阶段。
+状态：generated marker 设计已完成；等待第一批代码切片。
 
 目标：
 
@@ -313,7 +313,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 
 1. 更多 upgrade fixture。
 2. archive/workstream lifecycle design。
-3. generated block marker design。
+3. [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md)。
 4. `upgrade_matrix` full 模式扩展。
 
 候选扩展：
@@ -324,7 +324,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 
 限制：
 
-1. 不在没有 marker 设计前自动覆盖索引全文。
+1. 不在没有 generated marker 的情况下自动覆盖索引全文。
 2. 不自动删除缺详情的历史行。
 3. 不自动升格事实。
 
@@ -373,7 +373,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 1. 使用 [reference/Top_Level_Implementation_Gap.md](Top_Level_Implementation_Gap.md) 作为进入新代码 PR 前的 gap-driven 实施依据。
 2. JSON contract consistency tests、Workstream stage flow fixture、upgrade matrix expansion、Task Stage CLI 薄切片、active-reference traceability 与 Workstream archive-candidates / archive-draft / explicit archive 闭环已完成。
 3. P2-5 audit fixture expansion 已完成：`audit_stale_stage` 和 `audit_terminal_merge` 已进入 context_matrix fixtures；未新增 audit rule，未接入 strict。
-4. 下一代码/设计入口是 Knowledge / ADR / Archive sync 的 generated marker 设计；curation draft 增强需要更多 fixture 和多项目样本后再进入。
+4. Knowledge / ADR / Archive sync 的 generated marker 设计已完成，见 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md)；generated marker helper 和 Knowledge sync MVP 已完成，下一代码切片应评估 Decisions / Archive sync 复用。
 5. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge。
 6. 后续每个新能力先补 fixture，再实现命令或规则。
 7. human layer、Obsidian 边界、统一占位符和 canonical marker 已作为 P2-6 完成；后续不为 Obsidian 新增 CLI，除非出现可抽象、可测试的通用维护需求。
@@ -391,6 +391,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 9. P2-4：实现 `workstream archive-draft` 和显式 `workstream archive`。已完成：draft 写入 `worklog/archive-drafts/`，archive 移动单个终态 Workstream、清理 active index、写入 Archive_Index 和 marker，不修改 merge target 或当前事实文件。
 10. P2-6：human layer、Obsidian 边界、统一占位符和 canonical marker。已完成：standard init / upgrade 维护 `human/`，minimal 不补；template 占位符迁移为 ACF-keyed placeholder form；ACF marker 迁移为 `ACF:<DOMAIN>:<PURPOSE>` 并兼容旧格式。
 11. P2-5：扩展 context_matrix audit fixtures。已完成：新增 `audit_stale_stage` 和 `audit_terminal_merge` fixtures，固化已实现 audit MVP 的防过拟合样本，不改变 CLI 行为。
+12. Generated marker helper and Knowledge sync MVP：已完成 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md) 对应的第一批实现；后续 Decisions / Archive sync 必须复用该 marker helper 和删除策略。
 
 ---
 

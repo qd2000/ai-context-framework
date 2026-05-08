@@ -22,7 +22,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.37"
+VERSION = "v0.0.3.38"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -223,6 +223,8 @@ WORKSTREAM_INDEX_REL = "active/Workstreams.md"
 WORKSTREAM_DIR_REL = "active/workstreams"
 WORKSTREAM_ARCHIVE_DIR_REL = "archive/workstreams"
 ACF_MARKER_RE = re.compile(r"<!--\s*ACF:([A-Z0-9_-]+):([A-Z0-9_-]+):(START|END)\s*-->")
+KNOWLEDGE_INDEX_MARKER_START = "<!-- ACF:KNOWLEDGE:INDEX-GENERATED:START -->"
+KNOWLEDGE_INDEX_MARKER_END = "<!-- ACF:KNOWLEDGE:INDEX-GENERATED:END -->"
 WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:START -->"
 WORKSTREAM_ARCHIVE_MARKER_END = "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:END -->"
 LEGACY_WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM-ARCHIVE:START -->"
@@ -1005,6 +1007,14 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Run `acf plan stage list ... --json` and choose a registered Task Stage ID."]
     if error_code == "task_stage_missing_evidence":
         return ["Provide `--evidence` so Task Stage completion remains traceable."]
+    if error_code == "generated_marker_missing":
+        return ["Rerun with `--init-marker` after reviewing where the generated block should live."]
+    if error_code == "generated_marker_duplicate":
+        return ["Keep one generated marker pair, move manual content outside it, then rerun the command."]
+    if error_code == "generated_marker_unclosed":
+        return ["Fix the unbalanced generated marker pair before rerunning the command."]
+    if error_code == "sync_source_invalid":
+        return ["Fix or remove the invalid source file, then rerun the sync command."]
     if error_code == "input_error":
         return [
             "Check command arguments and paths.",
@@ -1060,7 +1070,13 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "task_stage_not_found",
         "task_stage_missing_evidence",
     )
-    for code in (*workstream_codes, *task_stage_codes):
+    generated_marker_codes = (
+        "generated_marker_missing",
+        "generated_marker_duplicate",
+        "generated_marker_unclosed",
+        "sync_source_invalid",
+    )
+    for code in (*workstream_codes, *task_stage_codes, *generated_marker_codes):
         if message.startswith(f"{code}:"):
             return code, EXIT_INPUT_ERROR
     if message.startswith("curation_draft_exists:"):
@@ -1323,6 +1339,66 @@ def has_upgrade_notes_marker(text: str) -> bool:
 
 def has_workstream_archive_marker(text: str) -> bool:
     return WORKSTREAM_ARCHIVE_MARKER_START in text or LEGACY_WORKSTREAM_ARCHIVE_MARKER_START in text
+
+
+def replace_generated_marker_block(text: str, start_marker: str, end_marker: str, body: str) -> tuple[str, bool]:
+    start_count = text.count(start_marker)
+    end_count = text.count(end_marker)
+    if start_count == 0 and end_count == 0:
+        raise SystemExit(f"generated_marker_missing: missing generated marker {start_marker}")
+    if start_count != end_count:
+        raise SystemExit(f"generated_marker_unclosed: marker pair is not balanced for {start_marker}")
+    if start_count > 1:
+        raise SystemExit(f"generated_marker_duplicate: duplicate generated marker {start_marker}")
+
+    lines = text.splitlines()
+    start_index = next(index for index, line in enumerate(lines) if line.strip() == start_marker)
+    end_index = next((index for index in range(start_index + 1, len(lines)) if lines[index].strip() == end_marker), None)
+    if end_index is None:
+        raise SystemExit(f"generated_marker_unclosed: marker pair is not balanced for {start_marker}")
+
+    replacement = [start_marker, *normalized_section_body_lines(body), end_marker]
+    updated = lines[:start_index] + replacement + lines[end_index + 1 :]
+    updated_text = "\n".join(updated).rstrip() + "\n"
+    return updated_text, updated_text != text
+
+
+def insert_generated_marker_block_after_heading(
+    text: str,
+    heading: str,
+    start_marker: str,
+    end_marker: str,
+    body: str,
+    *,
+    replace_empty_table_header: str | None = None,
+) -> tuple[str, bool]:
+    if start_marker in text or end_marker in text:
+        return replace_generated_marker_block(text, start_marker, end_marker, body)
+
+    lines = text.splitlines()
+    section = find_section(lines, heading)
+    block = [start_marker, *normalized_section_body_lines(body), end_marker]
+    if replace_empty_table_header is not None:
+        section_lines = lines[section.body_start : section.body_end]
+        try:
+            table = find_table(section_lines, replace_empty_table_header)
+        except SystemExit:
+            table = None
+        if table is not None:
+            body_rows = section_lines[table.body_start : table.body_end]
+            if all((split_table_line(row) or [""])[0] == "暂无" for row in body_rows):
+                start = section.body_start + table.header_index
+                end = section.body_start + table.body_end
+                updated = lines[:start] + block + lines[end:]
+                updated_text = "\n".join(updated).rstrip() + "\n"
+                return updated_text, updated_text != text
+
+    insert_at = section.body_start
+    while insert_at < section.body_end and not lines[insert_at].strip():
+        insert_at += 1
+    updated = lines[:insert_at] + block + [""] + lines[insert_at:]
+    updated_text = "\n".join(updated).rstrip() + "\n"
+    return updated_text, updated_text != text
 
 
 def infer_context_profile(root: Path) -> str:
@@ -4363,9 +4439,11 @@ def render_knowledge_index() -> str:
 
 ## Knowledge 条目
 
+{KNOWLEDGE_INDEX_MARKER_START}
 {KNOWLEDGE_TABLE_HEADER}
 |---|---|---|---|---|---|
 | 暂无 |  |  |  |  |  |
+{KNOWLEDGE_INDEX_MARKER_END}
 
 ---
 
@@ -7789,6 +7867,141 @@ def collect_knowledge_entries(root: Path) -> list[KnowledgeEntry]:
     return entries
 
 
+def render_knowledge_index_table(rows: Sequence[dict[str, str]]) -> str:
+    lines = [
+        KNOWLEDGE_TABLE_HEADER,
+        "|---|---|---|---|---|---|",
+    ]
+    if rows:
+        for row in rows:
+            lines.append(
+                render_table_row(
+                    [
+                        row["id"],
+                        row["title"],
+                        row["status"],
+                        row["tags"],
+                        row["summary"],
+                        f"`{row['detail']}`",
+                    ]
+                )
+            )
+    else:
+        lines.append("| 暂无 |  |  |  |  |  |")
+    return "\n".join(lines)
+
+
+def collect_knowledge_sync_rows(root: Path) -> tuple[list[dict[str, str]], list[dict[str, str]], list[str]]:
+    rows: list[dict[str, str]] = []
+    skipped: list[dict[str, str]] = []
+    warnings: list[str] = []
+    knowledge_dir = root / "reference" / "knowledge"
+    if not knowledge_dir.exists():
+        return rows, skipped, warnings
+
+    for path in sorted(knowledge_dir.glob("K*.md")):
+        match = re.match(r"^(K\d{3})-", path.name)
+        rel = path.relative_to(root).as_posix()
+        if match is None:
+            skipped.append({"path": rel, "reason": "knowledge file name does not start with KNNN-"})
+            continue
+        status = extract_heading_value(path, "## 状态") or "Draft"
+        if status not in VALID_KNOWLEDGE_STATUSES:
+            skipped.append({"id": match.group(1), "path": rel, "reason": f"invalid knowledge status `{status}`"})
+            warnings.append(f"{rel}: skipped invalid knowledge status `{status}`")
+            continue
+        text = read_text(path)
+        summary = extract_heading_value(path, "## 摘要") or ""
+        if not summary:
+            summary = next((line.strip() for line in safe_section_body_from_text(text, "## 摘要").splitlines() if line.strip()), "")
+        rows.append(
+            {
+                "id": match.group(1),
+                "title": knowledge_title_from_text(text, path.stem),
+                "status": status,
+                "tags": extract_heading_value(path, "## 标签") or "未分类",
+                "summary": summary.strip() or "无。",
+                "detail": rel,
+            }
+        )
+    return rows, skipped, warnings
+
+
+def skipped_missing_generated_knowledge_details(root: Path, index_text: str) -> list[dict[str, str]]:
+    if KNOWLEDGE_INDEX_MARKER_START not in index_text or KNOWLEDGE_INDEX_MARKER_END not in index_text:
+        return []
+    start = index_text.index(KNOWLEDGE_INDEX_MARKER_START) + len(KNOWLEDGE_INDEX_MARKER_START)
+    end = index_text.index(KNOWLEDGE_INDEX_MARKER_END, start)
+    marker_body = index_text[start:end]
+    skipped: list[dict[str, str]] = []
+    index_path = knowledge_index_path(root)
+    for cells in parse_markdown_table_rows(marker_body):
+        if len(cells) < 6 or cells[0] in {"ID", "暂无"}:
+            continue
+        ref = strip_code_ticks(cells[5])
+        if should_check_ref(ref) and resolve_ref(root, index_path, ref) is None:
+            skipped.append({"id": cells[0], "path": ref, "reason": "detail source is missing"})
+    return skipped
+
+
+def knowledge_sync_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    index_path = knowledge_index_path(root)
+    if index_path.exists():
+        original = read_text(index_path)
+    else:
+        original = render_knowledge_index()
+
+    rows, skipped, warnings = collect_knowledge_sync_rows(root)
+    skipped.extend(skipped_missing_generated_knowledge_details(root, original))
+    generated_table = render_knowledge_index_table(rows)
+
+    if KNOWLEDGE_INDEX_MARKER_START in original or KNOWLEDGE_INDEX_MARKER_END in original:
+        updated, changed = replace_generated_marker_block(
+            original,
+            KNOWLEDGE_INDEX_MARKER_START,
+            KNOWLEDGE_INDEX_MARKER_END,
+            generated_table,
+        )
+        initialized_marker = False
+    elif args.init_marker:
+        updated, changed = insert_generated_marker_block_after_heading(
+            original,
+            "## Knowledge 条目",
+            KNOWLEDGE_INDEX_MARKER_START,
+            KNOWLEDGE_INDEX_MARKER_END,
+            generated_table,
+            replace_empty_table_header=KNOWLEDGE_TABLE_HEADER,
+        )
+        initialized_marker = True
+    else:
+        raise SystemExit("generated_marker_missing: reference/Knowledge_Index.md is missing ACF:KNOWLEDGE:INDEX-GENERATED markers")
+
+    changed_files = [index_path] if changed or not index_path.exists() else []
+    if changed_files and not dry_run_enabled(args):
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(updated, encoding="utf-8")
+
+    check_result = maybe_check_after(args, root)
+    action = "would sync" if dry_run_enabled(args) else "synced"
+    extra_payload: dict[str, object] = {
+        "generated_count": len(rows),
+        "skipped_items": skipped,
+        "initialized_marker": initialized_marker,
+    }
+    if dry_run_enabled(args):
+        extra_payload["planned_block"] = generated_table
+    return emit_write_result(
+        args,
+        "knowledge sync",
+        f"{action} Knowledge index generated block",
+        changed_files,
+        check_result,
+        extra_payload=extra_payload,
+        warnings=warnings,
+    )
+
+
 def similar_knowledge_entries(
     candidate: KnowledgeEntry,
     entries: Sequence[KnowledgeEntry],
@@ -10684,6 +10897,12 @@ def build_parser() -> argparse.ArgumentParser:
     knowledge_mark_parser.add_argument("--promoted-to", default="", help="target authority when status is Promoted")
     add_write_arguments(knowledge_mark_parser)
     knowledge_mark_parser.set_defaults(func=knowledge_mark_command)
+
+    knowledge_sync_parser = knowledge_subparsers.add_parser("sync", help="sync the generated Knowledge index block")
+    knowledge_sync_parser.add_argument("path", nargs="?", type=Path)
+    knowledge_sync_parser.add_argument("--init-marker", action="store_true", help="insert generated markers when missing")
+    add_write_arguments(knowledge_sync_parser)
+    knowledge_sync_parser.set_defaults(func=knowledge_sync_command)
 
     review_parser = subparsers.add_parser("review", help="run read-only context review checks")
     review_subparsers = review_parser.add_subparsers(dest="review_command", required=True)
