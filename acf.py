@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.31"
+VERSION = "v0.0.3.32"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -3160,6 +3160,10 @@ def render_plan_reference(reference: PlanReference) -> str:
     return f"- `{reference.path}`：{reference.purpose}"
 
 
+def render_plan_reference_input(reference: PlanReference) -> str:
+    return f"`{reference.path}`：{reference.purpose}"
+
+
 def render_plan_reference_section(
     references: Sequence[PlanReference],
     *,
@@ -3217,8 +3221,10 @@ def valid_plan_reference_input_lines(plan_path: Path) -> list[str]:
     try:
         references, _warnings = read_plan_references(plan_path)
     except SystemExit:
-        return [CURRENT_TASK_REFERENCE_PROMPT]
-    return [render_plan_reference(reference) for reference in references] or [CURRENT_TASK_REFERENCE_PROMPT]
+        return [CURRENT_TASK_REFERENCE_PROMPT.removeprefix("- ")]
+    return [render_plan_reference_input(reference) for reference in references] or [
+        CURRENT_TASK_REFERENCE_PROMPT.removeprefix("- ")
+    ]
 
 
 def current_task_has_active_status(text: str) -> bool:

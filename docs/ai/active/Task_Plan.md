@@ -43,7 +43,7 @@ P2-4 Workstream Archive Draft and Index Cleanup Design
 
 ## 当前焦点
 
-T001
+T005
 
 ---
 
@@ -51,10 +51,11 @@ T001
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Active | Define archive draft and cleanup contract | 无。 | Updated lifecycle/gap design boundaries | active/Task_Plan.md | Update Workstream lifecycle design and gap audit with P2-4 boundaries |
+| T001 | Pending | Define archive draft and cleanup contract | 无。 | Updated lifecycle/gap design boundaries | active/Task_Plan.md | Update Workstream lifecycle design and gap audit with P2-4 boundaries |
 | T002 | Pending | Add archive draft fixtures | T001 | Synthetic fixture expectations for candidates, blocked items, and index cleanup | 无。 | Cover minimal/legacy no-op and retained terminal Workstream cases |
 | T003 | Pending | Implement first archive draft slice | T002 | Optional read-only/draft CLI, JSON contract, tests, docs | 无。 | Implement only if T001/T002 confirm safe command boundary |
 | T004 | Pending | Verify version commit push | T003 | Version decision, checks, commit and push | 无。 | Run full verification and persist stage |
+| T005 | Done | Stabilize active-reference traceability | 无。 | Upgrade matrix, CLI boundary tests, and external dry-run validation summary | unittest 194 passed; template check ok; docs/ai strict check ok; audit context reviewed; upgrade_matrix quick ok; EcSOS/FCC dry-run summary recorded | 无。 |
 
 ---
 

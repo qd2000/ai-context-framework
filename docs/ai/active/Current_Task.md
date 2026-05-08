@@ -10,22 +10,13 @@
 
 ## 当前任务状态
 
-Active
-
-Last updated: 2026-05-08
-
-说明：
-
-- Active：当前任务正在进行
-- Paused：当前任务暂停
-- Done：当前任务已完成
-- Empty：暂无需要写入文件的当前任务
+Done
 
 ---
 
 ## 任务名称
 
-Define archive draft and cleanup contract
+Stabilize active-reference traceability
 
 ---
 
@@ -37,7 +28,7 @@ P2-4 Workstream Archive Draft and Index Cleanup Design
 
 ## 子任务 ID
 
-T001
+T005
 
 ---
 
@@ -49,22 +40,23 @@ T001
 
 ## 本次任务目标
 
-1. Update Workstream lifecycle design and gap audit with P2-4 boundaries
-2. 产出并验证输出物：Updated lifecycle/gap design boundaries
+1. Add migration fixtures, boundary tests, and read-only EcSOS/FCC validation
+2. 产出并验证输出物：Upgrade matrix, CLI boundary tests, and external dry-run validation summary
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P2-4 Workstream Archive Draft and Index Cleanup Design”。依赖记录：无明确依赖。
+该任务来自 `active/Task_Plan.md` 中的子任务 T005，所属大任务为“P2-4 Workstream Archive Draft and Index Cleanup Design”。依赖记录：无明确依赖。
 
 ---
 
 ## 输入材料
 
+当前任务应列出必要 active 文件和相关 reference 规划依据；不要只写 `active/Context.md`。
+
 - `active/Task_Plan.md`。
 - `active/Context.md`。
-- 相关 reference 规划依据请查看 `active/Task_Plan.md` 的 `## 规划依据`。
 - `reference/ACF_Top_Level_Design.md`：上位架构和边界。
 - `reference/Product_Roadmap.md`：阶段路线和近期优先级。
 - `reference/Top_Level_Implementation_Gap.md`：实现差距矩阵和当前 P2 backlog。
@@ -74,14 +66,14 @@ T001
 
 ## 输出要求
 
-- Updated lifecycle/gap design boundaries
+- Upgrade matrix, CLI boundary tests, and external dry-run validation summary
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：Updated lifecycle/gap design boundaries
-2. 子任务 T001 的完成证据已写回任务板。
+1. 输出物已完成：Upgrade matrix, CLI boundary tests, and external dry-run validation summary
+2. 子任务 T005 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---

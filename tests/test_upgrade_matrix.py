@@ -20,12 +20,14 @@ class UpgradeMatrixTests(unittest.TestCase):
         self.assertIn("curation_draft_collision", fixtures)
         self.assertIn("missing_context_curation_prompt", fixtures)
         self.assertIn("old_without_workstreams_optional", fixtures)
+        self.assertIn("old_active_reference_traceability", fixtures)
 
     def test_full_upgrade_matrix_fixture_metadata_is_present(self):
         fixture_root = Path(__file__).resolve().parent / "fixtures" / "upgrade_matrix"
         metadata_files = sorted(fixture_root.glob("*/metadata.json"))
-        self.assertGreaterEqual(len(metadata_files), 12)
+        self.assertGreaterEqual(len(metadata_files), 13)
         fixture_names = {metadata.parent.name for metadata in metadata_files}
+        self.assertIn("old_active_reference_traceability", fixture_names)
         self.assertIn("old_workstreams_without_current_stage", fixture_names)
         self.assertIn("old_adr_without_front_matter", fixture_names)
         self.assertIn("custom_agents_missing_reference_combo", fixture_names)

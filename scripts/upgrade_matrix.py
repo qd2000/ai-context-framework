@@ -156,6 +156,13 @@ class UpgradeMatrixRunner:
             if (context / rel).exists():
                 errors.append(f"{fixture['fixture']}: expected {rel} to remain absent after upgrade")
 
+    def assert_expected_contains(self, fixture: dict[str, Any], context: Path, errors: list[str]) -> None:
+        for item in fixture.get("expect_contains", []):
+            target = context / item["path"]
+            text = target.read_text(encoding="utf-8") if target.exists() else ""
+            if item["text"] not in text:
+                errors.append(f"{fixture['fixture']}: expected text in {item['path']}: {item['text']}")
+
     def assert_expected_features(self, fixture: dict[str, Any], payload: dict[str, Any], errors: list[str]) -> None:
         detected = set(payload.get("detected_features", []))
         for feature in fixture.get("expect_detected_features", []):
@@ -263,6 +270,7 @@ class UpgradeMatrixRunner:
         self.assert_marker_notes_idempotent(context, errors)
         self.assert_expected_exists(fixture, context, errors)
         self.assert_expected_absent(fixture, context, errors)
+        self.assert_expected_contains(fixture, context, errors)
         self.assert_workstream_sync_noop(fixture, context, acf_home, steps, errors)
 
         return {

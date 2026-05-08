@@ -222,7 +222,9 @@ acf plan reference add docs/ai --path reference/Product_Roadmap.md --purpose "�
 acf plan reference list docs/ai --json
 ```
 
-状态：模板 / upgrade / 生成逻辑已补齐。`active/Task_Plan.md` 现在有稳定 `## 规划依据` 小节；`task start` 会把有效 reference bullets 带入 `active/Current_Task.md` 的 `## 输入材料`；`upgrade` 会给旧计划非破坏式补结构，并给 Active 当前任务追加查看计划依据的提示；`plan reference list|add|remove` 可确定性维护路径和一句话用途，支持 `--allow-missing`、`--force`、`--missing-ok` 和显式 `--sync-current-task`。
+状态：模板 / upgrade / 生成逻辑已补齐，并已完成稳定化补测。`active/Task_Plan.md` 现在有稳定 `## 规划依据` 小节；`task start` 会把有效 reference bullets 带入 `active/Current_Task.md` 的 `## 输入材料`；`upgrade` 会给旧计划非破坏式补结构，并给 Active 当前任务追加查看计划依据的提示；`plan reference list|add|remove` 可确定性维护路径和一句话用途，支持 `--allow-missing`、`--force`、`--missing-ok` 和显式 `--sync-current-task`。
+
+稳定化覆盖：`old_active_reference_traceability` upgrade matrix fixture 覆盖旧 `active/Task_Plan.md` / Active `active/Current_Task.md` 的非破坏式补齐；CLI 边界测试覆盖 dry-run sync、不标准 Current_Task 引用保守跳过、模板占位符不继承、`--missing-ok` 幂等，以及 `task start` 不生成嵌套 bullet。EcSOS dry-run 验证为 clean / status ok，升级会补 `active/Task_Plan.md` 和 `active/Current_Task.md` 追溯结构，同时刷新旧 schema 文档；FCC dry-run 验证为 clean / status ok，升级会补 `active/Task_Plan.md`，并因旧 `active/Current_Task.md` 缺少 `## 输入材料` 给出预期保守 warning。
 
 后续可能增强：`acf plan init --reference`、`acf plan reference check`、`acf check` 对规划依据断链给 warning、或统一占位符批量替换命令。本轮不把 reference 存在性接入 `check`，避免旧项目和模板占位符产生迁移噪声。
 

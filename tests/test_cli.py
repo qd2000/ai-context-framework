@@ -2756,6 +2756,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("产出并验证输出物：Slice output", task_text)
             self.assertIn("`active/Context.md`", task_text)
             self.assertIn("- `reference/Roadmap.md`：Roadmap priority。", task_text)
+            self.assertNotIn("- - `reference/Roadmap.md`", task_text)
             self.assertIn("保持 `active/Task_Plan.md` 与 `active/Current_Task.md` 状态同步", task_text)
             self.assertIn("## 当前焦点\n\nT001", (target / "active" / "Task_Plan.md").read_text(encoding="utf-8"))
 
@@ -2901,6 +2902,110 @@ class CliTests(unittest.TestCase):
             self.assertTrue(any("does not exist" in warning for warning in payload["warnings"]))
             self.assertTrue(any("not Active" in warning for warning in payload["warnings"]))
             self.assertEqual(payload["changed_files"], [str((target / "active" / "Task_Plan.md").resolve())])
+
+    def test_plan_reference_dry_run_and_nonstandard_sync_are_conservative(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+            self.run_cli(["task", "start", str(target), "--id", "T001"])
+            reference_path = target / "reference" / "Plan.md"
+            reference_path.write_text("# Plan\n", encoding="utf-8")
+
+            task_path = target / "active" / "Current_Task.md"
+            before_task = task_path.read_text(encoding="utf-8")
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "reference",
+                    "add",
+                    str(target),
+                    "--path",
+                    "reference/Plan.md",
+                    "--purpose",
+                    "Dry-run basis",
+                    "--sync-current-task",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn(str((target / "active" / "Task_Plan.md").resolve()), payload["changed_files"])
+            self.assertIn(str(task_path.resolve()), payload["changed_files"])
+            self.assertEqual(task_path.read_text(encoding="utf-8"), before_task)
+
+            task_path.write_text(before_task.replace("- `active/Context.md`。", "- see `reference/Plan.md` for details"), encoding="utf-8")
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "reference",
+                    "add",
+                    str(target),
+                    "--path",
+                    "reference/Plan.md",
+                    "--purpose",
+                    "Real basis",
+                    "--sync-current-task",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(any("non-standard reference line" in warning for warning in payload["warnings"]))
+            self.assertEqual(payload["changed_files"], [str((target / "active" / "Task_Plan.md").resolve())])
+            self.assertNotIn("Real basis", task_path.read_text(encoding="utf-8"))
+
+    def test_task_start_ignores_placeholder_plan_references(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
+            plan_path = target / "active" / "Task_Plan.md"
+            plan_text = plan_path.read_text(encoding="utf-8")
+            plan_path.write_text(
+                plan_text.replace(
+                    "- 无。",
+                    "- `reference/【规划依据文档】.md`：【该规划依据的用途】。",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_cli(["task", "start", str(target), "--id", "T001"]), 0)
+
+            task_text = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            self.assertIn("相关 reference 规划依据请查看", task_text)
+            self.assertNotIn("- - 相关 reference 规划依据", task_text)
+            self.assertNotIn("【规划依据文档】", task_text)
+
+    def test_plan_reference_remove_missing_ok_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "plan",
+                    "reference",
+                    "remove",
+                    str(target),
+                    "--path",
+                    "reference/Missing.md",
+                    "--missing-ok",
+                    "--json",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["changed_files"], [])
+            self.assertEqual(payload["count"], 0)
 
     def test_task_start_blocks_unfinished_dependencies_and_reports_dry_run_summary(self):
         with tempfile.TemporaryDirectory() as tmp:

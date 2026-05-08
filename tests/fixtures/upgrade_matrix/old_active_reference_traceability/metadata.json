@@ -1,0 +1,43 @@
+{
+  "source_version": "v0.0.3.30",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": true,
+  "scenario": "main",
+  "risk_tags": ["active_reference_traceability", "upgrade", "active_task_preservation"],
+  "intent": "Simulate a context that predates the Task_Plan planning-basis section while retaining an Active Current_Task input list.",
+  "expected_upgrade_behavior": "Upgrade inserts ## 规划依据 into Task_Plan, appends a conservative planning-basis prompt to Active Current_Task input materials, preserves existing task text, and is idempotent.",
+  "files": {
+    "active/Task_Plan.md": "本文件记录旧任务计划。\n\n## 大任务状态\n\nActive\n\n---\n\n## 大任务名称\n\nLegacy active-reference plan\n\n---\n\n## 大任务目标\n\n1. Keep old goal.\n\n---\n\n## 成功标准\n\n1. Keep old success.\n\n---\n\n## 当前焦点\n\nT001\n\n---\n\n## 子任务\n\n| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |\n|---|---|---|---|---|---|---|\n| T001 | Active | Keep old task | 无。 | Old output | 无。 | Continue. |\n",
+    "active/Current_Task.md": "## 当前任务状态\n\nActive\n\n## 任务名称\n\nKeep current task\n\n## 子任务 ID\n\nT001\n\n## 输入材料\n\n- `active/Task_Plan.md`。\n- `active/Context.md`。\n\n## 输出要求\n\n- Keep output.\n"
+  },
+  "expect_changed_suffixes": [
+    "active/Task_Plan.md",
+    "active/Current_Task.md"
+  ],
+  "preserve_contains": [
+    {
+      "path": "active/Current_Task.md",
+      "text": "Keep current task"
+    },
+    {
+      "path": "active/Task_Plan.md",
+      "text": "| T001 | Active | Keep old task |"
+    }
+  ],
+  "expect_contains": [
+    {
+      "path": "active/Task_Plan.md",
+      "text": "## 规划依据"
+    },
+    {
+      "path": "active/Task_Plan.md",
+      "text": "acf plan reference add"
+    },
+    {
+      "path": "active/Current_Task.md",
+      "text": "相关 reference 规划依据请查看"
+    }
+  ],
+  "expect_stale": false
+}
