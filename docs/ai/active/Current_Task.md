@@ -10,25 +10,34 @@
 
 ## 当前任务状态
 
-Done
+Active
+
+Last updated: 2026-05-08
+
+说明：
+
+- Active：当前任务正在进行
+- Paused：当前任务暂停
+- Done：当前任务已完成
+- Empty：暂无需要写入文件的当前任务
 
 ---
 
 ## 任务名称
 
-Sync roadmap docs and verify
+Define archive draft and cleanup contract
 
 ---
 
 ## 所属大任务
 
-P2 Workstream Lifecycle Archive Design
+P2-4 Workstream Archive Draft and Index Cleanup Design
 
 ---
 
 ## 子任务 ID
 
-T003
+T001
 
 ---
 
@@ -40,14 +49,14 @@ T003
 
 ## 本次任务目标
 
-1. Update docs, run checks and commit
-2. 产出并验证输出物：roadmap/gap/system manual updates and verification
+1. Update Workstream lifecycle design and gap audit with P2-4 boundaries
+2. 产出并验证输出物：Updated lifecycle/gap design boundaries
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T003，所属大任务为“P2 Workstream Lifecycle Archive Design”。依赖记录：T002
+该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P2-4 Workstream Archive Draft and Index Cleanup Design”。依赖记录：无明确依赖。
 
 ---
 
@@ -55,20 +64,19 @@ T003
 
 - `active/Task_Plan.md`。
 - `active/Context.md`。
-- 依赖 T002 证据：tests/fixtures/context_matrix/workstream_lifecycle_archive and test_context_matrix lifecycle test cover retained terminal Workstream, current execution line rejection and expired keep-active.
 
 ---
 
 ## 输出要求
 
-- roadmap/gap/system manual updates and verification
+- Updated lifecycle/gap design boundaries
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：roadmap/gap/system manual updates and verification
-2. 子任务 T003 的完成证据已写回任务板。
+1. 输出物已完成：Updated lifecycle/gap design boundaries
+2. 子任务 T001 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---

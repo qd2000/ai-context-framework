@@ -8,31 +8,31 @@
 
 ## 大任务状态
 
-Done
+Active
 
 ---
 
 ## 大任务名称
 
-P2 Workstream Archive Candidates
+P2-4 Workstream Archive Draft and Index Cleanup Design
 
 ---
 
 ## 大任务目标
 
-1. Implement the first read-only Workstream archive lifecycle helper from the top-level design gap audit.
+1. Define the next controlled Workstream archive slice after read-only archive-candidates, without moving files before index cleanup rules are designed.
 
 ---
 
 ## 成功标准
 
-1. acf workstream archive-candidates reports safe candidates and blockers without writing files, with tests, docs, and version updated.
+1. active planning identifies archive draft/index cleanup boundaries, implementation prerequisites, verification scope, and the first safe code slice.
 
 ---
 
 ## 当前焦点
 
-无。
+T001
 
 ---
 
@@ -40,9 +40,10 @@ P2 Workstream Archive Candidates
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | Define archive-candidates contract | 无。 | Read-only command contract | acf.py; tests/test_cli.py; tests/test_context_matrix.py | T002 owns CLI regression coverage |
-| T002 | Done | Implement archive-candidates CLI | T001 | Command, JSON output, tests | tests/test_cli.py; tests/test_context_matrix.py; scripts/minimal_smoke.py | T003 owns docs/version/final verification |
-| T003 | Done | Sync docs version verification | T002 | Docs, version, verification, commit | unittest; minimal_smoke; check template; check docs/ai --strict; audit context; upgrade dry-run; diff --check | Commit and push P2-3 |
+| T001 | Active | Define archive draft and cleanup contract | 无。 | Updated lifecycle/gap design boundaries | active/Task_Plan.md | Update Workstream lifecycle design and gap audit with P2-4 boundaries |
+| T002 | Pending | Add archive draft fixtures | T001 | Synthetic fixture expectations for candidates, blocked items, and index cleanup | 无。 | Cover minimal/legacy no-op and retained terminal Workstream cases |
+| T003 | Pending | Implement first archive draft slice | T002 | Optional read-only/draft CLI, JSON contract, tests, docs | 无。 | Implement only if T001/T002 confirm safe command boundary |
+| T004 | Pending | Verify version commit push | T003 | Version decision, checks, commit and push | 无。 | Run full verification and persist stage |
 
 ---
 
