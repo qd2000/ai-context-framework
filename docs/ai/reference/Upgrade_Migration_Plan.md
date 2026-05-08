@@ -97,9 +97,9 @@ uv run acf check <context> --json
 如果无法识别旧 section，追加 marker notes：
 
 ```text
-<!-- ACF:UPGRADE-NOTES:START -->
+<!-- ACF:UPGRADE:NOTES:START -->
 ...
-<!-- ACF:UPGRADE-NOTES:END -->
+<!-- ACF:UPGRADE:NOTES:END -->
 ```
 
 同一 marker 块必须幂等更新，不重复追加。

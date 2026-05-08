@@ -18,7 +18,7 @@
 
 | 日期 | 摘要 | 关键结论 | 详情 |
 |---|---|---|---|
-| YYYY-MM-DD | 【一句话说明当天做了什么】 | 【重要结论或决策，无则留空】 | `worklog/daily/YYYY-MM-DD.md` |
+| YYYY-MM-DD | 【ACF:TODO】 | 【ACF:TODO】 | `worklog/daily/YYYY-MM-DD.md` |
 
 ---
 

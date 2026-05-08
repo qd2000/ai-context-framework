@@ -26,8 +26,9 @@ ACF 应先收敛通用上下文治理蓝图，再按薄切片实现可验证能�
 6. 启发式规则先进入 audit candidate，不直接进入 strict。
 7. strict 只接收低误报、可机械裁决、跨项目可解释的规则。
 8. 新能力必须保持 Markdown-first、模型无关、无第三方运行依赖、人工可审阅。
-9. 真实项目反馈应先进入设计文档、worklog 或 fixtures，再决定是否产品化。
-10. 不继续零散加规则；每个能力都必须落到明确阶段和分层。
+9. Obsidian `[[双链]]` 可以服务人工查看和编辑，但 ACF 不解析、不校验、不依赖双链；结构化引用仍使用普通 Markdown 路径。
+10. 真实项目反馈应先进入设计文档、worklog 或 fixtures，再决定是否产品化。
+11. 不继续零散加规则；每个能力都必须落到明确阶段和分层。
 
 ---
 
@@ -68,16 +69,17 @@ ACF 应先收敛通用上下文治理蓝图，再按薄切片实现可验证能�
 
 ### 2. 内容组织规范
 
-目标：稳定 `active/`、`reference/`、`worklog/`、`archive/`、`rules/` 和 `decisions/` 的职责边界。
+目标：稳定 `active/`、`human/`、`reference/`、`worklog/`、`archive/`、`rules/` 和 `decisions/` 的职责边界。
 
 关键规则：
 
 1. `active/` 只放当前目标、当前事实、当前任务、当前任务板、当前 Workstream 和待处理 feedback。
-2. `reference/` 放长期稳定背景、设计、索引和手册。
-3. `worklog/` 放历史过程摘要，不是当前事实源。
-4. `archive/` 放旧任务、旧计划、旧 Workstream 和已处理反馈，默认不读。
-5. `rules/` 放当前项目约束，不夹带一次性任务计划。
-6. `decisions/` 放稳定 ADR，不保存冗长过程。
+2. `human/` 放人工异步笔记、周记录和汇报材料，不默认读取，不作为已确认当前事实。
+3. `reference/` 放长期稳定背景、设计、索引和手册。
+4. `worklog/` 放历史过程摘要，不是当前事实源。
+5. `archive/` 放旧任务、旧计划、旧 Workstream 和已处理反馈，默认不读。
+6. `rules/` 放当前项目约束，不夹带一次性任务计划。
+7. `decisions/` 放稳定 ADR，不保存冗长过程。
 
 ### 3. 轻量对象模型
 
@@ -305,6 +307,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 1. 旧项目可以安全进入新结构。
 2. 索引可以由详情派生，但不误删旧人工内容。
 3. sync 行为有 generated block marker 和删除策略。
+4. marker 命名统一为 `ACF:<DOMAIN>:<PURPOSE>`，旧 marker 保持兼容但只作为迁移对象。
 
 产物：
 
@@ -373,6 +376,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 4. Knowledge / ADR / Archive sync 需要先做 generated marker 设计；curation draft 增强需要更多 fixture 和多项目样本后再进入。
 5. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge。
 6. 后续每个新能力先补 fixture，再实现命令或规则。
+7. human layer、Obsidian 边界、统一占位符和 canonical marker 已作为 P2-6 完成；后续不为 Obsidian 新增 CLI，除非出现可抽象、可测试的通用维护需求。
 
 ### 下一批候选任务
 
@@ -385,7 +389,8 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 7. P2-3：实现只读 `workstream archive-candidates` 命令。已完成：输出候选和 `blocked_by`，不写文件、不移动详情、不接入 strict。
 8. P2 active-reference traceability：已完成并稳定化。v0.0.3.31 增加 `active/Task_Plan.md` 的 `## 规划依据`、`plan reference list/add/remove`、`task start` 继承、upgrade 非破坏式补齐；v0.0.3.32 补上 upgrade matrix fixture、CLI 边界测试、EcSOS/FCC 只读 dry-run 验证，并修正 `task start` 继承规划依据时生成嵌套 bullet 的回归。
 9. P2-4：实现 `workstream archive-draft` 和显式 `workstream archive`。已完成：draft 写入 `worklog/archive-drafts/`，archive 移动单个终态 Workstream、清理 active index、写入 Archive_Index 和 marker，不修改 merge target 或当前事实文件。
-10. P2-5：扩展 context_matrix audit fixtures。推荐下一步：新增 `audit_stale_stage` 和 `audit_terminal_merge` fixtures，固化已实现 audit MVP 的防过拟合样本，不改变 CLI 行为。
+10. P2-6：human layer、Obsidian 边界、统一占位符和 canonical marker。已完成：standard init / upgrade 维护 `human/`，minimal 不补；template 占位符迁移为 ACF-keyed placeholder form；ACF marker 迁移为 `ACF:<DOMAIN>:<PURPOSE>` 并兼容旧格式。
+11. P2-5：扩展 context_matrix audit fixtures。推荐下一步：新增 `audit_stale_stage` 和 `audit_terminal_merge` fixtures，固化已实现 audit MVP 的防过拟合样本，不改变 CLI 行为。
 
 ---
 

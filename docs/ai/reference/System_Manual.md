@@ -11,10 +11,11 @@
 3. `active/Task_Plan.md`：当前大任务计划、子任务板和 `## 规划依据`。
 4. `active/Current_Task.md`：当前具体任务，`## 输入材料` 必须列出当前任务所需 active 文件和相关 reference 规划依据。
 5. `active/Workstreams.md`：可选并行目标线索引，仅在显式启用且存在 Active、Blocked 或 ReadyToMerge workstream 时按需读取。
-6. `rules/`：默认和按需规则。
-7. `reference/`：长期背景、架构、技术环境、决策和 Knowledge 索引。
-8. `worklog/`：历史工作记录。
-9. `archive/`：旧任务和旧计划归档。
+6. `human/`：人工异步笔记、weekly 和 reports，默认不读取，只有整理人工笔记或汇报材料时按需读取。
+7. `rules/`：默认和按需规则。
+8. `reference/`：长期背景、架构、技术环境、决策和 Knowledge 索引。
+9. `worklog/`：历史工作记录。
+10. `archive/`：旧任务和旧计划归档。
 
 顶层产品边界和长期设计以 `reference/ACF_Top_Level_Design.md` 为准；阶段路线和近期优先级以 `reference/Product_Roadmap.md` 为准。新增对象、规则、CLI 命令、模板结构或 upgrade 行为前，应先确认它属于 `check`、`audit`、`sync`、`draft`、`upgrade` 或普通维护命令中的哪一层。
 
@@ -84,7 +85,7 @@ Task Stage 仍以 `active/Task_Plan.md` 的 `## 任务阶段` 表为事实源；
 
 `acf workstream archive-draft --json` 将 candidates + blocked 渲染到 worklog/archive-drafts/YYYY-MM-DD dot md，供人工或 AI 审阅；候选项只生成建议命令，blocked 项只写 suggested_action，不自动执行归档。重复草案默认失败，可用 `--name` 创建独立草案或 `--force` 覆盖。
 
-`acf workstream archive WS001 --reason "..." --json` 是显式移动命令：只接受 Done / Cancelled，复用 archive-candidates blocker，移动详情到 archive/workstreams/WS001 dot md，删除 active 索引对应行并重算 Workstream 状态，写入 `archive/Archive_Index.md`，追加 `ACF:WORKSTREAM-ARCHIVE` marker。该命令不修改 merge target、不修改 `active/Context.md` / `active/Current_Task.md` / `active/Task_Plan.md`，默认不跑完整 check，可加 `--check-after`。
+`acf workstream archive WS001 --reason "..." --json` 是显式移动命令：只接受 Done / Cancelled，复用 archive-candidates blocker，移动详情到 archive/workstreams/WS001 dot md，删除 active 索引对应行并重算 Workstream 状态，写入 `archive/Archive_Index.md`，追加 `ACF:WORKSTREAM:ARCHIVE-RECORD` marker。该命令不修改 merge target、不修改 `active/Context.md` / `active/Current_Task.md` / `active/Task_Plan.md`，默认不跑完整 check，可加 `--check-after`。
 
 `acf workstream sync --dry-run --json` 只根据 `active/workstreams/*.md` front matter 预览或更新 `active/Workstreams.md`；第一版不会删除索引中缺失详情文件的旧行，也不会移动 Done / Cancelled 文件。
 
@@ -120,11 +121,19 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 8. 可复用经验进入 Knowledge 草案流程。
 9. Done/Rejected 条目必须保留证据位置或拒绝原因；超过 10 条，或完成超过 30 天且不再支撑当前计划时，整理到 `archive/feedback/`。
 
+## 人工笔记与 Obsidian
+
+1. 标准上下文包含 `human/Human_Notes.md`、`human/weekly/` 和 `human/reports/`，用于人工异步笔记、周记录和汇报材料。
+2. `human/` 默认不读取，也不作为已确认当前事实；需要进入 AI 当前事实时，整理到 `active/`、ADR、Knowledge 或 worklog 的权威位置。
+3. 可以把项目 `docs/` 作为 Obsidian vault 根目录，使用 `[[双链]]` 方便人工查看和导航。
+4. ACF 不解析、不校验、不依赖 Obsidian 双链；CLI 和 AI 的结构化依据仍使用普通 Markdown 路径。
+5. `active/Feedback_Inbox.md` 继续用于待处理反馈和需求碎片，`human/` 用于更自由的人工记录和汇报材料。
+
 ## 注意力治理
 
 1. 默认上下文只保留当前目标、当前事实、当前任务和下一步。
 2. 写入前必须判断唯一权威位置；能更新旧表述时，不追加重复事实。
-3. worklog 记录历史过程，archive 保存历史材料，Feedback_Inbox 保存待处理信号；它们默认不作为当前事实。
+3. worklog 记录历史过程，archive 保存历史材料，Feedback_Inbox 和 human 保存待处理或未整理信号；它们默认不作为当前事实。
 4. 整理事实时优先读取 changed files、`active/`、相关索引和最近 worklog。
 5. 不为 curation 默认读取 archive 或全部历史日志；writeback draft 和 curation draft 不进入默认读取路径。
 6. 能引用权威位置时，不复制完整表述。
@@ -152,3 +161,5 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 2. 修改入口、手册或默认读取顺序时，检查 `acf upgrade` 是否能非破坏式更新旧 AGENTS/System Manual，不能安全重排时应追加 marker notes。
 3. 补充或更新 init/upgrade 单元测试，覆盖新项目生成和旧项目 dry-run/正式 upgrade。
 4. 验证 `uv run acf check template`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf check docs/ai --strict --json`、`uv run python -m unittest` 和 upgrade compatibility quick/full 模式。
+
+ACF 维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START -->` 与对应 `END` marker，例如 `ACF:UPGRADE:NOTES` 和 `ACF:WORKSTREAM:ARCHIVE-RECORD`；旧 marker 保持兼容，但 `check` 会给出 future warning。模板占位符统一使用 ACF-keyed placeholder form，表格单元格内使用无提示形式，避免 `|` 破坏 Markdown 表格。

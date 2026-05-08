@@ -2,6 +2,7 @@ import io
 import json
 import os
 import re
+import shutil
 import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
@@ -160,6 +161,12 @@ class CliTests(unittest.TestCase):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=False)
         self.assertFalse(result.errors)
         self.assertTrue(result.warnings)
+        self.assertFalse(any("legacy placeholder" in warning for warning in result.warnings))
+
+    def test_placeholder_format_distinguishes_canonical_from_legacy(self):
+        self.assertTrue(acf.is_acf_placeholder("【ACF:PROJECT_NAME|项目名称】"))
+        self.assertTrue(acf.is_acf_placeholder("【ACF:DATE】"))
+        self.assertEqual(acf.legacy_placeholder_count(["【ACF:DATE】", "【项目名称】"]), 1)
 
     def test_version_flag_prints_current_version(self):
         exit_code, stdout, stderr = self.run_cli_output(["--version"])
@@ -2423,7 +2430,7 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "active" / "workstreams" / ".gitkeep").exists())
             archive_detail = target / "archive" / "workstreams" / "WS013.md"
             archive_text = archive_detail.read_text(encoding="utf-8")
-            self.assertIn("ACF:WORKSTREAM-ARCHIVE:START", archive_text)
+            self.assertIn("ACF:WORKSTREAM:ARCHIVE-RECORD:START", archive_text)
             self.assertIn("source_path: active/workstreams/WS013.md", archive_text)
             index_text = (target / "active" / "Workstreams.md").read_text(encoding="utf-8")
             self.assertNotIn("WS013", index_text)
@@ -2506,6 +2513,7 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
             self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
             self.assertTrue((target / "reference" / "Context_Curation_Prompt.md").exists())
+            self.assertFalse((target / "human" / "Human_Notes.md").exists())
             self.assertFalse((target / "decisions" / "ADR-0001-template.md").exists())
             self.assertFalse((target / "worklog" / "daily" / "YYYY-MM-DD.md").exists())
             agents_text = (target / "AGENTS.md").read_text(encoding="utf-8")
@@ -2515,7 +2523,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("reference/Context_Curation_Prompt.md", agents_text)
             plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
             self.assertIn("## 规划依据", plan_text)
-            self.assertIn("reference/【规划依据文档 1】.md", plan_text)
+            self.assertIn("reference/【ACF:TODO|规划依据文档 1】.md", plan_text)
             self.assertIn("acf status --json", agents_text)
             self.assertIn("acf --help", agents_text)
             result = acf.check_context(target, "minimal", strict=False)
@@ -2532,12 +2540,19 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
             self.assertTrue((target / "reference" / "Knowledge_Index.md").exists())
             self.assertTrue((target / "reference" / "Context_Curation_Prompt.md").exists())
+            self.assertTrue((target / "human" / "Human_Notes.md").exists())
+            self.assertTrue((target / "human" / "weekly" / ".gitkeep").exists())
+            self.assertTrue((target / "human" / "reports" / ".gitkeep").exists())
 
             agents_text = (target / "AGENTS.md").read_text(encoding="utf-8")
             self.assertIn("## CLI 辅助维护", agents_text)
             self.assertIn("acf status --json", agents_text)
             self.assertIn("reference/System_Manual.md", agents_text)
             self.assertEqual(agents_text.count("reference/Context_Curation_Prompt.md"), 1)
+            human_text = (target / "human" / "Human_Notes.md").read_text(encoding="utf-8")
+            self.assertIn("[[双链]]", human_text)
+            result = acf.check_context(target, "standard", strict=False)
+            self.assertFalse(result.errors)
 
     def test_init_creates_root_thin_agent_for_docs_context(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2885,10 +2900,58 @@ class CliTests(unittest.TestCase):
 
             agents_text = agents.read_text(encoding="utf-8")
             manual_text = manual.read_text(encoding="utf-8")
-            self.assertEqual(agents_text.count("<!-- ACF:UPGRADE-NOTES:START -->"), 1)
-            self.assertEqual(manual_text.count("<!-- ACF:UPGRADE-NOTES:START -->"), 1)
+            self.assertEqual(agents_text.count("<!-- ACF:UPGRADE:NOTES:START -->"), 1)
+            self.assertEqual(manual_text.count("<!-- ACF:UPGRADE:NOTES:START -->"), 1)
+            self.assertNotIn("ACF:UPGRADE-NOTES", agents_text)
+            self.assertNotIn("ACF:UPGRADE-NOTES", manual_text)
             self.assertIn("ACF Current Schema Upgrade Notes", agents_text)
             self.assertIn("ACF Current Schema Upgrade Notes", manual_text)
+
+    def test_upgrade_migrates_legacy_marker_notes_to_canonical_form(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            agents = target / "AGENTS.md"
+            agents.write_text(
+                "Custom agent instructions.\n\n"
+                "<!-- ACF:UPGRADE-NOTES:START -->\n"
+                "legacy body\n"
+                "<!-- ACF:UPGRADE-NOTES:END -->\n",
+                encoding="utf-8",
+            )
+
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertTrue(any("legacy ACF marker `ACF:UPGRADE-NOTES`" in warning for warning in result.warnings))
+
+            exit_code, stdout, stderr = self.run_cli_output(["upgrade", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertIn(str(agents.resolve()), payload["changed_files"])
+            agents_text = agents.read_text(encoding="utf-8")
+            self.assertIn("<!-- ACF:UPGRADE:NOTES:START -->", agents_text)
+            self.assertNotIn("ACF:UPGRADE-NOTES", agents_text)
+
+    def test_upgrade_adds_human_layer_only_for_standard_contexts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            standard = Path(tmp) / "standard"
+            minimal = Path(tmp) / "minimal"
+            self.run_cli(["init", str(standard)])
+            self.run_cli(["init", str(minimal), "--profile", "minimal"])
+            shutil.rmtree(standard / "human")
+
+            standard_exit, standard_stdout, standard_stderr = self.run_cli_output(["upgrade", str(standard), "--json"])
+            self.assertEqual(standard_exit, 0, standard_stderr)
+            standard_payload = self.json_payload(standard_stdout)
+            self.assertIn(str((standard / "human" / "Human_Notes.md").resolve()), standard_payload["changed_files"])
+            self.assertTrue((standard / "human" / "Human_Notes.md").exists())
+            self.assertIn("human/Human_Notes.md", (standard / "AGENTS.md").read_text(encoding="utf-8"))
+            self.assertIn("human", standard_payload["detected_features"])
+
+            minimal_exit, minimal_stdout, minimal_stderr = self.run_cli_output(["upgrade", str(minimal), "--dry-run", "--json"])
+            self.assertEqual(minimal_exit, 0, minimal_stderr)
+            minimal_payload = self.json_payload(minimal_stdout)
+            self.assertNotIn(str((minimal / "human" / "Human_Notes.md").resolve()), minimal_payload["changed_files"])
+            self.assertFalse((minimal / "human" / "Human_Notes.md").exists())
 
     def test_plan_and_task_commands_manage_subtask_flow(self):
         with tempfile.TemporaryDirectory() as tmp:

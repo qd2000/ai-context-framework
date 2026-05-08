@@ -52,7 +52,7 @@
 
 | ID | 标题 | 状态 | 摘要 | 详情 |
 |---|---|---|---|---|
-| 【ADR-XXXX】 | 【决策标题】 | 【状态】 | 【一句话摘要】 | `decisions/ADR-0001-template.md` |
+| 【ACF:TODO】 | 【ACF:TODO】 | 【ACF:TODO】 | 【ACF:TODO】 | `decisions/ADR-0001-template.md` |
 
 ---
 

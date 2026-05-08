@@ -95,7 +95,7 @@ Dogfooding MVP / 框架稳定化。
 
 42. `acf upgrade` 进一步增强旧文档兼容：可补旧 standard/minimal AGENTS 读取顺序，并为旧 System Manual 补充升级流程和相关命令说明。
 43. Windows 命令定位说明已修正：PowerShell 使用 `Get-Command acf`，CMD 使用 `where.exe acf`。
-44. P2 剩余改进已落地：`task start` 会生成更完整的 `Current_Task.md` 并默认拦截未完成依赖；Knowledge apply/check 增加确定性相似度去重；`upgrade` 对高度自定义旧文档会追加 `ACF:UPGRADE-NOTES` marker 块并保持幂等。
+44. P2 剩余改进已落地：`task start` 会生成更完整的 `Current_Task.md` 并默认拦截未完成依赖；Knowledge apply/check 增加确定性相似度去重；`upgrade` 对高度自定义旧文档会追加 `ACF:UPGRADE:NOTES` marker 块并保持幂等。
 45. 开发调试阶段 usage event log 已改为默认开启；日志写入增加用户级锁，配置和 prune 重写使用原子替换，`log summarize` 支持 `--days`、`--since`、`--command`、`--errors-only` 和 feedback_count 统计。
 46. 新增 `active/Feedback_Inbox.md` 作为人工临时反馈、问题、需求和计划碎片入口；AI 应先整理归属，不要把其中随想直接当作已确认事实。
 47. `docs/ai` 已从 minimal dogfooding 上下文补齐为 standard 上下文，包含 rules 按需规则、Architecture、Tech_Context 和 System_Manual。
@@ -105,12 +105,14 @@ Dogfooding MVP / 框架稳定化。
 50. 会话结束回写协议已改为落盘优先：可确定内容应优先写入对应文件或生成可审阅草案，最终回复只报告实际变更、草案路径、验证结果和仍需人工判断的风险。
 51. Feedback_Inbox 生命周期已明确：Open/Triaged/Planned/Done/Rejected 各有处理规则，Done/Rejected 需要证据位置或拒绝原因，长期已处理反馈归档到 `archive/feedback/`。
 52. `acf init` 和 `acf upgrade` 已补齐 `archive/feedback/` 目录；旧上下文升级会非破坏式补齐反馈归档结构。
-53. `acf --version` 当前版本记为 `v0.0.3.30`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.30`。
+53. `acf --version` 当前版本记为 `v0.0.3.34`，`pyproject.toml`、`uv.lock` 和本地包元数据同步为 `0.0.3.34`。
 55. 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，必须评估旧版本上下文升级兼容性；新增结构应同步到 init 文件清单、upgrade 补齐清单、data-files、文档、init/upgrade 测试和 upgrade compatibility runner。
 56. `acf upgrade --help` 已明确当前 schema 会补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback 和 Knowledge；旧上下文升级演练已验证 dry-run、正式 upgrade --check-after 和 check 均可通过。
 57. `acf upgrade` 已支持对已存在但内容过期的 ACF 模板文件做保守 section 级迁移：AGENTS、Feedback_Inbox、Project_Rules 和 System_Manual 会在识别到旧段落时更新；无法识别的自定义文档仍通过 marker notes 非破坏式提示。
-58. Workstream 可选层的 T002 读取规则已通过 dogfooding 明确：`init`/`upgrade` 默认不启用 Workstream；仅当存在 Active、Blocked 或 ReadyToMerge workstream，或需要整理并行协作时，才按需读取 Workstreams 索引。
-59. 已完成最小 Workstream dogfooding gate：`Workstreams.md` 和 `workstreams/WS001.md` 记录 WS001 从 Open 到 Done 的试运行、ReadyToMerge 合并请求和 evidence；当前 Workstream 索引状态为 Inactive。
+58. 标准 profile 已新增 `human/Human_Notes.md`、`human/weekly/` 和 `human/reports/`，用于人工异步笔记、周记录和汇报材料；minimal profile 不补 human 层，human 内容默认不作为已确认当前事实。
+59. 模板占位符已统一为 ACF-keyed placeholder form，机器维护块统一为 `ACF:<DOMAIN>:<PURPOSE>` marker；旧 `ACF:UPGRADE-NOTES` 和 `ACF:WORKSTREAM-ARCHIVE` 保持兼容并给出 future warning。
+60. Workstream 可选层的 T002 读取规则已通过 dogfooding 明确：`init`/`upgrade` 默认不启用 Workstream；仅当存在 Active、Blocked 或 ReadyToMerge workstream，或需要整理并行协作时，才按需读取 Workstreams 索引。
+61. 已完成最小 Workstream dogfooding gate：`Workstreams.md` 和 `workstreams/WS001.md` 记录 WS001 从 Open 到 Done 的试运行、ReadyToMerge 合并请求和 evidence；当前 Workstream 索引状态为 Inactive。
 60. `decisions/ADR-0005.md` 已作为 Proposed ADR 记录可选 Workstream 层的稳定取舍；T004 实现并验证后再评估是否改为 Active。
 61. T004 第一刀已完成：`acf workstream init/status/list/show` 可用；实现范围限定为 Workstream 数据模型、front matter schema 校验、scope normalize、initialized 判断和最小查询/初始化命令。
 62. T004 第二刀已完成：`acf workstream add/set/block/cancel` 可用；`add` 需要显式 `--id`，会生成详情文件并同步索引；`set` 只允许基础状态转换；`block` 和 `cancel` 必须提供 reason 并写入详情文件。

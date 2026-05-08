@@ -6,7 +6,7 @@
 
 ## 状态
 
-Updated through P2-4 Workstream archive-draft and explicit archive implementation.
+Updated through P2-6 human layer, Obsidian boundary, placeholder and canonical marker modernization.
 
 ---
 
@@ -50,6 +50,7 @@ Updated through P2-4 Workstream archive-draft and explicit archive implementatio
 |---|---|---|---|---|---|---|
 | 产品定位 | Markdown-first、模型无关、人工可审阅、CLI 确定性、不做事实裁判 | 已实现 | `reference/ACF_Top_Level_Design.md`; `../../README.md`; `../Automation.md` | 无代码缺口；后续新增功能需持续检查 | Done | 作为所有后续 PR gate |
 | 内容分层 | `active/reference/worklog/archive/rules/decisions` 职责明确 | 已实现 | `AGENTS.md`; `reference/System_Manual.md`; `template/` | 旧项目可能仍有历史漂移，只能通过 audit/curation 处理 | Done | 不新增规则；继续通过 check/audit 发现漂移 |
+| Human notes layer | 人工异步笔记可在 ACF 上下文内保存，但不污染 active 默认注意力 | 已实现 | `human/Human_Notes.md`; `template/human/`; `reference/System_Manual.md`; `acf upgrade` | 无独立 human 命令；符合当前边界 | Done / P2 | standard profile 维护 human 层，minimal 不补；AI 按需读取 |
 | 唯一事实源 | 写入前判断权威位置，索引不替代详情 | 部分实现 | Workstream 详情 front matter 作为事实源；`acf workstream sync`; `rules/Always_Active.md` | 仅 Workstream 有强 sync/check；Knowledge/ADR/Archive 尚未设计 generated view | P2 | 后续如做 sync 扩展，先设计 generated marker |
 | Task | 主线任务使用 `active/Task_Plan.md` / `active/Current_Task.md` | 已实现 | `acf plan`; `acf task`; `tests/test_cli.py` | 无 | Done | 保持 table-first |
 | Active-reference traceability | active 层必须能追溯当前大任务对齐的 reference 设计、路线或差距文档 | 已实现当前 P2 薄切片 | `active/Task_Plan.md` 的 `## 规划依据`; `acf plan reference list/add/remove`; `task start` 继承有效依据到 `active/Current_Task.md`; `acf upgrade` 非破坏式补结构 | 未接入 `acf check` 断链门禁；未做更重的 plan init reference wizard | Done / P2 | 后续可评估 `acf plan init --reference`、reference 存在性 warning/check 或批量替换占位符工具 |
@@ -60,6 +61,7 @@ Updated through P2-4 Workstream archive-draft and explicit archive implementatio
 | Authority gate | Workstream 不得通过 owned/assigned 直接写 authority path | 已实现 | `acf check --strict`; `tests/fixtures/context_matrix/authority_gate`; `tests/test_context_matrix.py` | 仅内置 authority map；可配置 map 明确后置 | Done | 保持内置清单，避免配置复杂化 |
 | Merge contract | ReadyToMerge 需要合并请求；Done 需要 evidence + merge_resolution | 已实现 | `acf workstream merge-request/ready/done`; strict check; `Workstream_Design.md` | 无明显缺口 | Done | 后续只补归档生命周期 |
 | Workstream sync | sync 只更新 `active/Workstreams.md`，不改详情、不删除缺详情旧行 | 已实现 | `acf workstream sync`; `tests/test_context_matrix.py`; `System_Manual.md` | 只覆盖 Workstream；其他索引 sync 尚未设计 | Done / P2 | 不扩展到 Knowledge/ADR/Archive，除非先设计 marker |
+| Placeholder / marker convention | 模板占位符和机器维护块必须可统一识别、兼容旧格式 | 已实现 | ACF-keyed template placeholder form; `ACF:<DOMAIN>:<PURPOSE>` marker; `acf check template` warning; legacy marker compatibility | 未做批量替换命令；当前无需独立 CLI | Done / P2 | 保持 template 迁移和旧格式 warning，不让真实项目 strict 承担格式迁移 |
 | strict check | 低误报、机械裁决、跨项目可解释 | 已实现，持续扩展 | `acf check --strict`; `tests/test_cli.py`; `tests/test_context_matrix.py`; `scripts/upgrade_matrix.py` | 新规则必须补 fixture；不应把 audit heuristic 升级为 strict | Done | 作为后续 PR gate |
 | audit context | 只读 candidates，不写文件，不接入 strict | 已实现 MVP | `acf audit context`; `Context_Audit_Design.md`; tests for clean/long/stale/terminal candidates | high-risk rules 暂缓；阈值和 message 仍需 dogfooding | P2 | 暂不扩展 duplicate/evidence/volatile |
 | review stale / curate draft | stale 只读，curate draft 只生成可审阅草案 | 已实现 | `acf review stale`; `acf curate draft`; `tests/test_cli.py`; `upgrade_matrix` | curate draft 后续可更丰富，但不应自动 apply | P2 | 等 gap 更明确后再扩 |
@@ -92,8 +94,10 @@ Updated through P2-4 Workstream archive-draft and explicit archive implementatio
 9. `review stale` 和 `curate draft` 最小链路。
 10. writeback / knowledge draft 草案边界。
 11. active -> reference 规划依据追溯，含模板、upgrade、task start 继承和 `plan reference` 确定性编辑命令。
-12. `upgrade` 非破坏式结构补齐主路径。
-13. context_matrix 和 upgrade_matrix 基础设施。
+12. standard profile human layer，支持 Obsidian 人工双链边界但不解析双链。
+13. 统一模板占位符和 canonical ACF marker，兼容旧 marker 并给出 future warning。
+14. `upgrade` 非破坏式结构补齐主路径。
+15. context_matrix 和 upgrade_matrix 基础设施。
 
 ### 部分实现
 
@@ -219,7 +223,13 @@ acf workstream archive-draft docs/ai --date 2026-05-08 --json
 acf workstream archive WS001 docs/ai --reason "reviewed in worklog/archive-drafts/2026-05-08.md" --json
 ```
 
-状态：已完成。`archive-draft` 写入 worklog/archive-drafts/YYYY-MM-DD dot md，包含 candidates + blocked、候选建议命令和 blocked suggested_action；默认不覆盖已有草案，支持 `--name`、`--force` 和 `--dry-run`。`archive` 复用候选 blocker，只允许 Done / Cancelled 单个 Workstream，移动详情到 `archive/workstreams/`，删除 active index 对应行并重算 Workstream 状态，追加 `archive/Archive_Index.md` 7 列记录和 `ACF:WORKSTREAM-ARCHIVE` marker；不修改 merge target、Context、Current_Task 或 Task_Plan。已覆盖 CLI 单元测试、context_matrix draft-to-archive flow 和 minimal smoke。
+状态：已完成。`archive-draft` 写入 worklog/archive-drafts/YYYY-MM-DD dot md，包含 candidates + blocked、候选建议命令和 blocked suggested_action；默认不覆盖已有草案，支持 `--name`、`--force` 和 `--dry-run`。`archive` 复用候选 blocker，只允许 Done / Cancelled 单个 Workstream，移动详情到 `archive/workstreams/`，删除 active index 对应行并重算 Workstream 状态，追加 `archive/Archive_Index.md` 7 列记录和 `ACF:WORKSTREAM:ARCHIVE-RECORD` marker；不修改 merge target、Context、Current_Task 或 Task_Plan。已覆盖 CLI 单元测试、context_matrix draft-to-archive flow 和 minimal smoke。
+
+### P2-6 Human layer, placeholder and marker modernization
+
+状态：已完成。标准 profile 现在生成 `human/Human_Notes.md`、`human/weekly/` 和 `human/reports/`，用于人工异步笔记、周记录和汇报材料；minimal profile 不补 human 层。`upgrade` 只在推断为 standard profile 时非破坏式补齐 human 层，不把 human 内容自动升格为 active 事实，也不新增独立 human CLI。
+
+Obsidian 边界已写入手册：项目可以把 `docs/` 作为 vault 根目录，`[[双链]]` 只服务人工查看和编辑；ACF 不解析、不校验、不依赖双链，结构化引用仍使用普通 Markdown 路径。模板占位符已迁移为 ACF-keyed placeholder form，表格单元格使用无提示形式；机器维护块统一为 `ACF:<DOMAIN>:<PURPOSE>` marker，旧 `ACF:UPGRADE-NOTES` 和 `ACF:WORKSTREAM-ARCHIVE` 兼容识别并给出 future warning。
 
 ### P2-5 Context matrix audit fixture expansion
 
@@ -329,4 +339,4 @@ ACF 继续保持受控实施阶段，但下一步应补 audit fixture 矩阵，�
 3. Curation draft enhancement，必须基于 P2-5 fixture 和多项目观察。
 4. high-risk audit rules 继续暂缓。
 
-当前进度：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4 与 active-reference traceability 已完成；下一入口是 P2-5 audit fixture expansion。
+当前进度：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-6 与 active-reference traceability 已完成；下一入口仍是 P2-5 audit fixture expansion，除非 human layer dogfooding 暴露新的通用结构缺口。

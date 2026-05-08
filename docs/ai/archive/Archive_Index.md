@@ -25,3 +25,5 @@
 | 2026-05-07 | Plan | EcSOS upgrade rehearsal plan | 无。 | `archive/plans/2026-05-07-ecsos-upgrade-rehearsal-plan.md` | Archived | 切换到 P2 Workstream Task Flow 当前规划 |
 | 2026-05-08 | Task | Define archive draft and cleanup contract | 无。 | `archive/tasks/2026-05-08-define-archive-draft-and-cleanup-contract.md` | Archived | P2-4 Workstream archive implementation completed in commit f6efd36 |
 | 2026-05-08 | Plan | P2-4 Workstream Archive Draft and Index Cleanup Design | 无。 | `archive/plans/2026-05-08-p2-4-workstream-archive-draft-and-index-cleanup-design.md` | Archived | P2-4 Workstream archive implementation completed in commit f6efd36 |
+| 2026-05-08 | Task | Verify and record route calibration | 无。 | `archive/tasks/2026-05-08-verify-and-record-route-calibration.md` | Archived | P2-5 route calibration completed in commit 0f35fb0 |
+| 2026-05-08 | Plan | P2-5 Gap Audit Refresh and Next Slice Selection | 无。 | `archive/plans/2026-05-08-p2-5-gap-audit-refresh-and-next-slice-selection.md` | Archived | P2-5 route calibration completed in commit 0f35fb0 |

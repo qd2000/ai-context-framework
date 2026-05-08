@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.33"
+VERSION = "v0.0.3.34"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -49,6 +49,9 @@ TEMPLATE_DIR = find_template_dir()
 
 STANDARD_DIRS = (
     "active",
+    "human",
+    "human/weekly",
+    "human/reports",
     "rules",
     "reference",
     "reference/sources",
@@ -69,6 +72,9 @@ STANDARD_FILES = (
     "active/Current_Task.md",
     "active/Feedback_Inbox.md",
     "active/Task_Plan.md",
+    "human/Human_Notes.md",
+    "human/weekly/.gitkeep",
+    "human/reports/.gitkeep",
     "rules/Always_Active.md",
     "rules/Project_Rules.md",
     "rules/Coding_Rules.md",
@@ -175,6 +181,7 @@ WORKSTREAM_STATE_TRANSITIONS = {
     "Cancelled": set(),
 }
 PLACEHOLDER_RE = re.compile(r"【[^】]+】")
+ACF_PLACEHOLDER_RE = re.compile(r"^【ACF:[A-Z0-9_:-]+(?:\|[^】]+)?】$")
 MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
 PLAN_REFERENCE_BULLET_RE = re.compile(r"^-\s+`(?P<path>reference/[^`\n]+\.md)`[：:]\s*(?P<purpose>.+?)\s*$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -201,8 +208,11 @@ WORKSTREAM_STAGE_TABLE_HEADER = "| ID | 状态 | 阶段 | 依赖 | 输出物 | �
 WORKSTREAM_INDEX_REL = "active/Workstreams.md"
 WORKSTREAM_DIR_REL = "active/workstreams"
 WORKSTREAM_ARCHIVE_DIR_REL = "archive/workstreams"
-WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM-ARCHIVE:START -->"
-WORKSTREAM_ARCHIVE_MARKER_END = "<!-- ACF:WORKSTREAM-ARCHIVE:END -->"
+ACF_MARKER_RE = re.compile(r"<!--\s*ACF:([A-Z0-9_-]+):([A-Z0-9_-]+):(START|END)\s*-->")
+WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:START -->"
+WORKSTREAM_ARCHIVE_MARKER_END = "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:END -->"
+LEGACY_WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM-ARCHIVE:START -->"
+LEGACY_WORKSTREAM_ARCHIVE_MARKER_END = "<!-- ACF:WORKSTREAM-ARCHIVE:END -->"
 PLAN_REFERENCE_HEADING = "## 规划依据"
 PLAN_REFERENCE_EMPTY = "- 无。"
 PLAN_REFERENCE_SECTION_INTRO = (
@@ -236,8 +246,10 @@ USAGE_LOG_FILE_REL = "logs/usage.jsonl"
 USAGE_LOCK_FILE_NAME = "usage.lock"
 LOCK_FILE_REL = ".acf.lock"
 TEMPLATE_EXAMPLE_FILES = {"decisions/ADR-0001-template.md", "worklog/daily/YYYY-MM-DD.md"}
-UPGRADE_NOTES_START = "<!-- ACF:UPGRADE-NOTES:START -->"
-UPGRADE_NOTES_END = "<!-- ACF:UPGRADE-NOTES:END -->"
+UPGRADE_NOTES_START = "<!-- ACF:UPGRADE:NOTES:START -->"
+UPGRADE_NOTES_END = "<!-- ACF:UPGRADE:NOTES:END -->"
+LEGACY_UPGRADE_NOTES_START = "<!-- ACF:UPGRADE-NOTES:START -->"
+LEGACY_UPGRADE_NOTES_END = "<!-- ACF:UPGRADE-NOTES:END -->"
 KNOWLEDGE_TITLE_SIMILARITY_THRESHOLD = 0.85
 KNOWLEDGE_BODY_SIMILARITY_THRESHOLD = 0.72
 KNOWLEDGE_STOPWORDS = {
@@ -1241,8 +1253,58 @@ def required_files_for_check(root: Path, profile: str) -> tuple[str, ...]:
     return tuple(rel for rel in files if rel not in TEMPLATE_EXAMPLE_FILES)
 
 
+def human_layer_paths(root: Path) -> list[Path]:
+    return [
+        root / "human" / "Human_Notes.md",
+        root / "human" / "weekly" / ".gitkeep",
+        root / "human" / "reports" / ".gitkeep",
+    ]
+
+
 def skip_placeholder_check(root: Path, rel_file: str) -> bool:
     return root.resolve() != TEMPLATE_DIR.resolve() and rel_file in TEMPLATE_EXAMPLE_FILES
+
+
+def is_acf_placeholder(value: str) -> bool:
+    return ACF_PLACEHOLDER_RE.match(value) is not None
+
+
+def legacy_placeholder_count(placeholders: Sequence[str]) -> int:
+    return sum(1 for placeholder in placeholders if not is_acf_placeholder(placeholder))
+
+
+LEGACY_ACF_MARKER_REPLACEMENTS = {
+    LEGACY_UPGRADE_NOTES_START: UPGRADE_NOTES_START,
+    LEGACY_UPGRADE_NOTES_END: UPGRADE_NOTES_END,
+    LEGACY_WORKSTREAM_ARCHIVE_MARKER_START: WORKSTREAM_ARCHIVE_MARKER_START,
+    LEGACY_WORKSTREAM_ARCHIVE_MARKER_END: WORKSTREAM_ARCHIVE_MARKER_END,
+}
+
+
+def migrate_legacy_acf_markers(text: str) -> str:
+    updated = text
+    for legacy, canonical in LEGACY_ACF_MARKER_REPLACEMENTS.items():
+        updated = updated.replace(legacy, canonical)
+    return updated
+
+
+def legacy_acf_marker_warnings(rel_file: str, text: str) -> list[str]:
+    warnings: list[str] = []
+    if LEGACY_UPGRADE_NOTES_START in text or LEGACY_UPGRADE_NOTES_END in text:
+        warnings.append(f"{rel_file}: legacy ACF marker `ACF:UPGRADE-NOTES` found; prefer `ACF:UPGRADE:NOTES`")
+    if LEGACY_WORKSTREAM_ARCHIVE_MARKER_START in text or LEGACY_WORKSTREAM_ARCHIVE_MARKER_END in text:
+        warnings.append(
+            f"{rel_file}: legacy ACF marker `ACF:WORKSTREAM-ARCHIVE` found; prefer `ACF:WORKSTREAM:ARCHIVE-RECORD`"
+        )
+    return warnings
+
+
+def has_upgrade_notes_marker(text: str) -> bool:
+    return UPGRADE_NOTES_START in text or LEGACY_UPGRADE_NOTES_START in text
+
+
+def has_workstream_archive_marker(text: str) -> bool:
+    return WORKSTREAM_ARCHIVE_MARKER_START in text or LEGACY_WORKSTREAM_ARCHIVE_MARKER_START in text
 
 
 def infer_context_profile(root: Path) -> str:
@@ -3734,6 +3796,30 @@ def render_feedback_inbox() -> str:
 """
 
 
+def render_human_notes() -> str:
+    return """# Human Notes
+
+本文件记录人工异步写入的随笔、疑问、注释、规划草稿和待确认修改。AI 必须先分类，不得直接把本文件内容当作已确认事实。
+
+---
+
+## Inbox
+
+| ID | 状态 | 类型 | 内容 | 关联位置 | AI 处理建议 | 证据 |
+|---|---|---|---|---|---|---|
+| 暂无 |  |  |  |  |  |  |
+
+---
+
+## 使用规则
+
+1. 本文件是 human 层入口，不是 active 当前事实源。
+2. `[[双链]]` 只作为人工导航，不替代 ACF 需要解析的标准路径、front matter、heading 或 table。
+3. 已确认事实应转写到 `active/Context.md`、`active/Task_Plan.md`、ADR、Knowledge 或 worklog。
+4. weekly / reports 中的内容默认不进入 AI 必读路径，只有在回顾、汇报或路线复盘时按需读取。
+"""
+
+
 def render_task_plan(
     status: str,
     title: str,
@@ -3897,7 +3983,8 @@ def upgrade_notes_block(target: str) -> str:
 
 
 def append_upgrade_notes_if_needed(text: str, target: str) -> str:
-    if UPGRADE_NOTES_START in text:
+    text = migrate_legacy_acf_markers(text)
+    if has_upgrade_notes_marker(text):
         return text
     return text.rstrip() + upgrade_notes_block(target)
 
@@ -3933,7 +4020,7 @@ def replace_section_from_template(text: str, rel_path: str, heading: str) -> str
 def add_context_curation_prompt_entry(text: str) -> str:
     if "reference/Context_Curation_Prompt.md" in text:
         return text
-    if UPGRADE_NOTES_START in text:
+    if has_upgrade_notes_marker(text):
         return text
     row = "| 需要整理、归纳、精简上下文 | `reference/Context_Curation_Prompt.md` |"
     sentence = "需要整理、归纳、精简上下文时，按需读取 `reference/Context_Curation_Prompt.md`。"
@@ -3957,7 +4044,8 @@ def add_context_curation_prompt_entry(text: str) -> str:
     return text
 
 
-def upgraded_agents_text(text: str) -> str:
+def upgraded_agents_text(text: str, include_human: bool = False) -> str:
+    text = migrate_legacy_acf_markers(text)
     original = text
     text = text.replace("## 会话结束回写要求", "## 会话结束回写建议")
     if "active/Task_Plan.md" not in text:
@@ -4012,15 +4100,20 @@ def upgraded_agents_text(text: str) -> str:
             )
     if "archive/feedback" not in text and section_exists(text, "## 目录结构"):
         text = replace_section_from_template(text, "AGENTS.md", "## 目录结构")
+    if include_human and "human/Human_Notes.md" not in text and not has_upgrade_notes_marker(text):
+        for heading in ("## 目录结构", "## 按需读取指引", "## 事实源优先级", "## 目标信息来源"):
+            if section_exists(text, heading):
+                text = replace_section_from_template(text, "AGENTS.md", heading)
     text = add_context_curation_prompt_entry(text)
-    if "active/Task_Plan.md" not in text and UPGRADE_NOTES_START not in text:
+    if "active/Task_Plan.md" not in text and not has_upgrade_notes_marker(text):
         text = append_upgrade_notes_if_needed(text, "agents")
-    elif "acf plan" not in text and UPGRADE_NOTES_START not in text:
+    elif "acf plan" not in text and not has_upgrade_notes_marker(text):
         text = append_upgrade_notes_if_needed(text, "agents")
     return text
 
 
 def upgraded_feedback_inbox_text(text: str) -> str:
+    text = migrate_legacy_acf_markers(text)
     if "archive/feedback/" in text and "只在近期或当前计划仍需引用时保留" in text:
         return text
     if section_exists(text, "## 状态说明"):
@@ -4031,6 +4124,7 @@ def upgraded_feedback_inbox_text(text: str) -> str:
 
 
 def upgraded_project_rules_text(text: str) -> str:
+    text = migrate_legacy_acf_markers(text)
     if "旧版本上下文" in text and "`acf upgrade`" in text and "upgrade compatibility" in text:
         return text
     addition = "- 修改模板目录结构、默认上下文结构或 `acf upgrade` 补齐逻辑时，必须评估旧版本上下文能否通过 `acf upgrade` 良好升级；新增结构应同步到 upgrade 文件清单、打包清单、文档、init/upgrade 测试和 upgrade compatibility runner。"
@@ -4038,6 +4132,7 @@ def upgraded_project_rules_text(text: str) -> str:
 
 
 def upgraded_system_manual_text(text: str) -> str:
+    text = migrate_legacy_acf_markers(text)
     text = text.replace(
         "每次重要协作结束后，AI 应输出标准化的回写建议（格式见 AGENTS.md）。\n\n最终是否写入，由用户决定。",
         "重要协作结束后，AI 不应默认重复打印完整回写建议清单。应先判断哪些内容可以确定落盘，优先使用 `acf plan`、`acf task`、`acf edit`、`acf new worklog`、`acf knowledge draft`、`acf archive` 或 `acf writeback draft` 写入对应文件或草案。\n\n最终回复只报告实际修改的文件、生成的草案、执行的检查和仍需人工判断的风险。没有变化的类别不需要输出“无需更新”。",
@@ -4101,7 +4196,7 @@ def upgraded_system_manual_text(text: str) -> str:
     if "修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为" not in text and "旧版本上下文升级" in text:
         addition = "\n\n维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档、init/upgrade 单元测试和 upgrade compatibility runner；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。\n"
         text = text.rstrip() + addition
-    if "acf upgrade [target]" not in text and UPGRADE_NOTES_START not in text:
+    if "acf upgrade [target]" not in text and not has_upgrade_notes_marker(text):
         text = append_upgrade_notes_if_needed(text, "manual")
     if "PowerShell 中反引号是转义字符" not in text:
         text = text.rstrip() + "\n\nPowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。\n"
@@ -4144,6 +4239,7 @@ def upgraded_current_task_text(text: str) -> tuple[str, str | None]:
 
 
 def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], list[str]]:
+    profile = infer_context_profile(root)
     planned = [
         root / "active" / "Feedback_Inbox.md",
         root / "active" / "Task_Plan.md",
@@ -4157,6 +4253,8 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         root / "reference" / "knowledge" / ".gitkeep",
         root / "worklog" / "knowledge-drafts" / ".gitkeep",
     ]
+    if profile == "standard":
+        planned.extend(human_layer_paths(root))
     changed = [path for path in planned if not path.exists()]
     agents = root / "AGENTS.md"
     feedback = root / "active" / "Feedback_Inbox.md"
@@ -4181,10 +4279,10 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
             warnings.append(f"{current_task}: {warning}")
     if agents.exists():
         original_agents = read_text(agents)
-        updated_agents = upgraded_agents_text(original_agents)
+        updated_agents = upgraded_agents_text(original_agents, include_human=profile == "standard")
         if updated_agents != original_agents:
             changed.append(agents)
-            if UPGRADE_NOTES_START not in original_agents and UPGRADE_NOTES_START in updated_agents:
+            if not has_upgrade_notes_marker(original_agents) and has_upgrade_notes_marker(updated_agents):
                 warnings.append(f"{agents}: append upgrade notes because no known AGENTS.md pattern matched")
     if feedback.exists():
         original_feedback = read_text(feedback)
@@ -4201,7 +4299,7 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         updated_manual = upgraded_system_manual_text(original_manual)
         if updated_manual != original_manual:
             changed.append(manual)
-            if UPGRADE_NOTES_START not in original_manual and UPGRADE_NOTES_START in updated_manual:
+            if not has_upgrade_notes_marker(original_manual) and has_upgrade_notes_marker(updated_manual):
                 warnings.append(f"{manual}: append upgrade notes because no known System_Manual.md pattern matched")
 
     if dry_run:
@@ -4223,6 +4321,9 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         elif path.name == "Context_Curation_Prompt.md":
             template_prompt = TEMPLATE_DIR / "reference" / "Context_Curation_Prompt.md"
             path.write_text(read_text(template_prompt) if template_prompt.exists() else "", encoding="utf-8")
+        elif path.name == "Human_Notes.md":
+            template_human = TEMPLATE_DIR / "human" / "Human_Notes.md"
+            path.write_text(read_text(template_human) if template_human.exists() else render_human_notes(), encoding="utf-8")
         else:
             path.write_text("", encoding="utf-8")
 
@@ -4266,7 +4367,7 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
 
 
 def upgrade_managed_paths(root: Path) -> list[Path]:
-    return [
+    paths = [
         root / "active" / "Feedback_Inbox.md",
         root / "active" / "Task_Plan.md",
         root / "archive" / "Archive_Index.md",
@@ -4281,6 +4382,9 @@ def upgrade_managed_paths(root: Path) -> list[Path]:
         root / "rules" / "Project_Rules.md",
         root / "reference" / "System_Manual.md",
     ]
+    if infer_context_profile(root) == "standard":
+        paths.extend(human_layer_paths(root))
+    return paths
 
 
 def upgrade_detected_features(root: Path) -> list[str]:
@@ -4294,6 +4398,7 @@ def upgrade_detected_features(root: Path) -> list[str]:
         ("knowledge", root / "reference" / "Knowledge_Index.md"),
         ("context_curation_prompt", root / "reference" / "Context_Curation_Prompt.md"),
         ("system_manual", root / "reference" / "System_Manual.md"),
+        ("human", root / "human" / "Human_Notes.md"),
         ("workstreams", root / "active" / "Workstreams.md"),
     ]
     for name, path in feature_paths:
@@ -6293,7 +6398,7 @@ def workstream_archive_command(args: argparse.Namespace) -> int:
     if archive_path.exists():
         raise SystemExit(f"workstream_archive_target_exists: {archive_rel}")
     source_text = read_text(detail.path)
-    if WORKSTREAM_ARCHIVE_MARKER_START in source_text:
+    if has_workstream_archive_marker(source_text):
         raise SystemExit(f"workstream_archive_target_exists: {args.id} already contains archive marker")
 
     kept_entries = [entry for entry in entries if entry.workstream_id != args.id]
@@ -9164,12 +9269,20 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
                 errors.append(message)
             elif not strict:
                 warnings.append(message)
+            if path.resolve() == TEMPLATE_DIR.resolve():
+                legacy_count = legacy_placeholder_count(placeholders)
+                if legacy_count:
+                    warnings.append(
+                        f"{rel_file}: contains {legacy_count} legacy placeholder(s); prefer `【ACF:KEY|提示】`"
+                    )
 
         for ref in MARKDOWN_REF_RE.findall(text):
             if not should_check_ref(ref):
                 continue
             if resolve_ref(path, md_file, ref) is None:
                 errors.append(f"{rel_file}: broken markdown reference `{ref}`")
+
+        warnings.extend(legacy_acf_marker_warnings(rel_file, text))
 
     return CheckResult(errors, warnings)
 

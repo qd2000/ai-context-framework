@@ -15,7 +15,7 @@
 - `status`：输出项目根、上下文目录、profile、当前任务状态和检查结果。
 - AI 友好输出第一版：`status` 和 `check` 支持 `--json`；写命令支持 `--json`、`--dry-run`、`--check-after` 并输出 changed files。
 - `init`：生成标准或简化上下文模板，并在推断出的项目根目录生成缺失的薄入口 AGENTS.md；已有根入口默认不覆盖，需要 `--force-root-agent` 才覆盖。
-- `upgrade`：非破坏式补齐旧上下文缺失的 `active/Feedback_Inbox.md`、`active/Task_Plan.md`、archive、archive/feedback、Knowledge 结构和 active -> reference 规划依据追溯入口，不自动移动或覆盖 Active 当前任务。
+- `upgrade`：非破坏式补齐旧上下文缺失的 `active/Feedback_Inbox.md`、`active/Task_Plan.md`、标准 profile 的 human 层、archive、archive/feedback、Knowledge 结构和 active -> reference 规划依据追溯入口，不自动移动或覆盖 Active 当前任务。
 - `simplify`：从已有上下文导出简化版本，保留真实 ADR 与 daily worklog，排除占位模板文件。
 - `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径；`--strict` 会将占位符残留视为错误。
 - `plan init|add-task|set-task|focus|status`、`plan reference list|add|remove` 与 `plan stage list|add|set|done`：维护当前大任务计划、轻量子任务板、`## 规划依据` 和 `## 任务阶段` 表；`plan reference` 只写 reference 路径和一句话用途，可用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md`；Task Stage CLI 不创建 task object 单文件，也不自动修改 `active/Current_Task.md`。
@@ -149,7 +149,7 @@
 
 - `active/` 只保留当前目标、当前事实、当前任务和下一步。
 - 写入前必须判断唯一权威位置；能更新旧表述时，不追加重复事实。
-- worklog 记录历史过程，archive 保存历史材料，Feedback_Inbox 保存待处理信号；它们默认不作为当前事实。
+- worklog 记录历史过程，archive 保存历史材料，Feedback_Inbox 和 human 保存待处理或未整理信号；它们默认不作为当前事实。
 - 整理事实时优先读取 changed files、`active/`、相关索引和最近 worklog。
 - 不为 curation 默认读取 archive 或全部历史日志；writeback draft 和 curation draft 不进入默认读取路径。
 - CLI 只做机械发现和草案生成，不裁决语义事实。
@@ -309,6 +309,9 @@ subagent 适合处理需要语义判断、但不应静默修改权威文件的�
 5. CLI 行为变化后运行 `uv run acf check --strict`、`uv run python -m unittest` 和 `uv run python -m py_compile acf.py tests\test_cli.py tests\test_upgrade_matrix.py scripts\minimal_smoke.py scripts\upgrade_matrix.py`。
 6. 修改 `upgrade`、模板结构或注意力治理入口时，发布前运行 `uv run python scripts/upgrade_matrix.py --mode full --acf uv run acf`。
 7. minimal 实例不保留 ADR 和 worklog 的占位模板文件，真实条目通过 `new adr` 和 `new worklog` 生成。
+8. standard 实例包含 `human/Human_Notes.md`、`human/weekly/` 和 `human/reports/`，用于人工异步笔记、周记录和汇报材料；minimal 实例不补 human 层。
+9. Obsidian `[[双链]]` 只服务人工导航，ACF 不解析、不校验、不依赖双链；结构化引用仍使用普通 Markdown 路径。
+10. 模板占位符统一使用 `【ACF:KEY|提示】`，表格单元格内使用 `【ACF:KEY】`；机器维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START --> ... END -->`。
 8. 新增或重置当前任务时优先使用 `new task`，维护大任务 reference 规划依据时优先使用 `plan reference`，新增资料索引时优先使用 `new source`，重要设计决策优先使用 `new adr`，当天工作记录优先使用 `new worklog`。
 9. 会话结束回写建议需要暂存时，优先使用 `writeback draft`，再由人或主代理审阅后决定是否写入权威上下文。
 10. 维护 `docs/ai/` 内已有 section 或 table 时，优先使用 `edit section` 或 `edit table upsert`，高风险写入先用 `--dry-run --json`。

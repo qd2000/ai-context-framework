@@ -206,7 +206,7 @@ acf workstream archive WS001 docs/ai --reason "reviewed in worklog/archive-draft
 5. 自动移动 active/workstreams/WS001 dot md 到 archive/workstreams/WS001 dot md。
 6. 自动删除 `active/Workstreams.md` 中对应行，并重算 `## Workstream 状态`。
 7. 自动写入 `archive/Archive_Index.md`。
-8. 自动在归档详情末尾追加 `ACF:WORKSTREAM-ARCHIVE` marker block。
+8. 自动在归档详情末尾追加 `ACF:WORKSTREAM:ARCHIVE-RECORD` marker block。
 9. 不修改 merge target，不修改 `active/Context.md`、`active/Current_Task.md`、`active/Task_Plan.md`。
 10. 如果 `active/Workstreams.md` 缺少该 ID 行，warning 后继续；如果有重复行，失败。
 11. 如果目标 archive/workstreams/WS001 dot md 已存在，失败。
@@ -240,17 +240,17 @@ Workstream 归档行示例：
 归档详情文件末尾追加稳定 marker block：
 
 ```md
-<!-- ACF:WORKSTREAM-ARCHIVE:START -->
+<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:START -->
 ## 归档记录
 
 - archived_at: 2026-05-08
 - source_path: active/workstreams/WS001.md
 - archive_path: archive/workstreams/WS001.md
 - archive_reason: reviewed in worklog/archive-drafts/2026-05-08.md
-<!-- ACF:WORKSTREAM-ARCHIVE:END -->
+<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:END -->
 ```
 
-marker 命名采用 `ACF:<DOMAIN>:<PURPOSE>`；本功能使用 `ACF:WORKSTREAM-ARCHIVE`。`source_path` 不使用反引号，避免归档后形成 broken markdown reference。
+marker 命名采用 `ACF:<DOMAIN>:<PURPOSE>`；本功能使用 `ACF:WORKSTREAM:ARCHIVE-RECORD`。旧 `ACF:WORKSTREAM-ARCHIVE` marker 保持兼容，但新生成内容统一使用 canonical marker。`source_path` 不使用反引号，避免归档后形成 broken markdown reference。
 
 ---
 

@@ -14,21 +14,22 @@ Done
 
 ## 大任务名称
 
-P2-5 Gap Audit Refresh and Next Slice Selection
+P2-6 Human Layer and Template Modernization
 
 ---
 
 ## 大任务目标
 
-1. Refresh the implementation gap and roadmap after completed P2 archive work.
-2. Select the next safe implementation slice without relying on stale backlog text.
+1. Implement standard-profile human notes, Obsidian boundary docs, unified template placeholders, canonical ACF markers, upgrade compatibility, tests, version bump, and release commit.
 
 ---
 
 ## 成功标准
 
-1. Top_Level_Implementation_Gap and Product_Roadmap no longer contradict completed features.
-2. The next recommended slice is explicit, bounded, and mapped to fixtures before code.
+1. Standard init and upgrade create human layer while minimal does not.
+2. Templates use canonical placeholders and marker docs use canonical ACF marker format.
+3. Legacy placeholders and markers remain compatible with future warnings.
+4. Verification suite passes and v0.0.3.34 is committed and pushed.
 
 ---
 
@@ -37,9 +38,10 @@ P2-5 Gap Audit Refresh and Next Slice Selection
 列出当前大任务必须对齐的 reference 设计、路线或差距文档；只放路径和一句话用途，不复制详细规划。
 
 - `reference/ACF_Top_Level_Design.md`：上位架构、边界和非目标。
-- `reference/Top_Level_Implementation_Gap.md`：当前实现差距矩阵和候选切片依据。
-- `reference/System_Manual.md`：dogfooding 维护命令和上下文治理规则。
-- `reference/Product_Roadmap.md`：近期优先级和下一批候选任务。
+- `reference/Product_Roadmap.md`：阶段路线、近期优先级和 P2-6 定位。
+- `reference/Top_Level_Implementation_Gap.md`：实现差距矩阵、P2-6 状态和后续切片依据。
+- `reference/System_Manual.md`：dogfooding 维护命令、人机协作和上下文治理规则。
+- `reference/Upgrade_Migration_Plan.md`：upgrade 非破坏式补齐、marker notes 和旧项目兼容边界。
 
 ---
 
@@ -53,9 +55,10 @@ P2-5 Gap Audit Refresh and Next Slice Selection
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | Refresh gap audit status | 无。 | Updated Top_Level_Implementation_Gap current status and remaining gaps | Updated Top_Level_Implementation_Gap.md status, context_matrix row, multi-project row, and next code PR decision for P2-5 audit fixture expansion. | 无。 |
-| T002 | Done | Select next implementation slice | T001 | Updated Product_Roadmap next slice recommendation | Updated Product_Roadmap.md to recommend P2-5 context_matrix audit fixture expansion before generated sync design or curation draft enhancement. | 无。 |
-| T003 | Done | Verify and record route calibration | T002 | Clean checks, worklog entry, and committed route calibration | docs/ai strict check passed; audit context reviewed; worklog appended to worklog/daily/2026-05-08.md; git diff --check passed. | 无。 |
+| T001 | Done | Update templates and CLI | 无。 | Standard human layer, canonical placeholders, canonical markers and compatibility helpers implemented | acf.py template/ docs/ai upgrade and targeted CLI tests cover human layer, placeholders, markers, and compatibility helpers. | 无。 |
+| T002 | Done | Update docs and dogfood upgrade | T001 | README, manuals, roadmap, gap docs and docs/ai human layer updated through upgrade | README, template and docs/ai manuals, roadmap, gap docs, AGENTS, and docs/ai human layer updated via upgrade dry-run/apply; docs/ai strict check passed. | 无。 |
+| T003 | Done | Verify behavior and version | T002 | Checks, unittest, smoke, upgrade matrix, diff check and v0.0.3.34 completed | version show v0.0.3.34 aligned; py_compile passed; check template ok with placeholder warnings; docs/ai strict ok; audit context ok with 2 advisory candidates; unittest 202 tests ok; minimal_smoke ok; upgrade_matrix quick ok; git diff --check ok. | 无。 |
+| T004 | Done | Commit and push release | T003 | Lore commit and pushed branch | Lore commit prepared after full verification; final response will report pushed commit hash. | 无。 |
 
 ---
 

@@ -16,19 +16,19 @@ Done
 
 ## 任务名称
 
-Commit and push release
+Verify and record route calibration
 
 ---
 
 ## 所属大任务
 
-P2-6 Human Layer and Template Modernization
+P2-5 Gap Audit Refresh and Next Slice Selection
 
 ---
 
 ## 子任务 ID
 
-T004
+T003
 
 ---
 
@@ -40,14 +40,14 @@ T004
 
 ## 本次任务目标
 
-1. Commit with Lore protocol and push
-2. 产出并验证输出物：Lore commit and pushed branch
+1. Run docs checks, audit context, and commit docs-only calibration
+2. 产出并验证输出物：Clean checks, worklog entry, and committed route calibration
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T004，所属大任务为“P2-6 Human Layer and Template Modernization”。依赖记录：T003
+该任务来自 `active/Task_Plan.md` 中的子任务 T003，所属大任务为“P2-5 Gap Audit Refresh and Next Slice Selection”。依赖记录：T002
 
 ---
 
@@ -58,24 +58,23 @@ T004
 - `active/Task_Plan.md`。
 - `active/Context.md`。
 - `reference/ACF_Top_Level_Design.md`：上位架构、边界和非目标。
-- `reference/Product_Roadmap.md`：阶段路线、近期优先级和 P2-6 定位。
-- `reference/Top_Level_Implementation_Gap.md`：实现差距矩阵、P2-6 状态和后续切片依据。
-- `reference/System_Manual.md`：dogfooding 维护命令、人机协作和上下文治理规则。
-- `reference/Upgrade_Migration_Plan.md`：upgrade 非破坏式补齐、marker notes 和旧项目兼容边界。
-- 依赖 T003 证据：version show v0.0.3.34 aligned; py_compile passed; check template ok with placeholder warnings; docs/ai strict ok; audit context ok with 2 advisory candidates; unittest 202 tests ok; minimal_smoke ok; upgrade_matrix quick ok; git diff --check ok.
+- `reference/Top_Level_Implementation_Gap.md`：当前实现差距矩阵和候选切片依据。
+- `reference/System_Manual.md`：dogfooding 维护命令和上下文治理规则。
+- `reference/Product_Roadmap.md`：近期优先级和下一批候选任务。
+- 依赖 T002 证据：Updated Product_Roadmap.md to recommend P2-5 context_matrix audit fixture expansion before generated sync design or curation draft enhancement.
 
 ---
 
 ## 输出要求
 
-- Lore commit and pushed branch
+- Clean checks, worklog entry, and committed route calibration
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：Lore commit and pushed branch
-2. 子任务 T004 的完成证据已写回任务板。
+1. 输出物已完成：Clean checks, worklog entry, and committed route calibration
+2. 子任务 T003 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---

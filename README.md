@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.31` 是当前推荐的真实项目接入/升级版本，新增 active -> reference 规划依据追溯能力：`active/Task_Plan.md` 维护 `## 规划依据`，`task start` 会继承有效 reference bullets，`acf plan reference list|add|remove` 可确定性维护路径和一句话用途，`upgrade` 可非破坏式补齐旧结构。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.34` 是当前推荐的真实项目接入/升级版本，保留 active -> reference 规划依据追溯能力，并新增标准 profile 的 `human/` 人工异步笔记层、统一 `【ACF:KEY|提示】` 模板占位符和 canonical ACF marker。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -32,6 +32,7 @@ template/
     Feedback_Inbox.md    # 人工反馈、问题、需求和计划碎片
     Task_Plan.md         # 当前大任务计划、规划依据、轻量子任务板和可选任务阶段表
     Current_Task.md      # 当前具体小任务，可记录当前执行 Workstream
+  human/                 # 人工异步笔记、weekly 和 reports（AI 按需读取）
   rules/                 # 规则系统（分层加载）
     Always_Active.md     # 每次必须遵守的核心规则
     Project_Rules.md     # 项目级通用规则
@@ -79,11 +80,12 @@ template/
 | 层级 | 目录 | 读取时机 | 说明 |
 |------|------|----------|------|
 | 1 | active/ | 默认读取 | 当前阶段事实、人工反馈 inbox、当前大任务计划和当前小任务 |
-| 2 | rules/ | Always_Active 默认，其余按需 | 行为规则 |
-| 3 | reference/ | 按需 | 背景资料、知识和索引 |
-| 4 | decisions/ | 按需 | 决策详情 |
-| 5 | worklog/ | 按需 | 工作历史 |
-| 6 | archive/ | 仅明确要求时 | 归档内容 |
+| 2 | human/ | 按需 | 人工异步笔记、周记录和汇报材料 |
+| 3 | rules/ | Always_Active 默认，其余按需 | 行为规则 |
+| 4 | reference/ | 按需 | 背景资料、知识和索引 |
+| 5 | decisions/ | 按需 | 决策详情 |
+| 6 | worklog/ | 按需 | 工作历史 |
+| 7 | archive/ | 仅明确要求时 | 归档内容 |
 
 ## 事实源优先级
 
@@ -94,11 +96,18 @@ template/
 3. Task_Plan.md
 4. Context.md
 5. Feedback_Inbox.md（只作为待整理信号，不作为已确认事实）
-6. Decisions_Index.md
-7. ADR 文件
-8. Knowledge_Index.md
-9. worklog
-10. archive
+6. human/（只作为人工未整理笔记或汇报材料，不作为已确认事实）
+7. Decisions_Index.md
+8. ADR 文件
+9. Knowledge_Index.md
+10. worklog
+11. archive
+
+## 人工笔记与 Obsidian
+
+标准 profile 会生成 `docs/ai/human/`，用于人工异步笔记、weekly 进展和汇报材料。它默认不进入 AI 注意力，只在用户要求整理、追溯或生成汇报时按需读取；需要成为当前事实的内容，应整理到 `active/`、ADR、Knowledge 或 worklog 的权威位置。
+
+可以把项目 `docs/` 作为 Obsidian vault 根目录，用 `[[双链]]` 连接 `docs/ai/` 和其他项目文档。双链只服务人工查看和编辑；ACF 不解析、不校验、不依赖 Obsidian 双链，CLI 结构化引用仍使用普通 Markdown 路径。
 
 ## 注意力治理
 
@@ -106,7 +115,7 @@ ACF 不追求保存更多上下文，而是维护一个低噪声、高权威、�
 
 - `active/` 只保留当前目标、当前事实、当前任务和下一步。
 - 写入当前事实前先判断唯一权威位置；能更新旧表述时，不追加重复事实。
-- worklog 记录历史过程，archive 保存历史材料，Feedback_Inbox 保存待处理信号；它们默认不作为当前事实。
+- worklog 记录历史过程，archive 保存历史材料，Feedback_Inbox 和 human 保存待处理或未整理信号；它们默认不作为当前事实。
 - 整理事实时优先读取 changed files、`active/`、相关索引和最近 worklog，不默认读取 archive 或全部历史日志。
 - writeback draft 和 curation draft 不进入默认读取路径；能引用权威位置时，不复制完整表述。
 
@@ -224,7 +233,7 @@ acf log summarize --json
 acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
-acf version set v0.0.3.31 --dry-run --json
+acf version set v0.0.3.34 --dry-run --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -237,7 +246,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `init`：从 `template/` 生成标准或简化上下文目录。
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
-- `upgrade`：非破坏式补齐新版本上下文结构，包括反馈归档目录和 active -> reference 规划依据追溯入口；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
+- `upgrade`：非破坏式补齐新版本上下文结构，包括标准 profile 的 human 层、反馈归档目录和 active -> reference 规划依据追溯入口；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 canonical marker 包围的升级说明块。
 - `plan init|add-task|set-task|focus|status`、`plan reference list|add|remove` 和 `plan stage list|add|set|done`：维护 `active/Task_Plan.md` 中的大任务、子任务板、`## 规划依据` 和 `## 任务阶段` 表；`plan reference add --path reference/X.md --purpose "用途"` 只记录 reference 路径和一句话用途，可用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md` 的输入材料；Task Stage CLI 只维护任务阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
 - `plan complete`：在子任务完成后将大任务计划标记为 Done。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务；`task start` 默认拒绝启动依赖未完成的子任务，除非传入 `--force`。
@@ -303,7 +312,9 @@ acf upgrade --check-after --json
 acf check --strict --json
 ```
 
-`upgrade` 只补齐当前 schema 缺失的 `active/Task_Plan.md`、archive、archive/feedback 和 Knowledge 文件/目录，并为旧 `active/Task_Plan.md` 补 `## 规划依据` 结构、为 Active `active/Current_Task.md` 的 `## 输入材料` 保守追加规划依据提示；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE-NOTES` marker 块而不是强行重排原文。
+`upgrade` 只补齐当前 schema 缺失的 `active/Task_Plan.md`、标准 profile 的 human 层、archive、archive/feedback 和 Knowledge 文件/目录，并为旧 `active/Task_Plan.md` 补 `## 规划依据` 结构、为 Active `active/Current_Task.md` 的 `## 输入材料` 保守追加规划依据提示；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`，也不自动判断哪些 reference 是正确依据。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。如果旧任务或旧计划需要归档，升级后再显式运行 `acf archive current-task` 或 `acf archive task-plan`。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE:NOTES` marker 块而不是强行重排原文；旧 `ACF:UPGRADE-NOTES` marker 保持兼容并在可管理文档中迁移。
+
+模板占位符统一使用 `【ACF:KEY|提示】`。Markdown 表格单元格里使用无提示形式 `【ACF:KEY】`，避免 `|` 破坏表格。机器维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START --> ... END -->`，例如 `ACF:UPGRADE:NOTES` 和 `ACF:WORKSTREAM:ARCHIVE-RECORD`；旧 marker 仍兼容，`check` 会给出 future warning。
 
 如果全局 `acf` 未安装，可在本仓库源码环境中对其他项目运行：
 

@@ -33,6 +33,7 @@
 
 ```text
 active/      当前有效上下文、人工反馈 inbox、任务计划和当前任务
+human/       人工异步笔记、weekly 和 reports；默认不读取
 rules/       规则系统，按 always / requested / manual 分层
 reference/   支持性资料、索引、摘要，按需读取
 decisions/   重要决策详情，通常通过 Decisions_Index.md 进入
@@ -45,38 +46,45 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 ## 按需读取指引
 
 | 场景 | 读取文件 |
-|---|---|
-| 需要理解长期背景 | `reference/Project_Brief.md` |
+|------|----------|
+| 需要理解项目长期背景 | `reference/Project_Brief.md` |
 | 需要整理人工反馈、问题、需求和计划碎片 | `active/Feedback_Inbox.md` |
-| 需要处理多个并行目标线 | `active/Workstreams.md` -> 对应 `active/workstreams/*.md` |
-| 需要追溯重要决策 | `reference/Decisions_Index.md` -> `decisions/ADR-*.md` |
+| 需要处理人工异步笔记、周记录或汇报材料 | `human/Human_Notes.md` 或 `human/weekly/` |
+| 需要处理多个并行目标线 | Workstreams 索引 → 对应 Workstream 详情文件 |
+| 需要追溯重要决策 | `reference/Decisions_Index.md` → `decisions/ADR-*.md` |
 | 涉及架构设计 | `reference/Architecture.md` |
 | 涉及技术实现、运行环境 | `reference/Tech_Context.md` |
+| 涉及外部资料来源 | `reference/Sources_Index.md` |
+| 需要追溯可复用经验 | `reference/Knowledge_Index.md` → `reference/knowledge/*.md` |
+| 需要了解近期进展 | `worklog/Worklog_Index.md` → 最近 N 条 daily |
+| 需要整理、归纳、精简上下文 | `reference/Context_Curation_Prompt.md` |
 | 涉及项目通用约束 | `rules/Project_Rules.md` |
 | 涉及代码实现 | `rules/Coding_Rules.md` |
 | 涉及写作输出 | `rules/Writing_Rules.md` |
 | 涉及方案评审 | `rules/Review_Rules.md` |
-| 需要了解近期进展 | `worklog/Worklog_Index.md` |
-| 涉及外部资料来源 | `reference/Sources_Index.md` |
-| 需要追溯可复用经验 | `reference/Knowledge_Index.md` -> `reference/knowledge/*.md` |
-| 需要整理、归纳、精简上下文 | `reference/Context_Curation_Prompt.md` |
+| 需要了解系统详细用法 | `reference/System_Manual.md` |
+
+除上述场景外，不要默认读取 archive、完整 worklog、原始日志或所有 reference 文件。
 
 ---
 
 ## 事实源优先级
+
+如果不同文件之间存在冲突，按以下优先级判断：
 
 1. 用户当前消息
 2. `active/Current_Task.md`
 3. `active/Task_Plan.md`
 4. `active/Context.md`
 5. `active/Feedback_Inbox.md`（只作为待整理信号，不作为已确认事实）
-6. `reference/Decisions_Index.md`
-7. ADR 文件
-8. `reference/Knowledge_Index.md`
-9. `worklog/`
-10. `archive/`
+6. `human/`（只作为人工未整理笔记或汇报材料，不作为已确认事实）
+7. `reference/Decisions_Index.md`
+8. `decisions/` 中的 ADR 文件
+9. `reference/Knowledge_Index.md`
+10. `worklog/`
+11. `archive/`
 
-Knowledge 是可复用经验层，不是当前事实源；worklog 是历史过程记录，不等于当前事实；archive 默认不读取。
+Knowledge 是可复用经验层，不是当前事实源；human 是人工异步笔记层，worklog 是历史过程记录，archive 是归档材料，均不等于当前事实。
 
 ---
 
