@@ -16,7 +16,7 @@ Done
 
 ## 任务名称
 
-Stabilize active-reference traceability
+Define archive draft and cleanup contract
 
 ---
 
@@ -28,7 +28,7 @@ P2-4 Workstream Archive Draft and Index Cleanup Design
 
 ## 子任务 ID
 
-T005
+T001
 
 ---
 
@@ -40,14 +40,14 @@ T005
 
 ## 本次任务目标
 
-1. Add migration fixtures, boundary tests, and read-only EcSOS/FCC validation
-2. 产出并验证输出物：Upgrade matrix, CLI boundary tests, and external dry-run validation summary
+1. Update Workstream lifecycle design and gap audit with P2-4 boundaries
+2. 产出并验证输出物：Updated lifecycle/gap design boundaries
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T005，所属大任务为“P2-4 Workstream Archive Draft and Index Cleanup Design”。依赖记录：无明确依赖。
+该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“P2-4 Workstream Archive Draft and Index Cleanup Design”。依赖记录：无明确依赖。
 
 ---
 
@@ -66,14 +66,14 @@ T005
 
 ## 输出要求
 
-- Upgrade matrix, CLI boundary tests, and external dry-run validation summary
+- Updated lifecycle/gap design boundaries
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：Upgrade matrix, CLI boundary tests, and external dry-run validation summary
-2. 子任务 T005 的完成证据已写回任务板。
+1. 输出物已完成：Updated lifecycle/gap design boundaries
+2. 子任务 T001 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---

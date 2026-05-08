@@ -107,6 +107,42 @@ class CliTests(unittest.TestCase):
             0,
         )
 
+    def complete_workstream(self, target, workstream_id):
+        self.assertEqual(self.run_cli(["workstream", "set", workstream_id, str(target), "--status", "Active"]), 0)
+        self.assertEqual(
+            self.run_cli(
+                [
+                    "workstream",
+                    "merge-request",
+                    workstream_id,
+                    str(target),
+                    "--target",
+                    "active/Context.md",
+                    "--summary",
+                    "No authority change required.",
+                    "--verification",
+                    "Unit test fixture.",
+                ]
+            ),
+            0,
+        )
+        self.assertEqual(self.run_cli(["workstream", "ready", workstream_id, str(target)]), 0)
+        self.assertEqual(
+            self.run_cli(
+                [
+                    "workstream",
+                    "done",
+                    workstream_id,
+                    str(target),
+                    "--evidence",
+                    "tests/test_cli.py",
+                    "--merge-resolution",
+                    "no_merge_required",
+                ]
+            ),
+            0,
+        )
+
     def write_workstream_stage_table(self, target, workstream_id, rows):
         detail_path = target / "active" / "workstreams" / f"{workstream_id}.md"
         table_rows = "\n".join(f"| {' | '.join(row)} |" for row in rows)
@@ -2290,6 +2326,164 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["candidates"], [])
             self.assertIn("referenced_by_current_task_execution_line", payload["blocked"][0]["blocked_by"])
 
+    def test_workstream_archive_draft_creates_reviewable_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS011")
+            self.complete_workstream(target, "WS011")
+            self.add_workstream(target, "WS012")
+            self.assertEqual(
+                self.run_cli(["workstream", "cancel", "WS012", str(target), "--reason", "方向取消"]),
+                0,
+            )
+            detail = target / "active" / "workstreams" / "WS012.md"
+            detail.write_text(
+                detail.read_text(encoding="utf-8").replace(
+                    "title: WS012\n",
+                    "title: WS012\nkeep_active_reason: still useful\nkeep_active_until: 2099-01-01\n",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "archive-draft", str(target), "--date", "2026-05-08", "--dry-run", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "workstream archive-draft")
+            self.assertEqual(payload["candidate_count"], 1)
+            self.assertEqual(payload["blocked_count"], 1)
+            self.assertIn("uv run acf workstream archive WS011", payload["planned_draft"])
+            self.assertIn("keep_active_until_not_expired", payload["planned_draft"])
+            self.assertFalse((target / "worklog" / "archive-drafts" / "2026-05-08.md").exists())
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "archive-draft", str(target), "--date", "2026-05-08", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            draft_path = target / payload["draft_path"]
+            self.assertTrue(draft_path.exists())
+            draft_text = draft_path.read_text(encoding="utf-8")
+            self.assertIn("## 可归档候选", draft_text)
+            self.assertIn("## 暂不归档", draft_text)
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "archive-draft", str(target), "--date", "2026-05-08", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(self.json_payload(stdout)["error_code"], "workstream_archive_draft_exists")
+
+    def test_workstream_archive_moves_detail_updates_indexes_and_checks_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS013")
+            self.complete_workstream(target, "WS013")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "archive",
+                    "WS013",
+                    str(target),
+                    "--reason",
+                    "reviewed in worklog/archive-drafts/2026-05-08.md",
+                    "--date",
+                    "2026-05-08",
+                    "--dry-run",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "workstream archive")
+            self.assertIn(str((target / "archive" / "workstreams" / "WS013.md").resolve()), payload["changed_files"])
+            self.assertTrue((target / "active" / "workstreams" / "WS013.md").exists())
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "archive",
+                    "WS013",
+                    str(target),
+                    "--reason",
+                    "reviewed in worklog/archive-drafts/2026-05-08.md",
+                    "--date",
+                    "2026-05-08",
+                    "--check-after",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["archived_id"], "WS013")
+            self.assertFalse((target / "active" / "workstreams" / "WS013.md").exists())
+            self.assertTrue((target / "active" / "workstreams" / ".gitkeep").exists())
+            archive_detail = target / "archive" / "workstreams" / "WS013.md"
+            archive_text = archive_detail.read_text(encoding="utf-8")
+            self.assertIn("ACF:WORKSTREAM-ARCHIVE:START", archive_text)
+            self.assertIn("source_path: active/workstreams/WS013.md", archive_text)
+            index_text = (target / "active" / "Workstreams.md").read_text(encoding="utf-8")
+            self.assertNotIn("WS013", index_text)
+            self.assertIn("Inactive", index_text)
+            archive_index = (target / "archive" / "Archive_Index.md").read_text(encoding="utf-8")
+            self.assertIn("| 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |", archive_index)
+            self.assertIn("| 2026-05-08 | workstream | WS013 | active/workstreams/WS013.md | `archive/workstreams/WS013.md` | Done | reviewed in worklog/archive-drafts/2026-05-08.md |", archive_index)
+            result = acf.check_context(target, "minimal", strict=False)
+            self.assertFalse(result.errors, result.errors)
+
+    def test_workstream_archive_respects_blockers_and_index_edge_cases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS014")
+            self.complete_workstream(target, "WS014")
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001\n\n## 当前执行线\n\nWS014\n",
+                encoding="utf-8",
+            )
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "archive", "WS014", str(target), "--reason", "reviewed", "--date", "2026-05-08", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            payload = self.json_payload(stdout)
+            self.assertEqual(payload["error_code"], "workstream_archive_blocked")
+            self.assertIn("referenced_by_current_task_execution_line", payload["message"])
+
+            (target / "active" / "Current_Task.md").write_text("## 当前任务状态\n\nEmpty\n", encoding="utf-8")
+            index_path = target / "active" / "Workstreams.md"
+            index_text = index_path.read_text(encoding="utf-8")
+            ws_row = next(line for line in index_text.splitlines() if "| WS014 |" in line)
+            index_path.write_text(index_text.replace(ws_row, ws_row + "\n" + ws_row), encoding="utf-8")
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "archive", "WS014", str(target), "--reason", "reviewed", "--date", "2026-05-08", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(self.json_payload(stdout)["error_code"], "workstream_archive_duplicate_index")
+
+    def test_workstream_archive_warns_when_index_row_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS015")
+            self.complete_workstream(target, "WS015")
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(
+                "\n".join(line for line in index_path.read_text(encoding="utf-8").splitlines() if "| WS015 |" not in line)
+                + "\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "archive", "WS015", str(target), "--reason", "reviewed", "--date", "2026-05-08", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assertTrue(any("has no row for WS015" in warning for warning in payload["warnings"]))
+            self.assertTrue((target / "archive" / "workstreams" / "WS015.md").exists())
+
     def test_strict_template_check_fails_on_placeholders(self):
         result = acf.check_context(acf.TEMPLATE_DIR, "standard", strict=True)
         self.assertTrue(any("placeholder" in error for error in result.errors))
@@ -3738,6 +3932,7 @@ This records a reusable write-safety pattern instead of a current task fact.
                 ("workstream status", ["workstream", "status", str(target), "--json"]),
                 ("workstream list", ["workstream", "list", str(target), "--json"]),
                 ("workstream archive-candidates", ["workstream", "archive-candidates", str(target), "--json"]),
+                ("workstream archive-draft", ["workstream", "archive-draft", str(target), "--dry-run", "--json"]),
                 ("workstream show", ["workstream", "show", "WS001", str(target), "--json"]),
                 ("workstream stage list", ["workstream", "stage", "list", "WS001", str(target), "--json"]),
                 (

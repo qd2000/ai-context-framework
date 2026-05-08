@@ -368,7 +368,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 ### 当前最建议做
 
 1. 使用 `reference/Top_Level_Implementation_Gap.md` 作为进入新代码 PR 前的 gap-driven 实施依据。
-2. JSON contract consistency tests、Workstream stage flow fixture、upgrade matrix expansion、Task Stage CLI 薄切片与 Workstream lifecycle/archive helper 设计已完成；下一批继续 gap-driven P2 评估。
+2. JSON contract consistency tests、Workstream stage flow fixture、upgrade matrix expansion、Task Stage CLI 薄切片与 Workstream archive-candidates / archive-draft / explicit archive 闭环已完成；下一批继续 gap-driven P2 评估。
 3. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge。
 4. 后续每个新能力先补 fixture，再实现命令或规则。
 
@@ -382,6 +382,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 6. P2-2：设计 Workstream lifecycle / archive helper。已完成：新增 `reference/Workstream_Lifecycle_Archive_Design.md` 和 `workstream_lifecycle_archive` fixture，明确第一版先做候选/草案 helper，不直接移动文件。
 7. P2-3：实现只读 `workstream archive-candidates` 命令。已完成：输出候选和 `blocked_by`，不写文件、不移动详情、不接入 strict。
 8. P2 active-reference traceability：已完成并稳定化。v0.0.3.31 增加 `active/Task_Plan.md` 的 `## 规划依据`、`plan reference list/add/remove`、`task start` 继承、upgrade 非破坏式补齐；v0.0.3.32 补上 upgrade matrix fixture、CLI 边界测试、EcSOS/FCC 只读 dry-run 验证，并修正 `task start` 继承规划依据时生成嵌套 bullet 的回归。
+9. P2-4：实现 `workstream archive-draft` 和显式 `workstream archive`。已完成：draft 写入 `worklog/archive-drafts/`，archive 移动单个终态 Workstream、清理 active index、写入 Archive_Index 和 marker，不修改 merge target 或当前事实文件。
 
 ---
 

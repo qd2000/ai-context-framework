@@ -6,7 +6,8 @@
     "Done Workstream with evidence, merge_resolution, keep_active_reason, and future keep_active_until remains strict-check clean",
     "Terminal Workstream referenced as current execution line is rejected",
     "Expired keep_active_until is rejected in strict check",
-    "Task Stage historical ownership/reference does not by itself require archiving"
+    "Task Stage historical ownership/reference does not by itself require archiving",
+    "Archive draft can identify an unblocked terminal Workstream and explicit archive can move it while keeping strict check clean"
   ],
   "risk_tags": [
     "workstream",

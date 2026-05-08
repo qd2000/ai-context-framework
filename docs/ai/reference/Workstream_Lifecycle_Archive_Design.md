@@ -98,13 +98,17 @@ Done / Cancelled 是终态；归档后的 Workstream 不应再回到 Active。�
 
 ## 第一版 helper 形态
 
-第一版不直接实现自动移动文件。当前已实现只读候选命令，draft 命令仍为后续候选：
+第一版由三个显式步骤组成：
 
 ```bash
 acf workstream archive-candidates docs/ai --json
+acf workstream archive-draft docs/ai --date 2026-05-08 --json
+acf workstream archive WS001 docs/ai --reason "reviewed in worklog/archive-drafts/2026-05-08.md" --json
 ```
 
-候选命令只读输出：
+`archive-candidates` 只读输出机器可读候选；`archive-draft` 生成人工 / AI 可审阅的 Markdown 草案；`archive` 才真正移动单个 Workstream。draft 不支持 apply，不批量归档。
+
+候选命令输出：
 
 ```json
 {
@@ -148,29 +152,105 @@ candidate 建议字段：
 5. `missing_merge_resolution`
 6. `missing_evidence`
 7. `missing_merge_request`
+8. `missing_cancellation_reason`
+9. `invalid_keep_active_until`
 
 ---
 
-## 后续显式 archive 命令
+## Archive draft 契约
 
-只有候选/draft 经过验证后，才考虑显式移动命令：
+draft 写入：
 
 ```bash
-acf workstream archive WS001 docs/ai --reason "current plan no longer needs this terminal Workstream" --json
+worklog/archive-drafts/YYYY-MM-DD.md
 ```
 
-第一版移动命令应满足：
+带 `--name p2-cleanup` 时写入：
 
-1. 只接受 Done / Cancelled，除非未来显式加 `--force`。
+```bash
+worklog/archive-drafts/YYYY-MM-DD-p2-cleanup.md
+```
+
+默认不覆盖已有草案；重复运行失败并提示使用 `--name` 或 `--force`。`--dry-run` 不写文件，并返回 planned draft。
+
+draft 必须包含：
+
+1. `## 可归档候选`：列出 ID、status、detail、archive_target、reason 和建议命令。
+2. `## 暂不归档`：列出 ID、status、detail、blocked_by、reason 和 suggested_action。
+3. `## 审阅记录`：保留 approved / rejected / notes 占位。
+
+候选项可以生成建议命令，但只作为文本：
+
+```bash
+uv run acf workstream archive WS001 docs/ai --reason "reviewed in worklog/archive-drafts/2026-05-08.md" --json
+```
+
+blocked 项不生成修复命令，只写 suggested_action，避免鼓励 AI 自动改当前事实。
+
+---
+
+## 显式 archive 命令契约
+
+移动命令为：
+
+```bash
+acf workstream archive WS001 docs/ai --reason "reviewed in worklog/archive-drafts/2026-05-08.md" --json
+```
+
+第一版移动命令满足：
+
+1. 只接受 Done / Cancelled，不支持 `--force`。
 2. 要求 `--reason`。
-3. dry-run first 支持 `changed_files`。
-4. 写入 `archive/Archive_Index.md`。
-5. 移动详情到 `archive/workstreams/`。
-6. 不修改 `active/Context.md` 或 `active/Current_Task.md`。
-7. 不删除 Workstreams 索引缺详情旧行，除非另有 generated block 删除策略。
-8. 写后必须能通过 `acf check` 或给出明确 next_actions。
+3. 支持 `--date YYYY-MM-DD`、`--dry-run`、`--json`、`--check-after`。
+4. 复用 `archive-candidates` 的 blocker assessment；有 blocker 时拒绝。
+5. 自动移动 active/workstreams/WS001 dot md 到 archive/workstreams/WS001 dot md。
+6. 自动删除 `active/Workstreams.md` 中对应行，并重算 `## Workstream 状态`。
+7. 自动写入 `archive/Archive_Index.md`。
+8. 自动在归档详情末尾追加 `ACF:WORKSTREAM-ARCHIVE` marker block。
+9. 不修改 merge target，不修改 `active/Context.md`、`active/Current_Task.md`、`active/Task_Plan.md`。
+10. 如果 `active/Workstreams.md` 缺少该 ID 行，warning 后继续；如果有重复行，失败。
+11. 如果目标 archive/workstreams/WS001 dot md 已存在，失败。
+12. 如果移动后 `active/workstreams/` 为空，保留目录并确保 `.gitkeep`。
 
-如果 moving detail 会让 `active/Workstreams.md` 留下缺详情错误，命令必须同步处理索引行策略。该策略需要先设计 generated block 或明确的 manual cleanup 规则。
+Cancelled Workstream 不要求 `merge_resolution`，但必须有 `## 取消原因`。Done Workstream 必须有 `## 证据` 和 `merge_resolution`；声明 `merge_targets` 时必须有合并请求。
+
+---
+
+## Archive_Index 记录
+
+`archive/Archive_Index.md` 使用通用 7 列表头：
+
+```md
+| 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
+|---|---|---|---|---|---|---|
+```
+
+Workstream 归档行示例：
+
+```md
+| 2026-05-08 | workstream | WS001 | active/workstreams/WS001.md | archive/workstreams/WS001.md | Done | reviewed in worklog/archive-drafts/2026-05-08.md |
+```
+
+样例中的原路径和归档路径都不使用 Markdown 反引号引用，避免设计文档里的假想路径被 `acf check` 当成必须存在的本地引用；实际归档文件中的归档路径可以在文件存在后写成可检查引用。
+
+---
+
+## Archive marker
+
+归档详情文件末尾追加稳定 marker block：
+
+```md
+<!-- ACF:WORKSTREAM-ARCHIVE:START -->
+## 归档记录
+
+- archived_at: 2026-05-08
+- source_path: active/workstreams/WS001.md
+- archive_path: archive/workstreams/WS001.md
+- archive_reason: reviewed in worklog/archive-drafts/2026-05-08.md
+<!-- ACF:WORKSTREAM-ARCHIVE:END -->
+```
+
+marker 命名采用 `ACF:<DOMAIN>:<PURPOSE>`；本功能使用 `ACF:WORKSTREAM-ARCHIVE`。`source_path` 不使用反引号，避免归档后形成 broken markdown reference。
 
 ---
 
@@ -182,6 +262,9 @@ acf workstream archive WS001 docs/ai --reason "current plan no longer needs this
 2. 同一个 Workstream 的 `keep_active_until` 改为过去日期后，strict check 报 expired。
 3. 当前任务执行线引用 terminal Workstream 时，check 报错，说明不能把终态 Workstream 当当前执行线。
 4. Done Workstream 作为 Task Stage 历史 evidence 或 owner 引用时，不等于当前执行线，不应触发归档移动。
+5. candidate -> archive-draft -> explicit archive -> strict check clean。
+6. 缺 index 行时 archive warning 后继续；重复 index 行时 archive 失败。
+7. archive target 已存在时 archive 失败。
 
 这些 fixture 证明 helper 必须区分“终态但仍需解释”和“可归档候选”。
 
@@ -193,10 +276,8 @@ acf workstream archive WS001 docs/ai --reason "current plan no longer needs this
 2. `tests/fixtures/context_matrix/workstream_lifecycle_archive`。
 3. fixture 测试覆盖 keep-active clean / expired / current execution line rejected。
 4. 只读 `workstream archive-candidates` 命令。已完成。
-5. archive draft 命令。
-6. 显式 `workstream archive` 移动命令。
-
-在 4 之前，不实现移动文件命令。
+5. archive draft 命令。已完成。
+6. 显式 `workstream archive` 移动命令。已完成。
 
 ---
 

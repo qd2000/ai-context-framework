@@ -143,7 +143,7 @@ Dogfooding MVP / 框架稳定化。
 
 80. 阶段 6 P1.6 已新增 `reference/Context_Curation_Prompt.md`：该文件是按需读取的 AI 上下文整理 prompt 模板，默认产物是整理建议，不是文件修改；`init` 和 `upgrade` 会补齐该 reference 文件，但不自动运行 stale/curation、也不让 CLI 裁决事实真假。
 
-81. P2 Workstream lifecycle/archive helper 已落地只读 `acf workstream archive-candidates`：输出归档候选和 `blocked_by`，不移动文件、不修改索引、不接入 strict；`tests/fixtures/context_matrix/workstream_lifecycle_archive` 覆盖 retained terminal Workstream、当前执行线误用和 expired keep-active 边界。
+81. P2 Workstream lifecycle/archive helper 已落地 `acf workstream archive-candidates`、`acf workstream archive-draft` 和显式 `acf workstream archive`：候选命令只读输出归档候选和 `blocked_by`；draft 写入可审阅归档清单；archive 只在显式指定单个终态 Workstream 和 reason 时移动详情、清理 active index、写入 Archive_Index 和 marker，不修改 merge target 或当前事实文件。
 
 ---
 

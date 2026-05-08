@@ -21,7 +21,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.32"
+VERSION = "v0.0.3.33"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -194,12 +194,15 @@ TASK_TABLE_HEADER = "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | �
 TASK_STAGE_TABLE_HEADER = "| ID | 状态 | 父任务 | 名称 | 归属 Workstream | 依赖 | 输出物 | 证据 | 下一步 |"
 FEEDBACK_TABLE_HEADER = "| ID | 状态 | 类型 | 内容 | 来源 | 后续处理 |"
 KNOWLEDGE_TABLE_HEADER = "| ID | 标题 | 状态 | 标签 | 摘要 | 详情 |"
-ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | 标题 | 原因 | 详情 |"
+ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |"
+LEGACY_ARCHIVE_TABLE_HEADER = "| 日期 | 类型 | 标题 | 原因 | 详情 |"
 WORKSTREAM_TABLE_HEADER = "| ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |"
 WORKSTREAM_STAGE_TABLE_HEADER = "| ID | 状态 | 阶段 | 依赖 | 输出物 | 证据 | 下一步 |"
 WORKSTREAM_INDEX_REL = "active/Workstreams.md"
 WORKSTREAM_DIR_REL = "active/workstreams"
 WORKSTREAM_ARCHIVE_DIR_REL = "archive/workstreams"
+WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM-ARCHIVE:START -->"
+WORKSTREAM_ARCHIVE_MARKER_END = "<!-- ACF:WORKSTREAM-ARCHIVE:END -->"
 PLAN_REFERENCE_HEADING = "## 规划依据"
 PLAN_REFERENCE_EMPTY = "- 无。"
 PLAN_REFERENCE_SECTION_INTRO = (
@@ -428,6 +431,13 @@ class WorkstreamDetail:
     metadata: dict[str, str | list[str]]
     body: str
     diagnostics: list[FrontMatterDiagnostic]
+
+
+@dataclass(frozen=True)
+class WorkstreamArchiveAssessment:
+    detail: WorkstreamDetail
+    blockers: tuple[str, ...]
+    reason: str
 
 
 @dataclass
@@ -949,6 +959,14 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Use `--today YYYY-MM-DD` or omit it to use the current date."]
     if error_code == "workstream_archive_candidates_plan_unreadable":
         return ["Fix active/Task_Plan.md or run `acf check` before reviewing archive candidates."]
+    if error_code == "workstream_archive_draft_exists":
+        return ["Review the existing archive draft, rerun with --name for a separate draft, or use --force to replace it."]
+    if error_code == "workstream_archive_blocked":
+        return ["Resolve the reported blocked_by items, then rerun the archive command."]
+    if error_code == "workstream_archive_target_exists":
+        return ["Review the existing archive target and choose a different manual recovery path before retrying."]
+    if error_code == "workstream_archive_duplicate_index":
+        return ["Fix duplicate rows in active/Workstreams.md before archiving."]
     if error_code == "task_stage_duplicate_id":
         return ["Choose an unused Task Stage ID in active/Task_Plan.md."]
     if error_code == "task_stage_scope_invalid":
@@ -1003,6 +1021,10 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_stage_clear_current_required",
         "workstream_archive_candidates_invalid_today",
         "workstream_archive_candidates_plan_unreadable",
+        "workstream_archive_draft_exists",
+        "workstream_archive_blocked",
+        "workstream_archive_target_exists",
+        "workstream_archive_duplicate_index",
     )
     task_stage_codes = (
         "task_stage_duplicate_id",
@@ -1170,6 +1192,8 @@ def write_command_context_root(args: argparse.Namespace) -> Path | None:
             "merge-request",
             "ready",
             "done",
+            "archive-draft",
+            "archive",
             "focus",
             "claim",
             "note",
@@ -3815,8 +3839,8 @@ def render_archive_index() -> str:
 ## 归档条目
 
 {ARCHIVE_TABLE_HEADER}
-|---|---|---|---|---|
-| 暂无 |  |  |  |  |
+|---|---|---|---|---|---|---|
+| 暂无 |  |  |  |  |  |  |
 """
 
 
@@ -5157,15 +5181,55 @@ def archive_index_path(root: Path) -> Path:
     return root / "archive" / "Archive_Index.md"
 
 
-def update_archive_index(index_path: Path, archive_date: str, item_type: str, title: str, reason: str, detail: str) -> None:
+def find_archive_table(lines: Sequence[str]) -> tuple[TableRange, bool]:
+    try:
+        return find_table(lines, ARCHIVE_TABLE_HEADER), False
+    except SystemExit:
+        return find_table(lines, LEGACY_ARCHIVE_TABLE_HEADER), True
+
+
+def normalize_archive_rows(lines: Sequence[str], table: TableRange, legacy: bool) -> list[str]:
+    rows: list[str] = []
+    for line in lines[table.body_start : table.body_end]:
+        cells = split_table_line(line)
+        if not cells or cells[0] == "暂无":
+            continue
+        if legacy:
+            if len(cells) < 5:
+                continue
+            archive_date, item_type, title, reason, detail = cells[:5]
+            rows.append(render_table_row([archive_date, item_type, title, "无。", detail, "Archived", reason]))
+        elif len(cells) >= 7:
+            rows.append(render_table_row(cells[:7]))
+    return rows
+
+
+def append_archive_index_entry(
+    index_path: Path,
+    archive_date: str,
+    item_type: str,
+    item_id: str,
+    source_path: str,
+    archive_path: str,
+    status: str,
+    reason: str,
+) -> None:
     text = read_text(index_path) if index_path.exists() else render_archive_index()
     lines = text.splitlines()
-    table = find_table(lines, ARCHIVE_TABLE_HEADER)
-    rows = list(lines[table.body_start : table.body_end])
-    rows = [row for row in rows if split_table_line(row)[0] != "暂无"]
-    rows.append(render_table_row([archive_date, item_type, title, reason, f"`{detail}`"]))
-    updated = lines[: table.body_start] + rows + lines[table.body_end :]
+    table, legacy = find_archive_table(lines)
+    rows = normalize_archive_rows(lines, table, legacy)
+    rows.append(render_table_row([archive_date, item_type, item_id, source_path, f"`{archive_path}`", status, reason]))
+    updated = (
+        lines[: table.header_index]
+        + [ARCHIVE_TABLE_HEADER, "|---|---|---|---|---|---|---|"]
+        + rows
+        + lines[table.body_end :]
+    )
     index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
+def update_archive_index(index_path: Path, archive_date: str, item_type: str, title: str, reason: str, detail: str) -> None:
+    append_archive_index_entry(index_path, archive_date, item_type, title, "无。", detail, "Archived", reason)
 
 
 def archive_file(root: Path, source: Path, kind: str, reason: str, force: bool, dry_run: bool) -> list[Path]:
@@ -5227,11 +5291,13 @@ def archive_list_command(args: argparse.Namespace) -> int:
     index_path = archive_index_path(root)
     rows: list[dict[str, str]] = []
     if index_path.exists():
-        table = find_table(read_text(index_path).splitlines(), ARCHIVE_TABLE_HEADER)
-        for line in read_text(index_path).splitlines()[table.body_start : table.body_end]:
+        lines = read_text(index_path).splitlines()
+        table, legacy = find_archive_table(lines)
+        keys = ["日期", "类型", "标题", "原因", "详情"] if legacy else ["日期", "类型", "ID", "原路径", "归档路径", "状态", "原因"]
+        for line in lines[table.body_start : table.body_end]:
             cells = split_table_line(line)
-            if len(cells) >= 5 and cells[0] != "暂无":
-                rows.append(dict(zip(["日期", "类型", "标题", "原因", "详情"], cells)))
+            if len(cells) >= len(keys) and cells[0] != "暂无":
+                rows.append(dict(zip(keys, cells)))
     payload: dict[str, object] = {
         "command": "archive list",
         "ok": True,
@@ -5245,7 +5311,7 @@ def archive_list_command(args: argparse.Namespace) -> int:
         print_json(payload)
     else:
         for row in rows:
-            print(f"{row.get('日期')} {row.get('类型')} {row.get('标题')} {row.get('详情')}")
+            print(f"{row.get('日期')} {row.get('类型')} {row.get('ID') or row.get('标题')} {row.get('归档路径') or row.get('详情')}")
     return 0
 
 
@@ -5850,6 +5916,15 @@ def parse_archive_candidates_today(value: str | None) -> date:
     return date.fromisoformat(normalized)
 
 
+def parse_workstream_archive_date(value: str | None, option_name: str = "--date") -> date:
+    if value is None:
+        return date.today()
+    normalized = value.strip()
+    if not DATE_RE.match(normalized):
+        raise SystemExit(f"workstream_archive_candidates_invalid_today: {option_name} must use YYYY-MM-DD")
+    return date.fromisoformat(normalized)
+
+
 def current_execution_workstream_ids(root: Path) -> set[str]:
     task_file = root / "active" / "Current_Task.md"
     if not task_file.exists():
@@ -5947,6 +6022,31 @@ def workstream_archive_candidate_payload(root: Path, detail: WorkstreamDetail, t
     }
 
 
+def collect_workstream_archive_assessments(root: Path, today: date) -> list[WorkstreamArchiveAssessment]:
+    entries = parse_workstream_index(root)
+    current_execution_refs = current_execution_workstream_ids(root)
+    active_stage_refs, focus_stage_refs = active_task_stage_workstream_refs(root)
+    assessments: list[WorkstreamArchiveAssessment] = []
+    for entry in entries:
+        detail = read_workstream_detail(root, entry.workstream_id)
+        status = detail.metadata.get("status")
+        if status not in {"Done", "Cancelled"}:
+            continue
+        blockers = workstream_archive_blockers(detail, today, current_execution_refs, active_stage_refs, focus_stage_refs)
+        assessments.append(
+            WorkstreamArchiveAssessment(
+                detail=detail,
+                blockers=tuple(blockers),
+                reason=workstream_archive_candidate_reason(detail, today),
+            )
+        )
+    return assessments
+
+
+def workstream_archive_assessment_payload(root: Path, assessment: WorkstreamArchiveAssessment, today: date) -> dict[str, object]:
+    return workstream_archive_candidate_payload(root, assessment.detail, today, assessment.blockers)
+
+
 def count_by_key(items: Sequence[dict[str, object]], key: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for item in items:
@@ -5963,22 +6063,13 @@ def count_by_key(items: Sequence[dict[str, object]], key: str) -> dict[str, int]
 def workstream_archive_candidates_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.path)
     today = parse_archive_candidates_today(args.today)
-    entries = parse_workstream_index(root)
-    current_execution_refs = current_execution_workstream_ids(root)
-    active_stage_refs, focus_stage_refs = active_task_stage_workstream_refs(root)
     candidates: list[dict[str, object]] = []
     blocked: list[dict[str, object]] = []
-    terminal_total = 0
 
-    for entry in entries:
-        detail = read_workstream_detail(root, entry.workstream_id)
-        status = detail.metadata.get("status")
-        if status not in {"Done", "Cancelled"}:
-            continue
-        terminal_total += 1
-        blockers = workstream_archive_blockers(detail, today, current_execution_refs, active_stage_refs, focus_stage_refs)
-        payload = workstream_archive_candidate_payload(root, detail, today, blockers)
-        if blockers:
+    assessments = collect_workstream_archive_assessments(root, today)
+    for assessment in assessments:
+        payload = workstream_archive_assessment_payload(root, assessment, today)
+        if assessment.blockers:
             blocked.append(payload)
         else:
             candidates.append(payload)
@@ -5998,7 +6089,7 @@ def workstream_archive_candidates_command(args: argparse.Namespace) -> int:
         "candidates": candidates,
         "blocked": blocked,
         "summary": {
-            "terminal_total": terminal_total,
+            "terminal_total": len(assessments),
             "candidate_total": len(candidates),
             "blocked_total": len(blocked),
             "by_blocker": count_by_key(blocked, "blocked_by"),
@@ -6017,6 +6108,236 @@ def workstream_archive_candidates_command(args: argparse.Namespace) -> int:
         if blocked:
             print(f"blocked terminal workstreams: {len(blocked)}")
     return 0
+
+
+def workstream_archive_draft_path(root: Path, draft_date: date, name: str | None) -> Path:
+    suffix = f"-{slugify_file_stem(name)}" if name else ""
+    return root / "worklog" / "archive-drafts" / f"{draft_date.isoformat()}{suffix}.md"
+
+
+def workstream_archive_blocker_action(blocker: str) -> str:
+    actions = {
+        "keep_active_until_not_expired": "等待 keep_active_until 到期，或人工确认后更新 keep-active metadata。",
+        "referenced_by_current_task_execution_line": "先完成、清空或切换 active/Current_Task.md 的当前执行线。",
+        "referenced_by_current_plan_focus": "先移动 active/Task_Plan.md 当前焦点或完成相关阶段。",
+        "referenced_by_current_task_stage": "先完成、跳过或重排引用该 Workstream 的当前 Task Stage。",
+        "missing_merge_resolution": "先补充 Done Workstream 的 merge_resolution。",
+        "missing_evidence": "先补充 Done Workstream 的证据。",
+        "missing_merge_request": "先补充合并请求，或移除不再适用的 merge_targets。",
+        "missing_cancellation_reason": "先补充 Cancelled Workstream 的取消原因。",
+        "invalid_keep_active_until": "修正 keep_active_until 为 YYYY-MM-DD 或移除该字段。",
+    }
+    return actions.get(blocker, "人工复核该 blocker 后再决定是否归档。")
+
+
+def render_workstream_archive_draft(
+    root: Path,
+    draft_path: Path,
+    draft_date: date,
+    candidates: Sequence[dict[str, object]],
+    blocked: Sequence[dict[str, object]],
+) -> str:
+    rel_draft = draft_path.relative_to(root).as_posix()
+    context_arg = relative_display_path(root, Path.cwd())
+    lines = [
+        f"# Workstream 归档草案：{draft_date.isoformat()}",
+        "",
+        "本文件是待人工或 AI 审阅的归档清单，不是归档结果。真正归档必须显式运行建议命令。",
+        "",
+        "## 摘要",
+        "",
+        f"- candidates: {len(candidates)}",
+        f"- blocked: {len(blocked)}",
+        "- source: acf workstream archive-candidates",
+        "",
+        "## 可归档候选",
+        "",
+    ]
+    if not candidates:
+        lines.append("- 无。")
+    for item in candidates:
+        workstream_id = str(item["id"])
+        reason = f"reviewed in {rel_draft}"
+        lines.extend(
+            [
+                f"### {workstream_id}",
+                "",
+                f"- status: {item.get('status')}",
+                f"- detail: {relative_display_path(Path(str(item.get('detail'))), root)}",
+                f"- archive_target: {relative_display_path(Path(str(item.get('archive_target'))), root)}",
+                f"- reason: {item.get('reason')}",
+                "- suggested_command:",
+                "",
+                "```bash",
+                f"uv run acf workstream archive {workstream_id} {context_arg} --reason \"{reason}\" --json",
+                "```",
+                "",
+            ]
+        )
+
+    lines.extend(["## 暂不归档", ""])
+    if not blocked:
+        lines.append("- 无。")
+    for item in blocked:
+        blockers = [str(blocker) for blocker in item.get("blocked_by", [])] if isinstance(item.get("blocked_by"), list) else []
+        lines.extend(
+            [
+                f"### {item.get('id')}",
+                "",
+                f"- status: {item.get('status')}",
+                f"- detail: {relative_display_path(Path(str(item.get('detail'))), root)}",
+                f"- blocked_by: {', '.join(blockers) if blockers else '无。'}",
+                f"- reason: {item.get('reason')}",
+                "- suggested_action:",
+            ]
+        )
+        for blocker in blockers:
+            lines.append(f"  - {blocker}: {workstream_archive_blocker_action(blocker)}")
+        lines.append("")
+
+    lines.extend(
+        [
+            "## 审阅记录",
+            "",
+            "- approved:",
+            "- rejected:",
+            "- notes:",
+            "",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def workstream_archive_draft_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    draft_date = parse_workstream_archive_date(args.date)
+    dry_run = dry_run_enabled(args)
+    draft_path = workstream_archive_draft_path(root, draft_date, args.name)
+    assessments = collect_workstream_archive_assessments(root, draft_date)
+    candidates: list[dict[str, object]] = []
+    blocked: list[dict[str, object]] = []
+    for assessment in assessments:
+        payload = workstream_archive_assessment_payload(root, assessment, draft_date)
+        if assessment.blockers:
+            blocked.append(payload)
+        else:
+            candidates.append(payload)
+    planned_draft = render_workstream_archive_draft(root, draft_path, draft_date, candidates, blocked)
+    if draft_path.exists() and not args.force and not dry_run:
+        raise SystemExit(f"workstream_archive_draft_exists: {draft_path.relative_to(root).as_posix()}")
+    if not dry_run:
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(planned_draft, encoding="utf-8")
+    check_result = maybe_check_after(args, root)
+    action = "would create" if dry_run else "created"
+    return emit_write_result(
+        args,
+        "workstream archive-draft",
+        f"{action} Workstream archive draft {draft_path.relative_to(root).as_posix()}",
+        [draft_path],
+        check_result,
+        extra_payload={
+            "draft_path": draft_path.relative_to(root).as_posix(),
+            "candidate_count": len(candidates),
+            "blocked_count": len(blocked),
+            "planned_draft": planned_draft if dry_run else None,
+        },
+    )
+
+
+def workstream_archive_marker(archive_date: date, source_rel: str, archive_rel: str, reason: str) -> str:
+    return f"""{WORKSTREAM_ARCHIVE_MARKER_START}
+## 归档记录
+
+- archived_at: {archive_date.isoformat()}
+- source_path: {source_rel}
+- archive_path: `{archive_rel}`
+- archive_reason: {reason}
+{WORKSTREAM_ARCHIVE_MARKER_END}
+"""
+
+
+def active_workstream_index_matches(entries: Sequence[WorkstreamEntry], workstream_id: str) -> list[WorkstreamEntry]:
+    return [entry for entry in entries if entry.workstream_id == workstream_id]
+
+
+def workstream_archive_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    archive_date = parse_workstream_archive_date(args.date)
+    dry_run = dry_run_enabled(args)
+    reason = required_workstream_reason(args, "archive")
+    entries = parse_workstream_index(root)
+    matches = active_workstream_index_matches(entries, args.id)
+    if len(matches) > 1:
+        raise SystemExit(f"workstream_archive_duplicate_index: {args.id} appears multiple times in {WORKSTREAM_INDEX_REL}")
+    warnings: list[str] = []
+    if not matches:
+        warnings.append(f"{WORKSTREAM_INDEX_REL} has no row for {args.id}; continuing with detail file")
+    detail = read_workstream_detail(root, args.id)
+    status = str(detail.metadata.get("status", ""))
+    if status not in {"Done", "Cancelled"}:
+        raise SystemExit(f"workstream_archive_blocked: {args.id} status is {status or 'Unknown'}")
+
+    blockers = workstream_archive_blockers(
+        detail,
+        archive_date,
+        current_execution_workstream_ids(root),
+        *active_task_stage_workstream_refs(root),
+    )
+    if blockers:
+        raise SystemExit(f"workstream_archive_blocked: {args.id} blocked_by={','.join(blockers)}")
+
+    source_rel = detail.path.relative_to(root).as_posix()
+    archive_rel = f"{WORKSTREAM_ARCHIVE_DIR_REL}/{args.id}.md"
+    archive_path = root / archive_rel
+    if archive_path.exists():
+        raise SystemExit(f"workstream_archive_target_exists: {archive_rel}")
+    source_text = read_text(detail.path)
+    if WORKSTREAM_ARCHIVE_MARKER_START in source_text:
+        raise SystemExit(f"workstream_archive_target_exists: {args.id} already contains archive marker")
+
+    kept_entries = [entry for entry in entries if entry.workstream_id != args.id]
+    changed: list[Path] = [archive_path, detail.path, archive_index_path(root)]
+    if matches:
+        changed.append(workstream_index_path(root))
+    active_gitkeep = workstream_details_dir(root) / ".gitkeep"
+    remaining_details = [path for path in workstream_details_dir(root).glob("*.md") if path.resolve() != detail.path.resolve()]
+    if not remaining_details and not active_gitkeep.exists():
+        changed.append(active_gitkeep)
+
+    if not dry_run:
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        updated_archive_text = source_text.rstrip() + "\n\n---\n\n" + workstream_archive_marker(archive_date, source_rel, archive_rel, reason)
+        archive_path.write_text(updated_archive_text, encoding="utf-8")
+        detail.path.unlink()
+        if matches:
+            write_workstream_index(root, kept_entries)
+        if not remaining_details:
+            active_gitkeep.parent.mkdir(parents=True, exist_ok=True)
+            active_gitkeep.touch(exist_ok=True)
+        index_path = archive_index_path(root)
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        if not index_path.exists():
+            index_path.write_text(render_archive_index(), encoding="utf-8")
+        append_archive_index_entry(index_path, archive_date.isoformat(), "workstream", args.id, source_rel, archive_rel, status, reason)
+
+    check_result = maybe_check_after(args, root)
+    action = "would archive" if dry_run else "archived"
+    return emit_write_result(
+        args,
+        "workstream archive",
+        f"{action} Workstream {args.id}",
+        changed,
+        check_result,
+        extra_payload={
+            "archived_id": args.id,
+            "source_path": source_rel,
+            "archive_path": archive_rel,
+            "status": status,
+            "blocked_by": [],
+        },
+        warnings=warnings,
+    )
 
 
 def workstream_sync_command(args: argparse.Namespace) -> int:
@@ -9291,6 +9612,28 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_archive_candidates_parser.add_argument("--today", default=None, help="override current date for keep-active checks")
     add_json_argument(workstream_archive_candidates_parser)
     workstream_archive_candidates_parser.set_defaults(func=workstream_archive_candidates_command)
+
+    workstream_archive_draft_parser = workstream_subparsers.add_parser(
+        "archive-draft",
+        help="create a reviewable Workstream archive draft",
+    )
+    workstream_archive_draft_parser.add_argument("path", nargs="?", type=Path)
+    workstream_archive_draft_parser.add_argument("--date", default=None, help="draft date in YYYY-MM-DD; defaults to today")
+    workstream_archive_draft_parser.add_argument("--name", type=validate_draft_name, default=None, help="optional draft name suffix")
+    workstream_archive_draft_parser.add_argument("--force", action="store_true", help="replace an existing archive draft")
+    add_write_arguments(workstream_archive_draft_parser)
+    workstream_archive_draft_parser.set_defaults(func=workstream_archive_draft_command)
+
+    workstream_archive_parser = workstream_subparsers.add_parser(
+        "archive",
+        help="archive one terminal Workstream detail and update indexes",
+    )
+    workstream_archive_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_archive_parser.add_argument("path", nargs="?", type=Path)
+    workstream_archive_parser.add_argument("--reason", default=None, help="archive reason, usually referencing an archive draft")
+    workstream_archive_parser.add_argument("--date", default=None, help="archive date in YYYY-MM-DD; defaults to today")
+    add_write_arguments(workstream_archive_parser)
+    workstream_archive_parser.set_defaults(func=workstream_archive_command)
 
     workstream_sync_parser = workstream_subparsers.add_parser("sync", help="sync Workstreams index rows from detail front matter")
     workstream_sync_parser.add_argument("path", nargs="?", type=Path)

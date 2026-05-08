@@ -8,7 +8,7 @@
 
 ## 大任务状态
 
-Active
+Done
 
 ---
 
@@ -43,7 +43,7 @@ P2-4 Workstream Archive Draft and Index Cleanup Design
 
 ## 当前焦点
 
-T005
+无。
 
 ---
 
@@ -51,10 +51,10 @@ T005
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Pending | Define archive draft and cleanup contract | 无。 | Updated lifecycle/gap design boundaries | active/Task_Plan.md | Update Workstream lifecycle design and gap audit with P2-4 boundaries |
-| T002 | Pending | Add archive draft fixtures | T001 | Synthetic fixture expectations for candidates, blocked items, and index cleanup | 无。 | Cover minimal/legacy no-op and retained terminal Workstream cases |
-| T003 | Pending | Implement first archive draft slice | T002 | Optional read-only/draft CLI, JSON contract, tests, docs | 无。 | Implement only if T001/T002 confirm safe command boundary |
-| T004 | Pending | Verify version commit push | T003 | Version decision, checks, commit and push | 无。 | Run full verification and persist stage |
+| T001 | Done | Define archive draft and cleanup contract | 无。 | Updated lifecycle/gap design boundaries | Updated Workstream_Lifecycle_Archive_Design.md, Top_Level_Implementation_Gap.md, System_Manual.md, README.md and automation docs; docs/ai strict check passed. | 无。 |
+| T002 | Done | Add archive draft and archive fixtures | T001 | Synthetic fixture expectations for archive-draft and explicit archive command | Added context_matrix archive fixture coverage plus CLI tests for archive-draft, explicit archive, blockers, missing index rows, duplicate index rows, and target conflicts. | 无。 |
+| T003 | Done | Implement archive draft and explicit archive | T002 | archive-draft CLI, explicit workstream archive CLI, JSON contract, tests, docs | Implemented workstream archive-draft and explicit archive CLI with JSON contract, Archive_Index 7-column compatibility, index cleanup, marker block, and no new dependencies. | 无。 |
+| T004 | Done | Verify version commit push | T003 | v0.0.3.33, full verification, commit and push | v0.0.3.33 set; unittest 199 passed; template check ok; docs/ai strict check ok; audit reviewed; minimal_smoke ok; upgrade_matrix quick ok; git diff --check ok. | 无。 |
 | T005 | Done | Stabilize active-reference traceability | 无。 | Upgrade matrix, CLI boundary tests, and external dry-run validation summary | unittest 194 passed; template check ok; docs/ai strict check ok; audit context reviewed; upgrade_matrix quick ok; EcSOS/FCC dry-run summary recorded | 无。 |
 
 ---

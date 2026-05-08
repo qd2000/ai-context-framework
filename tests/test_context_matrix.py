@@ -602,6 +602,93 @@ class ContextMatrixTests(unittest.TestCase):
             result = acf.check_context(target, "minimal", strict=True)
             self.assertTrue(any("keep_active_until `2000-01-01` is expired" in error for error in result.errors), result.errors)
 
+    def test_workstream_lifecycle_archive_fixture_draft_to_archive_flow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_context(tmp, "workstream_lifecycle_archive")
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS021",
+                        "--title",
+                        "Archive candidate fixture",
+                        "--owner",
+                        "codex",
+                        "--output",
+                        "archive evidence",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "set", "WS021", str(target), "--status", "Active"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS021",
+                        str(target),
+                        "--target",
+                        "active/Context.md",
+                        "--summary",
+                        "No authority write required for archive fixture.",
+                        "--verification",
+                        "Fixture evidence reviewed.",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS021", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "done",
+                        "WS021",
+                        str(target),
+                        "--evidence",
+                        "worklog/lifecycle.md",
+                        "--merge-resolution",
+                        "no_merge_required",
+                    ]
+                ),
+                0,
+            )
+
+            exit_code, draft_payload, stderr = self.run_cli_json(
+                ["workstream", "archive-draft", str(target), "--date", "2026-05-08", "--dry-run", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(draft_payload["candidate_count"], 1)
+            self.assertIn("WS021", draft_payload["planned_draft"])
+
+            exit_code, archive_payload, stderr = self.run_cli_json(
+                [
+                    "workstream",
+                    "archive",
+                    "WS021",
+                    str(target),
+                    "--reason",
+                    "reviewed in worklog/archive-drafts/2026-05-08.md",
+                    "--date",
+                    "2026-05-08",
+                    "--check-after",
+                    "--strict",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(archive_payload["archived_id"], "WS021")
+            self.assertFalse((target / "active" / "workstreams" / "WS021.md").exists())
+            self.assertTrue((target / "archive" / "workstreams" / "WS021.md").exists())
+            exit_code, check_payload, stderr = self.run_cli_json(["check", str(target), "--strict", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(check_payload["ok"])
+
     def test_authority_gate_fixture_rejects_direct_authority_claim(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = self.init_context(tmp, "authority_gate")

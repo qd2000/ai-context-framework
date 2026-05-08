@@ -281,6 +281,35 @@ class SmokeRunner:
             and [candidate.get("id") for candidate in archive_step["payload"].get("candidates", [])] == ["WS001"]
         )
         steps.append(archive_step)
+        archive_draft_step = self.run_acf(
+            ["workstream", "archive-draft", str(context), "--date", "2026-05-08", "--dry-run", "--json"]
+        )
+        archive_draft_step["ok"] = (
+            archive_draft_step["ok"]
+            and archive_draft_step["payload"].get("candidate_count") == 1
+            and "workstream archive WS001" in archive_draft_step["payload"].get("planned_draft", "")
+        )
+        steps.append(archive_draft_step)
+        archive_apply_step = self.run_acf(
+            [
+                "workstream",
+                "archive",
+                "WS001",
+                str(context),
+                "--reason",
+                "reviewed in worklog/archive-drafts/2026-05-08.md",
+                "--date",
+                "2026-05-08",
+                "--json",
+            ]
+        )
+        archive_apply_step["ok"] = (
+            archive_apply_step["ok"]
+            and archive_apply_step["payload"].get("archived_id") == "WS001"
+            and (context / "archive" / "workstreams" / "WS001.md").exists()
+            and not (context / "active" / "workstreams" / "WS001.md").exists()
+        )
+        steps.append(archive_apply_step)
         steps.append(self.run_acf(["check", str(context), "--json"]))
 
     def task_stage_minimal_happy_path(self, tmp: Path, steps: list[dict[str, Any]]) -> None:
