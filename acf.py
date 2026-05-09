@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import importlib.metadata
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import sysconfig
 import time
@@ -22,7 +24,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.44"
+VERSION = "v0.0.3.45"
 
 TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
 APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
@@ -151,10 +153,11 @@ VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
 VALID_FEEDBACK_STATUSES = {"Open", "Triaged", "Planned", "Done", "Rejected"}
 VALID_HUMAN_NOTE_STATUSES = {"Open", "Triaged", "Done", "Rejected"}
 VALID_HUMAN_INDEX_STATUSES = {"Open", "Reviewed", "Extracted", "Archived"}
-VALID_WORKSTREAM_STATUSES = {"Open", "Active", "Blocked", "ReadyToMerge", "Done", "Cancelled"}
+VALID_WORKSTREAM_STATUSES = {"Proposed", "Open", "Active", "Blocked", "ReadyToMerge", "Merging", "Done", "Cancelled"}
+VALID_WORKSTREAM_TYPES = {"Task", "Merge", "Maintenance"}
 VALID_WORKSTREAM_STAGE_STATUSES = {"Pending", "Active", "Blocked", "Done", "Skipped", "Cancelled"}
 VALID_MERGE_RESOLUTIONS = {"merged", "rejected", "no_merge_required", "archived"}
-ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge"}
+ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge", "Merging"}
 DEFAULT_STALE_DAYS = 14
 AUDIT_ACTIVE_SECTION_MAX_NONEMPTY_LINES = 80
 WORKSTREAM_NOTE_SECTIONS = {
@@ -178,10 +181,12 @@ AUTHORITY_GLOBS = (
     "decisions/*.md",
 )
 WORKSTREAM_STATE_TRANSITIONS = {
+    "Proposed": {"Active", "Cancelled"},
     "Open": {"Active", "Cancelled"},
     "Active": {"Blocked", "ReadyToMerge", "Cancelled"},
     "Blocked": {"Active", "Cancelled"},
-    "ReadyToMerge": {"Done", "Cancelled"},
+    "ReadyToMerge": {"Active", "Merging", "Done", "Cancelled"},
+    "Merging": {"ReadyToMerge", "Done", "Cancelled"},
     "Done": set(),
     "Cancelled": set(),
 }
@@ -252,6 +257,7 @@ PLAN_REFERENCE_UPGRADE_PROMPT = "- 使用 `acf plan reference add` 添加当前�
 CURRENT_TASK_REFERENCE_PROMPT = "- 相关 reference 规划依据请查看 `active/Task_Plan.md` 的 `## 规划依据`。"
 WORKSTREAM_METADATA_FIELDS = (
     "id",
+    "type",
     "status",
     "owner",
     "title",
@@ -260,6 +266,8 @@ WORKSTREAM_METADATA_FIELDS = (
     "read_scope",
     "write_scope",
     "merge_targets",
+    "merge_owner",
+    "coordination",
     "merge_resolution",
     "keep_active_reason",
     "keep_active_until",
@@ -523,7 +531,7 @@ class FrontMatterSchema:
     scope_fields: tuple[str, ...] = ()
     typed_scope_fields: tuple[str, ...] = ()
     scope_types: set[str] = field(
-        default_factory=lambda: {"authority", "draft", "owned", "assigned", "evidence"}
+        default_factory=lambda: {"authority", "draft", "owned", "assigned", "shared", "evidence"}
     )
 
 
@@ -980,6 +988,12 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Use a normalized relative scope path and typed write scopes such as `assigned: src/foo.py`."]
     if error_code == "workstream_claim_conflict":
         return ["Choose a different write scope or resolve the conflicting active Workstream first."]
+    if error_code == "workstream_guard_git_unavailable":
+        return ["Run guard inside a git working tree, or pass explicit --changed-file values."]
+    if error_code == "workstream_guard_failed":
+        return ["Move changes inside the Workstream write scope, use `acf workstream scope-add ... --reason`, or create a Merge/Maintenance Workstream."]
+    if error_code == "workstream_dashboard_conflicts":
+        return ["Resolve reported write-scope conflicts before starting parallel work."]
     if error_code == "workstream_owned_scope_invalid":
         return ["Use `owned:` only for the current Workstream detail file."]
     if error_code == "workstream_stage_duplicate_id":
@@ -1070,6 +1084,9 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_section_not_allowed",
         "workstream_scope_invalid",
         "workstream_claim_conflict",
+        "workstream_guard_git_unavailable",
+        "workstream_guard_failed",
+        "workstream_dashboard_conflicts",
         "workstream_owned_scope_invalid",
         "workstream_stage_duplicate_id",
         "workstream_stage_scope_invalid",
@@ -1261,12 +1278,14 @@ def write_command_context_root(args: argparse.Namespace) -> Path | None:
             "block",
             "cancel",
             "merge-request",
+            "merge-start",
             "ready",
             "done",
             "archive-draft",
             "archive",
             "focus",
             "claim",
+            "scope-add",
             "note",
         }:
             return require_context_root(getattr(args, "path", None))
@@ -7487,16 +7506,24 @@ def workstream_front_matter_schema() -> FrontMatterSchema:
         allowed_fields=WORKSTREAM_METADATA_FIELDS,
         scalar_fields=(
             "id",
+            "type",
             "status",
             "owner",
             "title",
             "current_stage",
+            "merge_owner",
+            "coordination",
             "merge_resolution",
             "keep_active_reason",
             "keep_active_until",
         ),
         list_fields=("depends_on", "read_scope", "write_scope", "merge_targets"),
-        enum_fields={"status": VALID_WORKSTREAM_STATUSES, "merge_resolution": VALID_MERGE_RESOLUTIONS},
+        enum_fields={
+            "type": VALID_WORKSTREAM_TYPES,
+            "status": VALID_WORKSTREAM_STATUSES,
+            "coordination": {"parallel", "serial"},
+            "merge_resolution": VALID_MERGE_RESOLUTIONS,
+        },
         scope_fields=("read_scope",),
         typed_scope_fields=("write_scope",),
     )
@@ -7567,9 +7594,9 @@ def diagnostic_payload(diagnostic: FrontMatterDiagnostic) -> dict[str, object]:
 def render_workstream_index() -> str:
     return f"""本文件记录显式启用的并行 Workstream 索引。
 
-Workstream 是可选并行目标线协议，不是 agent runtime、调度器或权限系统。
+Workstream 是可选并行目标线协议。启用后采用强隔离协作约束：详情文件 front matter 是唯一事实源，索引由工具同步，AI 执行前先读取专属 context packet，完成前用 guard 检查实际改动。
 
-默认读取规则：只有存在 Active、Blocked 或 ReadyToMerge workstream，或当前任务需要整理并行协作时，才读取本文件。没有这些状态时，本文件不进入默认上下文。
+默认读取规则：只有存在 Active、Blocked、ReadyToMerge 或 Merging workstream，或当前任务需要整理并行协作时，才读取本文件。没有这些状态时，本文件不进入默认上下文。
 
 ---
 
@@ -7577,7 +7604,7 @@ Workstream 是可选并行目标线协议，不是 agent runtime、调度器或�
 
 Inactive
 
-说明：当前没有 Active、Blocked 或 ReadyToMerge workstream。
+说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -7591,10 +7618,14 @@ Inactive
 
 ## 使用规则
 
-1. 本索引只保留低噪音摘要。
-2. 单个 Workstream 详情文件是该 Workstream 的事实源。
-3. Done / Cancelled workstream 只在当前计划仍需解释时保留在 active 区域。
-4. 当前计划结束后，Done / Cancelled workstream 应归档到 archive/workstreams。
+1. 本索引只保留低噪音摘要，由 `acf workstream sync` 从详情 front matter 同步。
+2. 单个 Workstream 详情文件是该 Workstream 的唯一事实源。
+3. Task / Merge / Maintenance 三类 Workstream 权限不同；Task 不直接写 authority 文件。
+4. Active 类 Workstream 默认禁止重叠 `owned:` 写入；共享文件必须显式 `shared:` 并设置 merge_owner 或 serial coordination。
+5. AI 执行前运行 `acf workstream context WSxxx`，完成前运行 `acf workstream guard WSxxx`。
+6. ReadyToMerge 表示任务产物完成；Done 表示合并或处置完成。
+7. Done / Cancelled workstream 只在当前计划仍需解释时保留在 active 区域。
+8. 当前计划结束后，Done / Cancelled workstream 应归档到 archive/workstreams。
 """
 
 
@@ -7711,6 +7742,13 @@ def workstream_write_scope(workstream_id: str) -> str:
     return f"owned: {workstream_detail_rel(workstream_id)}"
 
 
+def workstream_type(detail: WorkstreamDetail) -> str:
+    value = detail.metadata.get("type")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "Task"
+
+
 def workstream_id_exists(root: Path, workstream_id: str, entries: Sequence[WorkstreamEntry]) -> bool:
     if any(entry.workstream_id == workstream_id for entry in entries):
         return True
@@ -7719,6 +7757,13 @@ def workstream_id_exists(root: Path, workstream_id: str, entries: Sequence[Works
         workstream_archive_dir(root) / f"{workstream_id}.md",
     ]
     return any(candidate.exists() for candidate in candidates)
+
+
+def format_bullets(values: Sequence[str]) -> str:
+    items = [str(value).strip() for value in values if str(value).strip()]
+    if not items:
+        return "- 无。"
+    return "\n".join(f"- {item}" for item in items)
 
 
 def render_workstream_detail(
@@ -7730,9 +7775,11 @@ def render_workstream_detail(
     write_scope: Sequence[str],
     output: str,
     goal: str = "待补充。",
+    workstream_kind: str = "Task",
 ) -> str:
     metadata: dict[str, str | list[str]] = {
         "id": workstream_id,
+        "type": workstream_kind,
         "status": "Open",
         "owner": owner,
         "title": title,
@@ -7744,7 +7791,44 @@ def render_workstream_detail(
 
 ## 边界说明
 
-本 Workstream 的读取范围是推荐上下文，不是权限隔离。所有 agent 仍必须遵守项目级 AGENTS、rules 和人工指令。允许修改范围是协作契约，用于避免并行写入冲突。
+本 Workstream 使用强隔离协作协议。AI 执行前应先运行 `acf workstream context {workstream_id}` 获取专属上下文入口；完成或切换状态前应运行 `acf workstream guard {workstream_id}` 检查实际改动是否越界。
+
+- `read_scope` 是允许读取的默认上下文入口。
+- `write_scope` 是允许直接修改的范围。
+- Task Workstream 不直接修改 authority 文件；需要主线合并时先写 merge request。
+- active workstream 默认禁止重叠写入；共享文件必须显式使用 `shared:` 并指定 merge_owner 或 serial coordination。
+
+---
+
+## Context Packet
+
+### Mission
+
+{goal or "待补充。"}
+
+### Allowed Read Scope
+
+{format_bullets(read_scope)}
+
+### Allowed Write Scope
+
+{format_bullets(write_scope)}
+
+### Forbidden Scope
+
+- 未在 write_scope 中声明的文件。
+- 其他 active workstream 的 owned 文件。
+- Task Workstream 的 authority 文件直接写入。
+
+### Evidence Required
+
+- 状态迁移到 ReadyToMerge 前必须有合并请求或明确无主线合并说明。
+- 状态迁移到 Done 前必须有 evidence 和 merge_resolution。
+
+### Merge Contract
+
+- ReadyToMerge 表示任务产物完成。
+- Done 表示合并或处置完成。
 
 ---
 
@@ -7814,9 +7898,9 @@ def append_or_create_section(text: str, heading: str, addition: str) -> str:
 def update_workstream_index_state_text(text: str, entries: Sequence[WorkstreamEntry]) -> str:
     state = "Active" if any(entry.status in ACTIVE_WORKSTREAM_STATUSES for entry in entries) else "Inactive"
     explanation = (
-        "说明：存在 Active、Blocked 或 ReadyToMerge workstream。"
+        "说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。"
         if state == "Active"
-        else "说明：当前没有 Active、Blocked 或 ReadyToMerge workstream。"
+        else "说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。"
     )
     return replace_or_append_section(text, "## Workstream 状态", f"{state}\n\n{explanation}")
 
@@ -8563,6 +8647,7 @@ def workstream_add_command(args: argparse.Namespace) -> int:
     depends_on = args.depends_on or []
     output = args.output.strip() if args.output else "待补充。"
     goal = args.goal.strip() if args.goal else "待补充。"
+    workstream_kind = args.type
     entry = WorkstreamEntry(
         workstream_id=args.id,
         status="Open",
@@ -8586,6 +8671,7 @@ def workstream_add_command(args: argparse.Namespace) -> int:
                 write_scope,
                 output,
                 goal,
+                workstream_kind,
             ),
             encoding="utf-8",
         )
@@ -8599,7 +8685,7 @@ def workstream_add_command(args: argparse.Namespace) -> int:
         f"{action} Workstream {args.id}",
         changed,
         check_result,
-        extra_payload={"id": args.id, "status": "Open", "detail": str(detail_path)},
+        extra_payload={"id": args.id, "type": workstream_kind, "status": "Open", "detail": str(detail_path)},
     )
 
 
@@ -8811,6 +8897,16 @@ def workstream_ready_command(args: argparse.Namespace) -> int:
         raise SystemExit(f"workstream_invalid_transition: {args.id} {current_status} -> ReadyToMerge")
     if not merge_request_has_required_fields(detail.body):
         raise SystemExit(f"workstream_missing_merge_request: {args.id}")
+    unfinished_stage = next(
+        (
+            row.get("ID", "")
+            for row in read_workstream_stage_rows(detail.body)
+            if row.get("状态") not in {"Done", "Skipped", "Cancelled"}
+        ),
+        "",
+    )
+    if unfinished_stage:
+        raise SystemExit(f"workstream_stage_dependency_blocked: {args.id} has unfinished stage {unfinished_stage}")
     changed = update_workstream_status(root, args.id, "ReadyToMerge", None, dry_run)
     check_result = maybe_check_after(args, root)
     action = "would mark" if dry_run else "marked"
@@ -8912,14 +9008,12 @@ def normalized_write_claim(value: str, workstream_id: str) -> tuple[str, str, st
     scope_type, scope_path = split_typed_scope(value)
     if not scope_type or not scope_path:
         raise SystemExit(f"workstream_scope_invalid: write scope must use TYPE: PATH: {value}")
-    if scope_type not in {"authority", "draft", "owned", "assigned", "evidence"}:
+    if scope_type not in {"authority", "draft", "owned", "assigned", "shared", "evidence"}:
         raise SystemExit(f"workstream_scope_invalid: unsupported write scope type: {scope_type}")
     normalized_path = normalize_scope_path(scope_path)
     diagnostics = validate_scope_path(normalized_path, "write_scope")
     if diagnostics:
         raise SystemExit(f"workstream_scope_invalid: {diagnostics[0].message}: {value}")
-    if scope_type == "owned" and normalized_path != workstream_detail_rel(workstream_id):
-        raise SystemExit(f"workstream_owned_scope_invalid: {value}")
     return scope_type, normalized_path, f"{scope_type}: {normalized_path}"
 
 
@@ -8946,7 +9040,7 @@ def check_workstream_write_claim_conflicts(
     workstream_id: str,
     claims: Sequence[tuple[str, str, str]],
 ) -> None:
-    exclusive_claims = [(scope_type, scope_path) for scope_type, scope_path, _item in claims if scope_type in {"authority", "assigned"}]
+    exclusive_claims = [(scope_type, scope_path) for scope_type, scope_path, _item in claims if scope_type in {"authority", "assigned", "owned"}]
     if not exclusive_claims:
         return
     entries = parse_workstream_index(root)
@@ -8959,7 +9053,7 @@ def check_workstream_write_claim_conflicts(
             continue
         for existing in existing_scopes:
             existing_type, existing_path = split_typed_scope(existing)
-            if existing_type not in {"authority", "assigned"} or not existing_path:
+            if existing_type not in {"authority", "assigned", "owned"} or not existing_path:
                 continue
             existing_path = normalize_scope_path(existing_path)
             for _claim_type, claim_path in exclusive_claims:
@@ -8977,6 +9071,436 @@ def append_unique_values(existing: str | list[str] | None, additions: Sequence[s
             values.append(addition)
             changed = True
     return values, changed
+
+
+def append_workstream_activity(body: str, message: str) -> str:
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    return append_or_create_section(body, "## Activity Log", f"- {timestamp}: {message}")
+
+
+def workstream_scope_add_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    reason = (args.reason or "").strip()
+    if not reason:
+        raise SystemExit("workstream_reason_required: scope-add requires --reason")
+    read_claims = [normalized_read_claim(value) for value in (args.read or [])]
+    write_claims = [normalized_write_claim(value, args.id) for value in (args.write or [])]
+    if not read_claims and not write_claims:
+        raise SystemExit("workstream_scope_invalid: scope-add requires --read or --write")
+    check_workstream_write_claim_conflicts(root, args.id, write_claims)
+
+    detail = read_workstream_detail(root, args.id)
+    metadata = dict(detail.metadata)
+    if args.merge_owner is not None:
+        metadata["merge_owner"] = args.merge_owner
+    if args.coordination is not None:
+        metadata["coordination"] = args.coordination
+    read_scope, read_changed = append_unique_values(metadata.get("read_scope"), read_claims)
+    write_scope, write_changed = append_unique_values(metadata.get("write_scope"), [item for _scope_type, _scope_path, item in write_claims])
+    metadata["read_scope"] = read_scope
+    metadata["write_scope"] = write_scope
+
+    activity_bits: list[str] = []
+    if read_claims:
+        activity_bits.append("read_scope += " + ", ".join(read_claims))
+    if write_claims:
+        activity_bits.append("write_scope += " + ", ".join(item for _scope_type, _scope_path, item in write_claims))
+    if args.merge_owner is not None:
+        activity_bits.append(f"merge_owner = {args.merge_owner}")
+    if args.coordination is not None:
+        activity_bits.append(f"coordination = {args.coordination}")
+    activity = "; ".join(activity_bits) + f"; reason: {reason}"
+    body = append_workstream_activity(detail.body, activity)
+    changed = [detail.path]
+    if write_changed:
+        changed.append(workstream_index_path(root))
+    if not (read_changed or write_changed or args.merge_owner is not None or args.coordination is not None):
+        changed = []
+    if not dry_run and changed:
+        detail.path.write_text(format_front_matter(metadata, body, WORKSTREAM_METADATA_FIELDS), encoding="utf-8")
+        if write_changed:
+            entries = parse_workstream_index(root)
+            existing_entry = next((entry for entry in entries if entry.workstream_id == detail.workstream_id), None)
+            write_workstream_index(root, replace_workstream_entry(entries, workstream_entry_from_detail(WorkstreamDetail(detail.workstream_id, detail.path, metadata, body, []), existing_entry)))
+    check_result = maybe_check_after(args, root)
+    action = "would update" if dry_run else "updated"
+    return emit_write_result(
+        args,
+        "workstream scope-add",
+        f"{action} scope for Workstream {args.id}",
+        changed,
+        check_result,
+        extra_payload={
+            "id": args.id,
+            "read_scope": read_scope,
+            "write_scope": write_scope,
+            "reason": reason,
+            "merge_owner": metadata.get("merge_owner"),
+            "coordination": metadata.get("coordination"),
+        },
+    )
+
+
+def workstream_context_payload(root: Path, detail: WorkstreamDetail) -> dict[str, object]:
+    read_scope = normalize_scope_values(detail.metadata.get("read_scope"))
+    write_scope = normalize_typed_scope_values(detail.metadata.get("write_scope"))
+    status = workstream_detail_metadata_value(detail, "status", "Unknown")
+    kind = workstream_type(detail)
+    current_stage = detail.metadata.get("current_stage")
+    forbidden = [
+        "files outside this workstream write_scope",
+        "owned files of other active workstreams",
+        "authority files unless this workstream is Merge or Maintenance and explicitly declares authority scope",
+    ]
+    return {
+        "id": detail.workstream_id,
+        "type": kind,
+        "status": status,
+        "title": detail.metadata.get("title", detail.workstream_id),
+        "owner": detail.metadata.get("owner", "未分配"),
+        "detail": detail.path.relative_to(root).as_posix(),
+        "current_stage": current_stage if isinstance(current_stage, str) else None,
+        "read_scope": read_scope,
+        "write_scope": write_scope,
+        "merge_targets": detail.metadata.get("merge_targets") if isinstance(detail.metadata.get("merge_targets"), list) else [],
+        "merge_owner": detail.metadata.get("merge_owner") if isinstance(detail.metadata.get("merge_owner"), str) else None,
+        "coordination": detail.metadata.get("coordination") if isinstance(detail.metadata.get("coordination"), str) else None,
+        "forbidden_scope": forbidden,
+        "required_evidence": [
+            "ReadyToMerge requires a merge request with target and summary.",
+            "Done requires evidence and merge_resolution.",
+            "Run `acf workstream guard <ID>` before ready/done.",
+        ],
+    }
+
+
+def workstream_context_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    detail = read_workstream_detail(root, args.id)
+    context = workstream_context_payload(root, detail)
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": "workstream context",
+        "ok": True,
+        "context": str(root),
+        "workstream": context,
+        "error_code": None,
+        "next_actions": [
+            f"Read {context['detail']} first, then only the declared read_scope needed for this task.",
+            f"Before changing status, run `acf workstream guard {args.id}`.",
+        ],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"You are working on {args.id}.")
+        print("")
+        print(f"Type: {context['type']}")
+        print(f"Status: {context['status']}")
+        print(f"Detail: {context['detail']}")
+        print("")
+        print("Read first:")
+        print(f"- {context['detail']}")
+        for item in context["read_scope"]:
+            print(f"- {item}")
+        print("")
+        print("You may write:")
+        for item in context["write_scope"]:
+            print(f"- {item}")
+        print("")
+        print("Do not write:")
+        for item in context["forbidden_scope"]:
+            print(f"- {item}")
+        print("")
+        print(f"Before ready/done: acf workstream guard {args.id}")
+    return 0
+
+
+def git_command_lines(project_root: Path, args: Sequence[str]) -> list[str]:
+    result = subprocess.run(
+        ["git", "-C", str(project_root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"workstream_guard_git_unavailable: {result.stderr.strip() or result.stdout.strip() or 'git command failed'}")
+    return [line.strip().replace("\\", "/") for line in result.stdout.splitlines() if line.strip()]
+
+
+def git_toplevel(project_root: Path) -> Path:
+    result = subprocess.run(
+        ["git", "-C", str(project_root), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"workstream_guard_git_unavailable: {result.stderr.strip() or 'not a git repository'}")
+    return Path(result.stdout.strip()).resolve()
+
+
+def workstream_changed_files(root: Path) -> list[str]:
+    project_root = git_toplevel(infer_project_root(root))
+    files: list[str] = []
+    for args in (
+        ("diff", "--name-only"),
+        ("diff", "--cached", "--name-only"),
+        ("ls-files", "--others", "--exclude-standard"),
+    ):
+        files.extend(git_command_lines(project_root, args))
+    return sorted(dict.fromkeys(files))
+
+
+def changed_file_candidates(project_root: Path, root: Path, project_rel: str) -> list[str]:
+    candidates = [normalize_scope_path(project_rel)]
+    absolute = (project_root / project_rel).resolve()
+    if is_relative_to(absolute, root.resolve()):
+        candidates.append(absolute.relative_to(root.resolve()).as_posix())
+    return sorted(dict.fromkeys(candidates))
+
+
+def path_matches_scope(path_value: str, scope_value: str) -> bool:
+    path_value = normalize_scope_path(path_value)
+    scope_value = normalize_scope_path(scope_value)
+    if "*" in scope_value:
+        return fnmatch.fnmatch(path_value, scope_value)
+    if path_value == scope_value:
+        return True
+    return path_value.startswith(scope_value.rstrip("/") + "/")
+
+
+def workstream_direct_write_scopes(detail: WorkstreamDetail) -> list[tuple[str, str]]:
+    kind = workstream_type(detail)
+    scopes: list[tuple[str, str]] = []
+    write_scope = detail.metadata.get("write_scope")
+    if not isinstance(write_scope, list):
+        return scopes
+    merge_owner = detail.metadata.get("merge_owner")
+    coordination = detail.metadata.get("coordination")
+    for item in write_scope:
+        scope_type, scope_path = split_typed_scope(item)
+        if not scope_type or not scope_path:
+            continue
+        normalized_path = normalize_scope_path(scope_path)
+        if scope_type in {"owned", "assigned", "draft", "evidence"}:
+            scopes.append((scope_type, normalized_path))
+        elif scope_type == "authority" and kind in {"Merge", "Maintenance"}:
+            scopes.append((scope_type, normalized_path))
+        elif scope_type == "shared" and (merge_owner == detail.workstream_id or (coordination == "serial" and kind in {"Merge", "Maintenance"})):
+            scopes.append((scope_type, normalized_path))
+    return scopes
+
+
+def active_workstream_owned_scopes(root: Path, current_id: str) -> list[tuple[str, str, str]]:
+    entries = parse_workstream_index(root)
+    owned: list[tuple[str, str, str]] = []
+    for entry in entries:
+        if entry.workstream_id == current_id or entry.status not in ACTIVE_WORKSTREAM_STATUSES:
+            continue
+        detail = read_workstream_detail(root, entry.workstream_id)
+        write_scope = detail.metadata.get("write_scope")
+        if not isinstance(write_scope, list):
+            continue
+        for item in write_scope:
+            scope_type, scope_path = split_typed_scope(item)
+            if scope_type == "owned" and scope_path:
+                owned.append((entry.workstream_id, detail.path.relative_to(root).as_posix(), normalize_scope_path(scope_path)))
+    return owned
+
+
+def guard_violations_for_files(
+    root: Path,
+    detail: WorkstreamDetail,
+    changed_files: Sequence[str],
+    project_root: Path,
+) -> list[dict[str, str]]:
+    direct_scopes = workstream_direct_write_scopes(detail)
+    other_owned = active_workstream_owned_scopes(root, detail.workstream_id)
+    kind = workstream_type(detail)
+    violations: list[dict[str, str]] = []
+    for project_rel in changed_files:
+        candidates = changed_file_candidates(project_root, root, project_rel)
+        matches_direct = any(
+            path_matches_scope(candidate, scope_path)
+            for candidate in candidates
+            for _scope_type, scope_path in direct_scopes
+        )
+        conflict = next(
+            (
+                (other_id, other_path, owned_path)
+                for other_id, other_path, owned_path in other_owned
+                if any(path_matches_scope(candidate, owned_path) for candidate in candidates)
+            ),
+            None,
+        )
+        authority_changed = any(is_authority_path(candidate) for candidate in candidates)
+        if conflict is not None:
+            other_id, other_path, owned_path = conflict
+            violations.append(
+                {
+                    "path": project_rel,
+                    "reason": f"file is owned by active workstream {other_id}: {owned_path}",
+                    "owner_detail": other_path,
+                }
+            )
+            continue
+        if authority_changed and kind == "Task":
+            violations.append(
+                {
+                    "path": project_rel,
+                    "reason": "Task workstream cannot directly write authority files; use merge-request",
+                }
+            )
+            continue
+        if not matches_direct:
+            violations.append(
+                {
+                    "path": project_rel,
+                    "reason": "changed file is outside direct write_scope",
+                }
+            )
+    return violations
+
+
+def workstream_guard_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    detail = read_workstream_detail(root, args.id)
+    explicit_files = bool(args.changed_file)
+    changed_files = [normalize_scope_path(value) for value in (args.changed_file or [])] if explicit_files else workstream_changed_files(root)
+    project_root = infer_project_root(root).resolve() if explicit_files else git_toplevel(infer_project_root(root))
+    violations = guard_violations_for_files(root, detail, changed_files, project_root)
+    ok = not violations
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": "workstream guard",
+        "ok": ok,
+        "context": str(root),
+        "id": args.id,
+        "changed_files": changed_files,
+        "violations": violations,
+        "error_code": None if ok else "workstream_guard_failed",
+        "next_actions": [] if ok else ["Move the change into this Workstream write_scope, run scope-add with a reason, or create a Merge/Maintenance Workstream."],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        if ok:
+            print(f"PASS: all changed files are allowed for {args.id}")
+        else:
+            print(f"FAIL: {len(violations)} changed file(s) are outside {args.id} write boundary")
+            for violation in violations:
+                print(f"- {violation['path']}: {violation['reason']}")
+    return 0 if ok else EXIT_CHECK_FAILED
+
+
+def workstream_merge_start_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    dry_run = dry_run_enabled(args)
+    detail = read_workstream_detail(root, args.id)
+    kind = workstream_type(detail)
+    if kind not in {"Merge", "Maintenance"}:
+        raise SystemExit(f"workstream_invalid_transition: {args.id} merge-start requires type Merge or Maintenance")
+    current_status = workstream_detail_metadata_value(detail, "status", "")
+    if "Merging" not in WORKSTREAM_STATE_TRANSITIONS.get(current_status, set()):
+        raise SystemExit(f"workstream_invalid_transition: {args.id} {current_status} -> Merging")
+    changed = update_workstream_status(
+        root,
+        args.id,
+        "Merging",
+        {"## 当前发现": (args.summary or "开始合并 ReadyToMerge 产物。").strip()},
+        dry_run,
+    )
+    check_result = maybe_check_after(args, root)
+    action = "would mark" if dry_run else "marked"
+    return emit_write_result(
+        args,
+        "workstream merge-start",
+        f"{action} Workstream {args.id} Merging",
+        changed,
+        check_result,
+        extra_payload={"id": args.id, "status": "Merging", "type": kind},
+    )
+
+
+def workstream_dashboard_command(args: argparse.Namespace) -> int:
+    root = require_context_root(args.path)
+    entries = parse_workstream_index(root)
+    details = [read_workstream_detail(root, entry.workstream_id) for entry in entries]
+    errors: list[str] = []
+    warnings: list[str] = []
+    check_workstream_scope_claims(root, details, errors, warnings, strict=True)
+    stale_days = args.stale_days
+    today = date.today()
+    stale: list[dict[str, str]] = []
+    missing_evidence: list[dict[str, str]] = []
+    authority_pending: list[dict[str, object]] = []
+    for detail in details:
+        status = workstream_detail_metadata_value(detail, "status", "Unknown")
+        keep_until = detail.metadata.get("keep_active_until")
+        if isinstance(keep_until, str) and DATE_RE.match(keep_until) and date.fromisoformat(keep_until) < today:
+            stale.append({"id": detail.workstream_id, "reason": f"keep_active_until expired: {keep_until}"})
+        elif status in ACTIVE_WORKSTREAM_STATUSES:
+            age_days = (today - date.fromtimestamp(detail.path.stat().st_mtime)).days
+            if age_days > stale_days:
+                stale.append({"id": detail.workstream_id, "reason": f"detail not updated for {age_days} days"})
+        if status in {"ReadyToMerge", "Done"} and workstream_section_missing(detail.body, "## 证据"):
+            missing_evidence.append({"id": detail.workstream_id, "status": status})
+        merge_targets = detail.metadata.get("merge_targets")
+        if isinstance(merge_targets, list) and merge_targets and status in {"ReadyToMerge", "Merging"}:
+            authority_pending.append({"id": detail.workstream_id, "status": status, "targets": merge_targets})
+
+    by_status = workstream_counts(entries)
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": "workstream dashboard",
+        "ok": not errors,
+        "context": str(root),
+        "counts": by_status,
+        "conflicts": errors,
+        "warnings": warnings,
+        "stale": stale,
+        "missing_evidence": missing_evidence,
+        "authority_writes_pending": authority_pending,
+        "next_actions": [
+            "Resolve conflicts before starting parallel work." if errors else "No write-scope conflicts detected.",
+            "Use `acf workstream context <ID>` before executing a specific Workstream.",
+            "Use `acf workstream guard <ID>` before ready/done.",
+        ],
+        "error_code": None if not errors else "workstream_dashboard_conflicts",
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"Active workstreams: {sum(by_status.get(status, 0) for status in ACTIVE_WORKSTREAM_STATUSES)}")
+        print(f"ReadyToMerge: {by_status.get('ReadyToMerge', 0)}")
+        print(f"Blocked: {by_status.get('Blocked', 0)}")
+        print("")
+        print("Conflicts:")
+        if errors:
+            for item in errors:
+                print(f"- {item}")
+        else:
+            print("- none")
+        print("")
+        print("Authority writes pending:")
+        if authority_pending:
+            for item in authority_pending:
+                print(f"- {item['id']} -> {', '.join(str(target) for target in item['targets'])}")
+        else:
+            print("- none")
+        print("")
+        print("Stale:")
+        if stale:
+            for item in stale:
+                print(f"- {item['id']}: {item['reason']}")
+        else:
+            print("- none")
+    return 0 if not errors else EXIT_CHECK_FAILED
 
 
 def workstream_claim_command(args: argparse.Namespace) -> int:
@@ -11378,8 +11902,15 @@ def check_workstream_state_requirements(
     status = detail.metadata.get("status")
     if not isinstance(status, str):
         return
+    kind = workstream_type(detail)
     merge_targets = detail.metadata.get("merge_targets")
     has_merge_targets = isinstance(merge_targets, list) and any(str(target).strip() for target in merge_targets)
+    rows = read_workstream_stage_rows(detail.body)
+    unfinished_stages = [
+        row.get("ID", "")
+        for row in rows
+        if row.get("状态") not in {"Done", "Skipped", "Cancelled"}
+    ]
     if status == "Active":
         for field_name in ("owner", "title", "read_scope", "write_scope"):
             if required_field_missing(detail.metadata.get(field_name)):
@@ -11397,6 +11928,13 @@ def check_workstream_state_requirements(
             errors.append(f"{rel}: ReadyToMerge workstream declares merge_targets but is missing merge request")
         if not merge_request_has_required_fields(detail.body):
             errors.append(f"{rel}: ReadyToMerge workstream missing merge target or candidate summary")
+        if unfinished_stages:
+            errors.append(f"{rel}: ReadyToMerge workstream has unfinished stage `{unfinished_stages[0]}`")
+    elif status == "Merging":
+        if kind not in {"Merge", "Maintenance"}:
+            errors.append(f"{rel}: Merging status requires type Merge or Maintenance")
+        if not merge_request_has_required_fields(detail.body):
+            errors.append(f"{rel}: Merging workstream missing merge target or candidate summary")
     elif status == "Done":
         if has_merge_targets and not merge_request_has_required_fields(detail.body):
             errors.append(f"{rel}: Done workstream declares merge_targets but is missing merge request")
@@ -11426,13 +11964,16 @@ def check_workstream_scope_claims(root: Path, details: Sequence[WorkstreamDetail
     exclusive_claims: list[tuple[str, str, str, str]] = []
     for detail in details:
         status = detail.metadata.get("status")
+        kind = workstream_type(detail)
+        merge_owner = detail.metadata.get("merge_owner")
+        coordination = detail.metadata.get("coordination")
         write_scope = detail.metadata.get("write_scope")
         if not isinstance(write_scope, list):
             continue
         rel = detail.path.relative_to(root).as_posix()
         for item in write_scope:
             scope_type, scope_path = split_typed_scope(item)
-            if not scope_type or not scope_path or scope_type not in {"authority", "draft", "owned", "assigned", "evidence"}:
+            if not scope_type or not scope_path or scope_type not in {"authority", "draft", "owned", "assigned", "shared", "evidence"}:
                 errors.append(f"{rel}: invalid write_scope `{item}`")
                 continue
             normalized_path = normalize_scope_path(scope_path)
@@ -11446,8 +11987,20 @@ def check_workstream_scope_claims(root: Path, details: Sequence[WorkstreamDetail
                     warnings,
                     strict,
                 )
-            if scope_type == "owned" and normalized_path != workstream_detail_rel(detail.workstream_id):
-                errors.append(f"{rel}: owned write_scope must point to its own detail file")
+            if scope_type == "authority" and kind == "Task":
+                check_warn_or_error(
+                    f"{rel}: Task workstream declares authority write_scope `{normalized_path}`; use merge_targets and merge-request instead",
+                    errors,
+                    warnings,
+                    strict,
+                )
+            if scope_type == "shared" and required_field_missing(merge_owner) and coordination != "serial":
+                check_warn_or_error(
+                    f"{rel}: shared write_scope `{normalized_path}` requires merge_owner or coordination: serial",
+                    errors,
+                    warnings,
+                    strict,
+                )
             if scope_type == "draft" and detail.workstream_id not in Path(normalized_path).name:
                 check_warn_or_error(
                     f"{rel}: draft write_scope should include {detail.workstream_id} in the file name: {normalized_path}",
@@ -11455,7 +12008,7 @@ def check_workstream_scope_claims(root: Path, details: Sequence[WorkstreamDetail
                     warnings,
                     strict,
                 )
-            if isinstance(status, str) and status in ACTIVE_WORKSTREAM_STATUSES and scope_type in {"authority", "assigned"}:
+            if isinstance(status, str) and status in ACTIVE_WORKSTREAM_STATUSES and scope_type in {"authority", "assigned", "owned"}:
                 exclusive_claims.append((detail.workstream_id, rel, scope_type, normalized_path))
     for index, (left_id, left_rel, left_type, left_path) in enumerate(exclusive_claims):
         for right_id, right_rel, right_type, right_path in exclusive_claims[index + 1 :]:
@@ -12113,6 +12666,12 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(workstream_list_parser)
     workstream_list_parser.set_defaults(func=workstream_list_command)
 
+    workstream_dashboard_parser = workstream_subparsers.add_parser("dashboard", help="show parallel Workstream safety dashboard")
+    workstream_dashboard_parser.add_argument("path", nargs="?", type=Path)
+    workstream_dashboard_parser.add_argument("--stale-days", type=int, default=DEFAULT_STALE_DAYS, help="days before an active Workstream is reported as stale")
+    add_json_argument(workstream_dashboard_parser)
+    workstream_dashboard_parser.set_defaults(func=workstream_dashboard_command)
+
     workstream_archive_candidates_parser = workstream_subparsers.add_parser(
         "archive-candidates",
         help="report terminal Workstreams that can be considered for archive",
@@ -12192,9 +12751,16 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(workstream_show_parser)
     workstream_show_parser.set_defaults(func=workstream_show_command)
 
+    workstream_context_parser = workstream_subparsers.add_parser("context", help="print the AI execution context packet for one Workstream")
+    workstream_context_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_context_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(workstream_context_parser)
+    workstream_context_parser.set_defaults(func=workstream_context_command)
+
     workstream_add_parser = workstream_subparsers.add_parser("add", help="create a Workstream detail and index row")
     workstream_add_parser.add_argument("path", nargs="?", type=Path)
     workstream_add_parser.add_argument("--id", type=validate_workstream_id, required=True, help="Workstream id, for example WS002")
+    workstream_add_parser.add_argument("--type", choices=tuple(sorted(VALID_WORKSTREAM_TYPES)), default="Task", help="Workstream type")
     workstream_add_parser.add_argument("--title", required=True, help="Workstream title")
     workstream_add_parser.add_argument("--owner", required=True, help="Workstream owner")
     workstream_add_parser.add_argument("--depends-on", action="append", default=None, help="dependency id; can be repeated")
@@ -12240,6 +12806,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_write_arguments(workstream_merge_parser)
     workstream_merge_parser.set_defaults(func=workstream_merge_request_command)
 
+    workstream_merge_start_parser = workstream_subparsers.add_parser("merge-start", help="mark a Merge or Maintenance Workstream as Merging")
+    workstream_merge_start_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_merge_start_parser.add_argument("path", nargs="?", type=Path)
+    workstream_merge_start_parser.add_argument("--summary", default=None, help="optional merge-start note")
+    add_write_arguments(workstream_merge_start_parser)
+    workstream_merge_start_parser.set_defaults(func=workstream_merge_start_command)
+
     workstream_ready_parser = workstream_subparsers.add_parser("ready", help="mark a Workstream ReadyToMerge")
     workstream_ready_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
     workstream_ready_parser.add_argument("path", nargs="?", type=Path)
@@ -12267,6 +12840,24 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_claim_parser.add_argument("--write", action="append", default=None, help="typed write scope; can be repeated")
     add_write_arguments(workstream_claim_parser)
     workstream_claim_parser.set_defaults(func=workstream_claim_command)
+
+    workstream_scope_add_parser = workstream_subparsers.add_parser("scope-add", help="append read/write scope with reason and activity log")
+    workstream_scope_add_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_scope_add_parser.add_argument("path", nargs="?", type=Path)
+    workstream_scope_add_parser.add_argument("--read", action="append", default=None, help="read scope path; can be repeated")
+    workstream_scope_add_parser.add_argument("--write", action="append", default=None, help="typed write scope; can be repeated")
+    workstream_scope_add_parser.add_argument("--reason", required=True, help="reason for expanding scope")
+    workstream_scope_add_parser.add_argument("--merge-owner", type=validate_workstream_id, default=None, help="Workstream that owns final merge for shared scope")
+    workstream_scope_add_parser.add_argument("--coordination", choices=("parallel", "serial"), default=None, help="coordination mode for shared scope")
+    add_write_arguments(workstream_scope_add_parser)
+    workstream_scope_add_parser.set_defaults(func=workstream_scope_add_command)
+
+    workstream_guard_parser = workstream_subparsers.add_parser("guard", help="check changed files against one Workstream write boundary")
+    workstream_guard_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_guard_parser.add_argument("path", nargs="?", type=Path)
+    workstream_guard_parser.add_argument("--changed-file", action="append", default=None, help="override git diff with explicit changed file; can be repeated")
+    add_json_argument(workstream_guard_parser)
+    workstream_guard_parser.set_defaults(func=workstream_guard_command)
 
     workstream_note_parser = workstream_subparsers.add_parser("note", help="append a note to a Workstream detail section")
     workstream_note_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")

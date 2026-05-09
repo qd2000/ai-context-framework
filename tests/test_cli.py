@@ -1155,7 +1155,7 @@ class CliTests(unittest.TestCase):
             index_text = (target / "active" / "Workstreams.md").read_text(encoding="utf-8")
             self.assertIn("assigned: src/foo.py", index_text)
 
-    def test_workstream_claim_rejects_invalid_owned_and_conflicting_write_scopes(self):
+    def test_workstream_claim_rejects_untyped_and_conflicting_write_scopes(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
             self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
@@ -1200,7 +1200,7 @@ class CliTests(unittest.TestCase):
                 ]
             )
             self.assertEqual(exit_code, 2)
-            self.assertEqual(json.loads(stdout)["error_code"], "workstream_owned_scope_invalid")
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_claim_conflict")
 
             self.assertEqual(
                 self.run_cli(
@@ -1255,6 +1255,133 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 2)
             self.assertEqual(json.loads(stdout)["error_code"], "workstream_claim_conflict")
+
+    def test_workstream_context_scope_add_guard_and_dashboard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS002",
+                        "--title",
+                        "Isolation",
+                        "--owner",
+                        "主 agent",
+                        "--output",
+                        "输出物",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "set", "WS002", str(target), "--status", "Active"]), 0)
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "context", "WS002", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["workstream"]["type"], "Task")
+            self.assertIn("owned: active/workstreams/WS002.md", payload["workstream"]["write_scope"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "scope-add",
+                    "WS002",
+                    str(target),
+                    "--write",
+                    "owned: src/foo.py",
+                    "--reason",
+                    "需要修改实现文件。",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn("owned: src/foo.py", payload["write_scope"])
+            detail_text = (target / "active" / "workstreams" / "WS002.md").read_text(encoding="utf-8")
+            self.assertIn("## Activity Log", detail_text)
+            self.assertIn("需要修改实现文件。", detail_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "guard", "WS002", str(target), "--changed-file", "src/foo.py", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(json.loads(stdout)["ok"])
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "guard", "WS002", str(target), "--changed-file", "active/Context.md", "--json"]
+            )
+            self.assertEqual(exit_code, 1)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["error_code"], "workstream_guard_failed")
+            self.assertTrue(any("authority" in item["reason"] for item in payload["violations"]))
+
+            exit_code, stdout, stderr = self.run_cli_output(["workstream", "dashboard", str(target), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["counts"]["Active"], 1)
+            self.assertFalse(payload["conflicts"])
+
+    def test_workstream_merge_start_requires_merge_workstream_type(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS010",
+                        "--type",
+                        "Merge",
+                        "--title",
+                        "Merge lane",
+                        "--owner",
+                        "主 agent",
+                        "--output",
+                        "合并记录",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "set", "WS010", str(target), "--status", "Active"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS010",
+                        str(target),
+                        "--target",
+                        "active/Task_Plan.md",
+                        "--summary",
+                        "Merge reviewed outputs.",
+                        "--verification",
+                        "Unit fixture.",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS010", str(target)]), 0)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "merge-start", "WS010", str(target), "--summary", "Start merge.", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["status"], "Merging")
+            self.assertEqual(payload["type"], "Merge")
+
+            detail_text = (target / "active" / "workstreams" / "WS010.md").read_text(encoding="utf-8")
+            self.assertIn("status: Merging", detail_text)
 
     def test_workstream_check_is_optional_when_index_absent(self):
         with tempfile.TemporaryDirectory() as tmp:

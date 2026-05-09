@@ -49,7 +49,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）
 4. `active/Task_Plan.md`（读取后按 `## 规划依据` 追溯当前大任务需要对齐的 reference 规划文档）
 5. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）
-6. Workstreams 索引（仅当该可选文件存在，且存在 Active、Blocked 或 ReadyToMerge workstream，或需要整理并行协作时）
+6. Workstreams 索引（仅当该可选文件存在，且存在 Active、Blocked、ReadyToMerge 或 Merging workstream，或需要整理并行协作时）
 
 如果用户在当前消息中已给出明确任务，以用户当前消息为准，以上文件作为背景上下文。
 
@@ -61,6 +61,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 
 - 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
 - 新增或更新当前计划、规划依据、当前任务、资料索引、human 索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`（包括 `acf plan reference`）、`acf task`、`acf human`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
+- 处理并行 Workstream 时，先运行 `acf workstream context WSxxx` 获取专属任务入口；需要扩展边界时使用 `acf workstream scope-add WSxxx --reason ...`；完成或切换状态前运行 `acf workstream guard WSxxx`；需要总览时运行 `acf workstream dashboard`。
 - 需要参数细节时，先查看 `acf --help`；需要系统级说明时，再读取 `reference/System_Manual.md`。
 
 `acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。
@@ -74,7 +75,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 | 需要理解项目长期背景 | `reference/Project_Brief.md` |
 | 需要整理人工反馈、问题、需求和计划碎片 | `active/Feedback_Inbox.md` |
 | 需要处理人工异步笔记、周记录、复盘或汇报材料 | `human/Human_Index.md` → `human/Human_Notes.md`、`human/weekly/` 或 `human/reports/` |
-| 需要处理多个并行目标线 | Workstreams 索引 → 对应 Workstream 详情文件 |
+| 需要处理多个并行目标线 | Workstreams 索引 → `acf workstream context WSxxx` → 对应 Workstream 详情文件 |
 | 需要追溯重要决策 | `reference/Decisions_Index.md` → `decisions/ADR-*.md` |
 | 涉及架构设计 | `reference/Architecture.md` |
 | 涉及技术实现、运行环境 | `reference/Tech_Context.md` |

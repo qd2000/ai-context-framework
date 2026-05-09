@@ -20,7 +20,7 @@
 - `active/Feedback_Inbox.md`：人工临时反馈、问题、需求和计划碎片的入口，允许不规范描述，但不直接作为已确认事实。
 - `active/Task_Plan.md`：当前大任务计划和轻量子任务板，记录子任务、规划依据、可选任务阶段、证据和下一步。
 - `active/Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源；`当前执行线` 只记录正在执行的 Workstream，不记录历史依赖。
-- Workstreams 索引：可选并行目标线索引，仅在显式启用 Workstream 层且存在 Active、Blocked 或 ReadyToMerge workstream 时按需读取。
+- Workstreams 索引：可选并行目标线索引，仅在显式启用 Workstream 层且存在 Active、Blocked、ReadyToMerge 或 Merging workstream 时按需读取。
 
 使用规则：
 
@@ -28,7 +28,7 @@
 2. 有 Open 条目或需要整理人工反馈时读取 `active/Feedback_Inbox.md`。
 3. 默认读取 `active/Task_Plan.md`，但该文件必须保持轻量；如果 `## 规划依据` 列出 reference 设计、路线或差距文档，应按任务需要读取这些依据。
 4. 如果 `active/Current_Task.md` 状态为 Active，则读取它；`## 输入材料` 必须列出当前任务所需 active 文件和相关 reference 规划依据。
-5. 如果存在 Active、Blocked 或 ReadyToMerge workstream，或当前任务需要整理并行协作，则读取 Workstreams 索引，再按需读取对应详情文件。
+5. 如果存在 Active、Blocked、ReadyToMerge 或 Merging workstream，或当前任务需要整理并行协作，则读取 Workstreams 索引，再运行 `acf workstream context WSxxx` 读取对应详情文件和边界。
 6. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
 7. `active/` 中的信息应保持短、准、当前有效。
 8. 不要把历史过程、旧方案、原始日志写入 `active/`。
@@ -364,7 +364,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf review stale [target]`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json`、`--days` 和 `--today`。
 - `acf audit context [target]`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告长 active section、陈旧当前任务 / Workstream 阶段和 ReadyToMerge 待合并或 Done 缺合并结果候选；支持 `--json`。
 - `acf curate draft [target]`：复用 `review stale` 的 stale candidates 生成 curation-drafts 目录下的日期命名注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days`、`--today` 和 `--name`。
-- `acf workstream init|status|list|archive-candidates|archive-draft|sync|add [target]` / `acf workstream archive WS001 [target] --reason "..."` / `acf workstream show|set|block|cancel|merge-request|ready|done|claim|note WS001 [target]` / `acf workstream stage add|list|done WS001 [target]` / `acf workstream focus WS001 WS001.1 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护基础状态转换、合并请求、完成证据、scope claim、详情备注、内部阶段焦点和显式归档；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive` 只在显式指定单个终态 Workstream 和 `--reason` 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 Workstream 详情 front matter 更新 Workstreams 索引，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，Done 需要 `--merge-resolution` 写入合并结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 assigned: active/Current_Task.md；`upgrade` 和旧项目默认不启用 Workstream。
+- `acf workstream init|status|list|dashboard|archive-candidates|archive-draft|sync|add [target]` / `acf workstream archive WS001 [target] --reason "..."` / `acf workstream show|context|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note WS001 [target]` / `acf workstream stage add|list|done WS001 [target]` / `acf workstream focus WS001 WS001.1 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`context` 输出 AI 专属任务入口，`guard` 默认检查真实 git diff 是否越过 Workstream 写入边界，`scope-add` 以工具化方式扩展 scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并目标；Workstream 类型为 Task / Merge / Maintenance，Task 不直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive` 只在显式指定单个终态 Workstream 和 `--reason` 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 Workstream 详情 front matter 更新 Workstreams 索引，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，ReadyToMerge 表示任务产物完成，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
 - `acf new task [target] --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
 - `acf new source [target] --title "..." --type "..." --location "..." --relation "..."`：添加或更新资料索引行；重复资料标题需传入 `--force` 才能覆盖。
 - `acf new reference [target] --title "..." --summary "..."`：在 `reference/` 下创建长期按需读取的 Markdown 文档；可用 `--file reference/X.md` 指定文件，拒绝写到 context 外或 `reference/knowledge/` 托管目录。
@@ -380,7 +380,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。
 - `acf edit table upsert <file> --key-column "列名" --key "键值" --cell "列名=内容"`：按 key column 更新或追加表格行。
-- `acf check [target]`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举、任务阶段注册和索引一致性；Workstream 检查仅在存在 Workstreams 索引时启用，并包含 optional `current_stage` 与 `## 阶段` 表一致性、strict 下 Done 阶段 evidence、Workstreams 索引与详情 front matter 一致性、authority 写入门禁和 `merge_targets` 合并请求要求。
+- `acf check [target]`：检查结构完整度、乱码、空文件、内部路径引用、状态枚举、任务阶段注册和索引一致性；Workstream 检查仅在存在 Workstreams 索引时启用，并包含 optional `current_stage` 与 `## 阶段` 表一致性、strict 下 Done 阶段 evidence、Workstreams 索引与详情 front matter 一致性、Task authority 写入门禁、Active 类 Workstream 写入冲突、`shared:` merge owner/serial coordination 要求和 `merge_targets` 合并请求要求。
 - `acf check [target] --strict`：把占位符残留作为错误，适合正式项目上下文。
 - `acf log enable [target]`：显式启用用户级全局使用状态日志；当前默认已启用，并按项目子目录隔离。
 - `acf log disable [target]`：关闭该项目的用户级全局使用状态日志，不删除已有日志。
@@ -424,7 +424,7 @@ uv run --project <ai-context-framework 路径> acf upgrade --dry-run --json
 
 - `acf status --json`：获取机器可读的上下文位置、profile、当前任务状态和检查结果。
 - `acf check --json --strict`：获取机器可读的检查结果。
-- `acf workstream status|list|show --json`：获取机器可读的 Workstream 初始化状态、索引行和详情 metadata。
+- `acf workstream status|list|show|context|dashboard|guard --json`：获取机器可读的 Workstream 初始化状态、索引行、详情 metadata、执行上下文入口、并行安全仪表盘和写入边界检查结果。
 - `acf review stale --json`：获取机器可读的 stale candidates；这些候选只表示默认注意力入口可能过期，不代表事实真假。JSON 顶层包含 `summary.total`、`summary.by_kind` 和 `summary.by_path`；每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
 - `acf audit context --json`：获取机器可读的 context audit candidates；这些候选只表示上下文可能需要治理，不代表事实真假。JSON 顶层包含 `candidates`、`summary.total`、`summary.by_kind`、`summary.by_path`、`summary.by_severity` 和 `next_actions`；每个候选包含 `kind`、`severity`、`path`、`section`、`reason` 和 `suggested_action`。
 - `acf curate draft --json`：把 `review stale` 的机器信号转换成可审阅治理草案；JSON 输出包含 `draft_path`、`created`、`stale_summary`、`stale_items`、`changed_files` 和 `next_actions`。该命令不读取 archive、不裁决语义、不修改权威上下文；无 stale candidate 时不创建空草案。

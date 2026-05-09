@@ -19,14 +19,16 @@
 
 ## 设计原则
 
-1. Workstream 是可选的并行目标线协议，不是 agent runtime、调度器、线程模型或权限系统。
+1. Workstream 是可选的并行目标线协议，不是 agent runtime、调度器或线程模型；启用后由 ACF CLI/check 执行强隔离协作约束。
 2. 默认单线项目仍使用 [../active/Task_Plan.md](../active/Task_Plan.md) 和 [../active/Current_Task.md](../active/Current_Task.md)。
 3. 只有当目标线需要独立 owner、独立上下文、独立写入边界或独立合并审查时，才创建 Workstream。
-4. Workstream 的读取范围是推荐最小上下文，不覆盖项目级 `AGENTS.md`、rules 和人工指令。
-5. Workstream 的写入范围是协作契约，用于避免并行冲突和辅助 `acf check`，不是安全沙箱。
-6. 子 agent 默认不直接写入权威上下文；应写入自己的 workstream 文件、草案文件或明确分配的代码/文档文件。
-7. `ReadyToMerge` 表示 workstream 已产出可审查、可落盘、可验证的合并输入；不表示权威上下文已经更新。
-8. `Done` 只能在结论已合并、归档或明确不需要合并，并有证据位置后设置。
+4. Workstream 的读取范围是允许读取的最小上下文入口，不覆盖项目级 `AGENTS.md`、rules 和人工指令。
+5. Workstream 的写入范围是工具可检查的协作边界；执行前用 `acf workstream context WSxxx`，完成前用 `acf workstream guard WSxxx`。
+6. Task Workstream 默认不直接写入权威上下文；应写入自己的 workstream 文件、草案文件或明确拥有的代码/文档文件。
+7. Active 类 Workstream 默认禁止重叠 `owned:` 写入；共享文件必须显式 `shared:` 并指定 merge_owner 或 serial coordination。
+8. `ReadyToMerge` 表示 workstream 已产出可审查、可落盘、可验证的合并输入；不表示权威上下文已经更新。
+9. `Merging` 表示 Merge / Maintenance Workstream 正在处理合并。
+10. `Done` 只能在结论已合并、归档或明确不需要合并，并有证据位置后设置。
 
 ---
 
@@ -70,8 +72,8 @@ T002 模板与读取规则决议：
 1. 旧项目 `upgrade` 默认不生成 Workstream 结构。
 2. 新项目 `init` 第一版也不默认生成 Workstream 结构，保持单线项目轻量。
 3. Workstream 结构通过 `acf workstream init` 或明确的人工 dogfooding 操作显式启用。
-4. `AGENTS` 默认读取顺序只在存在 Active、Blocked、ReadyToMerge workstream，或当前任务需要整理并行协作时读取 Workstreams 索引。
-5. 没有 Active/Blocked/ReadyToMerge workstream 时，不应因为存在历史 Done/Cancelled workstream 增加默认读取噪音。
+4. `AGENTS` 默认读取顺序只在存在 Active、Blocked、ReadyToMerge 或 Merging workstream，或当前任务需要整理并行协作时读取 Workstreams 索引。
+5. 没有 Active/Blocked/ReadyToMerge/Merging workstream 时，不应因为存在历史 Done/Cancelled workstream 增加默认读取噪音。
 6. Workstreams 索引只引导读取对应详情文件，不要求默认读取所有 workstream 详情。
 
 ---
@@ -89,6 +91,7 @@ Workstream 详情 front matter 第一版统一使用以下字段：
 ```yaml
 ---
 id: WS001
+type: Task
 status: Open
 owner: 主 agent
 title: 并行任务治理模型
@@ -105,19 +108,23 @@ write_scope:
   - draft: worklog/writeback-drafts/WS001-*
 merge_targets:
   - active/Context dot md
+merge_owner: WS010
+coordination: serial
 ---
 ```
 
 字段要求：
 
 1. `id` 必须匹配 `WS` 加三位数字。
-2. `status` 必须属于 Workstream 状态机。
+2. `type` 可选，允许值为 `Task`、`Merge`、`Maintenance`；缺省按 `Task` 处理。
+3. `status` 必须属于 Workstream 状态机。
 3. `current_stage` 可选；存在时必须匹配本 Workstream 详情中的 `## 阶段` 表。
 4. `merge_resolution` 可选；Done 时必填，允许值为 `merged`、`rejected`、`no_merge_required`、`archived`。
 5. `keep_active_reason`、`keep_active_until` 可选；Done / Cancelled 仍留在 active 区域时用于说明保留理由和期限。
 6. `depends_on`、`read_scope`、`write_scope`、`merge_targets` 使用字符串列表。
 7. `merge_targets` 可选，只表示候选影响范围，不表示 Workstream 可以直接写入对应文件。
 8. `write_scope` 使用 typed string，格式为 `type: path`。
+9. `shared:` 必须配合 `merge_owner` 或 `coordination: serial`，否则 strict check 报错。
 9. 第一版不支持复杂对象、嵌套 YAML 或未带类型的写入范围。
 
 ---
@@ -867,7 +874,7 @@ keep_active_until: 2026-05-10
 2. [active/Workstreams.md](../active/Workstreams.md) 总表有行但详情文件缺失时 error。
 3. 详情文件存在但总表无记录时，普通 check warning，strict check error。
 4. 总表行的状态、标题或 owner 与详情 front matter 不一致时，普通 check warning，strict check error。
-5. Done / Cancelled Workstream 仍可让 Workstreams 索引保持 Inactive；只有 Active、Blocked 或 ReadyToMerge Workstream 才应触发默认读取。
+5. Done / Cancelled Workstream 仍可让 Workstreams 索引保持 Inactive；只有 Active、Blocked、ReadyToMerge 或 Merging Workstream 才应触发默认读取。
 
 `acf workstream sync` 规则：
 
