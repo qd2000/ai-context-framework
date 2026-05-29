@@ -310,7 +310,7 @@ acf plan stage done ...
 
 用途：并行目标线，不是 runtime，不是调度器，不是权限系统。
 
-位置：[active/workstreams/WS001.md](../active/workstreams/WS001.md)。
+位置：[archive/workstreams/WS001.md](../archive/workstreams/WS001.md)。
 
 推荐 front matter：
 

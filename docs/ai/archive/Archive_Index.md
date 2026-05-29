@@ -46,6 +46,7 @@
 | 2026-05-08 | Task | RC hardening verification | active/Current_Task.md | `archive/tasks/2026-05-08-rc-hardening-verification.md` | Archived | ACF RC hardening v0.0.3.43 completed and verified. |
 | 2026-05-08 | Task | Update roadmap and current facts | active/Current_Task.md | `archive/tasks/2026-05-08-update-roadmap-and-current-facts.md` | Archived | 未记录。 |
 | 2026-05-08 | Task | Verify and record route calibration | active/Current_Task.md | `archive/tasks/2026-05-08-verify-and-record-route-calibration.md` | Archived | 未记录。 |
+| 2026-05-29 | workstream | WS001 | active/workstreams/WS001.md | `archive/workstreams/WS001.md` | Done | 用户确认 WS001 仅用于测试，已完成且不需要继续保留在 active。 |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
