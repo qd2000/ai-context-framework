@@ -241,7 +241,7 @@ class ContextMatrixTests(unittest.TestCase):
                 )
 
             self.assertEqual(self.run_cli(["workstream", "set", "WS031", str(target), "--status", "Active"]), 0)
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS031", str(target)]), 0)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS031", str(target), "--human-approved"]), 0)
 
             done_detail = target / "active" / "workstreams" / "WS032.md"
             done_detail.write_text(
@@ -337,7 +337,7 @@ class ContextMatrixTests(unittest.TestCase):
                 ),
                 0,
             )
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS005", str(target)]), 0)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS005", str(target), "--human-approved"]), 0)
             self.assertEqual(
                 self.run_cli(
                     [
@@ -640,7 +640,7 @@ class ContextMatrixTests(unittest.TestCase):
                 ),
                 0,
             )
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS020", str(target)]), 0)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS020", str(target), "--human-approved"]), 0)
             self.assertEqual(
                 self.run_cli(
                     [
@@ -766,7 +766,7 @@ class ContextMatrixTests(unittest.TestCase):
                 ),
                 0,
             )
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS021", str(target)]), 0)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS021", str(target), "--human-approved"]), 0)
             self.assertEqual(
                 self.run_cli(
                     [

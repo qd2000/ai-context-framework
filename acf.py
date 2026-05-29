@@ -978,6 +978,8 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Provide `--reason` so the blocker or cancellation is written to the detail file."]
     if error_code == "workstream_missing_merge_request":
         return ["Run `acf workstream merge-request ...` with target and summary before `ready`."]
+    if error_code == "workstream_human_approval_required":
+        return ["Ask the human owner to confirm completion, then rerun with `--human-approved`."]
     if error_code == "workstream_missing_evidence":
         return ["Provide `--evidence` so completion remains traceable."]
     if error_code == "workstream_missing_merge_resolution":
@@ -1079,6 +1081,7 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_invalid_transition",
         "workstream_reason_required",
         "workstream_missing_merge_request",
+        "workstream_human_approval_required",
         "workstream_missing_evidence",
         "workstream_missing_merge_resolution",
         "workstream_section_not_allowed",
@@ -8893,6 +8896,8 @@ def workstream_ready_command(args: argparse.Namespace) -> int:
     dry_run = dry_run_enabled(args)
     detail = read_workstream_detail(root, args.id)
     current_status = workstream_detail_metadata_value(detail, "status", "")
+    if not getattr(args, "human_approved", False):
+        raise SystemExit(f"workstream_human_approval_required: {args.id} ready requires --human-approved")
     if "ReadyToMerge" not in WORKSTREAM_STATE_TRANSITIONS.get(current_status, set()):
         raise SystemExit(f"workstream_invalid_transition: {args.id} {current_status} -> ReadyToMerge")
     if not merge_request_has_required_fields(detail.body):
@@ -12816,6 +12821,11 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_ready_parser = workstream_subparsers.add_parser("ready", help="mark a Workstream ReadyToMerge")
     workstream_ready_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
     workstream_ready_parser.add_argument("path", nargs="?", type=Path)
+    workstream_ready_parser.add_argument(
+        "--human-approved",
+        action="store_true",
+        help="confirm that a human explicitly approved marking this Workstream ReadyToMerge",
+    )
     add_write_arguments(workstream_ready_parser)
     workstream_ready_parser.set_defaults(func=workstream_ready_command)
 

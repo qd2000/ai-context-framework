@@ -247,7 +247,7 @@ Open/Active/Blocked/ReadyToMerge -> Cancelled
 | Open | Active | `set --status Active` | 无 | 开始推进目标线。 |
 | Active | Blocked | `block` | reason | 记录阻塞原因。 |
 | Blocked | Active | `set --status Active` | 无 | 阻塞解除后继续。 |
-| Active | ReadyToMerge | `ready` | 合并请求、summary | 必须已有合并请求和候选变更摘要。 |
+| Active | ReadyToMerge | `ready --human-approved` | 人工确认、合并请求、summary | 必须已有合并请求和候选变更摘要，并由人工显式确认。 |
 | ReadyToMerge | Active | `set --status Active` | 无 | 合并审查发现需要返工。 |
 | ReadyToMerge | Done | `done` | evidence | 结论已合并、归档或明确不需要合并。 |
 | Open/Active/Blocked/ReadyToMerge | Cancelled | `cancel` | reason | 明确取消，不再推进。 |
@@ -347,7 +347,7 @@ uv run acf workstream show WS001 --json
 uv run acf workstream set WS001 --status Active
 uv run acf workstream claim WS001 --owner "agent-a" --write "assigned: src/foo.py"
 uv run acf workstream note WS001 --section "当前发现" --text "..."
-uv run acf workstream ready WS001
+uv run acf workstream ready WS001 --human-approved
 uv run acf workstream done WS001 --evidence "docs/ai/reference/Workstream_Design" --merge-resolution no_merge_required
 ```
 
@@ -463,21 +463,22 @@ uv run acf workstream add [path] --id WS001 --title "并行任务治理模型" -
 ### set / 状态命令
 
 ```bash
-uv run acf workstream set [path] WS001 --status Active --json
-uv run acf workstream block [path] WS001 --reason "等待人工判断" --json
-uv run acf workstream cancel [path] WS001 --reason "不再适用" --json
-uv run acf workstream ready [path] WS001 --summary "候选变更已整理" --json
-uv run acf workstream done [path] WS001 --evidence "worklog/daily/2026-04-30" --merge-resolution merged --json
+uv run acf workstream set WS001 [path] --status Active --json
+uv run acf workstream block WS001 [path] --reason "等待人工判断" --json
+uv run acf workstream cancel WS001 [path] --reason "不再适用" --json
+uv run acf workstream ready WS001 [path] --human-approved --json
+uv run acf workstream done WS001 [path] --evidence "worklog/daily/2026-04-30" --merge-resolution merged --json
 ```
 
 行为：
 
-1. 校验状态转换是否合法。
-2. 更新详情 front matter。
-3. 同步索引摘要。
-4. `ready` 必须校验合并请求 section 存在。
-5. `done` 必须要求 evidence 和 `merge_resolution`。
-6. `block` 和 `cancel` 必须要求 reason。
+1. `ready` 必须先收到人工确认参数 `--human-approved`。
+2. 校验状态转换是否合法。
+3. 更新详情 front matter。
+4. 同步索引摘要。
+5. `ready` 必须校验合并请求 section 存在，且所有阶段已 Done / Skipped / Cancelled。
+6. `done` 必须要求 evidence 和 `merge_resolution`。
+7. `block` 和 `cancel` 必须要求 reason。
 
 第一版提供 `block` 和 `cancel` 语义命令，不只依赖通用 `set`，避免漏填 blocker 或取消原因。`status` 作为查询命令返回索引摘要和当前 Active/Blocked/ReadyToMerge 数量。
 
@@ -491,9 +492,11 @@ uv run acf workstream done [path] WS001 --evidence "worklog/daily/2026-04-30" --
 1. `workstream_not_initialized`
 2. `workstream_not_found`
 3. `workstream_invalid_transition`
-4. `workstream_missing_merge_request`
-5. `workstream_missing_evidence`
-6. `workstream_schema_failed`
+4. `workstream_human_approval_required`
+5. `workstream_missing_merge_request`
+6. `workstream_stage_dependency_blocked`
+7. `workstream_missing_evidence`
+8. `workstream_schema_failed`
 
 ### claim
 

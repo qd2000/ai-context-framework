@@ -127,7 +127,7 @@ class CliTests(unittest.TestCase):
             ),
             0,
         )
-        self.assertEqual(self.run_cli(["workstream", "ready", workstream_id, str(target)]), 0)
+        self.assertEqual(self.run_cli(["workstream", "ready", workstream_id, str(target), "--human-approved"]), 0)
         self.assertEqual(
             self.run_cli(
                 [
@@ -828,6 +828,81 @@ class CliTests(unittest.TestCase):
             self.assertIn("- Task_Plan", detail_text)
             self.assertIn("候选摘要", detail_text)
 
+    def test_workstream_ready_requires_human_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            self.assertEqual(self.run_cli(["workstream", "set", "WS002", str(target), "--status", "Active"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS002",
+                        str(target),
+                        "--target",
+                        "active/Context.md",
+                        "--summary",
+                        "No authority change required.",
+                        "--verification",
+                        "Unit test fixture.",
+                    ]
+                ),
+                0,
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "ready", "WS002", str(target), "--json"]
+            )
+
+            self.assertNotEqual(exit_code, 0)
+            payload = json.loads(stdout)
+            self.assert_failure_json_contract(payload, "workstream_human_approval_required", "workstream")
+            self.assertIn("--human-approved", payload["message"])
+            self.assertIn("--human-approved", " ".join(payload["next_actions"]))
+
+            detail_text = (target / "active" / "workstreams" / "WS002.md").read_text(encoding="utf-8")
+            self.assertIn("status: Active", detail_text)
+
+    def test_workstream_ready_with_human_approval_still_rejects_unfinished_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            self.assertEqual(self.run_cli(["workstream", "set", "WS002", str(target), "--status", "Active"]), 0)
+            self.write_workstream_stage_table(
+                target,
+                "WS002",
+                [["WS002.1", "Pending", "stage", "无。", "output", "无。", "next"]],
+            )
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS002",
+                        str(target),
+                        "--target",
+                        "active/Context.md",
+                        "--summary",
+                        "No authority change required.",
+                        "--verification",
+                        "Unit test fixture.",
+                    ]
+                ),
+                0,
+            )
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "ready", "WS002", str(target), "--human-approved", "--json"]
+            )
+
+            self.assertEqual(exit_code, 2)
+            payload = json.loads(stdout)
+            self.assert_failure_json_contract(payload, "workstream_stage_dependency_blocked", "workstream")
+            self.assertIn("WS002.1", payload["message"])
+
     def test_workstream_ready_requires_merge_request_and_active_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
@@ -851,14 +926,14 @@ class CliTests(unittest.TestCase):
             )
 
             exit_code, stdout, _stderr = self.run_cli_output(
-                ["workstream", "ready", "WS002", str(target), "--json"]
+                ["workstream", "ready", "WS002", str(target), "--human-approved", "--json"]
             )
             self.assertEqual(exit_code, 2)
             self.assertEqual(json.loads(stdout)["error_code"], "workstream_invalid_transition")
 
             self.assertEqual(self.run_cli(["workstream", "set", "WS002", str(target), "--status", "Active"]), 0)
             exit_code, stdout, _stderr = self.run_cli_output(
-                ["workstream", "ready", "WS002", str(target), "--json"]
+                ["workstream", "ready", "WS002", str(target), "--human-approved", "--json"]
             )
             self.assertEqual(exit_code, 2)
             self.assertEqual(json.loads(stdout)["error_code"], "workstream_missing_merge_request")
@@ -881,7 +956,7 @@ class CliTests(unittest.TestCase):
                 0,
             )
             exit_code, stdout, stderr = self.run_cli_output(
-                ["workstream", "ready", "WS002", str(target), "--json"]
+                ["workstream", "ready", "WS002", str(target), "--human-approved", "--json"]
             )
             self.assertEqual(exit_code, 0, stderr)
             self.assertEqual(json.loads(stdout)["status"], "ReadyToMerge")
@@ -936,7 +1011,7 @@ class CliTests(unittest.TestCase):
                 ),
                 0,
             )
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS002", str(target)]), 0)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS002", str(target), "--human-approved"]), 0)
 
             exit_code, stdout, _stderr = self.run_cli_output(
                 ["workstream", "done", "WS002", str(target), "--json"]
@@ -984,7 +1059,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("tests/test_cli.py", payload["evidence"])
 
             exit_code, stdout, _stderr = self.run_cli_output(
-                ["workstream", "ready", "WS002", str(target), "--json"]
+                ["workstream", "ready", "WS002", str(target), "--human-approved", "--json"]
             )
             self.assertEqual(exit_code, 2)
             self.assertEqual(json.loads(stdout)["error_code"], "workstream_invalid_transition")
@@ -1370,7 +1445,7 @@ class CliTests(unittest.TestCase):
                 ),
                 0,
             )
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS010", str(target)]), 0)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS010", str(target), "--human-approved"]), 0)
 
             exit_code, stdout, stderr = self.run_cli_output(
                 ["workstream", "merge-start", "WS010", str(target), "--summary", "Start merge.", "--json"]
@@ -1525,7 +1600,7 @@ class CliTests(unittest.TestCase):
                     "验证通过",
                 ]
             )
-            self.run_cli(["workstream", "ready", "WS002", str(target)])
+            self.run_cli(["workstream", "ready", "WS002", str(target), "--human-approved"])
             self.run_cli(
                 [
                     "workstream",
@@ -2345,7 +2420,7 @@ class CliTests(unittest.TestCase):
                 ]
             )
             self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"])
-            self.run_cli(["workstream", "ready", "WS004", str(target)])
+            self.run_cli(["workstream", "ready", "WS004", str(target), "--human-approved"])
 
             result = acf.check_context(target, "minimal", strict=True)
 
@@ -2419,7 +2494,7 @@ class CliTests(unittest.TestCase):
                 ),
                 0,
             )
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS010", str(target)]), 0)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS010", str(target), "--human-approved"]), 0)
             self.assertEqual(
                 self.run_cli(
                     [
@@ -3772,7 +3847,7 @@ class CliTests(unittest.TestCase):
                     "verified",
                 ]
             )
-            self.run_cli(["workstream", "ready", "WS004", str(target)])
+            self.run_cli(["workstream", "ready", "WS004", str(target), "--human-approved"])
             self.run_cli(["workstream", "done", "WS004", str(target), "--evidence", "done", "--merge-resolution", "no_merge_required"])
             (target / "active" / "Current_Task.md").write_text(
                 "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001\n\n## 当前执行线\n\nWS004\n",
@@ -3803,7 +3878,7 @@ class CliTests(unittest.TestCase):
                     "verified",
                 ]
             )
-            self.run_cli(["workstream", "ready", "WS004", str(target)])
+            self.run_cli(["workstream", "ready", "WS004", str(target), "--human-approved"])
             self.run_cli(["workstream", "done", "WS004", str(target), "--evidence", "done", "--merge-resolution", "no_merge_required"])
             self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal", "--force"])
             self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
@@ -5332,7 +5407,7 @@ This records a reusable write-safety pattern instead of a current task fact.
                 0,
             )
             self.assertEqual(self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"]), 0)
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS004", str(target)]), 0)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS004", str(target), "--human-approved"]), 0)
 
             exit_code, stdout, stderr = self.run_cli_output(["audit", "context", str(target), "--json"])
 
