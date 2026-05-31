@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.45` 是当前推荐的真实项目接入/升级测试版本，保留 active -> reference 规划依据追溯能力，并固化标准 profile 的 `human/` 人类输入材料层和 `Human_Index.md` 治理能力，包含统一 `【ACF:KEY|提示】` 模板占位符、canonical ACF marker、可点击 Markdown 链接维护能力、Knowledge / Decisions / Archive index sync MVP、Feedback 生命周期辅助命令、`human index/list/mark`、`new human-note`，以及 `new reference` / `new rule` / `new feedback` 安全创建能力；`archive current-task/task-plan` 会在归档移动时重写本地 Markdown 相对链接，并追加 `ACF:ARCHIVE:RECORD` marker 供 `archive sync` 恢复归档原因。本版补强 Workstream 强隔离治理：`context`、`guard`、`scope-add`、`dashboard`、`merge-start`、Task/Merge/Maintenance 类型、`Merging` 状态和 strict scope 门禁。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.47` 是当前推荐的真实项目接入/升级测试版本，保留 active -> reference 规划依据追溯能力，并固化标准 profile 的 `human/` 人类输入材料层和 `Human_Index.md` 治理能力，包含统一 `【ACF:KEY|提示】` 模板占位符、canonical ACF marker、可点击 Markdown 链接维护能力、Knowledge / Decisions / Archive index sync MVP、Feedback 生命周期辅助命令、`human index/list/mark`、`new human-note`，以及 `new reference` / `new rule` / `new feedback` 安全创建能力；`archive current-task/task-plan` 会在归档移动时重写本地 Markdown 相对链接，并追加 `ACF:ARCHIVE:RECORD` marker 供 `archive sync` 恢复归档原因。本版补强 Workstream 强隔离治理和 `doctor` 诊断入口：`doctor` 可报告 Task / Current_Task 生命周期漂移、终态 Workstream 权威写入范围残留、generated index 漂移、attention hygiene、数据副本和 source evidence 信号；`--fix safe` 只执行确定性安全修复，`--report` 和 `--draft-semantic` 生成可审阅产物。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -196,6 +196,11 @@ acf knowledge draft --title "任务拆分经验" --source "worklog/daily/YYYY-MM
 acf knowledge apply worklog/knowledge-drafts/YYYY-MM-DD-task.md --allow-similar
 acf review stale --json
 acf audit context --json
+acf doctor --json
+acf doctor --fix safe --dry-run --json
+acf doctor --report --today YYYY-MM-DD --json
+acf doctor --draft-semantic --today YYYY-MM-DD --json
+acf doctor --projects ../project-a/docs/ai ../project-b/docs/ai --json
 acf curate draft --dry-run --json
 acf workstream status --json
 acf workstream init --dry-run --json
@@ -285,6 +290,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `human index sync|list|mark`：维护 `human/Human_Index.md`；`index sync` 机械扫描 `Human_Notes.md`、`human/weekly/*.md` 和 `human/reports/*.md` 并补缺失索引行，不删除旧行、不覆盖人工状态；`list` 按状态或类型查看 human 材料；`mark` 按 ID 或路径把条目标记为 `Reviewed`、`Extracted` 或 `Archived` 并可记录整理目标。
 - `review stale`：只读检查默认注意力入口是否可能过期，报告 stale candidates，不判断内容真假、不写文件；支持 `--json` 和 `--days`。JSON 输出包含 `summary.total`、`summary.by_kind`、`summary.by_path`，每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
 - `audit context`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告 `active_section_too_long`、`stale_current_task_or_workstream_stage` 和 `terminal_conclusion_not_merged`（ReadyToMerge 待合并或 Done 缺合并结果）。JSON 输出包含 `candidates`、`summary.total`、`summary.by_kind`、`summary.by_path`、`summary.by_severity` 和 `next_actions`。
+- `doctor`：面向人和 AI 的上下文健康诊断入口，默认只读并复用 `check` 结果，同时报告 Task_Plan / Current_Task 生命周期漂移、终态 Workstream authority scope 残留、Workstreams / Archive generated index 漂移、Workstream 协议漏 `Merging`、Decisions_Index 摘要截断、Sources_Index 本地文件缺失、active 过厚、根目录探针输出和本地数据副本 hash / missing evidence；支持 `--json`、只读 `--projects`、单项目 `--fix safe|evidence`、`--report`、`--draft-semantic`、`--force`、`--dry-run` 和 `--check-after`。`--fix safe` 只做确定性低风险修复，例如清空无下一任务的 Done 焦点、修正 Current_Task 中明确回写目标行且无额外任务引用的目标 ID、移除终态 Workstream authority `assigned:` scope、同步 Workstreams / Archive generated index 和补齐 Workstream 协议 `Merging`；语义项只进入 report 或 writeback draft，数据 hash 证据只读取项目根内的相对路径。
 - `curate draft`：复用 `review stale` 的 stale candidates 生成 `worklog/curation-drafts/YYYY-MM-DD.md` 注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days` 和 `--name`。
 - `workstream init|status|list|dashboard|archive-candidates|archive-draft|archive|sync|show|context|add|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note|focus` 和 `workstream stage add|list|done`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`context WS001` 输出 AI 专属任务入口，`guard WS001` 默认检查真实 git diff 是否越过该 Workstream 写入边界，`scope-add` 以工具化方式扩展 read/write scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并 authority 目标；Workstream 类型为 Task / Merge / Maintenance，Task 不能直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive WS001 --reason "..."` 只在显式指定单个终态 Workstream 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 `active/workstreams/*.md` front matter 更新 `active/Workstreams.md`，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，ReadyToMerge 表示任务产物完成，`ready` 需要人工确认参数 `--human-approved`，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
@@ -304,7 +310,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai`、`docs-acf/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 
-`status`、`check`、`review stale`、`audit context`、`feedback list|archive-candidates`、`workstream status|list|archive-candidates|show` 和 `edit section get` 支持 `--json` 输出。`archive-draft`、`archive`、`feedback triage|done|reject|archive`、`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
+`status`、`check`、`review stale`、`audit context`、`doctor`、`feedback list|archive-candidates`、`workstream status|list|archive-candidates|show` 和 `edit section get` 支持 `--json` 输出。`archive-draft`、`archive`、`doctor --fix safe|evidence`、`doctor --report`、`doctor --draft-semantic`、`feedback triage|done|reject|archive`、`curate draft` 和其他写命令支持 `--json`、`--dry-run`、`--check-after`，并会输出 changed files；`--dry-run` 只验证和预览，不落盘。
 
 `edit` 命令只操作上下文根目录内已有的 `.md` 文件，拒绝路径穿越和非 Markdown 目标。它提供的是 section/table 级确定性编辑原语，不做语义判断，也不是通用 Markdown 编辑器。
 

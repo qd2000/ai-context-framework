@@ -3250,6 +3250,1094 @@ class CliTests(unittest.TestCase):
             self.assertIn("| T001 | Done | First slice |", plan_text)
             self.assertIn("## 当前任务状态\n\nDone", (target / "active" / "Current_Task.md").read_text(encoding="utf-8"))
 
+    def test_doctor_reports_plan_focus_points_to_done_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["plan", "set-task", str(target), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            self.run_cli(["plan", "focus", str(target), "--id", "T001"])
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertIn(
+                "plan_focus_points_to_done_task",
+                {finding["code"] for finding in payload["findings"]},
+            )
+            finding = next(item for item in payload["findings"] if item["code"] == "plan_focus_points_to_done_task")
+            self.assertEqual(finding["repair_mode"], "safe_fix")
+            self.assertTrue(finding["safe_to_apply"])
+            self.assertEqual(payload["summary"]["by_repair_mode"]["safe_fix"], 1)
+
+    def test_doctor_reports_current_task_points_to_done_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["task", "start", str(target), "--id", "T001"])
+            self.run_cli(["plan", "set-task", str(target), "--id", "T001", "--status", "Done", "--evidence", "done"])
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertIn(
+                "current_task_points_to_done_task",
+                {finding["code"] for finding in payload["findings"]},
+            )
+            finding = next(item for item in payload["findings"] if item["code"] == "current_task_points_to_done_task")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+            self.assertFalse(finding["safe_to_apply"])
+
+    def test_doctor_projects_reports_each_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clean = Path(tmp) / "clean"
+            drifted = Path(tmp) / "drifted"
+            self.run_cli(["init", str(clean), "--profile", "minimal"])
+            self.run_cli(["init", str(drifted), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(drifted), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(drifted), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["plan", "set-task", str(drifted), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            self.run_cli(["plan", "focus", str(drifted), "--id", "T001"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", "--projects", str(clean), str(drifted), "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertEqual(len(payload["projects"]), 2)
+            by_context = {Path(item["context"]).name: item for item in payload["projects"]}
+            self.assertEqual(by_context["clean"]["summary"]["findings_total"], 0)
+            self.assertGreaterEqual(by_context["drifted"]["summary"]["findings_total"], 1)
+            self.assertIn(
+                "plan_focus_points_to_done_task",
+                {finding["code"] for finding in by_context["drifted"]["findings"]},
+            )
+
+    def test_doctor_projects_reports_invalid_project_without_suppressing_valid_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clean = Path(tmp) / "clean"
+            invalid = Path(tmp) / "missing"
+            self.run_cli(["init", str(clean), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", "--projects", str(clean), str(invalid), "--json"]
+            )
+
+            self.assertNotEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(payload, "doctor_failed", "doctor")
+            self.assertEqual(len(payload["projects"]), 2)
+            self.assertTrue(payload["projects"][0]["ok"])
+            self.assertFalse(payload["projects"][1]["ok"])
+            self.assertEqual(payload["projects"][1]["error_code"], "input_error")
+            self.assertIn(str(invalid), payload["projects"][1]["context"])
+
+    def test_doctor_projects_all_invalid_next_actions_do_not_claim_clean_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            invalid = Path(tmp) / "missing"
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", "--projects", str(invalid), "--json"]
+            )
+
+            self.assertNotEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(payload, "doctor_failed", "doctor")
+            self.assertNotIn("No doctor findings found.", payload["next_actions"])
+            self.assertTrue(any("per-project" in action for action in payload["next_actions"]))
+
+    def test_doctor_projects_fix_safe_is_rejected_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            drifted = Path(tmp) / "drifted"
+            self.run_cli(["init", str(drifted), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(drifted), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(drifted), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["plan", "set-task", str(drifted), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            self.run_cli(["plan", "focus", str(drifted), "--id", "T001"])
+            plan_path = drifted / "active" / "Task_Plan.md"
+            before = plan_path.read_text(encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", "--projects", str(drifted), "--fix", "safe", "--json"]
+            )
+
+            self.assertNotEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(payload, "doctor_projects_fix_unsupported", "doctor")
+            self.assertEqual(plan_path.read_text(encoding="utf-8"), before)
+
+    def test_doctor_projects_report_is_rejected_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            drifted = Path(tmp) / "drifted"
+            self.run_cli(["init", str(drifted), "--profile", "minimal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", "--projects", str(drifted), "--report", "--today", "2026-05-31", "--json"]
+            )
+
+            self.assertNotEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(payload, "doctor_projects_write_unsupported", "doctor")
+            self.assertFalse((drifted / "worklog" / "doctor-reports" / "2026-05-31.md").exists())
+
+    def test_doctor_fix_safe_clears_done_plan_focus_without_next_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["plan", "set-task", str(target), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            self.run_cli(["plan", "focus", str(target), "--id", "T001"])
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertIn(str((target / "active" / "Task_Plan.md").resolve()), payload["changed_files"])
+            self.assertEqual(payload["summary"]["applied_repairs"], 1)
+            plan_text = (target / "active" / "Task_Plan.md").read_text(encoding="utf-8")
+            self.assertIn("## 当前焦点\n\n无。", plan_text)
+
+    def test_doctor_fix_safe_keeps_done_plan_focus_when_next_task_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T002", "--title", "Next"])
+            self.run_cli(["plan", "set-task", str(target), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            self.run_cli(["plan", "focus", str(target), "--id", "T001"])
+            plan_path = target / "active" / "Task_Plan.md"
+            before = plan_path.read_text(encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "plan_focus_points_to_done_task")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+            self.assertFalse(finding["safe_to_apply"])
+            self.assertEqual(payload["changed_files"], [])
+            self.assertEqual(plan_path.read_text(encoding="utf-8"), before)
+
+    def test_doctor_fix_safe_dry_run_reports_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["plan", "set-task", str(target), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            self.run_cli(["plan", "focus", str(target), "--id", "T001"])
+            plan_path = target / "active" / "Task_Plan.md"
+            before = plan_path.read_text(encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--fix", "safe", "--dry-run", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertIs(payload["dry_run"], True)
+            self.assertIn(str(plan_path.resolve()), payload["changed_files"])
+            self.assertEqual(plan_path.read_text(encoding="utf-8"), before)
+
+    def test_doctor_fix_safe_removes_terminal_workstream_assigned_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS004")
+            self.complete_workstream(target, "WS004")
+            detail_path = target / "active" / "workstreams" / "WS004.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "  - owned: active/workstreams/WS004.md\n",
+                    "  - owned: active/workstreams/WS004.md\n  - assigned: active/Context.md\n",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertIn(
+                "terminal_workstream_assigned_authority",
+                {finding["code"] for finding in payload["findings"]},
+            )
+            self.assertIn(str(detail_path.resolve()), payload["changed_files"])
+            detail_text = detail_path.read_text(encoding="utf-8")
+            self.assertIn("  - owned: active/workstreams/WS004.md", detail_text)
+            self.assertNotIn("assigned: active/Context.md", detail_text)
+
+    def test_doctor_report_dry_run_includes_planned_report_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["plan", "set-task", str(target), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            self.run_cli(["plan", "focus", str(target), "--id", "T001"])
+            report_path = target / "worklog" / "doctor-reports" / "2026-05-31.md"
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--report", "--today", "2026-05-31", "--dry-run", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertEqual(payload["report_path"], "worklog/doctor-reports/2026-05-31.md")
+            self.assertIn(str(report_path.resolve()), payload["changed_files"])
+            self.assertIn("plan_focus_points_to_done_task", payload["planned_report"])
+            self.assertFalse(report_path.exists())
+
+    def test_doctor_report_creates_reviewable_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["plan", "set-task", str(target), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            self.run_cli(["plan", "focus", str(target), "--id", "T001"])
+            report_path = target / "worklog" / "doctor-reports" / "2026-05-31.md"
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--report", "--today", "2026-05-31", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertEqual(payload["report_path"], "worklog/doctor-reports/2026-05-31.md")
+            self.assertTrue(report_path.exists())
+            report_text = report_path.read_text(encoding="utf-8")
+            self.assertIn("# ACF Doctor Report: 2026-05-31", report_text)
+            self.assertIn("plan_focus_points_to_done_task", report_text)
+
+    def test_doctor_report_exists_does_not_apply_safe_fix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["plan", "set-task", str(target), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            self.run_cli(["plan", "focus", str(target), "--id", "T001"])
+            plan_path = target / "active" / "Task_Plan.md"
+            before = plan_path.read_text(encoding="utf-8")
+            report_path = target / "worklog" / "doctor-reports" / "2026-05-31.md"
+            report_path.parent.mkdir(parents=True)
+            report_path.write_text("existing\n", encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--fix", "safe", "--report", "--today", "2026-05-31", "--json"]
+            )
+
+            self.assertNotEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(payload, "doctor_report_exists", "doctor")
+            self.assertEqual(plan_path.read_text(encoding="utf-8"), before)
+
+    def test_doctor_report_creates_clean_report_when_no_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            report_path = target / "worklog" / "doctor-reports" / "2026-05-31.md"
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--report", "--today", "2026-05-31", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertEqual(payload["summary"]["findings_total"], 0)
+            self.assertEqual(payload["report_path"], "worklog/doctor-reports/2026-05-31.md")
+            self.assertTrue(payload["created_report"])
+            self.assertIn(str(report_path.resolve()), payload["changed_files"])
+            self.assertIn("No doctor findings found.", report_path.read_text(encoding="utf-8"))
+
+    def test_doctor_draft_semantic_creates_writeback_draft_for_non_safe_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["task", "start", str(target), "--id", "T001"])
+            self.run_cli(["plan", "set-task", str(target), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            draft_path = target / "worklog" / "writeback-drafts" / "2026-05-31-doctor.md"
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--draft-semantic", "--today", "2026-05-31", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertEqual(payload["draft_path"], "worklog/writeback-drafts/2026-05-31-doctor.md")
+            self.assertIn(str(draft_path.resolve()), payload["changed_files"])
+            self.assertTrue(draft_path.exists())
+            draft_text = draft_path.read_text(encoding="utf-8")
+            self.assertIn("current_task_points_to_done_task", draft_text)
+            self.assertNotIn("plan_focus_points_to_done_task", draft_text)
+
+    def test_doctor_draft_exists_does_not_apply_safe_fix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "Finished"])
+            self.run_cli(["plan", "set-task", str(target), "--id", "T001", "--status", "Done", "--evidence", "done"])
+            self.run_cli(["plan", "focus", str(target), "--id", "T001"])
+            plan_path = target / "active" / "Task_Plan.md"
+            before = plan_path.read_text(encoding="utf-8")
+            draft_path = target / "worklog" / "writeback-drafts" / "2026-05-31-doctor.md"
+            draft_path.parent.mkdir(parents=True)
+            draft_path.write_text("existing\n", encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--fix", "safe", "--draft-semantic", "--today", "2026-05-31", "--json"]
+            )
+
+            self.assertNotEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(payload, "doctor_draft_exists", "doctor")
+            self.assertEqual(plan_path.read_text(encoding="utf-8"), before)
+
+    def test_doctor_draft_semantic_creates_empty_draft_when_no_semantic_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            draft_path = target / "worklog" / "writeback-drafts" / "2026-05-31-doctor.md"
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--draft-semantic", "--today", "2026-05-31", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertEqual(payload["draft_path"], "worklog/writeback-drafts/2026-05-31-doctor.md")
+            self.assertTrue(payload["created_draft"])
+            self.assertIn(str(draft_path.resolve()), payload["changed_files"])
+            self.assertIn("无需要语义回写的 finding。", draft_path.read_text(encoding="utf-8"))
+
+    def test_doctor_reports_plan_current_task_status_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "plan_current_task_status_mismatch")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+
+    def test_doctor_reports_current_task_wrong_completion_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T002", "--title", "Second"])
+            self.run_cli(["task", "start", str(target), "--id", "T002"])
+            current_path = target / "active" / "Current_Task.md"
+            current_path.write_text(
+                current_path.read_text(encoding="utf-8").replace(
+                    "5. 应归档到 archive 的历史内容。",
+                    "5. 应归档到 archive 的历史内容。\n6. 完成后将 T001 写回任务板。",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "current_task_wrong_completion_target")
+            self.assertEqual(finding["repair_mode"], "safe_fix")
+            self.assertTrue(finding["safe_to_apply"])
+
+    def test_doctor_fix_safe_rewrites_current_task_wrong_completion_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T002", "--title", "Second"])
+            self.run_cli(["task", "start", str(target), "--id", "T002"])
+            current_path = target / "active" / "Current_Task.md"
+            current_path.write_text(
+                current_path.read_text(encoding="utf-8").replace(
+                    "5. 应归档到 archive 的历史内容。",
+                    "5. 应归档到 archive 的历史内容。\n6. 完成后将 T001 写回任务板。",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertIn(str(current_path.resolve()), payload["changed_files"])
+            current_text = current_path.read_text(encoding="utf-8")
+            self.assertIn("完成后将 T002 写回任务板", current_text)
+            self.assertNotIn("完成后将 T001 写回任务板", current_text)
+
+    def test_doctor_ignores_dependency_task_ids_in_completion_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T002", "--title", "Second"])
+            self.run_cli(["task", "start", str(target), "--id", "T002"])
+            current_path = target / "active" / "Current_Task.md"
+            current_path.write_text(
+                current_path.read_text(encoding="utf-8").replace(
+                    "5. 应归档到 archive 的历史内容。",
+                    "5. 应归档到 archive 的历史内容。\n6. 保留依赖 T001 的证据链接。",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertNotIn(
+                "current_task_wrong_completion_target",
+                {finding["code"] for finding in payload["findings"]},
+            )
+
+    def test_doctor_ignores_completion_section_dependency_line_with_update_word(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T002", "--title", "Second"])
+            self.run_cli(["task", "start", str(target), "--id", "T002"])
+            current_path = target / "active" / "Current_Task.md"
+            current_path.write_text(
+                current_path.read_text(encoding="utf-8").replace(
+                    "5. 应归档到 archive 的历史内容。",
+                    "5. 应归档到 archive 的历史内容。\n6. 完成后保留依赖 T001 的更新证据链接。",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertNotIn(
+                "current_task_wrong_completion_target",
+                {finding["code"] for finding in payload["findings"]},
+            )
+            self.assertNotIn(str(current_path.resolve()), payload["changed_files"])
+            self.assertIn("完成后保留依赖 T001", current_path.read_text(encoding="utf-8"))
+
+    def test_doctor_ignores_completion_section_dependency_status_update_evidence_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T002", "--title", "Second"])
+            self.run_cli(["task", "start", str(target), "--id", "T002"])
+            current_path = target / "active" / "Current_Task.md"
+            current_path.write_text(
+                current_path.read_text(encoding="utf-8").replace(
+                    "5. 应归档到 archive 的历史内容。",
+                    "5. 应归档到 archive 的历史内容。\n6. 完成后保留依赖 T001 的状态更新证据链接。",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertNotIn(
+                "current_task_wrong_completion_target",
+                {finding["code"] for finding in payload["findings"]},
+            )
+            self.assertNotIn(str(current_path.resolve()), payload["changed_files"])
+            self.assertIn("完成后保留依赖 T001 的状态更新证据链接", current_path.read_text(encoding="utf-8"))
+
+    def test_doctor_downgrades_completion_target_with_extra_task_refs_to_draft_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--id", "T002", "--title", "Second"])
+            self.run_cli(["task", "start", str(target), "--id", "T002"])
+            current_path = target / "active" / "Current_Task.md"
+            current_path.write_text(
+                current_path.read_text(encoding="utf-8").replace(
+                    "5. 应归档到 archive 的历史内容。",
+                    "5. 应归档到 archive 的历史内容。\n6. 保留依赖 T001 的证据链接。\n7. 完成后将 T003 写回任务板。",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "current_task_wrong_completion_target")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+            self.assertFalse(finding["safe_to_apply"])
+            self.assertNotIn(str(current_path.resolve()), payload["changed_files"])
+            current_text = current_path.read_text(encoding="utf-8")
+            self.assertIn("保留依赖 T001", current_text)
+            self.assertIn("完成后将 T003 写回任务板", current_text)
+
+    def test_doctor_reports_terminal_workstream_keep_active_expired(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS006")
+            self.complete_workstream(target, "WS006")
+            detail_path = target / "active" / "workstreams" / "WS006.md"
+            detail_path.write_text(
+                detail_path.read_text(encoding="utf-8").replace(
+                    "merge_resolution: no_merge_required\n",
+                    "merge_resolution: no_merge_required\nkeep_active_reason: test retention\nkeep_active_until: 2026-05-01\n",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--today", "2026-05-31", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "terminal_workstream_keep_active_expired")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+
+    def test_doctor_reports_source_index_missing_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            target = project / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            sources_path = target / "reference" / "Sources_Index.md"
+            sources_path.write_text(
+                sources_path.read_text(encoding="utf-8").replace(
+                    "| 【ACF:TODO】 | 【ACF:TODO】 | 【ACF:TODO】 | 【ACF:TODO】 | 【ACF:TODO】 | 【ACF:TODO】 | 【ACF:TODO】 |",
+                    "| Local doc | Document | docs/missing.md | Useful | local | test fixture | verify path |",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "source_index_missing_file")
+            self.assertEqual(finding["repair_mode"], "evidence_fix")
+            self.assertNotIn("data_lineage_missing", {finding["code"] for finding in payload["findings"]})
+
+    def test_doctor_reports_context_too_thick(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n## 运行记录\n\n"
+                + "\n".join(f"- 运行记录 {index}: stdout probe result" for index in range(230))
+                + "\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "context_too_thick")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+
+    def test_doctor_context_too_thick_ignores_single_generic_log_word(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n"
+                + "\n".join(f"- 当前事实 {index}: 保持默认上下文轻量。" for index in range(230))
+                + "\n- usage event log 是用户级运行态观测数据，日志写入失败不应影响原命令退出码。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertNotIn("context_too_thick", {finding["code"] for finding in payload["findings"]})
+
+    def test_doctor_reports_root_probe_outputs_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            target = project / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            for index in range(6):
+                (project / f"probe_result_{index}.json").write_text("{}", encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "root_probe_outputs_detected")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+
+    def test_doctor_reports_active_terminal_workstreams_excessive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            for number in range(1, 7):
+                workstream_id = f"WS{number:03d}"
+                self.add_workstream(target, workstream_id)
+                self.complete_workstream(target, workstream_id)
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "active_terminal_workstreams_excessive")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+
+    def test_doctor_fix_safe_syncs_workstream_index_detail_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS007")
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(
+                index_path.read_text(encoding="utf-8").replace("| WS007 | Open |", "| WS007 | Active |"),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "workstream_index_detail_status_mismatch")
+            self.assertTrue(finding["safe_to_apply"])
+            self.assertIn(str(index_path.resolve()), payload["changed_files"])
+            self.assertIn("| WS007 | Open |", index_path.read_text(encoding="utf-8"))
+
+    def test_doctor_fix_safe_syncs_archive_index_missing_workstream(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            archive_dir = target / "archive" / "workstreams"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            archive_path = archive_dir / "WS099.md"
+            archive_path.write_text(
+                "---\n"
+                "id: WS099\n"
+                "type: Task\n"
+                "status: Done\n"
+                "owner: tester\n"
+                "title: Archived WS\n"
+                "depends_on: []\n"
+                "read_scope: []\n"
+                "write_scope: []\n"
+                "merge_resolution: merged\n"
+                "---\n\n"
+                "# WS099\n\n"
+                "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:START -->\n"
+                "## 归档记录\n\n"
+                "- archived_at: 2026-05-01\n"
+                "- source_path: active/workstreams/WS099.md\n"
+                "- archive_path: `archive/workstreams/WS099.md`\n"
+                "- archive_reason: test archive\n"
+                "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:END -->\n",
+                encoding="utf-8",
+            )
+            index_path = target / "archive" / "Archive_Index.md"
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "archive_index_missing_workstream")
+            self.assertTrue(finding["safe_to_apply"])
+            self.assertIn(str(index_path.resolve()), payload["changed_files"])
+            self.assertIn("WS099", index_path.read_text(encoding="utf-8"))
+
+    def test_doctor_reports_non_workstream_archive_index_drift_with_generic_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            archive_dir = target / "archive" / "tasks"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            archive_path = archive_dir / "2026-05-01-old-task.md"
+            archive_path.write_text(
+                "## 任务名称\n\nOld Task\n\n"
+                f"{acf.ARCHIVE_RECORD_MARKER_START}\n"
+                "- archived_at: 2026-05-01\n"
+                "- item_type: Task\n"
+                "- item_id: Old Task\n"
+                "- source_path: active/Current_Task.md\n"
+                "- archive_path: `archive/tasks/2026-05-01-old-task.md`\n"
+                "- status: Archived\n"
+                "- archive_reason: test archive\n"
+                f"{acf.ARCHIVE_RECORD_MARKER_END}\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            codes = {finding["code"] for finding in payload["findings"]}
+            self.assertIn("archive_index_generated_block_out_of_sync", codes)
+            self.assertNotIn("archive_index_missing_workstream", codes)
+
+    def test_doctor_fix_safe_repairs_workstream_protocol_missing_merging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(
+                index_path.read_text(encoding="utf-8").replace(
+                    "Active、Blocked、ReadyToMerge 或 Merging",
+                    "Active、Blocked 或 ReadyToMerge",
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "workstream_index_protocol_missing_merging")
+            self.assertTrue(finding["safe_to_apply"])
+            self.assertIn(str(index_path.resolve()), payload["changed_files"])
+            self.assertIn("Active、Blocked、ReadyToMerge 或 Merging", index_path.read_text(encoding="utf-8"))
+
+    def test_doctor_fix_safe_repairs_agents_protocol_missing_merging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            agents_path = target / "AGENTS.md"
+            agents_path.write_text(
+                agents_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n6. `active/Workstreams.md`（仅当存在 Active、Blocked 或 ReadyToMerge workstream 时读取）\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--fix", "safe", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "workstream_index_protocol_missing_merging")
+            self.assertIn("AGENTS.md", finding["locations"])
+            self.assertIn(str(agents_path.resolve()), payload["changed_files"])
+            self.assertIn("Active、Blocked、ReadyToMerge 或 Merging", agents_path.read_text(encoding="utf-8"))
+
+    def test_doctor_fix_safe_counts_repairs_separately_from_changed_files_on_dry_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS008")
+            index_path = target / "active" / "Workstreams.md"
+            index_path.write_text(
+                index_path.read_text(encoding="utf-8")
+                .replace("| WS008 | Open |", "| WS008 | Active |")
+                .replace("Active、Blocked、ReadyToMerge 或 Merging", "Active、Blocked 或 ReadyToMerge"),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--fix", "safe", "--dry-run", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertEqual(payload["summary"]["planned_repairs"], 2)
+            self.assertEqual(payload["summary"]["applied_repairs"], 0)
+            self.assertEqual(payload["summary"]["changed_repair_files"], 1)
+            self.assertEqual(payload["changed_files"], [str(index_path.resolve())])
+
+    def test_doctor_reports_decisions_index_summary_truncated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "decisions" / "ADR-0001.md").write_text(
+                "# Decision\n\n## 状态\n\nActive\n",
+                encoding="utf-8",
+            )
+            decisions_path = target / "reference" / "Decisions_Index.md"
+            decisions_path.write_text(
+                decisions_path.read_text(encoding="utf-8").replace(
+                    "| 暂无 |  |  |  |  |",
+                    "| ADR-0001 | Decision | Active | 采用方案： | `decisions/ADR-0001.md` |",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(item for item in payload["findings"] if item["code"] == "decisions_index_summary_truncated")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+
+    def test_doctor_reports_duplicate_data_hash_confirmed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            target = project / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            left = project / "data" / "source.csv"
+            right = project / "thesis_ch4" / "data" / "source.csv"
+            left.parent.mkdir(parents=True)
+            right.parent.mkdir(parents=True)
+            left.write_text("x,y\n1,2\n", encoding="utf-8")
+            right.write_text("x,y\n1,2\n", encoding="utf-8")
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n数据副本待确认：`data/source.csv` 与 `thesis_ch4/data/source.csv`。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(
+                item for item in payload["findings"] if item["code"] == "duplicate_data_hash_confirmed"
+            )
+            self.assertEqual(finding["repair_mode"], "evidence_fix")
+            self.assertFalse(finding["safe_to_apply"])
+            self.assertIn("data/source.csv", finding["message"])
+            self.assertIn("data_lineage_missing", {finding["code"] for finding in payload["findings"]})
+
+    def test_doctor_reports_duplicate_data_hash_from_plain_paths_in_same_paragraph(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            target = project / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            left = project / "data" / "source.csv"
+            right = project / "copy" / "source.csv"
+            left.parent.mkdir(parents=True)
+            right.parent.mkdir(parents=True)
+            left.write_text("x,y\n1,2\n", encoding="utf-8")
+            right.write_text("x,y\n1,2\n", encoding="utf-8")
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n数据副本待确认：data/source.csv 与 copy/source.csv。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(
+                item for item in payload["findings"] if item["code"] == "duplicate_data_hash_confirmed"
+            )
+            self.assertIn("data/source.csv", finding["message"])
+            self.assertIn("copy/source.csv", finding["message"])
+
+    def test_doctor_reports_duplicate_data_hash_from_plain_paths_in_table_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            target = project / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            left = project / "data" / "source.csv"
+            right = project / "copy" / "source.csv"
+            left.parent.mkdir(parents=True)
+            right.parent.mkdir(parents=True)
+            left.write_text("x,y\n1,2\n", encoding="utf-8")
+            right.write_text("x,y\n1,2\n", encoding="utf-8")
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n| 说明 | 文件 A | 文件 B |\n|---|---|---|\n| 副本 | data/source.csv | copy/source.csv |\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertIn("duplicate_data_hash_confirmed", {finding["code"] for finding in payload["findings"]})
+
+    def test_doctor_data_refs_ignore_absolute_paths_outside_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            target = project / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            inside = project / "data" / "source.csv"
+            outside = Path(tmp) / "outside" / "source.csv"
+            inside.parent.mkdir(parents=True)
+            outside.parent.mkdir(parents=True)
+            inside.write_text("x,y\n1,2\n", encoding="utf-8")
+            outside.write_text("x,y\n1,2\n", encoding="utf-8")
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + f"\n\n数据副本待确认：`data/source.csv` 与 `{outside.as_posix()}`。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertNotIn(
+                "duplicate_data_hash_confirmed",
+                {finding["code"] for finding in payload["findings"]},
+            )
+
+    def test_doctor_data_refs_resolve_markdown_links_relative_to_source_file_inside_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            target = project / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            left = project / "data" / "source.csv"
+            right = project / "thesis_ch4" / "data" / "source.csv"
+            left.parent.mkdir(parents=True)
+            right.parent.mkdir(parents=True)
+            left.write_text("x,y\n1,2\n", encoding="utf-8")
+            right.write_text("x,y\n1,2\n", encoding="utf-8")
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n数据副本待确认：[data/source.csv](../../../data/source.csv) 与 "
+                + "[thesis_ch4/data/source.csv](../../../thesis_ch4/data/source.csv)。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(
+                item for item in payload["findings"] if item["code"] == "duplicate_data_hash_confirmed"
+            )
+            self.assertIn("../../../data/source.csv", finding["message"])
+
+    def test_doctor_reports_declared_duplicate_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            target = project / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            existing = project / "thesis_ch4" / "data" / "missing.csv"
+            existing.parent.mkdir(parents=True)
+            existing.write_text("x,y\n1,2\n", encoding="utf-8")
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n数据副本待确认：`data/missing.csv` 与 `thesis_ch4/data/missing.csv`。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            finding = next(
+                item for item in payload["findings"] if item["code"] == "declared_duplicate_missing"
+            )
+            self.assertEqual(finding["repair_mode"], "evidence_fix")
+            self.assertFalse(finding["safe_to_apply"])
+            self.assertIn("data/missing.csv", finding["message"])
+
+    def test_doctor_ignores_unrelated_same_basename_data_refs_in_different_paragraphs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            target = project / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            existing = project / "data" / "source.csv"
+            existing.parent.mkdir(parents=True)
+            existing.write_text("x,y\n1,2\n", encoding="utf-8")
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n输入文件：`data/source.csv`。\n\n历史说明提到另一路径：`archive/source.csv`。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertNotIn(
+                "declared_duplicate_missing",
+                {finding["code"] for finding in payload["findings"]},
+            )
+
+    def test_doctor_ignores_unrelated_same_basename_data_refs_in_adjacent_list_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            target = project / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            existing = project / "data" / "source.csv"
+            existing.parent.mkdir(parents=True)
+            existing.write_text("x,y\n1,2\n", encoding="utf-8")
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n- 输入文件：`data/source.csv`。\n- 历史说明提到另一路径：`archive/source.csv`。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertNotIn(
+                "declared_duplicate_missing",
+                {finding["code"] for finding in payload["findings"]},
+            )
+
     def test_plan_reference_commands_manage_basis_entries_and_sync_current_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
