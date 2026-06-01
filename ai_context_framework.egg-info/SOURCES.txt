@@ -2,6 +2,10 @@ MANIFEST.in
 README.md
 acf.py
 pyproject.toml
+ai_context_framework/__init__.py
+ai_context_framework/cli.py
+ai_context_framework/constants.py
+ai_context_framework/json_contract.py
 ai_context_framework.egg-info/PKG-INFO
 ai_context_framework.egg-info/SOURCES.txt
 ai_context_framework.egg-info/dependency_links.txt
@@ -45,4 +49,6 @@ template/worklog/daily/YYYY-MM-DD.md
 template/worklog/knowledge-drafts/.gitkeep
 tests/test_cli.py
 tests/test_context_matrix.py
+tests/test_entrypoint_smoke.py
+tests/test_package_skeleton.py
 tests/test_upgrade_matrix.py

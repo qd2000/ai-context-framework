@@ -22,14 +22,31 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from ai_context_framework.constants import (
+    ANCHOR_NOT_FOUND,
+    APPEND_FORCE_CONFLICT,
+    EXIT_CHECK_FAILED,
+    EXIT_INPUT_ERROR,
+    EXIT_RUNTIME_ERROR,
+    EXIT_SAFETY_REFUSED,
+    JSON_SCHEMA_VERSION,
+    TARGET_EXISTS_APPEND_REQUIRED,
+)
+from ai_context_framework.json_contract import (
+    check_after_enabled,
+    command_name_from_argv,
+    dry_run_enabled,
+    get_result_payload,
+    json_enabled,
+    json_requested,
+    path_values,
+    print_json,
+    set_result_payload,
+)
+
 
 ROOT = Path(__file__).resolve().parent
 VERSION = "v0.0.3.48"
-
-TARGET_EXISTS_APPEND_REQUIRED = "TARGET_EXISTS_APPEND_REQUIRED"
-APPEND_FORCE_CONFLICT = "APPEND_FORCE_CONFLICT"
-ANCHOR_NOT_FOUND = "ANCHOR_NOT_FOUND"
-
 
 def find_template_dir() -> Path:
     source_template = ROOT / "template"
@@ -272,11 +289,6 @@ WORKSTREAM_METADATA_FIELDS = (
     "keep_active_reason",
     "keep_active_until",
 )
-JSON_SCHEMA_VERSION = 1
-EXIT_CHECK_FAILED = 1
-EXIT_INPUT_ERROR = 2
-EXIT_SAFETY_REFUSED = 3
-EXIT_RUNTIME_ERROR = 70
 ACF_HOME_ENV = "ACF_HOME"
 USAGE_LOG_CONFIG_NAME = "config.json"
 USAGE_LOG_FILE_REL = "logs/usage.jsonl"
@@ -883,31 +895,6 @@ def validate_front_matter(
     return diagnostics
 
 
-def json_enabled(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "json", False))
-
-
-def dry_run_enabled(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "dry_run", False))
-
-
-def check_after_enabled(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "check_after", False))
-
-
-def path_values(paths: Sequence[Path]) -> list[str]:
-    return [str(path) for path in paths]
-
-
-def set_result_payload(args: argparse.Namespace, payload: dict[str, object]) -> None:
-    setattr(args, "_acf_result_payload", payload)
-
-
-def get_result_payload(args: argparse.Namespace) -> dict[str, object]:
-    payload = getattr(args, "_acf_result_payload", None)
-    return payload if isinstance(payload, dict) else {}
-
-
 def check_payload(result: CheckResult) -> dict[str, object]:
     return {
         "ok": result.ok,
@@ -1160,18 +1147,6 @@ def classify_cli_error(message: str) -> tuple[str, int]:
     return "input_error", EXIT_INPUT_ERROR
 
 
-def command_name_from_argv(argv: Sequence[str]) -> str | None:
-    for token in argv:
-        if token.startswith("-"):
-            continue
-        return token
-    return None
-
-
-def json_requested(argv: Sequence[str]) -> bool:
-    return "--json" in argv
-
-
 def emit_cli_error(argv: Sequence[str], message: str, error_code: str, exit_code: int) -> int:
     if json_requested(argv):
         print_json(
@@ -1186,13 +1161,6 @@ def emit_cli_error(argv: Sequence[str], message: str, error_code: str, exit_code
     else:
         print(f"ERROR: {message}", file=sys.stderr)
     return exit_code
-
-
-def print_json(payload: dict[str, object]) -> None:
-    payload.setdefault("schema_version", JSON_SCHEMA_VERSION)
-    payload.setdefault("error_code", None)
-    payload.setdefault("next_actions", [])
-    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
 
 
 def emit_write_result(

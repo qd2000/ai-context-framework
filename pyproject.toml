@@ -15,6 +15,7 @@ acf = "acf:main"
 
 [tool.setuptools]
 py-modules = ["acf"]
+packages = ["ai_context_framework"]
 include-package-data = true
 
 [tool.setuptools.data-files]
