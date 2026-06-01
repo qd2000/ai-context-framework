@@ -30,6 +30,19 @@ from ai_context_framework.constants import (
     TARGET_EXISTS_APPEND_REQUIRED,
 )
 from ai_context_framework.commands import versioning as versioning_commands
+from ai_context_framework.commands import edit_link as edit_link_commands
+from ai_context_framework.commands import worklog as worklog_commands
+from ai_context_framework.commands import status_check as status_check_commands
+from ai_context_framework.commands import init_upgrade as init_upgrade_commands
+from ai_context_framework.commands import new_context as new_context_commands
+from ai_context_framework.commands import decisions as decisions_commands
+from ai_context_framework.commands import feedback as feedback_commands
+from ai_context_framework.commands import human as human_commands
+from ai_context_framework.commands import knowledge as knowledge_commands
+from ai_context_framework.commands import archive as archive_commands
+from ai_context_framework.commands import review_audit_curate as review_audit_curate_commands
+from ai_context_framework.commands import doctor as doctor_commands
+from ai_context_framework.commands import plan_task as plan_task_commands
 from ai_context_framework.commands.log import (
     build_usage_event,
     check_counts,
@@ -45,6 +58,24 @@ from ai_context_framework.commands.log import (
     record_usage_event,
     relative_usage_paths,
     usage_loggable,
+)
+from ai_context_framework.commands.edit_link import (
+    LINKIFY_DEFAULT_DIRS,
+    LINKIFY_DEFAULT_FILES,
+    linkify_candidate_files,
+    read_edit_input,
+    resolve_context_file,
+    resolve_context_markdown_file,
+)
+from ai_context_framework.commands.worklog import (
+    append_worklog_cell,
+    emit_worklog_error,
+    emit_worklog_result,
+    render_worklog_daily,
+    row_date,
+    update_worklog_index,
+    update_worklog_index_append,
+    worklog_index_row,
 )
 from ai_context_framework.commands.versioning import (
     installed_package_version,
@@ -306,8 +337,6 @@ WORKSTREAM_STATE_TRANSITIONS = {
     "Done": set(),
     "Cancelled": set(),
 }
-LINKIFY_DEFAULT_DIRS = ("active", "reference", "rules", "decisions")
-LINKIFY_DEFAULT_FILES = ("worklog/Worklog_Index.md", "archive/Archive_Index.md")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
 RULES_INDEX_TABLE_HEADER = "| 文件 | 读取条件 | 作用 |"
 TASK_TABLE_HEADER = "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |"
@@ -738,259 +767,6 @@ def sanitize_minimal_indexes(target: Path) -> None:
 def write_minimal_overrides(target: Path) -> None:
     (target / "AGENTS.md").write_text(MINIMAL_AGENTS, encoding="utf-8")
     sanitize_minimal_indexes(target)
-
-
-def render_worklog_daily(log_date: str, summary: str, conclusion: str) -> str:
-    return f"""本文件记录当天整理后的项目工作记录。
-
-请注意：本文件是历史过程记录，不是当前事实源。  
-当前事实请查看 `active/Context.md`。
-
----
-
-## 今日完成
-
-- {summary}
-
----
-
-## 今日讨论 / AI 协作
-
-- 通过 `acf.py new worklog` 生成本工作记录，并更新 `worklog/Worklog_Index.md`。
-
----
-
-## 有价值的结论
-
-- {conclusion}
-
-如果这些结论已经成为当前事实，请同步更新到 `active/Context.md`。
-
----
-
-## 重要决策候选
-
-- 无。
-
-如果确认生效，请同步更新到：
-
-- `reference/Decisions_Index.md`
-- `decisions/`
-
----
-
-## 无效尝试
-
-- 无。
-
----
-
-## 新发现的问题
-
-- 无。
-
----
-
-## 原始日志位置
-
-- 无。
-
-注意：不要把原始日志全文写入本文件。
-
----
-
-## 需要同步更新的文件
-
-- `active/Context.md`：视情况更新。
-- `reference/Decisions_Index.md`：视情况更新。
-- `rules/`：视情况更新。
-- `archive/`：视情况归档。
-
----
-
-## 下一步候选
-
-- 无。
-
-注意：下一步候选不等于当前任务。  
-如果某个候选下一步被选为当前任务，请写入 `active/Current_Task.md`。
-"""
-
-
-def worklog_index_row(log_date: str, summary: str, conclusion: str) -> str:
-    return (
-        f"| {log_date} | {clean_table_cell(summary)} | {clean_table_cell(conclusion)} | "
-        f"`worklog/daily/{log_date}.md` |"
-    )
-
-
-def row_date(row: str) -> str:
-    cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
-    return cells[0] if cells else ""
-
-
-def update_worklog_index(index_path: Path, log_date: str, summary: str, conclusion: str, force: bool) -> None:
-    if not index_path.exists():
-        raise SystemExit(f"worklog index does not exist: {index_path}")
-
-    lines = read_text(index_path).splitlines()
-    header_index = next(
-        (index for index, line in enumerate(lines) if line.strip() == "| 日期 | 摘要 | 关键结论 | 详情 |"),
-        None,
-    )
-    if header_index is None or header_index + 1 >= len(lines):
-        raise SystemExit(f"worklog index table was not found: {index_path}")
-
-    table_start = header_index + 2
-    table_end = table_start
-    while table_end < len(lines) and lines[table_end].strip().startswith("|"):
-        table_end += 1
-
-    existing_rows = lines[table_start:table_end]
-    if any(row_date(row) == log_date for row in existing_rows) and not force:
-        raise SystemExit(f"worklog index already contains date: {log_date}")
-
-    new_row = worklog_index_row(log_date, summary, conclusion)
-    kept_rows = [
-        row
-        for row in existing_rows
-        if row_date(row) not in {log_date, "暂无"} and row.strip()
-    ]
-    rows = kept_rows + [new_row]
-    rows.sort(key=row_date, reverse=True)
-
-    updated = lines[:table_start] + rows + lines[table_end:]
-    index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
-
-
-def append_worklog_cell(existing: str, addition: str) -> str:
-    addition = clean_table_cell(addition)
-    if not addition or addition == "无。":
-        return existing or "无。"
-    if not existing or existing == "无。":
-        return addition
-    return f"{existing}; 追加：{addition}"
-
-
-def update_worklog_index_append(index_path: Path, log_date: str, summary: str, conclusion: str) -> None:
-    if not index_path.exists():
-        raise SystemExit(f"worklog index does not exist: {index_path}")
-
-    lines = read_text(index_path).splitlines()
-    header_index = next(
-        (index for index, line in enumerate(lines) if line.strip() == "| 日期 | 摘要 | 关键结论 | 详情 |"),
-        None,
-    )
-    if header_index is None or header_index + 1 >= len(lines):
-        raise SystemExit(f"worklog index table was not found: {index_path}")
-
-    table_start = header_index + 2
-    table_end = table_start
-    while table_end < len(lines) and lines[table_end].strip().startswith("|"):
-        table_end += 1
-
-    rows = [row for row in lines[table_start:table_end] if row_date(row) != "暂无" and row.strip()]
-    updated_rows: list[str] = []
-    replaced = False
-    for row in rows:
-        cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
-        if cells and cells[0] == log_date:
-            while len(cells) < 4:
-                cells.append("")
-            cells[1] = append_worklog_cell(cells[1], summary)
-            cells[2] = append_worklog_cell(cells[2], conclusion)
-            row = f"| {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} |"
-            replaced = True
-        updated_rows.append(row)
-
-    if not replaced:
-        updated_rows.append(worklog_index_row(log_date, summary, conclusion))
-    updated_rows.sort(key=row_date, reverse=True)
-
-    updated = lines[:table_start] + updated_rows + lines[table_end:]
-    index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
-
-
-def emit_worklog_error(
-    args: argparse.Namespace,
-    root: Path,
-    target: Path,
-    error_code: str,
-    message: str,
-    exit_code: int,
-) -> int:
-    payload: dict[str, object] = {
-        "command": "new worklog",
-        "ok": False,
-        "error_code": error_code,
-        "message": message,
-        "target": context_json_path(root, target),
-        "next_actions": error_next_actions(error_code),
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(f"ERROR: {message}", file=sys.stderr)
-    return exit_code
-
-
-def emit_worklog_result(
-    args: argparse.Namespace,
-    root: Path,
-    message: str,
-    changed_files: Sequence[Path],
-    *,
-    action: str,
-    target: Path,
-    anchor: str | None,
-    created: bool,
-    appended: bool,
-    index_updated: bool,
-    insert_after_line: int | None = None,
-    check_result: CheckResult | None = None,
-) -> int:
-    dry_run = dry_run_enabled(args)
-    changed = [context_json_path(root, path) for path in changed_files]
-    payload: dict[str, object] = {
-        "command": "new worklog",
-        "ok": check_result.ok if check_result is not None else True,
-        "error_code": check_error_code(check_result),
-        "dry_run": dry_run,
-        "changed_files": changed,
-        "message": message,
-        "next_actions": write_next_actions(dry_run, check_result, changed_files),
-        "action": action,
-        "target": context_json_path(root, target),
-        "anchor": anchor,
-        "created": created,
-        "appended": appended,
-        "index_updated": index_updated,
-        "warnings": [],
-    }
-    if dry_run:
-        payload["would_change"] = bool(changed_files)
-        payload["operation"] = action
-    if insert_after_line is not None:
-        payload["insert_after_line"] = insert_after_line
-    if check_result is not None:
-        payload["check"] = check_payload(check_result)
-    set_result_payload(args, payload)
-
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(message)
-        label = "would change" if dry_run else "changed"
-        for changed_file in changed_files:
-            print(f"{label}: {changed_file}")
-        if check_result is not None:
-            print(f"check: {'passed' if check_result.ok else 'failed'}")
-            for error in check_result.errors:
-                print(f"ERROR: {error}", file=sys.stderr)
-            for warning in check_result.warnings:
-                print(f"WARN: {warning}", file=sys.stderr)
-    return 0 if check_result is None or check_result.ok else 1
 
 
 def existing_adr_numbers(decisions_dir: Path) -> list[int]:
@@ -1482,56 +1258,16 @@ def skipped_missing_generated_decision_details(root: Path, index_text: str) -> l
 
 
 def decisions_sync_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    index_path = decisions_index_path(root)
-    if not index_path.exists():
-        raise SystemExit(f"sync_source_invalid: decisions index does not exist: {index_path}")
-    original = read_text(index_path)
-    rows, skipped, warnings = collect_decision_sync_rows(root)
-    skipped.extend(skipped_missing_generated_decision_details(root, original))
-    generated_table = render_decisions_index_table(rows)
-
-    if DECISIONS_INDEX_MARKER_START in original or DECISIONS_INDEX_MARKER_END in original:
-        updated, changed = replace_generated_marker_block(
-            original,
-            DECISIONS_INDEX_MARKER_START,
-            DECISIONS_INDEX_MARKER_END,
-            generated_table,
-        )
-        initialized_marker = False
-    elif args.init_marker:
-        updated, changed = insert_generated_marker_block_after_heading(
-            original,
-            "## 当前有效决策",
-            DECISIONS_INDEX_MARKER_START,
-            DECISIONS_INDEX_MARKER_END,
-            generated_table,
-            replace_empty_table_header="| ID | 标题 | 状态 | 摘要 | 详情 |",
-        )
-        initialized_marker = True
-    else:
-        raise SystemExit("generated_marker_missing: reference/Decisions_Index.md is missing ACF:DECISIONS:INDEX-GENERATED markers")
-
-    changed_files = [index_path] if changed else []
-    if changed_files and not dry_run_enabled(args):
-        index_path.write_text(updated, encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would sync" if dry_run_enabled(args) else "synced"
-    extra_payload: dict[str, object] = {
-        "generated_count": len(rows),
-        "skipped_items": skipped,
-        "initialized_marker": initialized_marker,
-    }
-    if dry_run_enabled(args):
-        extra_payload["planned_block"] = generated_table
-    return emit_write_result(
+    return decisions_commands.decisions_sync_command(
         args,
-        "decisions sync",
-        f"{action} Decisions index generated block",
-        changed_files,
-        check_result,
-        extra_payload=extra_payload,
-        warnings=warnings,
+        deps=decisions_commands.DecisionsDependencies(
+            maybe_check_after=maybe_check_after,
+            decisions_index_path=decisions_index_path,
+            read_text=read_text,
+            collect_decision_sync_rows=collect_decision_sync_rows,
+            skipped_missing_generated_decision_details=skipped_missing_generated_decision_details,
+            render_decisions_index_table=render_decisions_index_table,
+        ),
     )
 
 
@@ -2214,734 +1950,156 @@ def append_feedback_archive_row(
 
 
 def init_command(args: argparse.Namespace) -> int:
-    target = args.target.resolve()
-    dry_run = dry_run_enabled(args)
-    ensure_clean_target(target, args.force, dry_run=dry_run)
-    changed_files = planned_init_files(target, args.profile, args.force_root_agent)
-    if not dry_run:
-        if args.profile == "standard":
-            shutil.copytree(TEMPLATE_DIR, target, dirs_exist_ok=True)
-        else:
-            copy_selected_files(TEMPLATE_DIR, target, MINIMAL_FILES, MINIMAL_DIRS)
-            write_minimal_overrides(target)
-        write_root_agents(target, args.force_root_agent)
-    check_result = maybe_check_after(args, target, args.profile)
-    action = "would create" if dry_run else "created"
-    return emit_write_result(
+    return init_upgrade_commands.init_command(
         args,
-        "init",
-        f"{action} {args.profile} context template at {target}",
-        changed_files,
-        check_result,
+        maybe_check_after=maybe_check_after,
+        ensure_clean_target=ensure_clean_target,
+        planned_init_files=planned_init_files,
+        copy_selected_files=copy_selected_files,
+        write_minimal_overrides=write_minimal_overrides,
+        write_root_agents=write_root_agents,
     )
 
 
 def simplify_command(args: argparse.Namespace) -> int:
-    source = args.source.resolve()
-    target = args.target.resolve()
-    if not source.exists():
-        raise SystemExit(f"source context does not exist: {source}")
-    dry_run = dry_run_enabled(args)
-    ensure_clean_target(target, args.force, dry_run=dry_run)
-    changed_files = planned_simplify_files(source, target)
-    if not dry_run:
-        copy_selected_files(source, target, MINIMAL_FILES, MINIMAL_DIRS)
-        copy_dynamic_minimal_files(source, target)
-        write_minimal_overrides(target)
-    check_result = maybe_check_after(args, target, "minimal")
-    action = "would create" if dry_run else "created"
-    return emit_write_result(args, "simplify", f"{action} minimal context at {target}", changed_files, check_result)
+    return init_upgrade_commands.simplify_command(
+        args,
+        maybe_check_after=maybe_check_after,
+        ensure_clean_target=ensure_clean_target,
+        planned_simplify_files=planned_simplify_files,
+        copy_selected_files=copy_selected_files,
+        copy_dynamic_minimal_files=copy_dynamic_minimal_files,
+        write_minimal_overrides=write_minimal_overrides,
+    )
 
 
 def new_worklog_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
+    return worklog_commands.new_worklog_command(args, maybe_check_after=maybe_check_after)
 
-    log_date = args.date or date.today().isoformat()
-    summary = args.summary.strip()
-    conclusion = args.conclusion.strip()
-    if not summary:
-        raise SystemExit("worklog summary cannot be empty")
-    if not conclusion:
-        conclusion = "无。"
 
-    daily_dir = root / "worklog" / "daily"
-    daily_path = daily_dir / f"{log_date}.md"
-    index_path = root / "worklog" / "Worklog_Index.md"
-    if not index_path.exists():
-        raise SystemExit(f"worklog index does not exist: {index_path}")
-
-    append = bool(getattr(args, "append", False))
-    if append and args.force:
-        return emit_worklog_error(
-            args,
-            root,
-            daily_path,
-            APPEND_FORCE_CONFLICT,
-            "Use either --append or --force, not both.",
-            EXIT_INPUT_ERROR,
-        )
-
-    changed_files = [daily_path, index_path]
-    if daily_path.exists() and append:
-        anchor = "## 今日完成"
-        try:
-            existing = read_text(daily_path)
-            insert_after_line = section_insert_after_line(existing, anchor)
-            updated = append_section_text(existing, anchor, f"- {summary}")
-            if conclusion != "无。":
-                updated = append_section_text(updated, "## 有价值的结论", f"- {conclusion}")
-        except SystemExit:
-            return emit_worklog_error(
-                args,
-                root,
-                daily_path,
-                ANCHOR_NOT_FOUND,
-                f"Worklog append anchor was not found: {anchor}",
-                EXIT_INPUT_ERROR,
-            )
-
-        if not dry_run:
-            daily_path.write_text(updated, encoding="utf-8")
-            update_worklog_index_append(index_path, log_date, summary, conclusion)
-        check_result = maybe_check_after(args, root)
-        action = "would append" if dry_run else "appended"
-        return emit_worklog_result(
-            args,
-            root,
-            f"{action} worklog {daily_path}",
-            changed_files,
-            action="append",
-            target=daily_path,
-            anchor=anchor,
-            created=False,
-            appended=True,
-            index_updated=True,
-            insert_after_line=insert_after_line,
-            check_result=check_result,
-        )
-
-    if daily_path.exists() and not args.force:
-        return emit_worklog_error(
-            args,
-            root,
-            daily_path,
-            TARGET_EXISTS_APPEND_REQUIRED,
-            "Worklog already exists. Use --append to add an entry or --force to replace it.",
-            EXIT_SAFETY_REFUSED,
-        )
-
-    if not dry_run:
-        daily_dir.mkdir(parents=True, exist_ok=True)
-        daily_path.write_text(render_worklog_daily(log_date, summary, conclusion), encoding="utf-8")
-        update_worklog_index(index_path, log_date, summary, conclusion, args.force)
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    return emit_worklog_result(
-        args,
-        root,
-        f"{action} worklog {daily_path}",
-        changed_files,
-        action="create",
-        target=daily_path,
-        anchor=None,
-        created=True,
-        appended=False,
-        index_updated=True,
-        check_result=check_result,
+def new_context_deps() -> new_context_commands.NewContextDependencies:
+    return new_context_commands.NewContextDependencies(
+        maybe_check_after=maybe_check_after,
+        next_adr_id=next_adr_id,
+        render_adr=render_adr,
+        update_decisions_index=update_decisions_index,
+        extract_current_task_status=extract_current_task_status,
+        normalize_items=normalize_items,
+        render_current_task=render_current_task,
+        read_text=read_text,
+        update_sources_index=update_sources_index,
+        normalize_new_object_target=normalize_new_object_target,
+        render_reference_document=render_reference_document,
+        upsert_rules_index=upsert_rules_index,
+        render_rule_document=render_rule_document,
+        feedback_inbox_path=feedback_inbox_path,
+        read_feedback_rows=read_feedback_rows,
+        next_feedback_id=next_feedback_id,
+        upsert_feedback_inbox=upsert_feedback_inbox,
+        human_notes_path=human_notes_path,
+        read_table_rows_by_header=read_table_rows_by_header,
+        next_human_note_id=next_human_note_id,
+        human_note_row=human_note_row,
+        row_date=row_date,
+        replace_table_rows=replace_table_rows,
+        human_index_path=human_index_path,
+        sync_human_index=sync_human_index,
+        render_writeback_draft=render_writeback_draft,
+        human_note_table_header=HUMAN_NOTE_TABLE_HEADER,
     )
 
 
 def new_adr_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-
-    decisions_dir = root / "decisions"
-    adr_id = args.id or next_adr_id(decisions_dir)
-    adr_path = decisions_dir / f"{adr_id}.md"
-    if adr_path.exists():
-        raise SystemExit(f"ADR file already exists: {adr_path}")
-    index_path = root / "reference" / "Decisions_Index.md"
-    if not index_path.exists():
-        raise SystemExit(f"decisions index does not exist: {index_path}")
-
-    title = args.title.strip()
-    summary = args.summary.strip()
-    decision = args.decision.strip()
-    context = args.context.strip() or "该决策由当前项目维护流程提出，需要进入 ADR 以便后续追溯。"
-    if not title:
-        raise SystemExit("ADR title cannot be empty")
-    if not summary:
-        raise SystemExit("ADR summary cannot be empty")
-    if not decision:
-        raise SystemExit("ADR decision cannot be empty")
-
-    adr_date = args.date or date.today().isoformat()
-    changed_files = [adr_path, index_path]
-    if not dry_run:
-        decisions_dir.mkdir(parents=True, exist_ok=True)
-        adr_path.write_text(
-            render_adr(adr_id, title, args.status, adr_date, summary, decision, context),
-            encoding="utf-8",
-        )
-        update_decisions_index(index_path, adr_id, title, args.status, summary)
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    return emit_write_result(args, "new adr", f"{action} ADR {adr_path}", changed_files, check_result)
+    return new_context_commands.new_adr_command(args, deps=new_context_deps())
 
 
 def new_task_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-
-    task_path = root / "active" / "Current_Task.md"
-    if task_path.exists():
-        current_status = extract_current_task_status(task_path)
-        if current_status == "Active" and not args.force:
-            raise SystemExit(f"current task is Active; use --force to replace it: {task_path}")
-
-    title = args.title.strip()
-    plan = getattr(args, "plan", "").strip() or "无。"
-    task_id = getattr(args, "task_id", "").strip() or "无。"
-    background = args.background.strip() or "该任务由当前维护流程创建，需要写入当前任务文件以便协作过程可追踪。"
-    if not title:
-        raise SystemExit("task title cannot be empty")
-
-    goals = normalize_items(args.goal, ("完成当前任务。",))
-    inputs = normalize_items(args.input, ("用户当前请求。", "`active/Context.md`。"))
-    outputs = normalize_items(args.output, ("更新后的 `active/Current_Task.md`。",))
-    success = normalize_items(args.success, ("任务目标已完成并通过必要验证。",))
-    failures = normalize_items(args.failure, ("目标无法验证。", "任务范围需要重新确认。"))
-    constraints = normalize_items(args.constraint, ("遵守当前项目规则。", "不引入无关依赖。"))
-    non_goals = normalize_items(args.non_goal, ("无。",))
-    questions = normalize_items(args.question, ("无。",))
-
-    if not dry_run:
-        task_path.parent.mkdir(parents=True, exist_ok=True)
-        task_path.write_text(
-            render_current_task(
-                args.status,
-                title,
-                plan,
-                task_id,
-                goals,
-                background,
-                inputs,
-                outputs,
-                success,
-                failures,
-                constraints,
-                non_goals,
-                questions,
-            ),
-            encoding="utf-8",
-        )
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    return emit_write_result(args, "new task", f"{action} current task {task_path}", [task_path], check_result)
+    return new_context_commands.new_task_command(args, deps=new_context_deps())
 
 
 def new_source_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-
-    title = args.title.strip()
-    source_type = args.type.strip()
-    location = args.location.strip()
-    relation = args.relation.strip()
-    credibility = args.credibility.strip() or "未评估"
-    next_action = args.next_action.strip() or "无。"
-    if not title:
-        raise SystemExit("source title cannot be empty")
-    if not source_type:
-        raise SystemExit("source type cannot be empty")
-    if not location:
-        raise SystemExit("source location cannot be empty")
-    if not relation:
-        raise SystemExit("source relation cannot be empty")
-
-    index_path = root / "reference" / "Sources_Index.md"
-    if dry_run:
-        if not index_path.exists():
-            raise SystemExit(f"sources index does not exist: {index_path}")
-        rows = parse_markdown_table_rows(read_text(index_path))
-        if any(cells and cells[0] == title for cells in rows) and not args.force:
-            raise SystemExit(f"sources index already contains source: {title}")
-    else:
-        update_sources_index(
-            index_path,
-            title,
-            source_type,
-            location,
-            args.status,
-            credibility,
-            relation,
-            next_action,
-            args.force,
-        )
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    return emit_write_result(args, "new source", f"{action} source entry {title}", [index_path], check_result)
+    return new_context_commands.new_source_command(args, deps=new_context_deps())
 
 
 def new_reference_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-
-    title = args.title.strip()
-    summary = args.summary.strip()
-    next_action = args.next_action.strip() or "无。"
-    if not title:
-        raise SystemExit("reference title cannot be empty")
-    if not summary:
-        raise SystemExit("reference summary cannot be empty")
-    body_items = normalize_items(args.body, ("待补充。",))
-    target = normalize_new_object_target(
-        root,
-        args.file,
-        title,
-        "reference",
-        forbidden_prefixes=("reference/knowledge/",),
-    )
-    if target.exists() and not args.force:
-        raise SystemExit(f"reference file already exists: {target}")
-
-    if not dry_run:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            render_reference_document(title, args.status, summary, body_items, next_action),
-            encoding="utf-8",
-        )
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    rel = target.relative_to(root).as_posix()
-    return emit_write_result(
-        args,
-        "new reference",
-        f"{action} reference {rel}",
-        [target],
-        check_result,
-        extra_payload={"target": rel},
-    )
+    return new_context_commands.new_reference_command(args, deps=new_context_deps())
 
 
 def new_rule_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-
-    title = args.title.strip()
-    condition = args.condition.strip()
-    purpose = args.purpose.strip()
-    rationale = args.rationale.strip() or "该规则由当前上下文维护流程提出，用于降低后续协作歧义。"
-    scope = args.scope.strip() or "本上下文内按读取条件触发的协作任务。"
-    non_goal = args.non_goal.strip() or "不替代用户当前指令；不要求默认读取全部规则。"
-    if not title:
-        raise SystemExit("rule title cannot be empty")
-    if not condition:
-        raise SystemExit("rule condition cannot be empty")
-    if not purpose:
-        raise SystemExit("rule purpose cannot be empty")
-    rules = normalize_items(args.rule, ())
-    if not rules:
-        raise SystemExit("rule command requires at least one --rule")
-
-    target = normalize_new_object_target(root, args.file, title, "rules")
-    if target.exists() and not args.force:
-        raise SystemExit(f"rule file already exists: {target}")
-
-    index_path = root / "rules" / "Rules_Index.md"
-    index_changed = upsert_rules_index(
-        index_path,
-        target.relative_to(root / "rules").as_posix(),
-        condition,
-        purpose,
-        args.force,
-        dry_run,
-    )
-
-    if not dry_run:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            render_rule_document(title, condition, rules, rationale, scope, non_goal),
-            encoding="utf-8",
-        )
-    changed_files = [target]
-    if index_changed or not index_path.exists() or dry_run:
-        changed_files.append(index_path)
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    rel = target.relative_to(root).as_posix()
-    return emit_write_result(
-        args,
-        "new rule",
-        f"{action} rule {rel}",
-        changed_files,
-        check_result,
-        extra_payload={"target": rel, "index_updated": index_changed},
-    )
+    return new_context_commands.new_rule_command(args, deps=new_context_deps())
 
 
 def new_feedback_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-
-    inbox_path = feedback_inbox_path(root)
-    if not inbox_path.exists():
-        raise SystemExit(f"feedback inbox does not exist: {inbox_path}")
-
-    existing_rows = read_feedback_rows(inbox_path)
-    feedback_id = (args.id or next_feedback_id(existing_rows)).strip()
-    if not re.match(r"^F\d{3}$", feedback_id):
-        raise SystemExit("feedback id must use FNNN format, for example F019")
-    feedback_type = args.type.strip()
-    content = args.content.strip()
-    source = args.source.strip() if args.source else f"{date.today().isoformat()} manual"
-    next_action = args.next_action.strip() or "待 triage。"
-    if not feedback_type:
-        raise SystemExit("feedback type cannot be empty")
-    if not content:
-        raise SystemExit("feedback content cannot be empty")
-    if not source:
-        raise SystemExit("feedback source cannot be empty")
-
-    changed = upsert_feedback_inbox(
-        inbox_path,
-        feedback_id,
-        args.status,
-        feedback_type,
-        content,
-        source,
-        next_action,
-        args.force,
-        dry_run,
-    )
-    changed_files = [inbox_path] if changed or dry_run else []
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    return emit_write_result(
-        args,
-        "new feedback",
-        f"{action} feedback {feedback_id}",
-        changed_files,
-        check_result,
-        extra_payload={"id": feedback_id},
-    )
+    return new_context_commands.new_feedback_command(args, deps=new_context_deps())
 
 
 def new_human_note_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
+    return new_context_commands.new_human_note_command(args, deps=new_context_deps())
 
-    note_path = human_notes_path(root)
-    if not note_path.exists():
-        raise SystemExit("human_notes_missing: human/Human_Notes.md does not exist; use a standard context or `acf new feedback`")
 
-    existing_rows = read_table_rows_by_header(note_path, HUMAN_NOTE_TABLE_HEADER)
-    note_id = (args.id or next_human_note_id(existing_rows)).strip()
-    if not re.match(r"^H\d{3}$", note_id):
-        raise SystemExit("human note id must use HNNN format, for example H001")
-    note_type = args.type.strip()
-    content = args.content.strip()
-    related = args.related.strip() if args.related else "无。"
-    suggestion = args.suggestion.strip() if args.suggestion else "AI 看到后先判断是否需要整理到 active、ADR、Knowledge 或 worklog。"
-    evidence = args.evidence.strip() if args.evidence else "未整理。"
-    if not note_type:
-        raise SystemExit("human note type cannot be empty")
-    if not content:
-        raise SystemExit("human note content cannot be empty")
+def human_deps() -> human_commands.HumanDependencies:
+    return human_commands.HumanDependencies(
+        maybe_check_after=maybe_check_after,
+        sync_human_index=sync_human_index,
+        human_index_row_to_payload=human_index_row_to_payload,
+        human_index_path=human_index_path,
+        read_human_index_rows=read_human_index_rows,
+        count_by_key=count_by_key,
+        find_human_index_row=find_human_index_row,
+        write_human_index=write_human_index,
+    )
 
-    text = read_text(note_path)
-    lines = text.splitlines()
-    table = find_table(lines, HUMAN_NOTE_TABLE_HEADER)
-    existing_lines = lines[table.body_start : table.body_end]
-    if any(row_date(row) == note_id for row in existing_lines) and not args.force:
-        raise SystemExit(f"human notes already contains id: {note_id}")
-    new_row = human_note_row(note_id, args.status, note_type, content, related, suggestion, evidence)
-    kept_rows = [row for row in existing_lines if row_date(row) not in {note_id, "暂无"} and row.strip()]
-    rows = kept_rows + [new_row]
-    rows.sort(key=row_date)
-    updated_text = replace_table_rows(text, HUMAN_NOTE_TABLE_HEADER, rows)
-    changed = updated_text != text
-    if changed and not dry_run:
-        note_path.write_text(updated_text, encoding="utf-8")
-    index_path = human_index_path(root)
-    index_changed = False
-    if changed and not dry_run:
-        index_changed, _rows, _index_path = sync_human_index(root, dry_run=False, note_date=date.today().isoformat())
-    elif changed or dry_run:
-        index_changed = True
-    changed_files = [note_path] if changed or dry_run else []
-    if index_changed:
-        changed_files.append(index_path)
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    return emit_write_result(
-        args,
-        "new human-note",
-        f"{action} human note {note_id}",
-        changed_files,
-        check_result,
-        extra_payload={"id": note_id},
+
+def feedback_deps() -> feedback_commands.FeedbackDependencies:
+    return feedback_commands.FeedbackDependencies(
+        maybe_check_after=maybe_check_after,
+        feedback_inbox_path=feedback_inbox_path,
+        read_feedback_rows=read_feedback_rows,
+        feedback_row_to_payload=feedback_row_to_payload,
+        count_by_key=count_by_key,
+        update_feedback_row=update_feedback_row,
+        feedback_archive_path=feedback_archive_path,
+        read_text=read_text,
+        find_feedback_row=find_feedback_row,
+        remove_feedback_row=remove_feedback_row,
+        append_feedback_archive_row=append_feedback_archive_row,
     )
 
 
 def human_index_sync_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    changed, rows, index_path = sync_human_index(root, dry_run=dry_run)
-    changed_files = [index_path] if changed or dry_run else []
-    check_result = maybe_check_after(args, root)
-    action = "would sync" if dry_run else "synced"
-    return emit_write_result(
-        args,
-        "human index sync",
-        f"{action} human index",
-        changed_files,
-        check_result,
-        extra_payload={
-            "indexed_total": len(rows),
-            "items": [human_index_row_to_payload(row) for row in rows],
-        },
-    )
+    return human_commands.human_index_sync_command(args, deps=human_deps())
 
 
 def human_list_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    index_path = human_index_path(root)
-    if not index_path.exists():
-        raise SystemExit("human_index_missing: human/Human_Index.md does not exist; run `acf upgrade` or `acf human index sync`")
-    rows = read_human_index_rows(index_path)
-    items = [human_index_row_to_payload(row) for row in rows]
-    if args.status:
-        items = [item for item in items if item.get("status") == args.status]
-    if args.type:
-        items = [item for item in items if item.get("type") == args.type]
-    payload: dict[str, object] = {
-        "schema_version": JSON_SCHEMA_VERSION,
-        "command": "human list",
-        "ok": True,
-        "context": str(root),
-        "changed_files": [],
-        "items": items,
-        "summary": {
-            "total": len(items),
-            "by_status": count_by_key(items, "status"),
-            "by_type": count_by_key(items, "type"),
-        },
-        "error_code": None,
-        "next_actions": ["No human index items matched."] if not items else [],
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        if not items:
-            print("no human index items")
-        for item in items:
-            print(f"{item['id'] or item['path']} [{item['status']}] {item['title']}")
-    return 0
+    return human_commands.human_list_command(args, deps=human_deps())
 
 
 def human_mark_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    index_path = human_index_path(root)
-    if not index_path.exists():
-        raise SystemExit("human_index_missing: human/Human_Index.md does not exist; run `acf upgrade` or `acf human index sync`")
-    rows = read_human_index_rows(index_path)
-    target = find_human_index_row(rows, args.target)
-    if target is None:
-        raise SystemExit(f"human_index_item_not_found: {args.target}")
-    target["状态"] = args.status
-    if args.extracted_to:
-        target["已整理到"] = args.extracted_to.strip()
-    if args.note:
-        target["备注"] = args.note.strip()
-    changed = write_human_index(index_path, rows, dry_run)
-    changed_files = [index_path] if changed or dry_run else []
-    check_result = maybe_check_after(args, root)
-    action = "would mark" if dry_run else "marked"
-    return emit_write_result(
-        args,
-        "human mark",
-        f"{action} human index item {args.target}",
-        changed_files,
-        check_result,
-        extra_payload={"item": human_index_row_to_payload(target)},
-    )
+    return human_commands.human_mark_command(args, deps=human_deps())
 
 
 def feedback_list_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    inbox_path = feedback_inbox_path(root)
-    rows = read_feedback_rows(inbox_path)
-    if args.status:
-        rows = [row for row in rows if row.get("状态") == args.status]
-    items = [feedback_row_to_payload(row) for row in rows]
-    payload: dict[str, object] = {
-        "schema_version": JSON_SCHEMA_VERSION,
-        "command": "feedback list",
-        "ok": True,
-        "context": str(root),
-        "changed_files": [],
-        "items": items,
-        "summary": {
-            "total": len(items),
-            "by_status": count_by_key(items, "status"),
-        },
-        "error_code": None,
-        "next_actions": ["No feedback items matched."] if not items else [],
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        if not items:
-            print("no feedback items")
-        for item in items:
-            print(f"{item['id']}\t{item['status']}\t{item['type']}\t{item['content']}")
-    return 0
+    return feedback_commands.feedback_list_command(args, deps=feedback_deps())
 
 
 def feedback_archive_candidates_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    rows = read_feedback_rows(feedback_inbox_path(root))
-    candidates = [feedback_row_to_payload(row) for row in rows if row.get("状态") in {"Done", "Rejected"}]
-    blocked = [feedback_row_to_payload(row) for row in rows if row.get("状态") not in {"Done", "Rejected"}]
-    payload: dict[str, object] = {
-        "schema_version": JSON_SCHEMA_VERSION,
-        "command": "feedback archive-candidates",
-        "ok": True,
-        "context": str(root),
-        "changed_files": [],
-        "candidates": candidates,
-        "blocked": blocked,
-        "summary": {
-            "candidate_total": len(candidates),
-            "blocked_total": len(blocked),
-            "by_status": count_by_key([*candidates, *blocked], "status"),
-        },
-        "error_code": None,
-        "next_actions": ["Archive candidates with `acf feedback archive <ID> --reason ...`."] if candidates else [],
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        if not candidates:
-            print("no feedback archive candidates")
-        for item in candidates:
-            print(f"{item['id']}\t{item['status']}\t{item['content']}")
-    return 0
+    return feedback_commands.feedback_archive_candidates_command(args, deps=feedback_deps())
 
 
 def feedback_triage_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    next_action = args.next_action.strip()
-    if not next_action:
-        raise SystemExit("feedback triage requires non-empty --next-action")
-    evidence = args.evidence.strip() if args.evidence else ""
-    updates = {"状态": "Triaged", "后续处理": next_action if not evidence else f"{next_action} 证据：{evidence}"}
-    changed, row = update_feedback_row(feedback_inbox_path(root), args.id, updates, dry_run)
-    changed_files = [feedback_inbox_path(root)] if changed or dry_run else []
-    check_result = maybe_check_after(args, root)
-    action = "would triage" if dry_run else "triaged"
-    return emit_write_result(
-        args,
-        "feedback triage",
-        f"{action} feedback {args.id}",
-        changed_files,
-        check_result,
-        extra_payload={"id": args.id, "item": feedback_row_to_payload(row)},
-    )
+    return feedback_commands.feedback_triage_command(args, deps=feedback_deps())
 
 
 def feedback_done_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    result = args.result.strip()
-    evidence = args.evidence.strip()
-    if not result:
-        raise SystemExit("feedback done requires non-empty --result")
-    if not evidence:
-        raise SystemExit("feedback done requires non-empty --evidence")
-    updates = {"状态": "Done", "后续处理": f"{result} 证据：{evidence}"}
-    changed, row = update_feedback_row(feedback_inbox_path(root), args.id, updates, dry_run)
-    changed_files = [feedback_inbox_path(root)] if changed or dry_run else []
-    check_result = maybe_check_after(args, root)
-    action = "would mark done" if dry_run else "marked done"
-    return emit_write_result(
-        args,
-        "feedback done",
-        f"{action} feedback {args.id}",
-        changed_files,
-        check_result,
-        extra_payload={"id": args.id, "item": feedback_row_to_payload(row)},
-    )
+    return feedback_commands.feedback_done_command(args, deps=feedback_deps())
 
 
 def feedback_reject_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    reason = args.reason.strip()
-    if not reason:
-        raise SystemExit("feedback reject requires non-empty --reason")
-    updates = {"状态": "Rejected", "后续处理": f"Rejected：{reason}"}
-    changed, row = update_feedback_row(feedback_inbox_path(root), args.id, updates, dry_run)
-    changed_files = [feedback_inbox_path(root)] if changed or dry_run else []
-    check_result = maybe_check_after(args, root)
-    action = "would reject" if dry_run else "rejected"
-    return emit_write_result(
-        args,
-        "feedback reject",
-        f"{action} feedback {args.id}",
-        changed_files,
-        check_result,
-        extra_payload={"id": args.id, "item": feedback_row_to_payload(row)},
-    )
+    return feedback_commands.feedback_reject_command(args, deps=feedback_deps())
 
 
 def feedback_archive_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    archive_date = date.fromisoformat(args.date) if args.date else date.today()
-    reason = args.reason.strip()
-    if not reason:
-        raise SystemExit("feedback archive requires non-empty --reason")
-    inbox_path = feedback_inbox_path(root)
-    rows = read_feedback_rows(inbox_path)
-    row = find_feedback_row(rows, args.id)
-    if row is None:
-        raise SystemExit(f"feedback_not_found: {args.id}")
-    if row.get("状态") not in {"Done", "Rejected"}:
-        raise SystemExit(f"feedback_archive_blocked: {args.id} status is {row.get('状态', 'Unknown')}")
-    archive_path = feedback_archive_path(root, archive_date)
-    if archive_path.exists():
-        archive_rows = parse_markdown_table_rows(read_text(archive_path))
-        if any(len(cells) >= 2 and cells[1] == args.id for cells in archive_rows):
-            raise SystemExit(f"feedback archive already contains id: {args.id}")
-    inbox_changed, removed = remove_feedback_row(inbox_path, args.id, dry_run)
-    archive_changed = append_feedback_archive_row(archive_path, archive_date, removed, reason, dry_run)
-    changed_files = []
-    if inbox_changed or dry_run:
-        changed_files.append(inbox_path)
-    if archive_changed or dry_run:
-        changed_files.append(archive_path)
-    check_result = maybe_check_after(args, root)
-    action = "would archive" if dry_run else "archived"
-    return emit_write_result(
-        args,
-        "feedback archive",
-        f"{action} feedback {args.id}",
-        changed_files,
-        check_result,
-        extra_payload={
-            "id": args.id,
-            "archive_path": archive_path.relative_to(root).as_posix(),
-            "item": feedback_row_to_payload(removed),
-        },
-    )
+    return feedback_commands.feedback_archive_command(args, deps=feedback_deps())
 
 
 def read_writeback_input(args: argparse.Namespace) -> str:
@@ -2960,288 +2118,31 @@ def read_writeback_input(args: argparse.Namespace) -> str:
 
 
 def writeback_draft_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-
-    draft_name = args.name or date.today().isoformat()
-    input_text = read_writeback_input(args).strip()
-    if not input_text:
-        raise SystemExit("writeback input cannot be empty")
-
-    draft_dir = root / "worklog" / "writeback-drafts"
-    draft_path = draft_dir / f"{draft_name}.md"
-    if draft_path.exists() and not args.force:
-        raise SystemExit(f"writeback draft already exists: {draft_path}")
-
-    if not dry_run:
-        draft_dir.mkdir(parents=True, exist_ok=True)
-        draft_path.write_text(render_writeback_draft(draft_name, input_text), encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    return emit_write_result(args, "writeback draft", f"{action} writeback draft {draft_path}", [draft_path], check_result)
-
-
-def resolve_context_markdown_file(root: Path, target: Path) -> Path:
-    root = root.resolve()
-    if target.is_absolute():
-        resolved = target.resolve()
-    else:
-        root_candidate = (root / target).resolve()
-        if not is_relative_to(root_candidate, root):
-            raise SystemExit(f"target file is outside context root: {target}")
-
-        cwd_candidate = (Path.cwd() / target).resolve()
-        if cwd_candidate.exists() and is_relative_to(cwd_candidate, root):
-            resolved = cwd_candidate
-        else:
-            resolved = root_candidate
-
-    if not is_relative_to(resolved, root):
-        raise SystemExit(f"target file is outside context root: {target}")
-    if resolved.suffix.lower() != ".md":
-        raise SystemExit(f"target file must be Markdown (.md): {resolved}")
-    if not resolved.exists():
-        raise SystemExit(f"target file does not exist: {resolved}")
-    if not resolved.is_file():
-        raise SystemExit(f"target path is not a file: {resolved}")
-    return resolved
-
-
-def resolve_context_file(root: Path, target: Path, *, must_exist: bool = True) -> Path:
-    root = root.resolve()
-    if target.is_absolute():
-        resolved = target.resolve()
-    else:
-        root_candidate = (root / target).resolve()
-        if not is_relative_to(root_candidate, root):
-            raise SystemExit(f"target file is outside context root: {target}")
-
-        cwd_candidate = (Path.cwd() / target).resolve()
-        if cwd_candidate.exists() and is_relative_to(cwd_candidate, root):
-            resolved = cwd_candidate
-        else:
-            resolved = root_candidate
-
-    if not is_relative_to(resolved, root):
-        raise SystemExit(f"target file is outside context root: {target}")
-    if must_exist and not resolved.exists():
-        raise SystemExit(f"target file does not exist: {resolved}")
-    if must_exist and not resolved.is_file():
-        raise SystemExit(f"target path is not a file: {resolved}")
-    return resolved
-
-
-def read_edit_input(args: argparse.Namespace) -> str:
-    text = getattr(args, "text", None)
-    input_path = getattr(args, "input", None)
-    if text is not None and input_path is not None:
-        raise SystemExit("use either --text or --input, not both")
-    if text is not None:
-        return text
-    if input_path is not None:
-        resolved = input_path.resolve()
-        if not resolved.is_file():
-            raise SystemExit(f"edit input file does not exist: {resolved}")
-        return resolved.read_text(encoding="utf-8")
-    if not sys.stdin.isatty():
-        return sys.stdin.read()
-    raise SystemExit("edit command requires --text, --input, or stdin")
-
-
-def linkify_candidate_files(root: Path, args: argparse.Namespace) -> list[Path]:
-    files: set[Path] = set()
-    for dirname in LINKIFY_DEFAULT_DIRS:
-        directory = root / dirname
-        if directory.exists():
-            files.update(path for path in directory.rglob("*.md") if path.is_file())
-    for rel in LINKIFY_DEFAULT_FILES:
-        file_path = root / rel
-        if file_path.is_file():
-            files.add(file_path)
-    if getattr(args, "include_worklog_daily", False):
-        daily = root / "worklog" / "daily"
-        if daily.exists():
-            files.update(path for path in daily.rglob("*.md") if path.is_file())
-    if getattr(args, "include_archive", False):
-        archive = root / "archive"
-        if archive.exists():
-            files.update(path for path in archive.rglob("*.md") if path.is_file())
-    return sorted(files)
+    return new_context_commands.writeback_draft_command(args, deps=new_context_deps())
 
 
 def linkify_command(args: argparse.Namespace) -> int:
-    if getattr(args, "format", "markdown") != "markdown":
-        raise SystemExit("linkify currently supports only --format markdown")
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    changed_files: list[Path] = []
-    updated_entries: list[dict[str, object]] = []
-    skipped_entries: list[dict[str, str]] = []
-    for md_file in linkify_candidate_files(root, args):
-        original = read_text(md_file)
-        updated, replacements, skipped = linkify_markdown_text(
-            root,
-            md_file,
-            original,
-            allow_missing=bool(getattr(args, "allow_missing", False)),
-        )
-        rel_file = md_file.relative_to(root).as_posix()
-        skipped_entries.extend({"file": rel_file, **entry} for entry in skipped)
-        if updated == original:
-            continue
-        changed_files.append(md_file)
-        updated_entries.append({"path": rel_file, "replacements": replacements})
-        if not dry_run:
-            atomic_write_text(md_file, updated)
-
-    check_result = maybe_check_after(args, root)
-    action = "would linkify" if dry_run else "linkified"
-    return emit_write_result(
-        args,
-        "linkify",
-        f"{action} {len(changed_files)} file(s)",
-        changed_files,
-        check_result,
-        extra_payload={
-            "format": args.format,
-            "updated": updated_entries,
-            "skipped": skipped_entries,
-        },
-    )
+    return edit_link_commands.linkify_command(args, maybe_check_after=maybe_check_after)
 
 
 def link_add_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    target_file = resolve_context_markdown_file(root, args.file)
-    link_target_file = resolve_context_file(root, args.target)
-    target_fragment = ""
-    if args.target_heading:
-        if link_target_file.suffix.lower() != ".md":
-            raise SystemExit("--target-heading requires a Markdown target file")
-        anchor = markdown_heading_anchor_for(read_text(link_target_file), args.target_heading)
-        if anchor is None:
-            raise SystemExit(f"target heading was not found: {args.target_heading}")
-        target_fragment = anchor
-    link_href = markdown_link_target_for(target_file, link_target_file, target_fragment)
-    context_target_display = link_target_file.relative_to(root).as_posix()
-    default_text = f"{context_target_display}#{target_fragment}" if target_fragment else context_target_display
-    link_text = args.text or default_text
-    bullet = f"- {render_markdown_link(link_text, link_href)}"
-
-    original = read_text(target_file)
-    original_lines = original.splitlines()
-    body = section_body(original_lines, find_section(original_lines, args.heading))
-    duplicate_markers = {f"]({link_href})", f"](<{link_href}>)"}
-    if not args.force and any(marker in body for marker in duplicate_markers):
-        raise SystemExit(f"link already exists in section: {link_href}")
-    updated = append_section_text(original, args.heading, bullet)
-    changed_files = [target_file] if updated != original else []
-    if changed_files and not dry_run:
-        atomic_write_text(target_file, updated)
-
-    check_result = maybe_check_after(args, root)
-    action = "would add" if dry_run else "added"
-    return emit_write_result(
-        args,
-        "link add",
-        f"{action} link to {target_file}",
-        changed_files,
-        check_result,
-        extra_payload={
-            "file": target_file.relative_to(root).as_posix(),
-            "heading": args.heading,
-            "link": bullet,
-            "target": context_target_display,
-            "target_heading": args.target_heading,
-        },
-    )
+    return edit_link_commands.link_add_command(args, maybe_check_after=maybe_check_after)
 
 
 def edit_section_get_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.context)
-    target = resolve_context_markdown_file(root, args.file)
-    lines = read_text(target).splitlines()
-    section = find_section(lines, args.heading)
-    body = section_body(lines, section)
-    payload: dict[str, object] = {
-        "command": "edit section get",
-        "ok": True,
-        "context": str(root),
-        "file": str(target),
-        "heading": args.heading,
-        "body": body,
-        "heading_line": section.heading_index + 1,
-        "body_start_line": section.body_start + 1,
-        "body_end_line": section.body_end,
-    }
-    set_result_payload(args, payload)
-
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(body)
-    return 0
+    return edit_link_commands.edit_section_get_command(args)
 
 
 def edit_section_replace_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.context)
-    dry_run = dry_run_enabled(args)
-    target = resolve_context_markdown_file(root, args.file)
-    updated = replace_section_text(read_text(target), args.heading, read_edit_input(args))
-    if not dry_run:
-        target.write_text(updated, encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would replace" if dry_run else "replaced"
-    return emit_write_result(
-        args,
-        "edit section replace",
-        f"{action} section {args.heading} in {target}",
-        [target],
-        check_result,
-    )
+    return edit_link_commands.edit_section_replace_command(args, maybe_check_after=maybe_check_after)
 
 
 def edit_section_append_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.context)
-    dry_run = dry_run_enabled(args)
-    target = resolve_context_markdown_file(root, args.file)
-    updated = append_section_text(read_text(target), args.heading, read_edit_input(args))
-    if not dry_run:
-        target.write_text(updated, encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would append" if dry_run else "appended"
-    return emit_write_result(
-        args,
-        "edit section append",
-        f"{action} to section {args.heading} in {target}",
-        [target],
-        check_result,
-    )
+    return edit_link_commands.edit_section_append_command(args, maybe_check_after=maybe_check_after)
 
 
 def edit_table_upsert_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.context)
-    dry_run = dry_run_enabled(args)
-    target = resolve_context_markdown_file(root, args.file)
-    updated = upsert_table_row(
-        read_text(target),
-        args.header,
-        args.key_column,
-        args.key,
-        parse_cell_updates(args.cell),
-    )
-    if not dry_run:
-        target.write_text(updated, encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would upsert" if dry_run else "upserted"
-    return emit_write_result(
-        args,
-        "edit table upsert",
-        f"{action} table row {args.key} in {target}",
-        [target],
-        check_result,
-    )
+    return edit_link_commands.edit_table_upsert_command(args, maybe_check_after=maybe_check_after)
 
 
 def slugify_file_stem(value: str) -> str:
@@ -3988,19 +2889,11 @@ def upgrade_contract_payload(root: Path, changed_files: Sequence[Path]) -> dict[
 
 
 def upgrade_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    changed_files, warnings = ensure_upgrade_structure(root, dry_run)
-    check_result = maybe_check_after(args, root)
-    action = "would upgrade" if dry_run else "upgraded"
-    return emit_write_result(
+    return init_upgrade_commands.upgrade_command(
         args,
-        "upgrade",
-        f"{action} context structure at {root}",
-        changed_files,
-        check_result,
-        extra_payload=upgrade_contract_payload(root, changed_files),
-        warnings=warnings,
+        maybe_check_after=maybe_check_after,
+        ensure_upgrade_structure=ensure_upgrade_structure,
+        upgrade_contract_payload=upgrade_contract_payload,
     )
 
 
@@ -4067,133 +2960,55 @@ def remove_plan_reference(
     return kept, removed
 
 
+def plan_task_deps() -> plan_task_commands.PlanTaskDependencies:
+    return plan_task_commands.PlanTaskDependencies(
+        maybe_check_after=maybe_check_after,
+        task_plan_path=task_plan_path,
+        current_task_path=current_task_path,
+        plan_reference_payload=plan_reference_payload,
+        normalize_plan_reference_path=normalize_plan_reference_path,
+        normalize_plan_reference_purpose=normalize_plan_reference_purpose,
+        ensure_plan_reference_target=ensure_plan_reference_target,
+        read_plan_references=read_plan_references,
+        replace_or_add_plan_reference=replace_or_add_plan_reference,
+        remove_plan_reference=remove_plan_reference,
+        read_text=read_text,
+        write_plan_references_text=write_plan_references_text,
+        sync_current_task_reference_text=sync_current_task_reference_text,
+        render_plan_reference=render_plan_reference,
+        read_task_rows=read_task_rows,
+        read_task_stage_rows=read_task_stage_rows,
+        task_stage_payload=task_stage_payload,
+        validate_task_stage_parent=validate_task_stage_parent,
+        validate_task_stage_workstream=validate_task_stage_workstream,
+        find_task_stage_row=find_task_stage_row,
+        write_task_stage_rows=write_task_stage_rows,
+        find_task_row=find_task_row,
+        next_task_id=next_task_id,
+        write_task_rows=write_task_rows,
+        set_plan_focus=set_plan_focus,
+        set_plan_status=set_plan_status,
+        recommended_next_task=recommended_next_task,
+        extract_heading_value=extract_heading_value,
+        normalize_items=normalize_items,
+        render_task_plan=render_task_plan,
+        extract_current_task_status=extract_current_task_status,
+        blocked_dependency_ids=blocked_dependency_ids,
+        build_task_start_fields=build_task_start_fields,
+        render_empty_current_task=render_empty_current_task,
+    )
+
+
 def plan_reference_list_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    plan_path = task_plan_path(root)
-    payload = {
-        "command": "plan reference list",
-        "ok": True,
-        "context": str(root),
-        **plan_reference_payload(root, plan_path),
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        references = [PlanReference(item["path"], item["purpose"]) for item in payload["references"]]  # type: ignore[index]
-        if references:
-            print("\n".join(render_plan_reference(reference) for reference in references))
-        else:
-            print("无。")
-        for warning in payload.get("reference_warnings", []):
-            print(f"WARN: {warning}", file=sys.stderr)
-    return 0
+    return plan_task_commands.plan_reference_list_command(args, deps=plan_task_deps())
 
 
 def plan_reference_add_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    ref_path = normalize_plan_reference_path(args.ref_path)
-    reference = PlanReference(ref_path, normalize_plan_reference_purpose(args.purpose))
-    warnings = ensure_plan_reference_target(root, ref_path, args.allow_missing)
-    references, parse_warnings = read_plan_references(plan_path)
-    warnings.extend(parse_warnings)
-    updated_references, _replaced = replace_or_add_plan_reference(references, reference, force=args.force)
-
-    changed_files: list[Path] = []
-    original_plan = read_text(plan_path)
-    updated_plan = write_plan_references_text(original_plan, updated_references)
-    if updated_plan != original_plan:
-        changed_files.append(plan_path)
-
-    current_task = current_task_path(root)
-    updated_current_task: str | None = None
-    if args.sync_current_task and current_task.exists():
-        original_task = read_text(current_task)
-        updated_task, sync_warnings = sync_current_task_reference_text(
-            original_task,
-            reference,
-            operation="add",
-            force=args.force,
-        )
-        warnings.extend(sync_warnings)
-        if updated_task != original_task:
-            updated_current_task = updated_task
-            changed_files.append(current_task)
-
-    if not dry_run:
-        if updated_plan != original_plan:
-            plan_path.write_text(updated_plan, encoding="utf-8")
-        if updated_current_task is not None:
-            current_task.write_text(updated_current_task, encoding="utf-8")
-
-    check_result = maybe_check_after(args, root)
-    action = "would add" if dry_run else "added"
-    return emit_write_result(
-        args,
-        "plan reference add",
-        f"{action} plan reference {ref_path}",
-        changed_files,
-        check_result,
-        extra_payload=plan_reference_payload(root, plan_path) if not dry_run else {
-            "references": [{"path": item.path, "purpose": item.purpose} for item in updated_references],
-            "count": len(updated_references),
-        },
-        warnings=warnings,
-    )
+    return plan_task_commands.plan_reference_add_command(args, deps=plan_task_deps())
 
 
 def plan_reference_remove_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    ref_path = normalize_plan_reference_path(args.ref_path)
-    references, parse_warnings = read_plan_references(plan_path)
-    warnings = list(parse_warnings)
-    updated_references, removed = remove_plan_reference(references, ref_path, missing_ok=args.missing_ok)
-
-    changed_files: list[Path] = []
-    original_plan = read_text(plan_path)
-    updated_plan = write_plan_references_text(original_plan, updated_references)
-    if updated_plan != original_plan:
-        changed_files.append(plan_path)
-
-    current_task = current_task_path(root)
-    updated_current_task: str | None = None
-    if args.sync_current_task and removed is not None and current_task.exists():
-        original_task = read_text(current_task)
-        updated_task, sync_warnings = sync_current_task_reference_text(
-            original_task,
-            removed,
-            operation="remove",
-            force=False,
-        )
-        warnings.extend(sync_warnings)
-        if updated_task != original_task:
-            updated_current_task = updated_task
-            changed_files.append(current_task)
-
-    if not dry_run:
-        if updated_plan != original_plan:
-            plan_path.write_text(updated_plan, encoding="utf-8")
-        if updated_current_task is not None:
-            current_task.write_text(updated_current_task, encoding="utf-8")
-
-    check_result = maybe_check_after(args, root)
-    action = "would remove" if dry_run else "removed"
-    return emit_write_result(
-        args,
-        "plan reference remove",
-        f"{action} plan reference {ref_path}",
-        changed_files,
-        check_result,
-        extra_payload=plan_reference_payload(root, plan_path) if not dry_run else {
-            "references": [{"path": item.path, "purpose": item.purpose} for item in updated_references],
-            "count": len(updated_references),
-        },
-        warnings=warnings,
-    )
+    return plan_task_commands.plan_reference_remove_command(args, deps=plan_task_deps())
 
 
 def read_task_rows(plan_path: Path) -> list[dict[str, str]]:
@@ -4460,282 +3275,43 @@ def recommended_next_task(rows: Sequence[dict[str, str]]) -> dict[str, str] | No
 
 
 def plan_init_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    if plan_path.exists() and extract_heading_value(plan_path, "## 大任务状态") == "Active" and not args.force:
-        raise SystemExit(f"task plan is Active; use --force to replace it: {plan_path}")
-    title = args.title.strip()
-    if not title:
-        raise SystemExit("plan title cannot be empty")
-    goals = normalize_items(args.goal, ("完成当前大任务。",))
-    success = normalize_items(args.success, ("大任务目标已完成并通过必要验证。",))
-    if not dry_run:
-        plan_path.parent.mkdir(parents=True, exist_ok=True)
-        plan_path.write_text(render_task_plan("Active", title, goals, success, "无。", []), encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    return emit_write_result(args, "plan init", f"{action} task plan {plan_path}", [plan_path], check_result)
+    return plan_task_commands.plan_init_command(args, deps=plan_task_deps())
 
 
 def plan_add_task_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    rows = read_task_rows(plan_path)
-    task_id = args.id or next_task_id(rows)
-    if any(row.get("ID") == task_id for row in rows):
-        raise SystemExit(f"task id already exists: {task_id}")
-    title = args.title.strip()
-    if not title:
-        raise SystemExit("task title cannot be empty")
-    rows.append(
-        {
-            "ID": task_id,
-            "状态": "Pending",
-            "子任务": title,
-            "依赖": args.depends.strip() or "无。",
-            "输出物": args.output.strip() or "无。",
-            "证据": "无。",
-            "下一步": args.next_action.strip() or "无。",
-        }
-    )
-    if not dry_run:
-        write_task_rows(plan_path, rows)
-    check_result = maybe_check_after(args, root)
-    action = "would add" if dry_run else "added"
-    return emit_write_result(args, "plan add-task", f"{action} task {task_id} in {plan_path}", [plan_path], check_result)
+    return plan_task_commands.plan_add_task_command(args, deps=plan_task_deps())
 
 
 def plan_set_task_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    rows = read_task_rows(plan_path)
-    row = find_task_row(rows, args.id)
-    if args.status:
-        row["状态"] = args.status
-    if args.title:
-        row["子任务"] = args.title.strip()
-    if args.depends is not None:
-        row["依赖"] = args.depends.strip() or "无。"
-    if args.output is not None:
-        row["输出物"] = args.output.strip() or "无。"
-    if args.evidence is not None:
-        row["证据"] = args.evidence.strip() or "无。"
-    if args.next_action is not None:
-        row["下一步"] = args.next_action.strip() or "无。"
-    if not dry_run:
-        write_task_rows(plan_path, rows)
-    check_result = maybe_check_after(args, root)
-    action = "would update" if dry_run else "updated"
-    return emit_write_result(args, "plan set-task", f"{action} task {args.id} in {plan_path}", [plan_path], check_result)
+    return plan_task_commands.plan_set_task_command(args, deps=plan_task_deps())
 
 
 def plan_focus_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    rows = read_task_rows(plan_path)
-    find_task_row(rows, args.id)
-    if not dry_run:
-        set_plan_focus(plan_path, args.id)
-    check_result = maybe_check_after(args, root)
-    action = "would focus" if dry_run else "focused"
-    return emit_write_result(args, "plan focus", f"{action} task plan on {args.id}", [plan_path], check_result)
+    return plan_task_commands.plan_focus_command(args, deps=plan_task_deps())
 
 
 def plan_complete_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    rows = read_task_rows(plan_path)
-    unfinished = [
-        row.get("ID", "")
-        for row in rows
-        if row.get("状态") not in {"Done", "Skipped", "Superseded"}
-    ]
-    if unfinished and not args.force:
-        raise SystemExit(f"task plan has unfinished subtasks; use --force to complete anyway: {', '.join(unfinished)}")
-    if not dry_run:
-        set_plan_status(plan_path, "Done")
-        set_plan_focus(plan_path, "无。")
-    check_result = maybe_check_after(args, root)
-    action = "would complete" if dry_run else "completed"
-    return emit_write_result(args, "plan complete", f"{action} task plan {plan_path}", [plan_path], check_result)
+    return plan_task_commands.plan_complete_command(args, deps=plan_task_deps())
 
 
 def plan_status_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    plan_path = task_plan_path(root)
-    rows = read_task_rows(plan_path)
-    payload: dict[str, object] = {
-        "command": "plan status",
-        "ok": True,
-        "context": str(root),
-        "plan_status": extract_heading_value(plan_path, "## 大任务状态"),
-        "title": extract_heading_value(plan_path, "## 大任务名称"),
-        "focus": extract_heading_value(plan_path, "## 当前焦点"),
-        "tasks": rows,
-        "next_task": recommended_next_task(rows),
-        "error_code": None,
-        "next_actions": [],
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(f"plan: {payload['title']} ({payload['plan_status']})")
-        print(f"focus: {payload['focus']}")
-        for row in rows:
-            print(f"{row.get('ID')}: {row.get('状态')} {row.get('子任务')}")
-    return 0
+    return plan_task_commands.plan_status_command(args, deps=plan_task_deps())
 
 
 def plan_stage_list_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    plan_path = task_plan_path(root)
-    payload: dict[str, object] = {
-        "command": "plan stage list",
-        "ok": True,
-        "context": str(root),
-        "plan": str(plan_path),
-        "stages": [task_stage_payload(row) for row in read_task_stage_rows(plan_path)],
-        "error_code": None,
-        "next_actions": [],
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        stages = payload["stages"]
-        if not stages:
-            print("no task stages")
-        for row in stages:
-            if isinstance(row, dict):
-                print(f"{row.get('id')}\t{row.get('status')}\t{row.get('parent')}\t{row.get('title')}")
-    return 0
+    return plan_task_commands.plan_stage_list_command(args, deps=plan_task_deps())
 
 
 def plan_stage_add_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    task_rows = read_task_rows(plan_path)
-    stage_rows = read_task_stage_rows(plan_path)
-    stage_id = args.id
-    parent_task = args.parent
-    validate_task_stage_parent(task_rows, parent_task, stage_id)
-    if find_task_stage_row(stage_rows, stage_id) is not None:
-        raise SystemExit(f"task_stage_duplicate_id: {stage_id}")
-    title = (args.title or "").strip()
-    if not title:
-        raise SystemExit("task_stage_scope_invalid: stage title cannot be empty")
-    workstream = (args.workstream or "无。").strip() or "无。"
-    validate_task_stage_workstream(root, workstream)
-    row = {
-        "ID": stage_id,
-        "状态": "Pending",
-        "父任务": parent_task,
-        "名称": title,
-        "归属 Workstream": workstream,
-        "依赖": (args.depends or "无。").strip() or "无。",
-        "输出物": (args.output or "待补充。").strip() or "待补充。",
-        "证据": "无。",
-        "下一步": (args.next_action or "待推进。").strip() or "待推进。",
-    }
-    if not dry_run:
-        write_task_stage_rows(plan_path, [*stage_rows, row])
-    check_result = maybe_check_after(args, root)
-    action = "would add" if dry_run else "added"
-    return emit_write_result(
-        args,
-        "plan stage add",
-        f"{action} task stage {stage_id} in {plan_path}",
-        [plan_path],
-        check_result,
-        extra_payload={"stage": task_stage_payload(row)},
-    )
+    return plan_task_commands.plan_stage_add_command(args, deps=plan_task_deps())
 
 
 def plan_stage_set_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    task_rows = read_task_rows(plan_path)
-    stage_rows = read_task_stage_rows(plan_path)
-    row = find_task_stage_row(stage_rows, args.id)
-    if row is None:
-        raise SystemExit(f"task_stage_not_found: {args.id}")
-    if args.parent is not None:
-        parent_task = args.parent
-        validate_task_stage_parent(task_rows, parent_task, args.id)
-        row["父任务"] = parent_task
-    else:
-        validate_task_stage_parent(task_rows, row.get("父任务", ""), args.id)
-    if args.status:
-        row["状态"] = args.status
-    if args.title is not None:
-        title = args.title.strip()
-        if not title:
-            raise SystemExit("task_stage_scope_invalid: stage title cannot be empty")
-        row["名称"] = title
-    if args.workstream is not None:
-        workstream = args.workstream.strip() or "无。"
-        validate_task_stage_workstream(root, workstream)
-        row["归属 Workstream"] = workstream
-    if args.depends is not None:
-        row["依赖"] = args.depends.strip() or "无。"
-    if args.output is not None:
-        row["输出物"] = args.output.strip() or "无。"
-    if args.evidence is not None:
-        row["证据"] = args.evidence.strip() or "无。"
-    if args.next_action is not None:
-        row["下一步"] = args.next_action.strip() or "无。"
-    if not dry_run:
-        write_task_stage_rows(plan_path, stage_rows)
-    check_result = maybe_check_after(args, root)
-    action = "would update" if dry_run else "updated"
-    return emit_write_result(
-        args,
-        "plan stage set",
-        f"{action} task stage {args.id} in {plan_path}",
-        [plan_path],
-        check_result,
-        extra_payload={"stage": task_stage_payload(row)},
-    )
+    return plan_task_commands.plan_stage_set_command(args, deps=plan_task_deps())
 
 
 def plan_stage_done_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    _task_rows = read_task_rows(plan_path)
-    stage_rows = read_task_stage_rows(plan_path)
-    row = find_task_stage_row(stage_rows, args.id)
-    if row is None:
-        raise SystemExit(f"task_stage_not_found: {args.id}")
-    evidence = (args.evidence or "").strip()
-    if not evidence:
-        raise SystemExit(f"task_stage_missing_evidence: {args.id}")
-    row["状态"] = "Done"
-    row["证据"] = evidence
-    if args.next_action is not None:
-        row["下一步"] = args.next_action.strip() or "无。"
-    else:
-        row["下一步"] = "无。"
-    if not dry_run:
-        write_task_stage_rows(plan_path, stage_rows)
-    check_result = maybe_check_after(args, root)
-    action = "would mark" if dry_run else "marked"
-    return emit_write_result(
-        args,
-        "plan stage done",
-        f"{action} task stage {args.id} Done in {plan_path}",
-        [plan_path],
-        check_result,
-        extra_payload={"stage_id": args.id, "status": "Done", "evidence": evidence},
-    )
+    return plan_task_commands.plan_stage_done_command(args, deps=plan_task_deps())
 
 
 def current_task_path(root: Path) -> Path:
@@ -4761,87 +3337,19 @@ def render_empty_current_task() -> str:
 
 
 def task_start_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    task_path = current_task_path(root)
-    if task_path.exists() and extract_current_task_status(task_path) == "Active" and not args.force:
-        raise SystemExit(f"current task is Active; use --force to replace it: {task_path}")
-    rows = read_task_rows(plan_path)
-    row = find_task_row(rows, args.id)
-    blocked = blocked_dependency_ids(row, rows)
-    if blocked and not args.force and not dry_run:
-        raise SystemExit(f"task {args.id} has unfinished dependencies; use --force to start anyway: {', '.join(blocked)}")
-    fields = build_task_start_fields(plan_path, row, rows, bool(blocked and args.force))
-    for candidate in rows:
-        if candidate.get("状态") == "Active" and candidate.get("ID") != args.id:
-            candidate["状态"] = "Pending"
-    row["状态"] = "Active"
-    if not dry_run:
-        write_task_rows(plan_path, rows)
-        set_plan_focus(plan_path, args.id)
-        set_plan_status(plan_path, "Active")
-        task_path.write_text(str(fields["content"]), encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would start" if dry_run else "started"
-    return emit_write_result(
-        args,
-        "task start",
-        f"{action} task {args.id}",
-        [plan_path, task_path],
-        check_result,
-        extra_payload={
-            "task_id": fields["task_id"],
-            "generated_title": fields["generated_title"],
-            "blocked_dependencies": fields["blocked_dependencies"],
-        },
-        warnings=fields["warnings"] if isinstance(fields["warnings"], list) else [],
-    )
+    return plan_task_commands.task_start_command(args, deps=plan_task_deps())
 
 
 def task_done_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    task_path = current_task_path(root)
-    rows = read_task_rows(plan_path)
-    row = find_task_row(rows, args.id)
-    row["状态"] = "Done"
-    row["证据"] = args.evidence.strip() or "已完成。"
-    row["下一步"] = "无。"
-    if not dry_run:
-        write_task_rows(plan_path, rows)
-        if task_path.exists():
-            task_path.write_text(replace_section_text(read_text(task_path), "## 当前任务状态", "Done"), encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would mark" if dry_run else "marked"
-    return emit_write_result(args, "task done", f"{action} task {args.id} done", [plan_path, task_path], check_result)
+    return plan_task_commands.task_done_command(args, deps=plan_task_deps())
 
 
 def task_block_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    plan_path = task_plan_path(root)
-    rows = read_task_rows(plan_path)
-    row = find_task_row(rows, args.id)
-    row["状态"] = "Blocked"
-    row["下一步"] = args.reason.strip() or "等待阻塞解除。"
-    if not dry_run:
-        write_task_rows(plan_path, rows)
-    check_result = maybe_check_after(args, root)
-    action = "would block" if dry_run else "blocked"
-    return emit_write_result(args, "task block", f"{action} task {args.id}", [plan_path], check_result)
+    return plan_task_commands.task_block_command(args, deps=plan_task_deps())
 
 
 def task_clear_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    task_path = current_task_path(root)
-    if not dry_run:
-        task_path.write_text(render_empty_current_task(), encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would clear" if dry_run else "cleared"
-    return emit_write_result(args, "task clear", f"{action} current task {task_path}", [task_path], check_result)
+    return plan_task_commands.task_clear_command(args, deps=plan_task_deps())
 
 
 TERMINAL_SUBTASK_STATUSES = {"Done", "Skipped", "Superseded"}
@@ -6114,59 +4622,17 @@ def doctor_projects_next_actions(
     return sorted(dict.fromkeys(actions))
 
 
+def doctor_deps() -> doctor_commands.DoctorDependencies:
+    return doctor_commands.DoctorDependencies(
+        doctor_project_payload=doctor_project_payload,
+        doctor_single_context_payload=doctor_single_context_payload,
+        doctor_summary=doctor_summary,
+        doctor_projects_next_actions=doctor_projects_next_actions,
+    )
+
+
 def doctor_command(args: argparse.Namespace) -> int:
-    if getattr(args, "projects", None):
-        if getattr(args, "fix", "none") != "none":
-            raise SystemExit(
-                "doctor_projects_fix_unsupported: --projects is read-only; "
-                "run single-project doctor with --fix for write repairs"
-            )
-        if getattr(args, "report", False) or getattr(args, "draft_semantic", False):
-            raise SystemExit(
-                "doctor_projects_write_unsupported: --projects is read-only; "
-                "run single-project doctor with --report or --draft-semantic"
-            )
-        project_payloads = [doctor_project_payload(args, project) for project in args.projects]
-        ok = all(bool(item.get("ok")) for item in project_payloads)
-        findings = [
-            finding
-            for item in project_payloads
-            for finding in item.get("findings", [])
-            if isinstance(finding, dict)
-        ]
-        changed_files = [
-            changed_file
-            for item in project_payloads
-            for changed_file in item.get("changed_files", [])
-            if isinstance(changed_file, str)
-        ]
-        payload: dict[str, object] = {
-            "schema_version": JSON_SCHEMA_VERSION,
-            "command": "doctor",
-            "ok": ok,
-            "projects": project_payloads,
-            "summary": doctor_summary(findings),
-            "changed_files": sorted(dict.fromkeys(changed_files)),
-            "error_code": None if ok else "doctor_failed",
-            "message": "" if ok else "one or more projects failed",
-            "next_actions": doctor_projects_next_actions(project_payloads, findings, getattr(args, "fix", "none"), ok),
-        }
-    else:
-        payload = doctor_single_context_payload(args, require_context_root(args.path))
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        if "projects" in payload:
-            for item in payload["projects"]:
-                if isinstance(item, dict):
-                    print(f"{item.get('context')}: {item.get('summary', {}).get('findings_total', 0)} finding(s)")
-        else:
-            print(f"doctor findings: {payload['summary']['findings_total']}")
-            for finding in payload.get("findings", []):
-                if isinstance(finding, dict):
-                    print(f"{finding.get('severity')}: {finding.get('code')} - {finding.get('message')}")
-    return 0 if payload.get("ok") else 1
+    return doctor_commands.doctor_command(args, deps=doctor_deps())
 
 
 def archive_index_path(root: Path) -> Path:
@@ -6363,57 +4829,25 @@ def skipped_missing_generated_archive_details(root: Path, index_text: str) -> li
     return skipped
 
 
-def archive_sync_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    index_path = archive_index_path(root)
-    original = read_text(index_path) if index_path.exists() else render_archive_index()
-    rows, skipped, warnings = collect_archive_sync_rows(root)
-    skipped.extend(skipped_missing_generated_archive_details(root, original))
-    generated_table = render_archive_index_table(rows)
-
-    if ARCHIVE_INDEX_MARKER_START in original or ARCHIVE_INDEX_MARKER_END in original:
-        updated, changed = replace_generated_marker_block(
-            original,
-            ARCHIVE_INDEX_MARKER_START,
-            ARCHIVE_INDEX_MARKER_END,
-            generated_table,
-        )
-        initialized_marker = False
-    elif args.init_marker:
-        updated, changed = insert_generated_marker_block_after_heading(
-            original,
-            "## 归档条目",
-            ARCHIVE_INDEX_MARKER_START,
-            ARCHIVE_INDEX_MARKER_END,
-            generated_table,
-            replace_empty_table_header=ARCHIVE_TABLE_HEADER,
-        )
-        initialized_marker = True
-    else:
-        raise SystemExit("generated_marker_missing: archive/Archive_Index.md is missing ACF:ARCHIVE:INDEX-GENERATED markers")
-
-    changed_files = [index_path] if changed or not index_path.exists() else []
-    if changed_files and not dry_run_enabled(args):
-        index_path.parent.mkdir(parents=True, exist_ok=True)
-        index_path.write_text(updated, encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would sync" if dry_run_enabled(args) else "synced"
-    extra_payload: dict[str, object] = {
-        "generated_count": len(rows),
-        "skipped_items": skipped,
-        "initialized_marker": initialized_marker,
-    }
-    if dry_run_enabled(args):
-        extra_payload["planned_block"] = generated_table
-    return emit_write_result(
-        args,
-        "archive sync",
-        f"{action} Archive index generated block",
-        changed_files,
-        check_result,
-        extra_payload=extra_payload,
-        warnings=warnings,
+def archive_deps() -> archive_commands.ArchiveDependencies:
+    return archive_commands.ArchiveDependencies(
+        maybe_check_after=maybe_check_after,
+        archive_index_path=archive_index_path,
+        read_text=read_text,
+        render_archive_index=render_archive_index,
+        collect_archive_sync_rows=collect_archive_sync_rows,
+        skipped_missing_generated_archive_details=skipped_missing_generated_archive_details,
+        render_archive_index_table=render_archive_index_table,
+        archive_file=archive_file,
+        current_task_path=current_task_path,
+        task_plan_path=task_plan_path,
+        find_archive_table=find_archive_table,
+        archive_table_header=ARCHIVE_TABLE_HEADER,
     )
+
+
+def archive_sync_command(args: argparse.Namespace) -> int:
+    return archive_commands.archive_sync_command(args, deps=archive_deps())
 
 
 def archive_file(root: Path, source: Path, kind: str, reason: str, force: bool, dry_run: bool) -> list[Path]:
@@ -6469,50 +4903,15 @@ def archive_file(root: Path, source: Path, kind: str, reason: str, force: bool, 
 
 
 def archive_current_task_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    changed = archive_file(root, current_task_path(root), "Task", args.reason, args.force, dry_run)
-    check_result = maybe_check_after(args, root)
-    action = "would archive" if dry_run else "archived"
-    return emit_write_result(args, "archive current-task", f"{action} current task", changed, check_result)
+    return archive_commands.archive_current_task_command(args, deps=archive_deps())
 
 
 def archive_task_plan_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    changed = archive_file(root, task_plan_path(root), "Plan", args.reason, args.force, dry_run)
-    check_result = maybe_check_after(args, root)
-    action = "would archive" if dry_run else "archived"
-    return emit_write_result(args, "archive task-plan", f"{action} task plan", changed, check_result)
+    return archive_commands.archive_task_plan_command(args, deps=archive_deps())
 
 
 def archive_list_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    index_path = archive_index_path(root)
-    rows: list[dict[str, str]] = []
-    if index_path.exists():
-        lines = read_text(index_path).splitlines()
-        table, legacy = find_archive_table(lines)
-        keys = ["日期", "类型", "标题", "原因", "详情"] if legacy else ["日期", "类型", "ID", "原路径", "归档路径", "状态", "原因"]
-        for line in lines[table.body_start : table.body_end]:
-            cells = split_table_line(line)
-            if len(cells) >= len(keys) and cells[0] != "暂无":
-                rows.append(dict(zip(keys, cells)))
-    payload: dict[str, object] = {
-        "command": "archive list",
-        "ok": True,
-        "context": str(root),
-        "archives": rows,
-        "error_code": None,
-        "next_actions": [],
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        for row in rows:
-            print(f"{row.get('日期')} {row.get('类型')} {row.get('ID') or row.get('标题')} {row.get('归档路径') or row.get('详情')}")
-    return 0
+    return archive_commands.archive_list_command(args, deps=archive_deps())
 
 
 def workstream_index_path(root: Path) -> Path:
@@ -8765,27 +7164,34 @@ Draft
 """
 
 
+def knowledge_deps() -> knowledge_commands.KnowledgeDependencies:
+    return knowledge_commands.KnowledgeDependencies(
+        maybe_check_after=maybe_check_after,
+        resolve_context_existing_path=resolve_context_existing_path,
+        slugify_file_stem=slugify_file_stem,
+        render_knowledge_draft=render_knowledge_draft,
+        knowledge_index_path=knowledge_index_path,
+        read_text=read_text,
+        render_knowledge_index=render_knowledge_index,
+        collect_knowledge_sync_rows=collect_knowledge_sync_rows,
+        skipped_missing_generated_knowledge_details=skipped_missing_generated_knowledge_details,
+        render_knowledge_index_table=render_knowledge_index_table,
+        resolve_knowledge_draft=resolve_knowledge_draft,
+        knowledge_title_from_text=knowledge_title_from_text,
+        extract_heading_value=extract_heading_value,
+        safe_section_body_from_text=safe_section_body_from_text,
+        similar_knowledge_entries=similar_knowledge_entries,
+        collect_knowledge_entries=collect_knowledge_entries,
+        next_knowledge_id=next_knowledge_id,
+        update_knowledge_index=update_knowledge_index,
+        knowledge_detail_path=knowledge_detail_path,
+        knowledge_table_header=KNOWLEDGE_TABLE_HEADER,
+        valid_knowledge_statuses=VALID_KNOWLEDGE_STATUSES,
+    )
+
+
 def knowledge_draft_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    title = args.title.strip()
-    if not title:
-        raise SystemExit("knowledge title cannot be empty")
-    sources = [source.strip() for source in args.source if source.strip()]
-    if not sources:
-        raise SystemExit("knowledge draft requires at least one --source")
-    for source in sources:
-        resolve_context_existing_path(root, source)
-    draft_dir = root / "worklog" / "knowledge-drafts"
-    draft_path = draft_dir / f"{date.today().isoformat()}-{slugify_file_stem(title)}.md"
-    if draft_path.exists() and not args.force:
-        raise SystemExit(f"knowledge draft already exists: {draft_path}")
-    if not dry_run:
-        draft_dir.mkdir(parents=True, exist_ok=True)
-        draft_path.write_text(render_knowledge_draft(title, sources, args.tag, args.summary), encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would create" if dry_run else "created"
-    return emit_write_result(args, "knowledge draft", f"{action} knowledge draft {draft_path}", [draft_path], check_result)
+    return knowledge_commands.knowledge_draft_command(args, deps=knowledge_deps())
 
 
 def knowledge_index_path(root: Path) -> Path:
@@ -9006,61 +7412,7 @@ def skipped_missing_generated_knowledge_details(root: Path, index_text: str) -> 
 
 
 def knowledge_sync_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    index_path = knowledge_index_path(root)
-    if index_path.exists():
-        original = read_text(index_path)
-    else:
-        original = render_knowledge_index()
-
-    rows, skipped, warnings = collect_knowledge_sync_rows(root)
-    skipped.extend(skipped_missing_generated_knowledge_details(root, original))
-    generated_table = render_knowledge_index_table(rows)
-
-    if KNOWLEDGE_INDEX_MARKER_START in original or KNOWLEDGE_INDEX_MARKER_END in original:
-        updated, changed = replace_generated_marker_block(
-            original,
-            KNOWLEDGE_INDEX_MARKER_START,
-            KNOWLEDGE_INDEX_MARKER_END,
-            generated_table,
-        )
-        initialized_marker = False
-    elif args.init_marker:
-        updated, changed = insert_generated_marker_block_after_heading(
-            original,
-            "## Knowledge 条目",
-            KNOWLEDGE_INDEX_MARKER_START,
-            KNOWLEDGE_INDEX_MARKER_END,
-            generated_table,
-            replace_empty_table_header=KNOWLEDGE_TABLE_HEADER,
-        )
-        initialized_marker = True
-    else:
-        raise SystemExit("generated_marker_missing: reference/Knowledge_Index.md is missing ACF:KNOWLEDGE:INDEX-GENERATED markers")
-
-    changed_files = [index_path] if changed or not index_path.exists() else []
-    if changed_files and not dry_run_enabled(args):
-        index_path.parent.mkdir(parents=True, exist_ok=True)
-        index_path.write_text(updated, encoding="utf-8")
-
-    check_result = maybe_check_after(args, root)
-    action = "would sync" if dry_run_enabled(args) else "synced"
-    extra_payload: dict[str, object] = {
-        "generated_count": len(rows),
-        "skipped_items": skipped,
-        "initialized_marker": initialized_marker,
-    }
-    if dry_run_enabled(args):
-        extra_payload["planned_block"] = generated_table
-    return emit_write_result(
-        args,
-        "knowledge sync",
-        f"{action} Knowledge index generated block",
-        changed_files,
-        check_result,
-        extra_payload=extra_payload,
-        warnings=warnings,
-    )
+    return knowledge_commands.knowledge_sync_command(args, deps=knowledge_deps())
 
 
 def similar_knowledge_entries(
@@ -9105,76 +7457,11 @@ def knowledge_similarity_messages(root: Path) -> list[str]:
 
 
 def knowledge_apply_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    draft_path = resolve_knowledge_draft(root, args.draft)
-    text = read_text(draft_path)
-    title = knowledge_title_from_text(text, draft_path.stem)
-    status = extract_heading_value(draft_path, "## 状态") or "Draft"
-    if status not in VALID_KNOWLEDGE_STATUSES:
-        raise SystemExit(f"invalid knowledge status: {status}")
-    tags = extract_heading_value(draft_path, "## 标签") or "未分类"
-    summary = extract_heading_value(draft_path, "## 摘要") or "无。"
-    candidate = KnowledgeEntry(
-        knowledge_id="KNEW",
-        title=title,
-        status=status,
-        summary=summary,
-        conclusion=safe_section_body_from_text(text, "## 结论"),
-        path=draft_path,
-    )
-    similar = similar_knowledge_entries(candidate, collect_knowledge_entries(root))
-    if similar and not args.allow_similar and not dry_run:
-        ids = ", ".join(str(item["id"]) for item in similar)
-        raise SystemExit(f"similar knowledge already exists; use --allow-similar to apply anyway: {ids}")
-    knowledge_id = next_knowledge_id(root)
-    destination = root / "reference" / "knowledge" / f"{knowledge_id}-{slugify_file_stem(title)}.md"
-    if destination.exists():
-        raise SystemExit(f"knowledge file already exists: {destination}")
-    changed = [destination, knowledge_index_path(root)]
-    if not dry_run:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(text.replace("# K-草案：", f"# {knowledge_id}：", 1), encoding="utf-8")
-        update_knowledge_index(root, knowledge_id, title, status, tags, summary, destination.relative_to(root).as_posix())
-    check_result = maybe_check_after(args, root)
-    action = "would apply" if dry_run else "applied"
-    warnings = [f"similar knowledge detected: {item['id']} {item['title']}" for item in similar]
-    return emit_write_result(
-        args,
-        "knowledge apply",
-        f"{action} knowledge {knowledge_id}",
-        changed,
-        check_result,
-        extra_payload={"similar_knowledge": similar},
-        warnings=warnings,
-    )
+    return knowledge_commands.knowledge_apply_command(args, deps=knowledge_deps())
 
 
 def knowledge_list_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    rows: list[dict[str, str]] = []
-    index_path = knowledge_index_path(root)
-    if index_path.exists():
-        table = find_table(read_text(index_path).splitlines(), KNOWLEDGE_TABLE_HEADER)
-        for line in read_text(index_path).splitlines()[table.body_start : table.body_end]:
-            cells = split_table_line(line)
-            if len(cells) >= 6 and cells[0] != "暂无":
-                rows.append(dict(zip(["ID", "标题", "状态", "标签", "摘要", "详情"], cells)))
-    payload: dict[str, object] = {
-        "command": "knowledge list",
-        "ok": True,
-        "context": str(root),
-        "knowledge": rows,
-        "error_code": None,
-        "next_actions": [],
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        for row in rows:
-            print(f"{row.get('ID')} {row.get('状态')} {row.get('标题')}")
-    return 0
+    return knowledge_commands.knowledge_list_command(args, deps=knowledge_deps())
 
 
 def knowledge_detail_path(root: Path, knowledge_id: str) -> Path:
@@ -9187,55 +7474,11 @@ def knowledge_detail_path(root: Path, knowledge_id: str) -> Path:
 
 
 def knowledge_show_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    detail = knowledge_detail_path(root, args.id)
-    text = read_text(detail)
-    payload: dict[str, object] = {
-        "command": "knowledge show",
-        "ok": True,
-        "context": str(root),
-        "id": args.id,
-        "file": str(detail),
-        "body": text,
-        "error_code": None,
-        "next_actions": [],
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(text)
-    return 0
+    return knowledge_commands.knowledge_show_command(args, deps=knowledge_deps())
 
 
 def knowledge_mark_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    dry_run = dry_run_enabled(args)
-    detail = knowledge_detail_path(root, args.id)
-    text = replace_section_text(read_text(detail), "## 状态", args.status)
-    if args.status == "Promoted" and not args.promoted_to.strip():
-        raise SystemExit("--promoted-to is required when status is Promoted")
-    if args.promoted_to.strip():
-        addition = f"\n\nPromoted to: `{args.promoted_to.strip()}`"
-        text = append_section_text(text, "## 与现有事实源的关系", addition)
-    if not dry_run:
-        detail.write_text(text, encoding="utf-8")
-        # Keep index status in sync.
-        index_path = knowledge_index_path(root)
-        lines = read_text(index_path).splitlines()
-        table = find_table(lines, KNOWLEDGE_TABLE_HEADER)
-        rows = lines[table.body_start : table.body_end]
-        updated_rows = []
-        for row in rows:
-            cells = split_table_line(row)
-            if len(cells) >= 6 and cells[0] == args.id:
-                cells[2] = args.status
-                row = render_table_row(cells)
-            updated_rows.append(row)
-        index_path.write_text("\n".join(lines[: table.body_start] + updated_rows + lines[table.body_end :]).rstrip() + "\n", encoding="utf-8")
-    check_result = maybe_check_after(args, root)
-    action = "would mark" if dry_run else "marked"
-    return emit_write_result(args, "knowledge mark", f"{action} knowledge {args.id}", [detail, knowledge_index_path(root)], check_result)
+    return knowledge_commands.knowledge_mark_command(args, deps=knowledge_deps())
 
 
 def parse_iso_date_value(value: str) -> date | None:
@@ -9669,46 +7912,23 @@ def collect_review_stale_items(root: Path, days: int, today_value: date) -> list
     return stale_items
 
 
+def review_audit_curate_deps() -> review_audit_curate_commands.ReviewAuditCurateDependencies:
+    return review_audit_curate_commands.ReviewAuditCurateDependencies(
+        maybe_check_after=maybe_check_after,
+        parse_iso_date_value=parse_iso_date_value,
+        collect_review_stale_items=collect_review_stale_items,
+        review_stale_summary=review_stale_summary,
+        review_stale_next_actions=review_stale_next_actions,
+        collect_audit_context_candidates=collect_audit_context_candidates,
+        audit_context_summary=audit_context_summary,
+        audit_context_next_actions=audit_context_next_actions,
+        curation_draft_path=curation_draft_path,
+        render_curation_draft=render_curation_draft,
+    )
+
+
 def review_stale_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    if args.days <= 0:
-        raise SystemExit("--days must be greater than 0")
-    today_value = parse_iso_date_value(args.today) if args.today else date.today()
-    if today_value is None:
-        raise SystemExit("invalid --today date")
-    stale_items = collect_review_stale_items(root, args.days, today_value)
-    warnings = [str(item["reason"]) for item in stale_items]
-    payload: dict[str, object] = {
-        "command": "review stale",
-        "ok": True,
-        "context": str(root),
-        "days": args.days,
-        "today": today_value.isoformat(),
-        "summary": review_stale_summary(stale_items),
-        "warnings": warnings,
-        "stale_items": stale_items,
-        "error_code": None,
-        "next_actions": review_stale_next_actions(stale_items),
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        if stale_items:
-            print(f"review stale: {len(stale_items)} candidate(s)")
-        else:
-            print("review stale: clean (0 candidate(s))")
-        grouped: dict[str, list[dict[str, object]]] = {}
-        for item in stale_items:
-            grouped.setdefault(str(item.get("kind") or "unknown"), []).append(item)
-        for kind in sorted(grouped):
-            print(f"{kind}:")
-            for item in grouped[kind]:
-                item_id = f" {item['id']}" if "id" in item else ""
-                print(f"- {item['path']}{item_id}: {item['signal']} - {item['reason']}")
-        for action in payload["next_actions"]:
-            print(f"next: {action}")
-    return 0
+    return review_audit_curate_commands.review_stale_command(args, deps=review_audit_curate_deps())
 
 
 def audit_candidate(
@@ -9946,36 +8166,7 @@ def collect_audit_context_candidates(root: Path, today_value: date) -> list[dict
 
 
 def audit_context_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    today_value = date.today()
-    candidates = collect_audit_context_candidates(root, today_value)
-    payload: dict[str, object] = {
-        "schema_version": JSON_SCHEMA_VERSION,
-        "ok": True,
-        "command": "audit context",
-        "context": str(root),
-        "candidates": candidates,
-        "summary": audit_context_summary(candidates),
-        "next_actions": audit_context_next_actions(candidates),
-    }
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        if candidates:
-            print(f"audit context: {len(candidates)} candidate(s)")
-        else:
-            print("audit context: clean (0 candidate(s))")
-        grouped: dict[str, list[dict[str, object]]] = {}
-        for candidate in candidates:
-            grouped.setdefault(str(candidate.get("kind") or "unknown"), []).append(candidate)
-        for kind in sorted(grouped):
-            print(f"{kind}:")
-            for candidate in grouped[kind]:
-                print(f"- {candidate['path']}: {candidate['severity']} - {candidate['reason']}")
-        for action in payload["next_actions"]:
-            print(f"next: {action}")
-    return 0
+    return review_audit_curate_commands.audit_context_command(args, deps=review_audit_curate_deps())
 
 
 def curation_draft_path(root: Path, draft_date: date, name: str | None) -> Path:
@@ -10031,85 +8222,7 @@ def render_curation_draft(
 
 
 def curate_draft_command(args: argparse.Namespace) -> int:
-    root = require_context_root(args.path)
-    if args.days <= 0:
-        raise SystemExit("--days must be greater than 0")
-    today_value = parse_iso_date_value(args.today) if args.today else date.today()
-    if today_value is None:
-        raise SystemExit("invalid --today date")
-    stale_items = collect_review_stale_items(root, args.days, today_value)
-    stale_summary = review_stale_summary(stale_items)
-    draft_path = curation_draft_path(root, today_value, args.name)
-    rel_draft_path = relative_display_path(draft_path, root)
-    dry_run = dry_run_enabled(args)
-    changed_files: list[Path] = []
-    created = False
-    message: str
-
-    if not stale_items:
-        message = "curate draft: clean; no stale candidates, no draft created"
-    else:
-        if draft_path.exists() and not dry_run:
-            payload = {
-                "command": "curate draft",
-                "ok": False,
-                "error_code": "curation_draft_exists",
-                "draft_path": rel_draft_path,
-                "created": False,
-                "stale_summary": stale_summary,
-                "stale_items": stale_items,
-                "changed_files": [],
-                "message": f"curation draft already exists: {rel_draft_path}",
-                "next_actions": error_next_actions("curation_draft_exists"),
-            }
-            set_result_payload(args, payload)
-            if json_enabled(args):
-                print_json(payload)
-            else:
-                print(f"ERROR: {payload['message']}", file=sys.stderr)
-            return EXIT_SAFETY_REFUSED
-        changed_files = [draft_path]
-        message = f"would create curation draft {rel_draft_path}" if dry_run else f"created curation draft {rel_draft_path}"
-        if not dry_run:
-            draft_path.parent.mkdir(parents=True, exist_ok=True)
-            draft_path.write_text(
-                render_curation_draft(today_value, args.days, stale_items, stale_summary),
-                encoding="utf-8",
-            )
-            created = True
-
-    check_result = maybe_check_after(args, root)
-    payload: dict[str, object] = {
-        "command": "curate draft",
-        "ok": check_result.ok if check_result is not None else True,
-        "error_code": check_error_code(check_result),
-        "dry_run": dry_run,
-        "draft_path": rel_draft_path if stale_items else None,
-        "created": created,
-        "stale_summary": stale_summary,
-        "stale_items": stale_items,
-        "changed_files": [relative_display_path(path, root) for path in changed_files],
-        "message": message,
-        "next_actions": write_next_actions(dry_run, check_result, changed_files)
-        if stale_items
-        else review_stale_next_actions(stale_items),
-    }
-    if dry_run and stale_items:
-        payload["planned_draft"] = render_curation_draft(today_value, args.days, stale_items, stale_summary)
-    if check_result is not None:
-        payload["check"] = check_payload(check_result)
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(message)
-        if stale_items:
-            label = "would change" if dry_run else "changed"
-            for changed_file in changed_files:
-                print(f"{label}: {relative_display_path(changed_file, root)}")
-        for action in payload["next_actions"]:
-            print(f"next: {action}")
-    return 0 if check_result is None or check_result.ok else 1
+    return review_audit_curate_commands.curate_draft_command(args, deps=review_audit_curate_deps())
 
 
 def iter_markdown_files(root: Path) -> Iterable[Path]:
@@ -10941,77 +9054,15 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
 
 
 def check_command(args: argparse.Namespace) -> int:
-    root = resolve_context_root(args.path)
-    profile = args.profile or infer_context_profile(root)
-    result = check_context(root, profile, args.strict)
-    payload: dict[str, object] = {
-        "command": "check",
-        "context": str(root),
-        "profile": profile,
-        "strict": args.strict,
-        "check": check_payload(result),
-        "ok": result.ok,
-        "error_code": check_error_code(result),
-        "next_actions": check_next_actions(result, args.strict),
-    }
-    if not result.ok:
-        payload["message"] = f"check failed: {len(result.errors)} error(s), {len(result.warnings)} warning(s)"
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-        return 0 if result.ok else 1
-
-    for error in result.errors:
-        print(f"ERROR: {error}", file=sys.stderr)
-    for warning in result.warnings:
-        print(f"WARN: {warning}", file=sys.stderr)
-    if result.ok:
-        print(f"check passed: {root}")
-        return 0
-    print(f"check failed: {len(result.errors)} error(s), {len(result.warnings)} warning(s)", file=sys.stderr)
-    return EXIT_CHECK_FAILED
+    return status_check_commands.check_command(args, check_context=check_context)
 
 
 def status_command(args: argparse.Namespace) -> int:
-    location = resolve_status_location(args.path)
-    profile = args.profile or location.profile
-    task_path = location.context_root / "active" / "Current_Task.md"
-    task_status = extract_current_task_status(task_path) if task_path.exists() else None
-    result = check_context(location.context_root, profile, args.strict)
-    payload: dict[str, object] = {
-        "command": "status",
-        "project_root": str(location.project_root),
-        "context": str(location.context_root),
-        "profile": profile,
-        "current_task": task_status or "Unknown",
-        "strict": args.strict,
-        "check": check_payload(result),
-        "ok": result.ok,
-        "error_code": check_error_code(result),
-        "next_actions": check_next_actions(result, args.strict),
-    }
-    if not result.ok:
-        payload["message"] = f"check failed: {len(result.errors)} error(s), {len(result.warnings)} warning(s)"
-    set_result_payload(args, payload)
-    if json_enabled(args):
-        print_json(payload)
-        return 0 if result.ok else 1
-
-    print(f"project root: {location.project_root}")
-    print(f"context: {location.context_root}")
-    print(f"profile: {profile}")
-    print(f"current task: {task_status or 'Unknown'}")
-    print(f"check: {'passed' if result.ok else 'failed'}")
-    if result.errors:
-        print(f"errors: {len(result.errors)}")
-        for error in result.errors:
-            print(f"ERROR: {error}")
-    if result.warnings:
-        print(f"warnings: {len(result.warnings)}")
-        for warning in result.warnings:
-            print(f"WARN: {warning}")
-
-    return 0 if result.ok else 1
+    return status_check_commands.status_command(
+        args,
+        check_context=check_context,
+        extract_current_task_status=extract_current_task_status,
+    )
 
 
 def add_json_argument(parser: argparse.ArgumentParser) -> None:
