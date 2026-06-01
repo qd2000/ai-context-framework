@@ -106,7 +106,7 @@ Done / Cancelled Workstream 留在 `active/workstreams/` 时，应有 `keep_acti
 
 `acf doctor docs/ai --json` 是面向人和 AI 的上下文健康诊断入口。它复用 `check` 的结构校验结果，并额外报告跨文件生命周期漂移、终态 Workstream authority scope 残留、Workstreams / Archive generated index 漂移、Workstream 协议漏 `Merging`、Decisions_Index 摘要截断、Sources_Index 本地文件缺失、active 过厚、根目录探针输出和本地数据副本 hash / missing evidence。`--projects` 可一次只读诊断多个项目，每个项目独立输出 summary、findings、check 和 next_actions。
 
-`acf doctor docs/ai --fix safe --dry-run --json` 用于预览确定性修复；去掉 `--dry-run` 后才落盘。safe 修复只包含低歧义规则：当 Task_Plan 焦点指向 Done 任务且没有可推荐下一任务时清空焦点，修正 Current_Task 完成回写要求中明确回写目标行且无额外任务引用的错误 Txxx，移除 Done / Cancelled Workstream 中残留的 authority `assigned:` 写入范围，同步 Workstreams / Archive generated index，以及补齐 Workstream 协议中的 `Merging` 状态。`--projects` 保持只读，不能与写入型参数组合；`--fix evidence` 不改写语义权威文件，只在同一安全边界内修复并报告项目根内相对路径的数据证据信号。
+`acf doctor docs/ai --fix safe --dry-run --json` 用于预览确定性修复；去掉 `--dry-run` 后才落盘。safe 修复只包含低歧义规则：当 Task_Plan 焦点指向 Done 任务且没有可推荐下一任务时清空焦点，修正 Current_Task 完成回写要求中明确回写目标行且无额外任务引用的错误 Txxx，移除 Done / Cancelled Workstream 中残留的 authority `assigned:` 写入范围，同步 Workstreams / Archive generated index，以及补齐 Workstream 协议中的 `Merging` 状态。`--projects` 保持只读，不能与写入型参数组合；`--fix evidence` 不改写语义权威文件，只把项目根内相对路径的数据证据信号计入 planned evidence repairs，实际写回仍通过 report / draft 或人工审阅完成。
 
 `acf doctor docs/ai --report --today YYYY-MM-DD --json` 写入 worklog/doctor-reports/YYYY-MM-DD dot md，供人工查看完整 findings；`acf doctor docs/ai --draft-semantic --today YYYY-MM-DD --json` 写入 worklog/writeback-drafts/YYYY-MM-DD-doctor dot md，只包含 `draft_only` 和 `evidence_fix` findings；即使没有 findings，也会生成明确的 clean report 或空语义草案。两者默认不覆盖既有文件，确需替换时使用 `--force`；report 和 draft 都不进入默认读取路径。
 

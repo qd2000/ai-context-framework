@@ -3355,6 +3355,20 @@ class CliTests(unittest.TestCase):
             self.assertNotIn("No doctor findings found.", payload["next_actions"])
             self.assertTrue(any("per-project" in action for action in payload["next_actions"]))
 
+    def test_doctor_check_failed_next_actions_prioritize_check_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Context.md").unlink()
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertNotEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(payload, "check_failed", "doctor")
+            self.assertNotIn("No doctor findings found.", payload["next_actions"])
+            self.assertTrue(any("check" in action.lower() for action in payload["next_actions"]))
+
     def test_doctor_projects_fix_safe_is_rejected_without_writing(self):
         with tempfile.TemporaryDirectory() as tmp:
             drifted = Path(tmp) / "drifted"
@@ -4149,6 +4163,39 @@ class CliTests(unittest.TestCase):
             self.assertFalse(finding["safe_to_apply"])
             self.assertIn("data/source.csv", finding["message"])
             self.assertIn("data_lineage_missing", {finding["code"] for finding in payload["findings"]})
+
+    def test_doctor_fix_evidence_plans_evidence_repairs_without_writing_authority_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            target = project / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            left = project / "data" / "source.csv"
+            right = project / "copy" / "source.csv"
+            left.parent.mkdir(parents=True)
+            right.parent.mkdir(parents=True)
+            left.write_text("x,y\n1,2\n", encoding="utf-8")
+            right.write_text("x,y\n1,2\n", encoding="utf-8")
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8").rstrip()
+                + "\n\n数据副本待确认：`data/source.csv` 与 `copy/source.csv`。\n",
+                encoding="utf-8",
+            )
+            before = context_path.read_text(encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--fix", "evidence", "--dry-run", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            self.assert_success_json_contract(payload, "doctor")
+            self.assertIn("duplicate_data_hash_confirmed", {finding["code"] for finding in payload["findings"]})
+            self.assertEqual(payload["summary"]["planned_repairs"], 1)
+            self.assertEqual(payload["summary"]["planned_evidence_repairs"], 1)
+            self.assertEqual(payload["summary"]["applied_repairs"], 0)
+            self.assertEqual(payload["changed_files"], [])
+            self.assertEqual(context_path.read_text(encoding="utf-8"), before)
 
     def test_doctor_reports_duplicate_data_hash_from_plain_paths_in_same_paragraph(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -5993,6 +6040,7 @@ This records a reusable write-safety pattern instead of a current task fact.
                 ("audit context", ["audit", "context", str(target), "--json"]),
                 ("review stale", ["review", "stale", str(target), "--today", "2026-05-05", "--json"]),
                 ("curate draft", ["curate", "draft", str(target), "--today", "2026-05-05", "--dry-run", "--json"]),
+                ("doctor", ["doctor", str(target), "--json"]),
                 ("archive sync", ["archive", "sync", str(target), "--dry-run", "--json"]),
                 ("decisions sync", ["decisions", "sync", str(target), "--dry-run", "--json"]),
                 ("knowledge sync", ["knowledge", "sync", str(target), "--dry-run", "--json"]),

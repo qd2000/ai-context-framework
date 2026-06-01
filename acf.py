@@ -8107,12 +8107,32 @@ def apply_doctor_safe_fixes(root: Path, findings: Sequence[dict[str, object]], d
     return sorted(dict.fromkeys(changed)), repair_count
 
 
-def doctor_next_actions(findings: Sequence[dict[str, object]], fix: str) -> list[str]:
+def doctor_evidence_repair_count(findings: Sequence[dict[str, object]], fix: str) -> int:
+    if fix != "evidence":
+        return 0
+    return sum(1 for finding in findings if finding.get("repair_mode") == "evidence_fix")
+
+
+def doctor_next_actions(
+    findings: Sequence[dict[str, object]],
+    fix: str,
+    check_result: CheckResult | None = None,
+) -> list[str]:
+    if check_result is not None and not check_result.ok:
+        actions = [
+            "Fix the reported doctor check errors before relying on the doctor result.",
+            "Rerun `acf check --json` after correcting the context structure.",
+        ]
+        if findings:
+            actions.append("Review doctor findings after the structural check is clean.")
+        return actions
     if not findings:
         return ["No doctor findings found."]
     actions = ["Review doctor findings and apply safe fixes or create writeback drafts for semantic items."]
     if fix == "none" and any(item.get("safe_to_apply") for item in findings):
         actions.append("Rerun with `acf doctor --fix safe --json` to apply safe mechanical fixes.")
+    if fix == "none" and any(item.get("repair_mode") == "evidence_fix" for item in findings):
+        actions.append("Rerun with `acf doctor --fix evidence --dry-run --json` to plan evidence repairs without rewriting semantic authority files.")
     return actions
 
 
@@ -8304,8 +8324,10 @@ def doctor_single_context_payload(args: argparse.Namespace, root: Path) -> dict[
     check_result = maybe_check_after(args, root) if changed_files else None
     if check_result is None:
         check_result = check_context(root, infer_context_profile(root), strict)
+    evidence_repair_count = doctor_evidence_repair_count(findings, fix)
     summary["applied_repairs"] = repair_count if not dry_run_enabled(args) else 0
-    summary["planned_repairs"] = repair_count
+    summary["planned_repairs"] = repair_count + evidence_repair_count
+    summary["planned_evidence_repairs"] = evidence_repair_count
     summary["changed_repair_files"] = len(repair_changed_files)
     payload: dict[str, object] = {
         "schema_version": JSON_SCHEMA_VERSION,
@@ -8321,8 +8343,10 @@ def doctor_single_context_payload(args: argparse.Namespace, root: Path) -> dict[
         "findings": findings,
         "check": check_payload(check_result),
         "error_code": check_error_code(check_result),
-        "next_actions": doctor_next_actions(findings, fix),
+        "next_actions": doctor_next_actions(findings, fix, check_result),
     }
+    if not check_result.ok:
+        payload["message"] = "doctor check failed; inspect check.errors before applying doctor findings"
     payload.update(output_payload)
     return payload
 

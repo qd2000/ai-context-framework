@@ -213,6 +213,7 @@ worklog/writeback-drafts/YYYY-MM-DD-doctor.md
     "by_repair_mode": {"safe_fix": 1, "draft_only": 2},
     "planned_repairs": 1,
     "applied_repairs": 0,
+    "planned_evidence_repairs": 0,
     "changed_repair_files": 0
   },
   "findings": [],
