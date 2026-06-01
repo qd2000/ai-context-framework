@@ -258,7 +258,11 @@ class SmokeRunner:
         audit_step = self.run_acf(["audit", "context", str(context), "--json"])
         audit_step["ok"] = audit_step["ok"] and audit_step["payload"].get("candidates") == []
         steps.append(audit_step)
-        steps.append(self.run_acf(["workstream", "ready", "WS001", str(context), "--json"]))
+        steps.append(
+            self.run_acf(
+                ["workstream", "ready", "WS001", str(context), "--human-approved", "--json"]
+            )
+        )
         steps.append(
             self.run_acf(
                 [

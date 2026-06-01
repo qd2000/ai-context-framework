@@ -21,7 +21,7 @@
 |---|---|---|---|---|
 | ADR-0001 | 使用 `docs/ai` minimal 实例进行 dogfooding | Active | 使用 `docs/ai/` 作为本仓库真实 dogfooding 上下文实例，并采用 minimal profile 初始化。 | `decisions/ADR-0001.md` |
 | ADR-0002 | 使用 uv 管理本仓库 Python 运行环境 | Active | 本仓库提交 pyproject.toml 和 uv.lock，Python 代码运行与验证优先使用 uv run python；该约束只写入本仓库 dogfooding 上下文，不写入通用 template 规则。 | `decisions/ADR-0002.md` |
-| ADR-0003 | 采用两层 AGENTS.md 入口结构 | Active | 采用两层 AGENTS.md 入口结构： | `decisions/ADR-0003.md` |
+| ADR-0003 | 采用两层 AGENTS.md 入口结构 | Active | 采用两层 AGENTS.md 入口结构，根 AGENTS.md 作为薄入口转发到 `docs/ai` 内完整入口，降低重复维护和事实漂移。 | `decisions/ADR-0003.md` |
 | ADR-0004 | 将 acf 演进为可安装的 AI-facing 上下文维护 CLI | Active | 将 acf 从仓库内脚本逐步演进为可安装命令，支持自动发现上下文、机器可读输出、安全结构化编辑和写后检查；语义判断仍由人或 AI 完成，CLI 只负责确定性落盘和校验。 | `decisions/ADR-0004.md` |
 | ADR-0005 | 使用可选 Workstream 层管理并行目标线 | Active | 引入可选 Workstream 层，用于表达并行目标线。 | `decisions/ADR-0005.md` |
 <!-- ACF:DECISIONS:INDEX-GENERATED:END -->

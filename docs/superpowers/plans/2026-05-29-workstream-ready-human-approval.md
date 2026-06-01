@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python standard library, argparse CLI, unittest test suite.
 
+**Status:** Completed.
+
 ---
 
 ### Task 1: Add Red Tests for Human Approval Gate
@@ -15,7 +17,7 @@
 **Files:**
 - Modify: `tests/test_cli.py`
 
-- [ ] **Step 1: Add a failing test that ready without approval is rejected**
+- [x] **Step 1: Add a failing test that ready without approval is rejected**
 
 Add this test near the existing workstream ready tests:
 
@@ -58,7 +60,7 @@ Add this test near the existing workstream ready tests:
             self.assertIn("status: Active", detail_text)
 ```
 
-- [ ] **Step 2: Add a passing-path expectation using the new flag**
+- [x] **Step 2: Add a passing-path expectation using the new flag**
 
 Update existing ready success calls from:
 
@@ -84,7 +86,7 @@ to:
 ["workstream", "ready", workstream_id, str(target), "--human-approved"]
 ```
 
-- [ ] **Step 3: Verify red**
+- [x] **Step 3: Verify red**
 
 Run: `uv run python -m unittest tests.test_cli.CliTests.test_workstream_ready_requires_human_approval -v`
 
@@ -95,7 +97,7 @@ Expected: FAIL because `workstream_human_approval_required` does not exist yet o
 **Files:**
 - Modify: `acf.py`
 
-- [ ] **Step 1: Add error guidance**
+- [x] **Step 1: Add error guidance**
 
 In `next_actions_for_error`, add:
 
@@ -104,7 +106,7 @@ In `next_actions_for_error`, add:
         return ["Ask the human owner to confirm completion, then rerun with `--human-approved`."]
 ```
 
-- [ ] **Step 2: Enforce the gate before existing ready checks**
+- [x] **Step 2: Enforce the gate before existing ready checks**
 
 At the start of `workstream_ready_command`, after `detail` and `current_status` are loaded, add:
 
@@ -113,7 +115,7 @@ At the start of `workstream_ready_command`, after `detail` and `current_status` 
         raise SystemExit(f"workstream_human_approval_required: {args.id} ready requires --human-approved")
 ```
 
-- [ ] **Step 3: Add argparse flag**
+- [x] **Step 3: Add argparse flag**
 
 In the `workstream ready` parser setup, add before `add_write_arguments(workstream_ready_parser)`:
 
@@ -125,7 +127,7 @@ In the `workstream ready` parser setup, add before `add_write_arguments(workstre
     )
 ```
 
-- [ ] **Step 4: Verify green for targeted test**
+- [x] **Step 4: Verify green for targeted test**
 
 Run: `uv run python -m unittest tests.test_cli.CliTests.test_workstream_ready_requires_human_approval -v`
 
@@ -136,17 +138,17 @@ Expected: PASS.
 **Files:**
 - Modify: `tests/test_cli.py`
 
-- [ ] **Step 1: Update all intentional ready-success calls**
+- [x] **Step 1: Update all intentional ready-success calls**
 
 Every test path that expects `ReadyToMerge` success must pass `--human-approved`. Tests that validate missing merge request or invalid transition may omit `--human-approved` only if they are intentionally checking the new human approval gate first; otherwise include the flag to reach the older validation.
 
-- [ ] **Step 2: Run CLI test suite**
+- [x] **Step 2: Run CLI test suite**
 
 Run: `uv run python -m unittest tests.test_cli -v`
 
 Expected: PASS.
 
-- [ ] **Step 3: Run repository-required checks**
+- [x] **Step 3: Run repository-required checks**
 
 Run: `uv run acf check template`
 
