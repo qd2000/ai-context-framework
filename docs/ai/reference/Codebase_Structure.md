@@ -19,7 +19,7 @@ Draft
 
 ## 当前规划
 
-当前详细拆分规划以 [active/workstreams/WS002.md](../active/workstreams/WS002.md) 为准。
+当前详细拆分规划以已归档的 [archive/workstreams/WS002.md](../archive/workstreams/WS002.md) 为准。
 
 ---
 

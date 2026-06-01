@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Active
+Inactive
 
-说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Active
 
 | ID    | 状态   | 标题                         | Owner   | 写入范围                                                                                                                                                                                                                                                                                                                                                                                                      | 依赖                  | 输出物                              | 详情                                                  |
 | ----- | ---- | -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------- | --------------------------------------------------- |
-| WS002 | Active | acf 模块化拆分 | Codex | owned: docs/ai/active/workstreams/WS002.md, assigned: acf.py, assigned: ai_context_framework, assigned: pyproject.toml, assigned: MANIFEST.in, assigned: tests, assigned: scripts, assigned: docs/ai/reference/Codebase_Structure.md, assigned: README.md, assigned: docs/ai/reference/System_Manual.md, assigned: template/reference/System_Manual.md, assigned: docs/ai/active/Workstreams.md, assigned: ai_context_framework.egg-info |  | 模块化 package、薄 acf.py 入口、结构说明文档、完整验证记录 | active/workstreams/WS002.md |
+| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |
 
 ---
 
