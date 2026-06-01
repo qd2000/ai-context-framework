@@ -1,7 +1,7 @@
 """AI Context Framework package.
 
-The runtime CLI remains in the top-level acf.py module until the WS002
-migration reaches the entrypoint phase.
+The package CLI entrypoint is :mod:`ai_context_framework.cli`; top-level
+``acf.py`` remains as a compatibility shim.
 """
 
 __all__: tuple[str, ...] = ()

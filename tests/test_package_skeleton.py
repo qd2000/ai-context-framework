@@ -14,6 +14,7 @@ class PackageSkeletonTests(unittest.TestCase):
         cli = importlib.import_module("ai_context_framework.cli")
         constants = importlib.import_module("ai_context_framework.constants")
         doctor = importlib.import_module("ai_context_framework.commands.doctor")
+        runtime = importlib.import_module("ai_context_framework.runtime")
         task_domain = importlib.import_module("ai_context_framework.domains.tasks")
         decisions = importlib.import_module("ai_context_framework.commands.decisions")
         front_matter = importlib.import_module("ai_context_framework.front_matter")
@@ -38,12 +39,14 @@ class PackageSkeletonTests(unittest.TestCase):
         review_audit_curate = importlib.import_module("ai_context_framework.commands.review_audit_curate")
         status_check = importlib.import_module("ai_context_framework.commands.status_check")
         versioning = importlib.import_module("ai_context_framework.commands.versioning")
+        workstream = importlib.import_module("ai_context_framework.commands.workstream")
         worklog = importlib.import_module("ai_context_framework.commands.worklog")
         checks = importlib.import_module("ai_context_framework.validators.checks")
         template_checks = importlib.import_module("ai_context_framework.validators.template_checks")
 
         self.assertEqual(package.__all__, ())
         self.assertTrue(callable(cli.main))
+        self.assertTrue(callable(runtime.main))
         self.assertTrue(callable(front_matter.parse_front_matter))
         self.assertTrue(callable(json_contract.print_json))
         self.assertTrue(callable(locks.acquire_context_lock))
@@ -73,6 +76,7 @@ class PackageSkeletonTests(unittest.TestCase):
         self.assertEqual(log_commands.command_label(type("Args", (), {"command": "doctor"})()), "doctor")
         self.assertTrue(callable(status_check.check_command))
         self.assertEqual(versioning.normalize_release_version(version.VERSION), (version.VERSION, version.VERSION.removeprefix("v")))
+        self.assertTrue(callable(workstream.workstream_status_command))
         self.assertIn("## 今日完成", worklog.render_worklog_daily("2026-06-01", "summary", "conclusion"))
         self.assertEqual(checks.validate_task_id("T001"), "T001")
         self.assertTrue(callable(template_checks.check_template_packaging))
@@ -105,6 +109,7 @@ class PackageSkeletonTests(unittest.TestCase):
 
     def test_package_discovery_metadata_covers_package_modules(self):
         pyproject_text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('acf = "ai_context_framework.cli:main"', pyproject_text)
         self.assertIn('py-modules = ["acf"]', pyproject_text)
         self.assertIn("[tool.setuptools.packages.find]", pyproject_text)
         self.assertIn('include = ["ai_context_framework*"]', pyproject_text)
@@ -114,6 +119,11 @@ class PackageSkeletonTests(unittest.TestCase):
         )
         self.assertIn("acf", top_level.splitlines())
         self.assertIn("ai_context_framework", top_level.splitlines())
+
+        entry_points = (ROOT / "ai_context_framework.egg-info" / "entry_points.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("acf = ai_context_framework.cli:main", entry_points)
 
         sources = (ROOT / "ai_context_framework.egg-info" / "SOURCES.txt").read_text(
             encoding="utf-8"
@@ -126,6 +136,52 @@ class PackageSkeletonTests(unittest.TestCase):
         source = (ROOT / "acf.py").read_text(encoding="utf-8")
         self.assertNotRegex(source, r'(?m)^VERSION = "v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"$')
         self.assertIn("from ai_context_framework.version import VERSION", source)
+        self.assertIn("from ai_context_framework import runtime as _runtime", source)
+        self.assertLessEqual(len(source.splitlines()), 100)
+
+    def test_workstream_dependency_binding_refreshes_external_symbols(self):
+        workstream = importlib.import_module("ai_context_framework.commands.workstream")
+        sentinel = object()
+        previous = getattr(workstream, "dependency_probe", sentinel)
+        try:
+            original_handler = workstream.workstream_status_command
+            workstream._bind(
+                workstream.WorkstreamDependencies(
+                    {"dependency_probe": "first", "workstream_status_command": "replaced"}
+                )
+            )
+            self.assertEqual(workstream.dependency_probe, "first")
+            self.assertIs(workstream.workstream_status_command, original_handler)
+
+            workstream._bind(workstream.WorkstreamDependencies({"dependency_probe": "second"}))
+            self.assertEqual(workstream.dependency_probe, "second")
+        finally:
+            if previous is sentinel:
+                if hasattr(workstream, "dependency_probe"):
+                    delattr(workstream, "dependency_probe")
+            else:
+                workstream.dependency_probe = previous
+
+    def test_moved_workstream_helpers_remain_import_compatible(self):
+        acf_module = importlib.import_module("acf")
+        workstream = importlib.import_module("ai_context_framework.commands.workstream")
+
+        self.assertIs(acf_module.parse_workstream_archive_date, workstream.parse_workstream_archive_date)
+        with self.assertRaises(AttributeError):
+            getattr(acf_module, "definitely_missing_workstream_helper")
+
+    def test_top_level_shim_syncs_root_before_helper_forwarding(self):
+        acf_module = importlib.import_module("acf")
+        runtime = importlib.import_module("ai_context_framework.runtime")
+        previous_acf_root = acf_module.ROOT
+        previous_runtime_root = runtime.ROOT
+        try:
+            acf_module.ROOT = ROOT / "missing-source-checkout"
+            _ = acf_module.read_project_versions
+            self.assertEqual(runtime.ROOT, acf_module.ROOT)
+        finally:
+            acf_module.ROOT = previous_acf_root
+            runtime.ROOT = previous_runtime_root
 
 
 if __name__ == "__main__":

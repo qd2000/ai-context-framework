@@ -13,6 +13,7 @@ ai_context_framework/markers.py
 ai_context_framework/models.py
 ai_context_framework/observability.py
 ai_context_framework/paths.py
+ai_context_framework/runtime.py
 ai_context_framework/tables.py
 ai_context_framework/templates.py
 ai_context_framework/version.py
@@ -37,6 +38,7 @@ ai_context_framework/commands/review_audit_curate.py
 ai_context_framework/commands/status_check.py
 ai_context_framework/commands/versioning.py
 ai_context_framework/commands/worklog.py
+ai_context_framework/commands/workstream.py
 ai_context_framework/domains/__init__.py
 ai_context_framework/domains/tasks.py
 ai_context_framework/validators/__init__.py

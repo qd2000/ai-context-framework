@@ -25,7 +25,9 @@ Draft
 
 ## 迁移期读取规则
 
-WS002.1 / WS002.2 期间，`acf.py` 仍是实际运行实现入口。agent 修改命令行为前仍应先读取 `acf.py` 中的现有实现，再结合本文件确认目标落点。只有当某个模块在 WS002 阶段证据中标记为已迁移后，才把目标 package 文件当作该领域的事实来源。
+当前处于 WS002.6 迁移期：`ai_context_framework.cli` 已是 console-script 入口，`acf.py` 是顶层兼容 shim，实际 parser/main 和仍未下沉的旧 helper 暂由 `ai_context_framework/runtime.py` 承载。已迁移的命令实现以对应 `ai_context_framework/commands/*.py` 为事实来源。修改已迁移命令时，应先读取对应 command module，再读取 `runtime.py` 中的依赖注入、parser 绑定和仍未下沉的共享 helper。
+
+Workstream 命令当前已迁移到 `ai_context_framework/commands/workstream.py`；`runtime.py` 仍保留兼容包装、迁移 helper 的受限 `__getattr__` 转发，以及 `check` / `doctor` 仍使用的少量兼容转发。`ai_context_framework/domains/workstreams.py` 是后续领域下沉目标，当前尚未创建。
 
 ---
 
@@ -33,14 +35,15 @@ WS002.1 / WS002.2 期间，`acf.py` 仍是实际运行实现入口。agent 修�
 
 | 修改对象 | 优先读取文件 |
 |---|---|
-| CLI 参数、入口、顶层异常处理 | `ai_context_framework/cli.py`, `acf.py` |
+| CLI 参数、入口、顶层异常处理 | `ai_context_framework/cli.py`, `ai_context_framework/runtime.py`, `acf.py` shim |
 | JSON 输出、错误码、next_actions | `ai_context_framework/json_contract.py`, `tests/test_cli.py` |
 | 版本号同步 | `ai_context_framework/version.py`, `ai_context_framework/commands/versioning.py`, `pyproject.toml`, `uv.lock` |
 | template 发现和打包校验 | `ai_context_framework/templates.py`, `ai_context_framework/validators/template_checks.py`, `pyproject.toml`, `MANIFEST.in` |
 | usage log / observability | `ai_context_framework/observability.py`, `ai_context_framework/commands/log.py` |
 | Markdown 表格和 section 操作 | `ai_context_framework/markdown.py`, `ai_context_framework/tables.py`, `ai_context_framework/front_matter.py` |
 | `check` / `doctor` 校验逻辑 | `ai_context_framework/validators/checks.py`, `ai_context_framework/commands/status_check.py`, `ai_context_framework/commands/doctor.py` |
-| Workstream 功能 | `ai_context_framework/domains/workstreams.py`, `ai_context_framework/commands/workstream.py` |
+| Workstream 命令与本地 workflow helper | `ai_context_framework/commands/workstream.py`, `ai_context_framework/runtime.py` |
+| Workstream 领域规则下沉目标 | 后续 `ai_context_framework/domains/workstreams.py`；当前尚未创建 |
 | Archive / Decision / Knowledge / Human / Feedback | 对应 `ai_context_framework/domains/*.py` 与 `ai_context_framework/commands/*.py` |
 
 ---
@@ -51,4 +54,5 @@ WS002.1 / WS002.2 期间，`acf.py` 仍是实际运行实现入口。agent 修�
 2. 可复用业务规则放入 `domains/*` 或 `validators/*`，不允许 command handler 互相 import。
 3. `templates.py` 负责源码态和安装态 template 发现，避免路径逻辑分散。
 4. `observability.py` 是 usage log 的共享底座，`commands/log.py` 只承载 `acf log ...` 子命令。
-5. `version.py` 是源码版本事实；最终 `acf.py` 只 re-export `VERSION` 并转发 `main()`。
+5. `version.py` 是源码版本事实；`acf.py` 只 re-export `VERSION`、转发 `main()`，并通过 `__getattr__` 保留旧 import 兼容。
+6. `runtime.py` 是迁移期承载模块，不是新增业务落点；后续新增或修改业务逻辑应继续下沉到 `commands/*`、`domains/*` 或 `validators/*`，避免把 `runtime.py` 变成新的长期巨型模块。

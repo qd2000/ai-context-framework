@@ -7148,7 +7148,7 @@ This records a reusable write-safety pattern instead of a current task fact.
     def test_pyproject_declares_acf_console_script(self):
         pyproject_text = (acf.ROOT / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn("[project.scripts]", pyproject_text)
-        self.assertIn('acf = "acf:main"', pyproject_text)
+        self.assertIn('acf = "ai_context_framework.cli:main"', pyproject_text)
         self.assertIn('py-modules = ["acf"]', pyproject_text)
         self.assertIn("[tool.setuptools.data-files]", pyproject_text)
 

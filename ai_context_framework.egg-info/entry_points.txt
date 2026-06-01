@@ -1,2 +1,2 @@
 [console_scripts]
-acf = acf:main
+acf = ai_context_framework.cli:main
