@@ -12,11 +12,44 @@ class PackageSkeletonTests(unittest.TestCase):
         package = importlib.import_module("ai_context_framework")
         cli = importlib.import_module("ai_context_framework.cli")
         constants = importlib.import_module("ai_context_framework.constants")
+        task_domain = importlib.import_module("ai_context_framework.domains.tasks")
+        front_matter = importlib.import_module("ai_context_framework.front_matter")
         json_contract = importlib.import_module("ai_context_framework.json_contract")
+        locks = importlib.import_module("ai_context_framework.locks")
+        markers = importlib.import_module("ai_context_framework.markers")
+        markdown = importlib.import_module("ai_context_framework.markdown")
+        models = importlib.import_module("ai_context_framework.models")
+        observability = importlib.import_module("ai_context_framework.observability")
+        paths = importlib.import_module("ai_context_framework.paths")
+        tables = importlib.import_module("ai_context_framework.tables")
+        templates = importlib.import_module("ai_context_framework.templates")
+        version = importlib.import_module("ai_context_framework.version")
+        log_commands = importlib.import_module("ai_context_framework.commands.log")
+        versioning = importlib.import_module("ai_context_framework.commands.versioning")
+        checks = importlib.import_module("ai_context_framework.validators.checks")
+        template_checks = importlib.import_module("ai_context_framework.validators.template_checks")
 
         self.assertEqual(package.__all__, ())
         self.assertTrue(callable(cli.main))
+        self.assertTrue(callable(front_matter.parse_front_matter))
         self.assertTrue(callable(json_contract.print_json))
+        self.assertTrue(callable(locks.acquire_context_lock))
+        self.assertTrue(markers.is_acf_placeholder("【ACF:DATE】"))
+        self.assertTrue(callable(markers.replace_generated_marker_block))
+        self.assertEqual(markdown.heading_level("## Heading"), 2)
+        self.assertTrue(models.CheckResult([], []).ok)
+        self.assertTrue(callable(observability.usage_log_status_payload))
+        self.assertEqual(paths.slugify_project_name("AI Context Framework"), "AI-Context-Framework")
+        self.assertEqual(tables.render_table_row(["a", "b|c"]), "| a | b/c |")
+        self.assertEqual(tables.parse_markdown_table_rows("| A | B |\n|---|---|\n| x | y |\n"), [["A", "B"], ["x", "y"]])
+        self.assertEqual(tables.parse_cell_updates(["A=x"]), {"A": "x"})
+        self.assertEqual(templates.TEMPLATE_DIR.name, "template")
+        self.assertTrue((templates.TEMPLATE_DIR / "AGENTS.md").is_file())
+        self.assertRegex(version.VERSION, r"^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$")
+        self.assertEqual(log_commands.command_label(type("Args", (), {"command": "doctor"})()), "doctor")
+        self.assertEqual(versioning.normalize_release_version(version.VERSION), (version.VERSION, version.VERSION.removeprefix("v")))
+        self.assertEqual(checks.validate_task_id("T001"), "T001")
+        self.assertTrue(callable(template_checks.check_template_packaging))
         self.assertEqual(constants.JSON_SCHEMA_VERSION, 1)
         self.assertEqual(constants.EXIT_CHECK_FAILED, 1)
         self.assertEqual(constants.EXIT_INPUT_ERROR, 2)
@@ -25,27 +58,48 @@ class PackageSkeletonTests(unittest.TestCase):
         self.assertEqual(constants.TARGET_EXISTS_APPEND_REQUIRED, "TARGET_EXISTS_APPEND_REQUIRED")
         self.assertEqual(constants.APPEND_FORCE_CONFLICT, "APPEND_FORCE_CONFLICT")
         self.assertEqual(constants.ANCHOR_NOT_FOUND, "ANCHOR_NOT_FOUND")
+        self.assertEqual(task_domain.normalize_plan_reference_path("reference/Plan.md"), "reference/Plan.md")
 
-    def test_package_cli_does_not_import_top_level_acf(self):
-        source = (ROOT / "ai_context_framework" / "cli.py").read_text(
+    def test_package_modules_do_not_import_top_level_acf(self):
+        package_dir = ROOT / "ai_context_framework"
+        violations = []
+
+        for path in package_dir.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name == "acf" or alias.name.startswith("acf."):
+                            violations.append(path.relative_to(ROOT).as_posix())
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    if node.module == "acf" or node.module.startswith("acf."):
+                        violations.append(path.relative_to(ROOT).as_posix())
+
+        self.assertEqual(violations, [])
+
+    def test_package_discovery_metadata_covers_package_modules(self):
+        pyproject_text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('py-modules = ["acf"]', pyproject_text)
+        self.assertIn("[tool.setuptools.packages.find]", pyproject_text)
+        self.assertIn('include = ["ai_context_framework*"]', pyproject_text)
+
+        top_level = (ROOT / "ai_context_framework.egg-info" / "top_level.txt").read_text(
             encoding="utf-8"
         )
-        tree = ast.parse(source)
+        self.assertIn("acf", top_level.splitlines())
+        self.assertIn("ai_context_framework", top_level.splitlines())
 
-        imported_modules = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                imported_modules.extend(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                imported_modules.append(node.module)
+        sources = (ROOT / "ai_context_framework.egg-info" / "SOURCES.txt").read_text(
+            encoding="utf-8"
+        )
+        for path in (ROOT / "ai_context_framework").rglob("*.py"):
+            self.assertIn(path.relative_to(ROOT).as_posix(), sources)
 
-        self.assertNotIn("acf", imported_modules)
-
-    def test_version_fact_remains_in_top_level_acf_until_version_migration(self):
-        self.assertFalse((ROOT / "ai_context_framework" / "version.py").exists())
-
+    def test_version_fact_lives_in_package_after_version_migration(self):
+        self.assertTrue((ROOT / "ai_context_framework" / "version.py").exists())
         source = (ROOT / "acf.py").read_text(encoding="utf-8")
-        self.assertRegex(source, r'(?m)^VERSION = "v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"$')
+        self.assertNotRegex(source, r'(?m)^VERSION = "v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"$')
+        self.assertIn("from ai_context_framework.version import VERSION", source)
 
 
 if __name__ == "__main__":

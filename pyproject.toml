@@ -15,8 +15,10 @@ acf = "acf:main"
 
 [tool.setuptools]
 py-modules = ["acf"]
-packages = ["ai_context_framework"]
 include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["ai_context_framework*"]
 
 [tool.setuptools.data-files]
 "share/ai-context-framework/template" = ["template/AGENTS.md"]

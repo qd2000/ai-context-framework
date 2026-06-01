@@ -6,19 +6,15 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import hashlib
-import importlib.metadata
 import json
-import os
 import re
 import shutil
 import subprocess
 import sys
-import sysconfig
 import time
 import unicodedata
 from urllib.parse import unquote
-from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -30,136 +26,239 @@ from ai_context_framework.constants import (
     EXIT_RUNTIME_ERROR,
     EXIT_SAFETY_REFUSED,
     JSON_SCHEMA_VERSION,
+    LOCK_FILE_REL,
     TARGET_EXISTS_APPEND_REQUIRED,
+)
+from ai_context_framework.commands import versioning as versioning_commands
+from ai_context_framework.commands.log import (
+    build_usage_event,
+    check_counts,
+    command_label,
+    context_location_for_args,
+    log_disable_command,
+    log_enable_command,
+    log_feedback_command,
+    log_prune_command,
+    log_status_command,
+    log_summarize_command,
+    log_tail_command,
+    record_usage_event,
+    relative_usage_paths,
+    usage_loggable,
+)
+from ai_context_framework.commands.versioning import (
+    installed_package_version,
+    is_source_project_root,
+    normalize_release_version,
+    replace_regex_once,
+)
+from ai_context_framework.domains.tasks import (
+    CURRENT_TASK_REFERENCE_PROMPT,
+    PLAN_REFERENCE_BULLET_RE,
+    PLAN_REFERENCE_EMPTY,
+    PLAN_REFERENCE_HEADING,
+    PLAN_REFERENCE_SECTION_INTRO,
+    PLAN_REFERENCE_UPGRADE_PROMPT,
+    current_task_has_active_status,
+    normalize_plan_reference_path,
+    normalize_plan_reference_purpose,
+    parse_plan_references_from_body,
+    read_plan_references,
+    render_plan_reference,
+    render_plan_reference_input,
+    render_plan_reference_section,
+    standard_reference_line_path,
+    sync_current_task_reference_text,
+    valid_plan_reference_input_lines,
+    write_plan_references_text,
+)
+from ai_context_framework.front_matter import (
+    diagnostic_codes,
+    format_front_matter,
+    parse_front_matter,
+    required_field_missing,
+    split_typed_scope,
+    validate_front_matter,
+    validate_scope_path,
 )
 from ai_context_framework.json_contract import (
     check_after_enabled,
+    check_error_code,
+    check_next_actions,
+    check_payload,
+    classify_cli_error,
     command_name_from_argv,
     dry_run_enabled,
-    get_result_payload,
+    emit_cli_error,
+    emit_write_result,
+    error_next_actions,
     json_enabled,
     json_requested,
     path_values,
     print_json,
     set_result_payload,
+    write_next_actions,
 )
+from ai_context_framework.locks import acquire_context_lock, lock_path_for_context, release_context_lock
+from ai_context_framework.markers import (
+    ACF_MARKER_RE,
+    ACF_PLACEHOLDER_RE,
+    ARCHIVE_INDEX_MARKER_END,
+    ARCHIVE_INDEX_MARKER_START,
+    ARCHIVE_RECORD_MARKER_END,
+    ARCHIVE_RECORD_MARKER_START,
+    DECISIONS_INDEX_MARKER_END,
+    DECISIONS_INDEX_MARKER_START,
+    KNOWLEDGE_INDEX_MARKER_END,
+    KNOWLEDGE_INDEX_MARKER_START,
+    LEGACY_UPGRADE_NOTES_END,
+    LEGACY_UPGRADE_NOTES_START,
+    LEGACY_WORKSTREAM_ARCHIVE_MARKER_END,
+    LEGACY_WORKSTREAM_ARCHIVE_MARKER_START,
+    PLACEHOLDER_RE,
+    UPGRADE_NOTES_END,
+    UPGRADE_NOTES_START,
+    WORKSTREAM_ARCHIVE_MARKER_END,
+    WORKSTREAM_ARCHIVE_MARKER_START,
+    archive_record_marker,
+    has_upgrade_notes_marker,
+    has_workstream_archive_marker,
+    insert_generated_marker_block_after_heading,
+    is_acf_placeholder,
+    legacy_acf_marker_warnings,
+    legacy_placeholder_count,
+    marker_fields,
+    migrate_legacy_acf_markers,
+    replace_generated_marker_block,
+    workstream_archive_marker,
+    workstream_archive_marker_fields,
+)
+from ai_context_framework.markdown import (
+    MARKDOWN_LINK_RE,
+    MARKDOWN_REF_RE,
+    PATH_LIKE_RE,
+    append_or_create_section,
+    append_section_text,
+    apply_section_body,
+    clean_markdown_link_target,
+    find_section,
+    heading_level,
+    insert_section_after,
+    insert_section_before,
+    is_local_link_ref,
+    is_linkify_path_candidate,
+    is_placeholder,
+    is_uri_ref,
+    iter_non_fenced_lines,
+    linkify_markdown_text,
+    markdown_link_target_for,
+    markdown_heading_anchor_for,
+    markdown_heading_anchors,
+    markdown_heading_slug,
+    markdown_sections,
+    normalized_section_body_lines,
+    normalize_ref_path,
+    remove_markdown_section,
+    replace_or_append_section,
+    replace_section_text,
+    render_markdown_link,
+    render_markdown_link_target,
+    resolve_ref,
+    resolve_ref_path,
+    rewrite_local_markdown_links_for_move,
+    safe_section_body,
+    safe_section_body_from_text,
+    section_body,
+    section_contains_child_heading,
+    section_content_and_suffix,
+    section_insert_after_line,
+    should_check_ref,
+    split_ref_fragment,
+    strip_code_ticks,
+    subsection_body,
+    validate_local_markdown_link,
+)
+from ai_context_framework.models import (
+    CheckResult,
+    FrontMatterDiagnostic,
+    FrontMatterSchema,
+    KnowledgeEntry,
+    PlanReference,
+    SectionRange,
+    TableRange,
+    WorkstreamArchiveAssessment,
+    WorkstreamDetail,
+    WorkstreamEntry,
+)
+from ai_context_framework.observability import (
+    atomic_write_text,
+    usage_log_path,
+    usage_lock_path,
+)
+from ai_context_framework.paths import (
+    context_json_path,
+    discover_context,
+    display_path,
+    infer_context_profile,
+    infer_project_root,
+    is_relative_to,
+    is_context_root,
+    make_context_location,
+    relative_display_path,
+    require_context_root,
+    resolve_context_root,
+    resolve_status_location,
+    slugify_project_name,
+)
+from ai_context_framework.tables import (
+    clean_table_cell,
+    find_table,
+    parse_cell_updates,
+    parse_markdown_table_rows,
+    render_table_row,
+    split_table_line,
+    table_cell,
+    upsert_table_row,
+)
+from ai_context_framework.templates import (
+    MINIMAL_DIRS,
+    MINIMAL_FILES,
+    STANDARD_DIRS,
+    STANDARD_FILES,
+    TEMPLATE_DIR,
+    find_template_dir,
+)
+from ai_context_framework.validators.template_checks import (
+    check_template_packaging,
+    template_packaging_files_from_pyproject,
+)
+from ai_context_framework.validators.checks import (
+    ADR_ID_RE,
+    DATE_RE,
+    DRAFT_NAME_RE,
+    KNOWLEDGE_ID_RE,
+    TASK_ID_RE,
+    TASK_ID_TOKEN_RE,
+    TASK_STAGE_ID_RE,
+    TASK_STAGE_ID_TOKEN_RE,
+    WORKSTREAM_ID_RE,
+    WORKSTREAM_ID_TOKEN_RE,
+    WORKSTREAM_STAGE_ID_RE,
+    validate_adr_id,
+    validate_date,
+    validate_draft_name,
+    validate_feedback_id,
+    validate_human_note_id,
+    validate_knowledge_id,
+    validate_task_id,
+    validate_task_stage_id,
+    validate_workstream_id,
+    validate_workstream_stage_id,
+)
+from ai_context_framework.version import VERSION
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "v0.0.3.48"
-
-def find_template_dir() -> Path:
-    source_template = ROOT / "template"
-    if source_template.is_dir():
-        return source_template
-
-    installed_template = (
-        Path(sysconfig.get_path("data"))
-        / "share"
-        / "ai-context-framework"
-        / "template"
-    )
-    if installed_template.is_dir():
-        return installed_template
-
-    return source_template
-
-
-TEMPLATE_DIR = find_template_dir()
-
-STANDARD_DIRS = (
-    "active",
-    "human",
-    "human/weekly",
-    "human/reports",
-    "rules",
-    "reference",
-    "reference/sources",
-    "reference/knowledge",
-    "decisions",
-    "worklog",
-    "worklog/daily",
-    "worklog/knowledge-drafts",
-    "archive",
-    "archive/tasks",
-    "archive/plans",
-    "archive/feedback",
-)
-
-STANDARD_FILES = (
-    "AGENTS.md",
-    "active/Context.md",
-    "active/Current_Task.md",
-    "active/Feedback_Inbox.md",
-    "active/Task_Plan.md",
-    "human/Human_Index.md",
-    "human/Human_Notes.md",
-    "human/weekly/.gitkeep",
-    "human/reports/.gitkeep",
-    "rules/Always_Active.md",
-    "rules/Project_Rules.md",
-    "rules/Coding_Rules.md",
-    "rules/Writing_Rules.md",
-    "rules/Review_Rules.md",
-    "rules/Rules_Index.md",
-    "rules/Agent_Requested.md",
-    "rules/Manual_Only.md",
-    "reference/Project_Brief.md",
-    "reference/Architecture.md",
-    "reference/Tech_Context.md",
-    "reference/Decisions_Index.md",
-    "reference/Knowledge_Index.md",
-    "reference/Context_Curation_Prompt.md",
-    "reference/Sources_Index.md",
-    "reference/sources/.gitkeep",
-    "reference/knowledge/.gitkeep",
-    "reference/System_Manual.md",
-    "decisions/ADR-0001-template.md",
-    "worklog/Worklog_Index.md",
-    "worklog/daily/YYYY-MM-DD.md",
-    "worklog/knowledge-drafts/.gitkeep",
-    "archive/Archive_Index.md",
-    "archive/tasks/.gitkeep",
-    "archive/plans/.gitkeep",
-    "archive/feedback/.gitkeep",
-)
-
-MINIMAL_DIRS = (
-    "active",
-    "rules",
-    "reference",
-    "reference/knowledge",
-    "decisions",
-    "worklog",
-    "worklog/daily",
-    "worklog/knowledge-drafts",
-    "archive",
-    "archive/tasks",
-    "archive/plans",
-    "archive/feedback",
-)
-
-MINIMAL_FILES = (
-    "AGENTS.md",
-    "active/Context.md",
-    "active/Current_Task.md",
-    "active/Feedback_Inbox.md",
-    "active/Task_Plan.md",
-    "rules/Always_Active.md",
-    "rules/Project_Rules.md",
-    "reference/Project_Brief.md",
-    "reference/Decisions_Index.md",
-    "reference/Knowledge_Index.md",
-    "reference/Context_Curation_Prompt.md",
-    "reference/Sources_Index.md",
-    "reference/knowledge/.gitkeep",
-    "worklog/Worklog_Index.md",
-    "worklog/knowledge-drafts/.gitkeep",
-    "archive/Archive_Index.md",
-    "archive/tasks/.gitkeep",
-    "archive/plans/.gitkeep",
-    "archive/feedback/.gitkeep",
-)
 
 VALID_TASK_STATUSES = {"Active", "Paused", "Done", "Empty"}
 VALID_PLAN_STATUSES = {"Active", "Paused", "Done", "Empty"}
@@ -207,35 +306,8 @@ WORKSTREAM_STATE_TRANSITIONS = {
     "Done": set(),
     "Cancelled": set(),
 }
-PLACEHOLDER_RE = re.compile(r"【[^】]+】")
-ACF_PLACEHOLDER_RE = re.compile(r"^【ACF:[A-Z0-9_:-]+(?:\|[^】]+)?】$")
-MARKDOWN_REF_RE = re.compile(r"`([^`\n]+\.md)`")
-MARKDOWN_LINK_RE = re.compile(r"(!?)\[([^\]\n]*)\]\(([^)\n]+)\)")
-PATH_LIKE_RE = re.compile(
-    r"(?<![\w./\\:-])"
-    r"((?:\.{1,2}/)?(?:[A-Za-z0-9_.\-\u4e00-\u9fff]+/)+"
-    r"[A-Za-z0-9_.\-\u4e00-\u9fff]+(?:\.[A-Za-z0-9]+)"
-    r"(?:#[A-Za-z0-9_.%\-_\u4e00-\u9fff]+)?)"
-)
 LINKIFY_DEFAULT_DIRS = ("active", "reference", "rules", "decisions")
 LINKIFY_DEFAULT_FILES = ("worklog/Worklog_Index.md", "archive/Archive_Index.md")
-PLAN_REFERENCE_BULLET_RE = re.compile(
-    r"^-\s+(?:`(?P<path>reference/[^`\n]+\.md)`|"
-    r"\[(?P<link_path>reference/[^\]\n]+\.md)\]\([^)]+\))"
-    r"[：:]\s*(?P<purpose>.+?)\s*$"
-)
-DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-ADR_ID_RE = re.compile(r"^ADR-(\d{4})$")
-TASK_ID_RE = re.compile(r"^T(\d{3})$")
-TASK_ID_TOKEN_RE = re.compile(r"\bT(\d{3})\b")
-TASK_STAGE_ID_RE = re.compile(r"^T\d{3}\.\d+$")
-TASK_STAGE_ID_TOKEN_RE = re.compile(r"\bT\d{3}\.\d+\b")
-KNOWLEDGE_ID_RE = re.compile(r"^K(\d{3})$")
-WORKSTREAM_ID_RE = re.compile(r"^WS(\d{3})$")
-WORKSTREAM_ID_TOKEN_RE = re.compile(r"\bWS\d{3}\b")
-WORKSTREAM_STAGE_ID_RE = re.compile(r"^WS\d{3}\.\d+$")
-DRAFT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
-MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
 SOURCE_TABLE_HEADER = "| 资料 | 类型 | 链接或位置 | 状态 | 可信度 | 和本项目的关系 | 后续动作 |"
 RULES_INDEX_TABLE_HEADER = "| 文件 | 读取条件 | 作用 |"
 TASK_TABLE_HEADER = "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |"
@@ -251,27 +323,6 @@ WORKSTREAM_STAGE_TABLE_HEADER = "| ID | 状态 | 阶段 | 依赖 | 输出物 | �
 WORKSTREAM_INDEX_REL = "active/Workstreams.md"
 WORKSTREAM_DIR_REL = "active/workstreams"
 WORKSTREAM_ARCHIVE_DIR_REL = "archive/workstreams"
-ACF_MARKER_RE = re.compile(r"<!--\s*ACF:([A-Z0-9_-]+):([A-Z0-9_-]+):(START|END)\s*-->")
-KNOWLEDGE_INDEX_MARKER_START = "<!-- ACF:KNOWLEDGE:INDEX-GENERATED:START -->"
-KNOWLEDGE_INDEX_MARKER_END = "<!-- ACF:KNOWLEDGE:INDEX-GENERATED:END -->"
-DECISIONS_INDEX_MARKER_START = "<!-- ACF:DECISIONS:INDEX-GENERATED:START -->"
-DECISIONS_INDEX_MARKER_END = "<!-- ACF:DECISIONS:INDEX-GENERATED:END -->"
-ARCHIVE_INDEX_MARKER_START = "<!-- ACF:ARCHIVE:INDEX-GENERATED:START -->"
-ARCHIVE_INDEX_MARKER_END = "<!-- ACF:ARCHIVE:INDEX-GENERATED:END -->"
-ARCHIVE_RECORD_MARKER_START = "<!-- ACF:ARCHIVE:RECORD:START -->"
-ARCHIVE_RECORD_MARKER_END = "<!-- ACF:ARCHIVE:RECORD:END -->"
-WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:START -->"
-WORKSTREAM_ARCHIVE_MARKER_END = "<!-- ACF:WORKSTREAM:ARCHIVE-RECORD:END -->"
-LEGACY_WORKSTREAM_ARCHIVE_MARKER_START = "<!-- ACF:WORKSTREAM-ARCHIVE:START -->"
-LEGACY_WORKSTREAM_ARCHIVE_MARKER_END = "<!-- ACF:WORKSTREAM-ARCHIVE:END -->"
-PLAN_REFERENCE_HEADING = "## 规划依据"
-PLAN_REFERENCE_EMPTY = "- 无。"
-PLAN_REFERENCE_SECTION_INTRO = (
-    "列出当前大任务必须对齐的 reference 设计、路线或差距文档；"
-    "只放路径和一句话用途，不复制详细规划。"
-)
-PLAN_REFERENCE_UPGRADE_PROMPT = "- 使用 `acf plan reference add` 添加当前大任务必须对齐的 reference 规划依据。"
-CURRENT_TASK_REFERENCE_PROMPT = "- 相关 reference 规划依据请查看 `active/Task_Plan.md` 的 `## 规划依据`。"
 WORKSTREAM_METADATA_FIELDS = (
     "id",
     "type",
@@ -289,16 +340,7 @@ WORKSTREAM_METADATA_FIELDS = (
     "keep_active_reason",
     "keep_active_until",
 )
-ACF_HOME_ENV = "ACF_HOME"
-USAGE_LOG_CONFIG_NAME = "config.json"
-USAGE_LOG_FILE_REL = "logs/usage.jsonl"
-USAGE_LOCK_FILE_NAME = "usage.lock"
-LOCK_FILE_REL = ".acf.lock"
 TEMPLATE_EXAMPLE_FILES = {"decisions/ADR-0001-template.md", "worklog/daily/YYYY-MM-DD.md"}
-UPGRADE_NOTES_START = "<!-- ACF:UPGRADE:NOTES:START -->"
-UPGRADE_NOTES_END = "<!-- ACF:UPGRADE:NOTES:END -->"
-LEGACY_UPGRADE_NOTES_START = "<!-- ACF:UPGRADE-NOTES:START -->"
-LEGACY_UPGRADE_NOTES_END = "<!-- ACF:UPGRADE-NOTES:END -->"
 KNOWLEDGE_TITLE_SIMILARITY_THRESHOLD = 0.85
 KNOWLEDGE_BODY_SIMILARITY_THRESHOLD = 0.72
 KNOWLEDGE_STOPWORDS = {
@@ -446,806 +488,6 @@ knowledge 是可复用经验层，不是当前事实源；worklog 是历史过�
 """
 
 
-@dataclass
-class CheckResult:
-    errors: list[str]
-    warnings: list[str]
-
-    @property
-    def ok(self) -> bool:
-        return not self.errors
-
-
-@dataclass
-class ContextLocation:
-    project_root: Path
-    context_root: Path
-    profile: str
-
-
-@dataclass
-class KnowledgeEntry:
-    knowledge_id: str
-    title: str
-    status: str
-    summary: str
-    conclusion: str
-    path: Path | None
-
-
-@dataclass
-class WorkstreamEntry:
-    workstream_id: str
-    status: str
-    title: str
-    owner: str
-    write_scope: str
-    depends_on: str
-    output: str
-    detail: str
-
-
-@dataclass
-class WorkstreamDetail:
-    workstream_id: str
-    path: Path
-    metadata: dict[str, str | list[str]]
-    body: str
-    diagnostics: list[FrontMatterDiagnostic]
-
-
-@dataclass(frozen=True)
-class WorkstreamArchiveAssessment:
-    detail: WorkstreamDetail
-    blockers: tuple[str, ...]
-    reason: str
-
-
-@dataclass
-class SectionRange:
-    heading_index: int
-    body_start: int
-    body_end: int
-    level: int
-
-
-@dataclass(frozen=True)
-class PlanReference:
-    path: str
-    purpose: str
-
-
-@dataclass
-class TableRange:
-    header_index: int
-    separator_index: int
-    body_start: int
-    body_end: int
-    headers: list[str]
-
-
-@dataclass
-class FrontMatterDiagnostic:
-    code: str
-    message: str
-    field: str | None = None
-    line: int | None = None
-    severity: str = "error"
-
-
-@dataclass
-class FrontMatterSchema:
-    required_fields: tuple[str, ...] = ()
-    allowed_fields: tuple[str, ...] | None = None
-    scalar_fields: tuple[str, ...] = ()
-    list_fields: tuple[str, ...] = ()
-    enum_fields: dict[str, set[str]] = field(default_factory=dict)
-    scope_fields: tuple[str, ...] = ()
-    typed_scope_fields: tuple[str, ...] = ()
-    scope_types: set[str] = field(
-        default_factory=lambda: {"authority", "draft", "owned", "assigned", "shared", "evidence"}
-    )
-
-
-FRONT_MATTER_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-FRONT_MATTER_NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
-MARKDOWN_LIKE_SCOPE_PREFIXES = ("active/", "reference/", "decisions/", "rules/")
-
-
-def diagnostic_codes(diagnostics: Sequence[FrontMatterDiagnostic]) -> list[str]:
-    return [diagnostic.code for diagnostic in diagnostics]
-
-
-def unsupported_front_matter_value(value: str) -> bool:
-    stripped = value.strip()
-    if stripped in {"|", ">"}:
-        return True
-    if stripped in {"true", "false", "True", "False"}:
-        return True
-    if FRONT_MATTER_NUMBER_RE.match(stripped):
-        return True
-    if stripped.startswith(("{", "[")) and stripped != "[]":
-        return True
-    if stripped.startswith(("'", '"')) or stripped.endswith(("'", '"')):
-        return True
-    return False
-
-
-def parse_front_matter(
-    text: str,
-) -> tuple[dict[str, str | list[str]], str, list[FrontMatterDiagnostic]]:
-    lines = text.splitlines(keepends=True)
-    if not lines or lines[0].strip() != "---":
-        return {}, text, []
-
-    end_index: int | None = None
-    for index in range(1, len(lines)):
-        if lines[index].strip() == "---":
-            end_index = index
-            break
-
-    if end_index is None:
-        return (
-            {},
-            text,
-            [
-                FrontMatterDiagnostic(
-                    "front_matter_unclosed",
-                    "front matter opening marker has no closing marker",
-                    line=1,
-                )
-            ],
-        )
-
-    metadata: dict[str, str | list[str]] = {}
-    diagnostics: list[FrontMatterDiagnostic] = []
-    current_list_key: str | None = None
-
-    for line_number, raw_line in enumerate(lines[1:end_index], start=2):
-        line = raw_line.rstrip("\r\n")
-        if not line.strip():
-            continue
-
-        if line.startswith("  - "):
-            item = line[4:].strip()
-            if current_list_key is None or not isinstance(metadata.get(current_list_key), list):
-                diagnostics.append(
-                    FrontMatterDiagnostic(
-                        "front_matter_invalid_list_item",
-                        "list item has no list field",
-                        line=line_number,
-                    )
-                )
-                continue
-            if unsupported_front_matter_value(item):
-                diagnostics.append(
-                    FrontMatterDiagnostic(
-                        "front_matter_unsupported_syntax",
-                        "list item uses unsupported front matter syntax",
-                        field=current_list_key,
-                        line=line_number,
-                    )
-                )
-                continue
-            metadata[current_list_key].append(item)  # type: ignore[union-attr]
-            continue
-
-        current_list_key = None
-        if line.startswith((" ", "\t")):
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_unsupported_syntax",
-                    "front matter only supports top-level fields and two-space list items",
-                    line=line_number,
-                )
-            )
-            continue
-
-        if ":" not in line:
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_unsupported_syntax",
-                    "front matter field must use KEY: VALUE syntax",
-                    line=line_number,
-                )
-            )
-            continue
-
-        key, raw_value = line.split(":", 1)
-        key = key.strip()
-        value = raw_value.strip()
-        if not FRONT_MATTER_KEY_RE.match(key):
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_invalid_key",
-                    f"invalid front matter key: {key}",
-                    field=key or None,
-                    line=line_number,
-                )
-            )
-            continue
-        if key in metadata:
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_duplicate_key",
-                    f"duplicate front matter key: {key}",
-                    field=key,
-                    line=line_number,
-                )
-            )
-            continue
-
-        if value == "[]":
-            metadata[key] = []
-        elif value == "":
-            metadata[key] = []
-            current_list_key = key
-        elif unsupported_front_matter_value(value):
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_unsupported_syntax",
-                    "front matter value uses unsupported syntax",
-                    field=key,
-                    line=line_number,
-                )
-            )
-        else:
-            metadata[key] = value
-
-    body = "".join(lines[end_index + 1 :])
-    return metadata, body, diagnostics
-
-
-def ordered_front_matter_keys(
-    metadata: dict[str, str | list[str]], field_order: Sequence[str] | None
-) -> list[str]:
-    ordered: list[str] = []
-    if field_order:
-        ordered.extend(key for key in field_order if key in metadata)
-    ordered.extend(sorted(key for key in metadata if key not in ordered))
-    return ordered
-
-
-def format_front_matter(
-    metadata: dict[str, str | list[str]],
-    body: str,
-    field_order: Sequence[str] | None = None,
-) -> str:
-    lines = ["---"]
-    for key in ordered_front_matter_keys(metadata, field_order):
-        value = metadata[key]
-        if isinstance(value, list):
-            if value:
-                lines.append(f"{key}:")
-                lines.extend(f"  - {item}" for item in value)
-            else:
-                lines.append(f"{key}: []")
-        else:
-            lines.append(f"{key}: {value}")
-    lines.append("---")
-    return "\n".join(lines) + "\n" + body
-
-
-def required_field_missing(value: str | list[str] | None) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, list):
-        return not value
-    return not value.strip()
-
-
-def split_typed_scope(value: str) -> tuple[str | None, str | None]:
-    if ":" not in value:
-        return None, None
-    scope_type, path = value.split(":", 1)
-    return scope_type.strip(), path.strip()
-
-
-def validate_scope_path(path_value: str, field_name: str) -> list[FrontMatterDiagnostic]:
-    diagnostics: list[FrontMatterDiagnostic] = []
-    normalized = path_value.replace("\\", "/")
-    if normalized != path_value:
-        diagnostics.append(
-            FrontMatterDiagnostic(
-                "front_matter_path_not_normalized",
-                "scope path must use forward slashes",
-                field=field_name,
-            )
-        )
-    if normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
-        diagnostics.append(
-            FrontMatterDiagnostic(
-                "front_matter_path_not_normalized",
-                "scope path must be relative",
-                field=field_name,
-            )
-        )
-    if "//" in normalized:
-        diagnostics.append(
-            FrontMatterDiagnostic(
-                "front_matter_path_not_normalized",
-                "scope path contains duplicate separators",
-                field=field_name,
-            )
-        )
-    if (
-        "*" not in normalized
-        and normalized.startswith(MARKDOWN_LIKE_SCOPE_PREFIXES)
-        and not normalized.endswith(".md")
-    ):
-        diagnostics.append(
-            FrontMatterDiagnostic(
-                "front_matter_path_missing_extension",
-                "Markdown-like scope path must include .md extension",
-                field=field_name,
-            )
-        )
-    return diagnostics
-
-
-def validate_front_matter(
-    metadata: dict[str, str | list[str]],
-    schema: FrontMatterSchema,
-) -> list[FrontMatterDiagnostic]:
-    diagnostics: list[FrontMatterDiagnostic] = []
-
-    if schema.allowed_fields is not None:
-        allowed = set(schema.allowed_fields)
-        for key in metadata:
-            if key not in allowed:
-                diagnostics.append(
-                    FrontMatterDiagnostic(
-                        "front_matter_schema_failed",
-                        f"field is not allowed: {key}",
-                        field=key,
-                    )
-                )
-
-    for field_name in schema.required_fields:
-        if required_field_missing(metadata.get(field_name)):
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_schema_failed",
-                    f"required field is missing or empty: {field_name}",
-                    field=field_name,
-                )
-            )
-
-    for field_name in schema.scalar_fields:
-        if field_name in metadata and not isinstance(metadata[field_name], str):
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_schema_failed",
-                    f"field must be a string: {field_name}",
-                    field=field_name,
-                )
-            )
-
-    for field_name in schema.list_fields:
-        if field_name in metadata and not isinstance(metadata[field_name], list):
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_schema_failed",
-                    f"field must be a list: {field_name}",
-                    field=field_name,
-                )
-            )
-
-    for field_name in schema.scope_fields:
-        value = metadata.get(field_name)
-        if value is None:
-            continue
-        if not isinstance(value, list):
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_schema_failed",
-                    f"scope field must be a list: {field_name}",
-                    field=field_name,
-                )
-            )
-            continue
-        for item in value:
-            diagnostics.extend(validate_scope_path(item, field_name))
-
-    for field_name, allowed_values in schema.enum_fields.items():
-        value = metadata.get(field_name)
-        if isinstance(value, str) and value not in allowed_values:
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_schema_failed",
-                    f"field has invalid value: {field_name}",
-                    field=field_name,
-                )
-            )
-        elif value is not None and not isinstance(value, str):
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_schema_failed",
-                    f"enum field must be a string: {field_name}",
-                    field=field_name,
-                )
-            )
-
-    for field_name in schema.typed_scope_fields:
-        value = metadata.get(field_name)
-        if value is None:
-            continue
-        if not isinstance(value, list):
-            diagnostics.append(
-                FrontMatterDiagnostic(
-                    "front_matter_schema_failed",
-                    f"typed scope field must be a list: {field_name}",
-                    field=field_name,
-                )
-            )
-            continue
-        for item in value:
-            scope_type, scope_path = split_typed_scope(item)
-            if not scope_type or not scope_path or scope_type not in schema.scope_types:
-                diagnostics.append(
-                    FrontMatterDiagnostic(
-                        "front_matter_scope_invalid",
-                        f"scope item must use TYPE: PATH with an allowed type: {item}",
-                        field=field_name,
-                    )
-                )
-                continue
-            diagnostics.extend(validate_scope_path(scope_path, field_name))
-
-    return diagnostics
-
-
-def check_payload(result: CheckResult) -> dict[str, object]:
-    return {
-        "ok": result.ok,
-        "errors": result.errors,
-        "warnings": result.warnings,
-    }
-
-
-def check_error_code(result: CheckResult | None) -> str | None:
-    if result is not None and not result.ok:
-        return "check_failed"
-    return None
-
-
-def check_next_actions(result: CheckResult | None, strict: bool = False) -> list[str]:
-    if result is None:
-        return []
-    command = "acf check --strict" if strict else "acf check"
-    if result.errors:
-        return [
-            "Fix the reported errors.",
-            f"Rerun `{command}`.",
-        ]
-    if result.warnings:
-        return [
-            "Review the reported warnings.",
-            "Use `acf check --strict` when this context should reject placeholders.",
-        ]
-    return []
-
-
-def write_next_actions(dry_run: bool, check_result: CheckResult | None, changed_files: Sequence[Path] = ()) -> list[str]:
-    if dry_run:
-        if not changed_files:
-            return ["No changes needed."]
-        return [
-            "Review changed_files.",
-            "Rerun the command without `--dry-run` to apply changes.",
-        ]
-    if check_result is not None and not check_result.ok:
-        return [
-            "Fix the reported check errors.",
-            "Rerun the command after correction.",
-        ]
-    return []
-
-
-def error_next_actions(error_code: str) -> list[str]:
-    if error_code == "curation_draft_exists":
-        return ["Review the existing curation draft; choose a different --name if a separate draft is needed."]
-    if error_code == TARGET_EXISTS_APPEND_REQUIRED:
-        return ["Rerun with `--append` to add an entry or `--force` to replace the daily worklog."]
-    if error_code == APPEND_FORCE_CONFLICT:
-        return ["Use either `--append` or `--force`, not both."]
-    if error_code == ANCHOR_NOT_FOUND:
-        return ["Stop and report the missing worklog anchor; do not guess an insertion point."]
-    if error_code == "workstream_not_initialized":
-        return ["Run `acf workstream init` for this context before using Workstream detail commands."]
-    if error_code == "workstream_not_found":
-        return ["Run `acf workstream list` to see available Workstream IDs."]
-    if error_code == "workstream_schema_failed":
-        return ["Fix the Workstream detail front matter, then rerun the command."]
-    if error_code == "workstream_duplicate_id":
-        return ["Choose an unused Workstream ID."]
-    if error_code == "workstream_invalid_transition":
-        return ["Review the Workstream state machine and use the next valid state."]
-    if error_code == "workstream_reason_required":
-        return ["Provide `--reason` so the blocker or cancellation is written to the detail file."]
-    if error_code == "workstream_missing_merge_request":
-        return ["Run `acf workstream merge-request ...` with target and summary before `ready`."]
-    if error_code == "workstream_human_approval_required":
-        return ["Ask the human owner to confirm completion, then rerun with `--human-approved`."]
-    if error_code == "workstream_missing_evidence":
-        return ["Provide `--evidence` so completion remains traceable."]
-    if error_code == "workstream_missing_merge_resolution":
-        return ["Provide `--merge-resolution` with one of: merged, rejected, no_merge_required, archived."]
-    if error_code == "workstream_section_not_allowed":
-        return ["Use one of the allowed Workstream note sections."]
-    if error_code == "workstream_scope_invalid":
-        return ["Use a normalized relative scope path and typed write scopes such as `assigned: src/foo.py`."]
-    if error_code == "workstream_claim_conflict":
-        return ["Choose a different write scope or resolve the conflicting active Workstream first."]
-    if error_code == "workstream_guard_git_unavailable":
-        return ["Run guard inside a git working tree, or pass explicit --changed-file values."]
-    if error_code == "workstream_guard_failed":
-        return ["Move changes inside the Workstream write scope, use `acf workstream scope-add ... --reason`, or create a Merge/Maintenance Workstream."]
-    if error_code == "workstream_dashboard_conflicts":
-        return ["Resolve reported write-scope conflicts before starting parallel work."]
-    if error_code == "workstream_owned_scope_invalid":
-        return ["Use `owned:` only for the current Workstream detail file."]
-    if error_code == "workstream_stage_duplicate_id":
-        return ["Choose an unused Workstream stage ID in this Workstream detail file."]
-    if error_code == "workstream_stage_scope_invalid":
-        return ["Use a Workstream stage ID that belongs to the target Workstream, for example `WS004.2` in `WS004`."]
-    if error_code == "workstream_stage_not_found":
-        return ["Run `acf workstream stage list ...` and choose a registered stage ID."]
-    if error_code == "workstream_stage_terminal":
-        return ["Choose a non-terminal Workstream stage; terminal stages cannot be focused."]
-    if error_code == "workstream_stage_active_conflict":
-        return ["Resolve the existing Active stage first; this version does not automatically demote other Active stages."]
-    if error_code == "workstream_stage_dependency_blocked":
-        return ["Finish the dependent Workstream stage before focusing this stage."]
-    if error_code == "workstream_stage_clear_current_required":
-        return ["Pass `--clear-current` when completing the current Workstream stage."]
-    if error_code == "workstream_archive_candidates_invalid_today":
-        return ["Use `--today YYYY-MM-DD` or omit it to use the current date."]
-    if error_code == "workstream_archive_candidates_plan_unreadable":
-        return ["Fix active/Task_Plan.md or run `acf check` before reviewing archive candidates."]
-    if error_code == "workstream_archive_draft_exists":
-        return ["Review the existing archive draft, rerun with --name for a separate draft, or use --force to replace it."]
-    if error_code == "workstream_archive_blocked":
-        return ["Resolve the reported blocked_by items, then rerun the archive command."]
-    if error_code == "workstream_archive_target_exists":
-        return ["Review the existing archive target and choose a different manual recovery path before retrying."]
-    if error_code == "workstream_archive_duplicate_index":
-        return ["Fix duplicate rows in active/Workstreams.md before archiving."]
-    if error_code == "feedback_not_found":
-        return ["Run `acf feedback list --json` and choose an existing feedback ID."]
-    if error_code == "feedback_archive_blocked":
-        return ["Mark the feedback Done or Rejected before archiving it."]
-    if error_code == "human_notes_missing":
-        return ["Use a standard context with human/ enabled, run upgrade if appropriate, or use `acf new feedback`."]
-    if error_code == "human_index_missing":
-        return ["Run `acf upgrade` or `acf human index sync` on a standard context."]
-    if error_code == "human_index_item_not_found":
-        return ["Run `acf human list --json` to find the item ID or path."]
-    if error_code == "task_stage_duplicate_id":
-        return ["Choose an unused Task Stage ID in active/Task_Plan.md."]
-    if error_code == "task_stage_scope_invalid":
-        return ["Use a Task Stage ID that belongs to the parent task, for example `T001.2` under `T001`."]
-    if error_code == "task_stage_parent_not_found":
-        return ["Run `acf plan status ... --json` and choose an existing parent task ID."]
-    if error_code == "task_stage_workstream_not_found":
-        return ["Run `acf workstream list ... --json` or omit `--workstream` when no Workstream owner applies."]
-    if error_code == "task_stage_not_found":
-        return ["Run `acf plan stage list ... --json` and choose a registered Task Stage ID."]
-    if error_code == "task_stage_missing_evidence":
-        return ["Provide `--evidence` so Task Stage completion remains traceable."]
-    if error_code == "generated_marker_missing":
-        return ["Rerun with `--init-marker` after reviewing where the generated block should live."]
-    if error_code == "generated_marker_duplicate":
-        return ["Keep one generated marker pair, move manual content outside it, then rerun the command."]
-    if error_code == "generated_marker_unclosed":
-        return ["Fix the unbalanced generated marker pair before rerunning the command."]
-    if error_code == "sync_source_invalid":
-        return ["Fix or remove the invalid source file, then rerun the sync command."]
-    if error_code == "doctor_projects_fix_unsupported":
-        return ["Run `acf doctor --projects ... --json` read-only, then run single-project `acf doctor <path> --fix safe`."]
-    if error_code == "doctor_projects_write_unsupported":
-        return ["Run `acf doctor --projects ... --json` read-only, then run a single-project doctor write command."]
-    if error_code == "doctor_report_exists":
-        return ["Review the existing doctor report, rerun with a different --today date, or use --force to replace it."]
-    if error_code == "doctor_draft_exists":
-        return ["Review the existing doctor writeback draft, rerun with a different --today date, or use --force to replace it."]
-    if error_code == "input_error":
-        return [
-            "Check command arguments and paths.",
-            "Rerun with `--help` if needed.",
-        ]
-    if error_code == "safety_refused":
-        return [
-            "Review the target state and changed files.",
-            "Rerun with `--force` only if overwriting is intended.",
-        ]
-    if error_code == "runtime_error":
-        return [
-            "Inspect the error message.",
-            "Rerun after fixing the unexpected failure.",
-        ]
-    return []
-
-
-def classify_cli_error(message: str) -> tuple[str, int]:
-    workstream_codes = (
-        "workstream_not_initialized",
-        "workstream_not_found",
-        "workstream_schema_failed",
-        "workstream_duplicate_id",
-        "workstream_invalid_transition",
-        "workstream_reason_required",
-        "workstream_missing_merge_request",
-        "workstream_human_approval_required",
-        "workstream_missing_evidence",
-        "workstream_missing_merge_resolution",
-        "workstream_section_not_allowed",
-        "workstream_scope_invalid",
-        "workstream_claim_conflict",
-        "workstream_guard_git_unavailable",
-        "workstream_guard_failed",
-        "workstream_dashboard_conflicts",
-        "workstream_owned_scope_invalid",
-        "workstream_stage_duplicate_id",
-        "workstream_stage_scope_invalid",
-        "workstream_stage_not_found",
-        "workstream_stage_terminal",
-        "workstream_stage_active_conflict",
-        "workstream_stage_dependency_blocked",
-        "workstream_stage_clear_current_required",
-        "workstream_archive_candidates_invalid_today",
-        "workstream_archive_candidates_plan_unreadable",
-        "workstream_archive_draft_exists",
-        "workstream_archive_blocked",
-        "workstream_archive_target_exists",
-        "workstream_archive_duplicate_index",
-    )
-    task_stage_codes = (
-        "task_stage_duplicate_id",
-        "task_stage_scope_invalid",
-        "task_stage_parent_not_found",
-        "task_stage_workstream_not_found",
-        "task_stage_not_found",
-        "task_stage_missing_evidence",
-    )
-    generated_marker_codes = (
-        "generated_marker_missing",
-        "generated_marker_duplicate",
-        "generated_marker_unclosed",
-        "sync_source_invalid",
-    )
-    feedback_codes = (
-        "feedback_not_found",
-        "feedback_archive_blocked",
-        "human_notes_missing",
-    )
-    doctor_codes = (
-        "doctor_projects_fix_unsupported",
-        "doctor_projects_write_unsupported",
-        "doctor_report_exists",
-        "doctor_draft_exists",
-    )
-    for code in (*workstream_codes, *task_stage_codes, *generated_marker_codes, *feedback_codes, *doctor_codes):
-        if message.startswith(f"{code}:"):
-            return code, EXIT_INPUT_ERROR
-    if message.startswith("curation_draft_exists:"):
-        return "curation_draft_exists", EXIT_SAFETY_REFUSED
-    safety_markers = (
-        "already exists",
-        "already contains",
-        "current task is Active",
-        "path is a directory",
-        "similar knowledge",
-        "target already exists",
-        "unfinished dependencies",
-        "outside context root",
-        "context is locked",
-        "managed by another command",
-    )
-    if any(marker in message for marker in safety_markers):
-        return "safety_refused", EXIT_SAFETY_REFUSED
-    return "input_error", EXIT_INPUT_ERROR
-
-
-def emit_cli_error(argv: Sequence[str], message: str, error_code: str, exit_code: int) -> int:
-    if json_requested(argv):
-        print_json(
-            {
-                "command": command_name_from_argv(argv),
-                "ok": False,
-                "error_code": error_code,
-                "message": message,
-                "next_actions": error_next_actions(error_code),
-            }
-        )
-    else:
-        print(f"ERROR: {message}", file=sys.stderr)
-    return exit_code
-
-
-def emit_write_result(
-    args: argparse.Namespace,
-    command: str,
-    message: str,
-    changed_files: Sequence[Path],
-    check_result: CheckResult | None = None,
-    extra_payload: dict[str, object] | None = None,
-    warnings: Sequence[str] = (),
-) -> int:
-    dry_run = dry_run_enabled(args)
-    payload: dict[str, object] = {
-        "command": command,
-        "ok": check_result.ok if check_result is not None else True,
-        "error_code": check_error_code(check_result),
-        "dry_run": dry_run,
-        "changed_files": path_values(changed_files),
-        "message": message,
-        "next_actions": write_next_actions(dry_run, check_result, changed_files),
-    }
-    if warnings:
-        payload["warnings"] = list(warnings)
-    if extra_payload:
-        payload.update(extra_payload)
-    if check_result is not None:
-        payload["check"] = check_payload(check_result)
-    set_result_payload(args, payload)
-
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(message)
-        label = "would change" if dry_run else "changed"
-        for changed_file in changed_files:
-            print(f"{label}: {changed_file}")
-        if check_result is not None:
-            print(f"check: {'passed' if check_result.ok else 'failed'}")
-            for error in check_result.errors:
-                print(f"ERROR: {error}", file=sys.stderr)
-            for warning in check_result.warnings:
-                print(f"WARN: {warning}", file=sys.stderr)
-        for warning in warnings:
-            print(f"WARN: {warning}", file=sys.stderr)
-
-    return 0 if check_result is None or check_result.ok else 1
-
-
-def lock_path_for_context(root: Path) -> Path:
-    return root / LOCK_FILE_REL
-
-
-def acquire_context_lock(root: Path, command: str) -> Path:
-    lock_path = lock_path_for_context(root)
-    try:
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as exc:
-        raise SystemExit(
-            f"context is locked by another acf write command: {lock_path}; "
-            "rerun after it finishes or remove the stale lock if no acf process is running"
-        ) from exc
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(
-            json.dumps(
-                {
-                    "schema_version": JSON_SCHEMA_VERSION,
-                    "command": command,
-                    "created_at": utc_now_iso(),
-                    "pid": os.getpid(),
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-            )
-            + "\n"
-        )
-    return lock_path
-
-
-def release_context_lock(lock_path: Path) -> None:
-    try:
-        lock_path.unlink()
-    except FileNotFoundError:
-        return
-
-
 def write_command_context_root(args: argparse.Namespace) -> Path | None:
     command = getattr(args, "command", None)
     if command in {"init", "simplify"}:
@@ -1348,186 +590,6 @@ def skip_placeholder_check(root: Path, rel_file: str) -> bool:
     return root.resolve() != TEMPLATE_DIR.resolve() and rel_file in TEMPLATE_EXAMPLE_FILES
 
 
-def is_acf_placeholder(value: str) -> bool:
-    return ACF_PLACEHOLDER_RE.match(value) is not None
-
-
-def legacy_placeholder_count(placeholders: Sequence[str]) -> int:
-    return sum(1 for placeholder in placeholders if not is_acf_placeholder(placeholder))
-
-
-LEGACY_ACF_MARKER_REPLACEMENTS = {
-    LEGACY_UPGRADE_NOTES_START: UPGRADE_NOTES_START,
-    LEGACY_UPGRADE_NOTES_END: UPGRADE_NOTES_END,
-    LEGACY_WORKSTREAM_ARCHIVE_MARKER_START: WORKSTREAM_ARCHIVE_MARKER_START,
-    LEGACY_WORKSTREAM_ARCHIVE_MARKER_END: WORKSTREAM_ARCHIVE_MARKER_END,
-}
-
-
-def migrate_legacy_acf_markers(text: str) -> str:
-    updated = text
-    for legacy, canonical in LEGACY_ACF_MARKER_REPLACEMENTS.items():
-        updated = updated.replace(legacy, canonical)
-    return updated
-
-
-def legacy_acf_marker_warnings(rel_file: str, text: str) -> list[str]:
-    warnings: list[str] = []
-    if LEGACY_UPGRADE_NOTES_START in text or LEGACY_UPGRADE_NOTES_END in text:
-        warnings.append(f"{rel_file}: legacy ACF marker `ACF:UPGRADE-NOTES` found; prefer `ACF:UPGRADE:NOTES`")
-    if LEGACY_WORKSTREAM_ARCHIVE_MARKER_START in text or LEGACY_WORKSTREAM_ARCHIVE_MARKER_END in text:
-        warnings.append(
-            f"{rel_file}: legacy ACF marker `ACF:WORKSTREAM-ARCHIVE` found; prefer `ACF:WORKSTREAM:ARCHIVE-RECORD`"
-        )
-    return warnings
-
-
-def has_upgrade_notes_marker(text: str) -> bool:
-    return UPGRADE_NOTES_START in text or LEGACY_UPGRADE_NOTES_START in text
-
-
-def has_workstream_archive_marker(text: str) -> bool:
-    return WORKSTREAM_ARCHIVE_MARKER_START in text or LEGACY_WORKSTREAM_ARCHIVE_MARKER_START in text
-
-
-def replace_generated_marker_block(text: str, start_marker: str, end_marker: str, body: str) -> tuple[str, bool]:
-    start_count = text.count(start_marker)
-    end_count = text.count(end_marker)
-    if start_count == 0 and end_count == 0:
-        raise SystemExit(f"generated_marker_missing: missing generated marker {start_marker}")
-    if start_count != end_count:
-        raise SystemExit(f"generated_marker_unclosed: marker pair is not balanced for {start_marker}")
-    if start_count > 1:
-        raise SystemExit(f"generated_marker_duplicate: duplicate generated marker {start_marker}")
-
-    lines = text.splitlines()
-    start_index = next(index for index, line in enumerate(lines) if line.strip() == start_marker)
-    end_index = next((index for index in range(start_index + 1, len(lines)) if lines[index].strip() == end_marker), None)
-    if end_index is None:
-        raise SystemExit(f"generated_marker_unclosed: marker pair is not balanced for {start_marker}")
-
-    replacement = [start_marker, *normalized_section_body_lines(body), end_marker]
-    updated = lines[:start_index] + replacement + lines[end_index + 1 :]
-    updated_text = "\n".join(updated).rstrip() + "\n"
-    return updated_text, updated_text != text
-
-
-def insert_generated_marker_block_after_heading(
-    text: str,
-    heading: str,
-    start_marker: str,
-    end_marker: str,
-    body: str,
-    *,
-    replace_empty_table_header: str | None = None,
-) -> tuple[str, bool]:
-    if start_marker in text or end_marker in text:
-        return replace_generated_marker_block(text, start_marker, end_marker, body)
-
-    lines = text.splitlines()
-    section = find_section(lines, heading)
-    block = [start_marker, *normalized_section_body_lines(body), end_marker]
-    if replace_empty_table_header is not None:
-        section_lines = lines[section.body_start : section.body_end]
-        try:
-            table = find_table(section_lines, replace_empty_table_header)
-        except SystemExit:
-            table = None
-        if table is not None:
-            body_rows = section_lines[table.body_start : table.body_end]
-            if all((split_table_line(row) or [""])[0] == "暂无" for row in body_rows):
-                start = section.body_start + table.header_index
-                end = section.body_start + table.body_end
-                updated = lines[:start] + block + lines[end:]
-                updated_text = "\n".join(updated).rstrip() + "\n"
-                return updated_text, updated_text != text
-
-    insert_at = section.body_start
-    while insert_at < section.body_end and not lines[insert_at].strip():
-        insert_at += 1
-    updated = lines[:insert_at] + block + [""] + lines[insert_at:]
-    updated_text = "\n".join(updated).rstrip() + "\n"
-    return updated_text, updated_text != text
-
-
-def infer_context_profile(root: Path) -> str:
-    standard_only_files = set(STANDARD_FILES) - set(MINIMAL_FILES)
-    # `acf new rule` may add Rules_Index.md to an otherwise minimal context.
-    # That single optional index should not opt the whole context into the
-    # standard profile's required file set.
-    standard_only_files.discard("rules/Rules_Index.md")
-    if any((root / rel_path).exists() for rel_path in standard_only_files):
-        return "standard"
-    return "minimal"
-
-
-def is_context_root(path: Path) -> bool:
-    return (
-        path.is_dir()
-        and (path / "AGENTS.md").is_file()
-        and (path / "active" / "Context.md").is_file()
-        and (path / "rules" / "Always_Active.md").is_file()
-    )
-
-
-def infer_project_root(context_root: Path) -> Path:
-    if context_root.name == "ai" and context_root.parent.name in {"docs", "docs-acf"}:
-        return context_root.parent.parent
-    if context_root.parent.name.lower() == "docs":
-        return context_root.parent.parent
-    return context_root.parent
-
-
-def make_context_location(context_root: Path) -> ContextLocation:
-    root = context_root.resolve()
-    return ContextLocation(
-        project_root=infer_project_root(root),
-        context_root=root,
-        profile=infer_context_profile(root),
-    )
-
-
-def discover_context(start: Path | None = None) -> ContextLocation:
-    start_path = (start or Path.cwd()).resolve()
-    current = start_path.parent if start_path.is_file() else start_path
-
-    for directory in (current, *current.parents):
-        if is_context_root(directory):
-            return make_context_location(directory)
-
-        docs_ai = directory / "docs" / "ai"
-        if is_context_root(docs_ai):
-            return make_context_location(docs_ai)
-        docs_acf_ai = directory / "docs-acf" / "ai"
-        if is_context_root(docs_acf_ai):
-            return make_context_location(docs_acf_ai)
-
-    raise SystemExit("could not find AI context directory; pass a context path or run `acf init docs/ai`")
-
-
-def resolve_context_root(path: Path | None) -> Path:
-    if path is not None:
-        return path.resolve()
-    return discover_context().context_root
-
-
-def require_context_root(path: Path | None) -> Path:
-    root = resolve_context_root(path)
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"context directory does not exist: {root}")
-    return root
-
-
-def resolve_status_location(path: Path | None) -> ContextLocation:
-    if path is None:
-        return discover_context()
-
-    resolved = path.resolve()
-    if is_context_root(resolved):
-        return make_context_location(resolved)
-    return discover_context(resolved)
-
-
 def ensure_clean_target(target: Path, force: bool, dry_run: bool = False) -> None:
     if not target.exists():
         return
@@ -1554,418 +616,6 @@ def copy_selected_files(source: Path, target: Path, files: Sequence[str], dirs: 
             raise SystemExit(f"template source file is missing: {src}")
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
-
-
-def infer_project_root(context_root: Path) -> Path:
-    if context_root.name == "ai" and context_root.parent.name in {"docs", "docs-acf"}:
-        return context_root.parent.parent
-    if context_root.parent.name.lower() == "docs":
-        return context_root.parent.parent
-    return context_root.parent
-
-
-def display_path(path: Path) -> str:
-    return path.as_posix()
-
-
-def relative_display_path(path: Path, base: Path) -> str:
-    try:
-        return display_path(path.relative_to(base))
-    except ValueError:
-        return display_path(path)
-
-
-def context_json_path(root: Path, path: Path) -> str:
-    return relative_display_path(path.resolve(), infer_project_root(root).resolve())
-
-
-def slugify_project_name(value: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-")
-    return slug or "project"
-
-
-def acf_home() -> Path:
-    override = os_environ_value(ACF_HOME_ENV)
-    if override:
-        return Path(override).expanduser().resolve()
-    return (Path.home() / ".acf").resolve()
-
-
-def os_environ_value(name: str) -> str:
-    return os.environ.get(name, "").strip()
-
-
-def usage_project_dir(project_root: Path) -> Path:
-    resolved = project_root.resolve()
-    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
-    return acf_home() / "projects" / f"{slugify_project_name(resolved.name)}-{digest}"
-
-
-def usage_config_path(project_root: Path) -> Path:
-    return usage_project_dir(project_root) / USAGE_LOG_CONFIG_NAME
-
-
-def usage_log_path(project_root: Path) -> Path:
-    return usage_project_dir(project_root) / USAGE_LOG_FILE_REL
-
-
-def usage_lock_path(project_root: Path) -> Path:
-    return usage_project_dir(project_root) / USAGE_LOCK_FILE_NAME
-
-
-def atomic_write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
-    temp_path.write_text(text, encoding="utf-8")
-    os.replace(temp_path, path)
-
-
-def acquire_usage_lock(project_root: Path, timeout_seconds: float = 5.0) -> Path:
-    lock_path = usage_lock_path(project_root)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + timeout_seconds
-    while True:
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(
-                    json.dumps(
-                        {
-                            "schema_version": JSON_SCHEMA_VERSION,
-                            "created_at": utc_now_iso(),
-                            "pid": os.getpid(),
-                        },
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    )
-                    + "\n"
-                )
-            return lock_path
-        except FileExistsError as exc:
-            if time.monotonic() >= deadline:
-                raise SystemExit(f"usage log is locked: {lock_path}") from exc
-            time.sleep(0.05)
-
-
-def release_usage_lock(lock_path: Path) -> None:
-    try:
-        lock_path.unlink()
-    except FileNotFoundError:
-        return
-
-
-def read_usage_config(project_root: Path) -> dict[str, object]:
-    config_path = usage_config_path(project_root)
-    if not config_path.exists():
-        return {"usage_log_enabled": True}
-    try:
-        data = json.loads(read_text(config_path))
-    except (OSError, json.JSONDecodeError):
-        return {"enabled": False}
-    return data if isinstance(data, dict) else {"enabled": False}
-
-
-def write_usage_config(project_root: Path, enabled: bool) -> None:
-    config_path = usage_config_path(project_root)
-    lock_path = acquire_usage_lock(project_root)
-    try:
-        atomic_write_text(
-            config_path,
-            json.dumps(
-                {
-                    "schema_version": JSON_SCHEMA_VERSION,
-                    "usage_log_enabled": enabled,
-                },
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
-        )
-    finally:
-        release_usage_lock(lock_path)
-
-
-def usage_log_enabled(project_root: Path) -> bool:
-    return bool(read_usage_config(project_root).get("usage_log_enabled", False))
-
-
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def parse_usage_timestamp(value: object) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        normalized = value.replace("Z", "+00:00")
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
-def read_usage_events(project_root: Path) -> list[dict[str, object]]:
-    log_path = usage_log_path(project_root)
-    if not log_path.exists():
-        return []
-    events: list[dict[str, object]] = []
-    for line in read_text(log_path).splitlines():
-        if not line.strip():
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(event, dict):
-            events.append(event)
-    return events
-
-
-def write_usage_events(project_root: Path, events: Sequence[dict[str, object]]) -> None:
-    log_path = usage_log_path(project_root)
-    text = "".join(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n" for event in events)
-    lock_path = acquire_usage_lock(project_root)
-    try:
-        atomic_write_text(log_path, text)
-    finally:
-        release_usage_lock(lock_path)
-
-
-def append_usage_event(project_root: Path, event: dict[str, object]) -> None:
-    log_path = usage_log_path(project_root)
-    lock_path = acquire_usage_lock(project_root)
-    try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
-    finally:
-        release_usage_lock(lock_path)
-
-
-def usage_log_status_payload(project_root: Path) -> dict[str, object]:
-    events = read_usage_events(project_root)
-    latest = events[-1].get("timestamp") if events else None
-    return {
-        "command": "log status",
-        "ok": True,
-        "enabled": usage_log_enabled(project_root),
-        "project_root": str(project_root),
-        "config_path": str(usage_config_path(project_root)),
-        "log_path": str(usage_log_path(project_root)),
-        "event_count": len(events),
-        "latest_event_at": latest,
-    }
-
-
-def summarize_usage_events(events: Sequence[dict[str, object]]) -> dict[str, object]:
-    command_counts: dict[str, int] = {}
-    error_counts: dict[str, int] = {}
-    event_kind_counts: dict[str, int] = {}
-    dry_run_count = 0
-    changed_files_count = 0
-    ok_count = 0
-    for event in events:
-        command = str(event.get("command") or "unknown")
-        command_counts[command] = command_counts.get(command, 0) + 1
-        event_kind = str(event.get("event_kind") or "usage")
-        event_kind_counts[event_kind] = event_kind_counts.get(event_kind, 0) + 1
-        if event.get("ok") is True:
-            ok_count += 1
-        error_code = event.get("error_code")
-        if error_code:
-            key = str(error_code)
-            error_counts[key] = error_counts.get(key, 0) + 1
-        if event.get("dry_run") is True:
-            dry_run_count += 1
-        changed_files = event.get("changed_files")
-        if isinstance(changed_files, list):
-            changed_files_count += len(changed_files)
-    return {
-        "event_count": len(events),
-        "ok_count": ok_count,
-        "failed_count": len(events) - ok_count,
-        "command_counts": command_counts,
-        "error_counts": error_counts,
-        "event_kind_counts": event_kind_counts,
-        "feedback_count": event_kind_counts.get("feedback", 0),
-        "dry_run_count": dry_run_count,
-        "changed_files_count": changed_files_count,
-    }
-
-
-def parse_usage_since(value: str) -> datetime:
-    normalized = value.strip()
-    if not normalized:
-        raise SystemExit("--since cannot be empty")
-    try:
-        if DATE_RE.match(normalized):
-            return datetime.fromisoformat(normalized).replace(tzinfo=timezone.utc)
-        return parse_usage_timestamp(normalized) or datetime.fromisoformat(normalized).replace(tzinfo=timezone.utc)
-    except ValueError as exc:
-        raise SystemExit(f"invalid --since value `{value}`, expected YYYY-MM-DD or ISO timestamp") from exc
-
-
-def filter_usage_events(
-    events: Sequence[dict[str, object]],
-    since: datetime | None = None,
-    commands: Sequence[str] = (),
-    errors_only: bool = False,
-) -> list[dict[str, object]]:
-    command_set = {command.strip() for command in commands if command.strip()}
-    filtered: list[dict[str, object]] = []
-    for event in events:
-        if since is not None:
-            timestamp = parse_usage_timestamp(event.get("timestamp"))
-            if timestamp is None or timestamp < since:
-                continue
-        if command_set and str(event.get("command") or "") not in command_set:
-            continue
-        if errors_only and event.get("ok") is True:
-            continue
-        filtered.append(event)
-    return filtered
-
-
-def command_label(args: argparse.Namespace) -> str:
-    command = getattr(args, "command", "") or ""
-    if command == "new":
-        return f"new {getattr(args, 'entry_type', '')}".strip()
-    if command == "writeback":
-        return f"writeback {getattr(args, 'writeback_command', '')}".strip()
-    if command == "edit":
-        edit_target = getattr(args, "edit_target", "")
-        if edit_target == "section":
-            return f"edit section {getattr(args, 'section_command', '')}".strip()
-        if edit_target == "table":
-            return f"edit table {getattr(args, 'table_command', '')}".strip()
-    if command == "log":
-        return f"log {getattr(args, 'log_command', '')}".strip()
-    if command == "version":
-        return f"version {getattr(args, 'version_command', '')}".strip()
-    if command == "plan":
-        plan_command = getattr(args, "plan_command", "")
-        if plan_command == "stage":
-            return f"plan stage {getattr(args, 'plan_stage_command', '')}".strip()
-        return f"plan {plan_command}".strip()
-    if command == "task":
-        return f"task {getattr(args, 'task_command', '')}".strip()
-    if command == "archive":
-        return f"archive {getattr(args, 'archive_command', '')}".strip()
-    if command == "decisions":
-        return f"decisions {getattr(args, 'decisions_command', '')}".strip()
-    if command == "knowledge":
-        return f"knowledge {getattr(args, 'knowledge_command', '')}".strip()
-    if command == "review":
-        return f"review {getattr(args, 'review_command', '')}".strip()
-    if command == "audit":
-        return f"audit {getattr(args, 'audit_command', '')}".strip()
-    if command == "curate":
-        return f"curate {getattr(args, 'curate_command', '')}".strip()
-    if command == "doctor":
-        return "doctor"
-    if command == "workstream":
-        return f"workstream {getattr(args, 'workstream_command', '')}".strip()
-    if command == "link":
-        return f"link {getattr(args, 'link_command', '')}".strip()
-    return command
-
-
-def usage_loggable(args: argparse.Namespace) -> bool:
-    return getattr(args, "command", None) != "log"
-
-
-def context_location_for_args(args: argparse.Namespace) -> ContextLocation:
-    command = getattr(args, "command", None)
-    if command == "status":
-        return resolve_status_location(getattr(args, "path", None))
-    if command == "check":
-        return make_context_location(resolve_context_root(getattr(args, "path", None)))
-    if command == "init":
-        return make_context_location(getattr(args, "target").resolve())
-    if command == "simplify":
-        return make_context_location(getattr(args, "target").resolve())
-    if command == "upgrade":
-        return make_context_location(require_context_root(getattr(args, "path", None)))
-    if command == "linkify":
-        return make_context_location(require_context_root(getattr(args, "path", None)))
-    if command == "link":
-        return make_context_location(require_context_root(getattr(args, "path", None)))
-    if command == "new":
-        return make_context_location(require_context_root(getattr(args, "path", None)))
-    if command == "writeback":
-        return make_context_location(require_context_root(getattr(args, "path", None)))
-    if command == "edit":
-        return make_context_location(require_context_root(getattr(args, "context", None)))
-    if command in {"plan", "task", "archive", "decisions", "knowledge", "review", "audit", "doctor", "workstream"}:
-        return make_context_location(require_context_root(getattr(args, "path", None)))
-    raise SystemExit("usage log is not available for this command")
-
-
-def relative_usage_paths(values: object, project_root: Path) -> list[str]:
-    if not isinstance(values, list):
-        return []
-    paths: list[str] = []
-    for value in values:
-        if not isinstance(value, str):
-            continue
-        paths.append(relative_display_path(Path(value).resolve(), project_root))
-    return paths
-
-
-def check_counts(payload: dict[str, object]) -> tuple[int, int]:
-    check = payload.get("check")
-    if not isinstance(check, dict):
-        return 0, 0
-    errors = check.get("errors")
-    warnings = check.get("warnings")
-    return (
-        len(errors) if isinstance(errors, list) else 0,
-        len(warnings) if isinstance(warnings, list) else 0,
-    )
-
-
-def build_usage_event(
-    args: argparse.Namespace,
-    location: ContextLocation,
-    exit_code: int,
-    duration_ms: int,
-) -> dict[str, object]:
-    payload = get_result_payload(args)
-    error_count, warning_count = check_counts(payload)
-    return {
-        "schema_version": JSON_SCHEMA_VERSION,
-        "timestamp": utc_now_iso(),
-        "command": command_label(args),
-        "cwd_rel": relative_display_path(Path.cwd().resolve(), location.project_root),
-        "context_rel": relative_display_path(location.context_root, location.project_root),
-        "profile": location.profile,
-        "ok": bool(payload.get("ok", exit_code == 0)),
-        "exit_code": exit_code,
-        "error_code": payload.get("error_code"),
-        "duration_ms": duration_ms,
-        "dry_run": dry_run_enabled(args),
-        "check_after": check_after_enabled(args),
-        "strict": bool(getattr(args, "strict", False)),
-        "json": json_enabled(args),
-        "changed_files": relative_usage_paths(payload.get("changed_files"), location.project_root),
-        "check_errors_count": error_count,
-        "check_warnings_count": warning_count,
-    }
-
-
-def record_usage_event(args: argparse.Namespace, exit_code: int, duration_ms: int) -> None:
-    if not usage_loggable(args):
-        return
-    try:
-        location = context_location_for_args(args)
-        if not usage_log_enabled(location.project_root):
-            return
-        append_usage_event(location.project_root, build_usage_event(args, location, exit_code, duration_ms))
-    except BaseException:
-        return
 
 
 def render_root_agents(project_name: str, context_rel: str) -> str:
@@ -2052,23 +702,6 @@ def copy_dynamic_minimal_files(source: Path, target: Path) -> None:
         shutil.copy2(src, dst)
 
 
-def remove_markdown_section(text: str, heading: str) -> str:
-    lines = text.splitlines()
-    start = next((index for index, line in enumerate(lines) if line.strip() == heading), None)
-    if start is None:
-        return text
-    end = next(
-        (
-            index
-            for index, line in enumerate(lines[start + 1 :], start=start + 1)
-            if line.strip().startswith("## ")
-        ),
-        len(lines),
-    )
-    updated = lines[:start] + lines[end:]
-    return "\n".join(updated).rstrip() + "\n"
-
-
 def remove_worklog_example_block(text: str) -> str:
     lines = text.splitlines()
     start = next((index for index, line in enumerate(lines) if line.strip() == "填写示例："), None)
@@ -2105,23 +738,6 @@ def sanitize_minimal_indexes(target: Path) -> None:
 def write_minimal_overrides(target: Path) -> None:
     (target / "AGENTS.md").write_text(MINIMAL_AGENTS, encoding="utf-8")
     sanitize_minimal_indexes(target)
-
-
-def validate_date(value: str) -> str:
-    try:
-        date.fromisoformat(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"invalid date `{value}`, expected YYYY-MM-DD") from exc
-    return value
-
-
-def clean_table_cell(value: str) -> str:
-    return " ".join(value.split()).replace("|", "/")
-
-
-def table_cell(value: str, default: str = "无。") -> str:
-    value = value.strip()
-    return clean_table_cell(value or default)
 
 
 def render_worklog_daily(log_date: str, summary: str, conclusion: str) -> str:
@@ -2295,19 +911,6 @@ def update_worklog_index_append(index_path: Path, log_date: str, summary: str, c
     index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
 
 
-def section_insert_after_line(text: str, heading: str) -> int:
-    lines = text.splitlines()
-    section = find_section(lines, heading)
-    insert_index = section.body_end
-    while insert_index > section.body_start and not lines[insert_index - 1].strip():
-        insert_index -= 1
-    if insert_index > section.body_start and lines[insert_index - 1].strip() == "---":
-        insert_index -= 1
-        while insert_index > section.body_start and not lines[insert_index - 1].strip():
-            insert_index -= 1
-    return insert_index if insert_index > section.body_start else section.heading_index + 1
-
-
 def emit_worklog_error(
     args: argparse.Namespace,
     root: Path,
@@ -2405,48 +1008,6 @@ def next_adr_id(decisions_dir: Path) -> str:
     numbers = existing_adr_numbers(decisions_dir)
     next_number = (numbers[-1] + 1) if numbers else 1
     return f"ADR-{next_number:04d}"
-
-
-def validate_adr_id(value: str) -> str:
-    if not ADR_ID_RE.match(value):
-        raise argparse.ArgumentTypeError("ADR id must use ADR-0001 format")
-    return value
-
-
-def validate_draft_name(value: str) -> str:
-    if not DRAFT_NAME_RE.match(value):
-        raise argparse.ArgumentTypeError("draft name may only contain letters, digits, dot, underscore, and hyphen")
-    return value
-
-
-def validate_task_id(value: str) -> str:
-    if not TASK_ID_RE.match(value):
-        raise argparse.ArgumentTypeError("task id must use T001 format")
-    return value
-
-
-def validate_task_stage_id(value: str) -> str:
-    if not TASK_STAGE_ID_RE.match(value):
-        raise argparse.ArgumentTypeError("task stage id must use T001.1 format")
-    return value
-
-
-def validate_knowledge_id(value: str) -> str:
-    if not KNOWLEDGE_ID_RE.match(value):
-        raise argparse.ArgumentTypeError("knowledge id must use K001 format")
-    return value
-
-
-def validate_workstream_id(value: str) -> str:
-    if not WORKSTREAM_ID_RE.match(value):
-        raise argparse.ArgumentTypeError("workstream id must use WS001 format")
-    return value
-
-
-def validate_workstream_stage_id(value: str) -> str:
-    if not WORKSTREAM_STAGE_ID_RE.match(value):
-        raise argparse.ArgumentTypeError("workstream stage id must use WS001.1 format")
-    return value
 
 
 def render_adr(
@@ -3354,18 +1915,6 @@ def feedback_archive_path(root: Path, archive_date: date) -> Path:
 
 def find_feedback_row(rows: Sequence[dict[str, str]], feedback_id: str) -> dict[str, str] | None:
     return next((row for row in rows if row.get("ID") == feedback_id), None)
-
-
-def validate_feedback_id(value: str) -> str:
-    if not re.match(r"^F\d{3}$", value):
-        raise argparse.ArgumentTypeError(f"invalid feedback id `{value}`, expected FNNN")
-    return value
-
-
-def validate_human_note_id(value: str) -> str:
-    if not re.match(r"^H\d{3}$", value):
-        raise argparse.ArgumentTypeError(f"invalid human note id `{value}`, expected HNNN")
-    return value
 
 
 def human_note_status_to_index_status(status: str) -> str:
@@ -4432,14 +2981,6 @@ def writeback_draft_command(args: argparse.Namespace) -> int:
     return emit_write_result(args, "writeback draft", f"{action} writeback draft {draft_path}", [draft_path], check_result)
 
 
-def is_relative_to(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-    except ValueError:
-        return False
-    return True
-
-
 def resolve_context_markdown_file(root: Path, target: Path) -> Path:
     root = root.resolve()
     if target.is_absolute():
@@ -4505,247 +3046,6 @@ def read_edit_input(args: argparse.Namespace) -> str:
     if not sys.stdin.isatty():
         return sys.stdin.read()
     raise SystemExit("edit command requires --text, --input, or stdin")
-
-
-def markdown_link_target_for(md_file: Path, target_file: Path, fragment: str = "") -> str:
-    relative = os.path.relpath(target_file, start=md_file.parent).replace("\\", "/")
-    if fragment:
-        relative = f"{relative}#{fragment}"
-    return relative
-
-
-def render_markdown_link_target(target: str) -> str:
-    if any(char in target for char in " ()"):
-        return f"<{target}>"
-    return target
-
-
-def render_markdown_link(text: str, target: str) -> str:
-    return f"[{text}]({render_markdown_link_target(target)})"
-
-
-def render_existing_markdown_link(prefix: str, text: str, target: str) -> str:
-    return f"{prefix}[{text}]({render_markdown_link_target(target)})"
-
-
-def rewrite_local_markdown_links_for_move(
-    root: Path,
-    source_md_file: Path,
-    destination_md_file: Path,
-    text: str,
-) -> tuple[str, int]:
-    updated_lines: list[str] = []
-    replacements = 0
-    in_fence = False
-    fence_marker = ""
-    for line in text.splitlines():
-        stripped = line.lstrip()
-        fence = re.match(r"^(```+|~~~+)", stripped)
-        if fence:
-            marker = fence.group(1)[:3]
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker
-            elif marker == fence_marker:
-                in_fence = False
-                fence_marker = ""
-            updated_lines.append(line)
-            continue
-        if in_fence:
-            updated_lines.append(line)
-            continue
-
-        chunks: list[str] = []
-        last = 0
-        line_replacements = 0
-        for match in MARKDOWN_LINK_RE.finditer(line):
-            raw_target = match.group(3)
-            target = clean_markdown_link_target(raw_target)
-            if not is_local_link_ref(target):
-                continue
-            target_ref, fragment = split_ref_fragment(target)
-            if target_ref == "":
-                continue
-            resolved = resolve_ref_path(root, source_md_file, target_ref)
-            if resolved is None:
-                continue
-            rewritten_target = markdown_link_target_for(destination_md_file, resolved, fragment)
-            if rewritten_target == target:
-                continue
-            chunks.append(line[last : match.start()])
-            chunks.append(render_existing_markdown_link(match.group(1), match.group(2), rewritten_target))
-            last = match.end()
-            line_replacements += 1
-        if line_replacements:
-            chunks.append(line[last:])
-            updated_lines.append("".join(chunks))
-            replacements += line_replacements
-        else:
-            updated_lines.append(line)
-
-    trailing_newline = "\n" if text.endswith("\n") else ""
-    return "\n".join(updated_lines) + trailing_newline, replacements
-
-
-def path_candidate_from_ref(root: Path, md_file: Path, ref_path: str, *, allow_missing: bool) -> Path | None:
-    if not ref_path:
-        return md_file
-    resolved = resolve_ref_path(root, md_file, ref_path)
-    if resolved is not None:
-        return resolved
-    if not allow_missing:
-        return None
-    normalized = normalize_ref_path(ref_path)
-    if normalized.startswith(("../", "./")):
-        candidate = (md_file.parent / normalized).resolve()
-    else:
-        candidate = (root / normalized).resolve()
-    if not is_relative_to(candidate, root.resolve()):
-        return None
-    return candidate
-
-
-def is_linkify_path_candidate(value: str) -> bool:
-    candidate = clean_markdown_link_target(value.strip().strip("`"))
-    if not is_local_link_ref(candidate):
-        return False
-    ref_path, _fragment = split_ref_fragment(candidate)
-    if not ref_path or ref_path.endswith(("/", ".")):
-        return False
-    if " " in ref_path or "\t" in ref_path:
-        return False
-    if "/" not in ref_path and "\\" not in ref_path:
-        return False
-    return bool(Path(ref_path).suffix)
-
-
-def linkify_candidate(
-    root: Path,
-    md_file: Path,
-    candidate: str,
-    *,
-    allow_missing: bool,
-) -> tuple[str | None, dict[str, str] | None]:
-    display = candidate.strip().strip("`")
-    if not is_linkify_path_candidate(display):
-        return None, None
-    ref_path, fragment = split_ref_fragment(clean_markdown_link_target(display))
-    target_file = path_candidate_from_ref(root, md_file, ref_path, allow_missing=allow_missing)
-    if target_file is None:
-        return None, {"target": display, "reason": "missing target"}
-    href = markdown_link_target_for(md_file, target_file, fragment)
-    return render_markdown_link(display, href), None
-
-
-def match_overlaps_spans(start: int, end: int, spans: Sequence[tuple[int, int]]) -> bool:
-    return any(start < span_end and end > span_start for span_start, span_end in spans)
-
-
-def replace_linkify_matches(
-    line: str,
-    pattern: re.Pattern[str],
-    root: Path,
-    md_file: Path,
-    *,
-    allow_missing: bool,
-    protected_spans: Sequence[tuple[int, int]] = (),
-) -> tuple[str, int, list[dict[str, str]]]:
-    chunks: list[str] = []
-    skipped: list[dict[str, str]] = []
-    last = 0
-    replacements = 0
-    for match in pattern.finditer(line):
-        if match_overlaps_spans(match.start(), match.end(), protected_spans):
-            continue
-        candidate = match.group(1)
-        replacement, skip = linkify_candidate(root, md_file, candidate, allow_missing=allow_missing)
-        if skip is not None:
-            skipped.append(skip)
-        if replacement is None:
-            continue
-        chunks.append(line[last : match.start()])
-        chunks.append(replacement)
-        last = match.end()
-        replacements += 1
-    if replacements == 0:
-        return line, 0, skipped
-    chunks.append(line[last:])
-    return "".join(chunks), replacements, skipped
-
-
-def linkify_markdown_text(
-    root: Path,
-    md_file: Path,
-    text: str,
-    *,
-    allow_missing: bool,
-) -> tuple[str, int, list[dict[str, str]]]:
-    updated_lines: list[str] = []
-    total = 0
-    skipped: list[dict[str, str]] = []
-    in_fence = False
-    fence_marker = ""
-    in_front_matter = False
-    front_matter_done = False
-    code_ref_re = re.compile(r"`([^`\n]+)`")
-    for index, line in enumerate(text.splitlines()):
-        if index == 0 and line.strip() == "---":
-            in_front_matter = True
-            updated_lines.append(line)
-            continue
-        if in_front_matter:
-            updated_lines.append(line)
-            if line.strip() == "---":
-                in_front_matter = False
-                front_matter_done = True
-            continue
-        if not front_matter_done and line.strip():
-            front_matter_done = True
-
-        stripped = line.lstrip()
-        fence = re.match(r"^(```+|~~~+)", stripped)
-        if fence:
-            marker = fence.group(1)[:3]
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker
-            elif marker == fence_marker:
-                in_fence = False
-                fence_marker = ""
-            updated_lines.append(line)
-            continue
-        if in_fence:
-            updated_lines.append(line)
-            continue
-
-        link_spans = [(match.start(), match.end()) for match in MARKDOWN_LINK_RE.finditer(line)]
-        line, count, line_skipped = replace_linkify_matches(
-            line,
-            code_ref_re,
-            root,
-            md_file,
-            allow_missing=allow_missing,
-            protected_spans=link_spans,
-        )
-        total += count
-        skipped.extend(line_skipped)
-
-        link_spans = [(match.start(), match.end()) for match in MARKDOWN_LINK_RE.finditer(line)]
-        code_spans = [(match.start(), match.end()) for match in code_ref_re.finditer(line)]
-        line, count, line_skipped = replace_linkify_matches(
-            line,
-            PATH_LIKE_RE,
-            root,
-            md_file,
-            allow_missing=allow_missing,
-            protected_spans=[*link_spans, *code_spans],
-        )
-        total += count
-        skipped.extend(line_skipped)
-        updated_lines.append(line)
-
-    trailing_newline = "\n" if text.endswith("\n") else ""
-    return "\n".join(updated_lines) + trailing_newline, total, skipped
 
 
 def linkify_candidate_files(root: Path, args: argparse.Namespace) -> list[Path]:
@@ -4858,313 +3158,6 @@ def link_add_command(args: argparse.Namespace) -> int:
     )
 
 
-def heading_level(line: str) -> int | None:
-    match = MARKDOWN_HEADING_RE.match(line.strip())
-    if match is None:
-        return None
-    return len(match.group(1))
-
-
-def find_section(lines: Sequence[str], heading: str) -> SectionRange:
-    expected = heading.strip()
-    if heading_level(expected) is None:
-        raise SystemExit(f"section heading must be a Markdown heading: {heading}")
-
-    heading_index = next((index for index, line in enumerate(lines) if line.strip() == expected), None)
-    if heading_index is None:
-        raise SystemExit(f"section heading was not found: {heading}")
-
-    level = heading_level(lines[heading_index])
-    if level is None:
-        raise SystemExit(f"section heading must be a Markdown heading: {heading}")
-
-    body_start = heading_index + 1
-    body_end = len(lines)
-    for index in range(body_start, len(lines)):
-        candidate_level = heading_level(lines[index])
-        if candidate_level is not None and candidate_level <= level:
-            body_end = index
-            break
-
-    return SectionRange(heading_index, body_start, body_end, level)
-
-
-def section_content_and_suffix(lines: Sequence[str], section: SectionRange) -> tuple[list[str], list[str]]:
-    content = list(lines[section.body_start : section.body_end])
-    while content and not content[-1].strip():
-        content.pop()
-
-    suffix: list[str] = []
-    if content and content[-1].strip() == "---":
-        content.pop()
-        while content and not content[-1].strip():
-            content.pop()
-        suffix = ["---", ""]
-
-    while content and not content[0].strip():
-        content.pop(0)
-
-    return content, suffix
-
-
-def section_body(lines: Sequence[str], section: SectionRange) -> str:
-    content, _suffix = section_content_and_suffix(lines, section)
-    return "\n".join(content).strip("\n")
-
-
-def normalized_section_body_lines(text: str) -> list[str]:
-    stripped = text.strip("\n")
-    return stripped.splitlines() if stripped else []
-
-
-def apply_section_body(
-    lines: Sequence[str],
-    section: SectionRange,
-    body_lines: Sequence[str],
-    suffix_lines: Sequence[str] | None = None,
-) -> str:
-    replacement = list(body_lines)
-    new_section = [lines[section.heading_index], ""]
-    new_section.extend(replacement)
-    suffix = list(suffix_lines or [])
-    if suffix:
-        if replacement:
-            new_section.append("")
-        new_section.extend(suffix)
-    elif replacement:
-        new_section.append("")
-
-    updated_lines = (
-        list(lines[: section.heading_index])
-        + new_section
-        + list(lines[section.body_end :])
-    )
-    return "\n".join(updated_lines).rstrip() + "\n"
-
-
-def replace_section_text(original: str, heading: str, replacement: str) -> str:
-    lines = original.splitlines()
-    section = find_section(lines, heading)
-    _content, suffix = section_content_and_suffix(lines, section)
-    return apply_section_body(lines, section, normalized_section_body_lines(replacement), suffix)
-
-
-def append_section_text(original: str, heading: str, addition: str) -> str:
-    lines = original.splitlines()
-    section = find_section(lines, heading)
-    body_lines, suffix = section_content_and_suffix(lines, section)
-    addition_lines = normalized_section_body_lines(addition)
-    if body_lines and addition_lines:
-        body_lines.append("")
-    body_lines.extend(addition_lines)
-    return apply_section_body(lines, section, body_lines, suffix)
-
-
-def insert_section_after(text: str, anchor_heading: str, heading: str, body: str) -> str:
-    lines = text.splitlines()
-    anchor = find_section(lines, anchor_heading)
-    insert_at = anchor.body_end
-    while insert_at > anchor.body_start and not lines[insert_at - 1].strip():
-        insert_at -= 1
-    if insert_at > anchor.body_start and lines[insert_at - 1].strip() == "---":
-        insert_at -= 1
-        while insert_at > anchor.body_start and not lines[insert_at - 1].strip():
-            insert_at -= 1
-    section_lines = ["", "---", "", heading, "", *normalized_section_body_lines(body), ""]
-    updated = lines[:insert_at] + section_lines + lines[insert_at:]
-    return "\n".join(updated).rstrip() + "\n"
-
-
-def insert_section_before(text: str, anchor_heading: str, heading: str, body: str) -> str:
-    lines = text.splitlines()
-    anchor = find_section(lines, anchor_heading)
-    insert_at = anchor.heading_index
-    while insert_at > 0 and not lines[insert_at - 1].strip():
-        insert_at -= 1
-    section_lines = [heading, "", *normalized_section_body_lines(body), "", "---", ""]
-    updated = lines[:insert_at] + section_lines + lines[insert_at:]
-    return "\n".join(updated).rstrip() + "\n"
-
-
-def normalize_plan_reference_path(value: str) -> str:
-    normalized = strip_code_ticks(value).replace("\\", "/")
-    while normalized.startswith("./"):
-        normalized = normalized[2:]
-    parts = normalized.split("/")
-    if (
-        not normalized
-        or normalized.startswith("/")
-        or "\\" in normalized
-        or any(part in {"", ".", ".."} for part in parts)
-        or parts[0] != "reference"
-        or not normalized.lower().endswith(".md")
-    ):
-        raise SystemExit("plan reference path must be a relative reference/*.md path")
-    return "/".join(parts)
-
-
-def normalize_plan_reference_purpose(value: str) -> str:
-    purpose = value.strip()
-    if not purpose:
-        raise SystemExit("plan reference purpose cannot be empty")
-    if purpose[-1] not in "。.！!?？":
-        purpose += "。"
-    return purpose
-
-
-def render_plan_reference(reference: PlanReference) -> str:
-    return f"- [{reference.path}](../{reference.path})：{reference.purpose}"
-
-
-def render_plan_reference_input(reference: PlanReference) -> str:
-    return f"[{reference.path}](../{reference.path})：{reference.purpose}"
-
-
-def render_plan_reference_section(
-    references: Sequence[PlanReference],
-    *,
-    placeholder: bool = False,
-    upgrade_prompt: bool = False,
-) -> str:
-    if placeholder:
-        bullets = [
-            "- `reference/【规划依据文档 1】.md`：【该规划依据的用途】。",
-            "- `reference/【规划依据文档 2】.md`：【该规划依据的用途】。",
-        ]
-    elif upgrade_prompt:
-        bullets = [PLAN_REFERENCE_EMPTY, PLAN_REFERENCE_UPGRADE_PROMPT]
-    else:
-        bullets = [render_plan_reference(reference) for reference in references] or [PLAN_REFERENCE_EMPTY]
-    return "\n".join([PLAN_REFERENCE_SECTION_INTRO, "", *bullets])
-
-
-def parse_plan_references_from_body(body: str) -> tuple[list[PlanReference], list[str]]:
-    references: list[PlanReference] = []
-    warnings: list[str] = []
-    seen: set[str] = set()
-    for raw_line in normalized_section_body_lines(body):
-        line = raw_line.strip()
-        if not line.startswith("-"):
-            continue
-        if line in {PLAN_REFERENCE_EMPTY, "- 暂无。", PLAN_REFERENCE_UPGRADE_PROMPT}:
-            continue
-        match = PLAN_REFERENCE_BULLET_RE.match(line)
-        if not match:
-            warnings.append(f"ignored non-standard plan reference line: {line}")
-            continue
-        if PLACEHOLDER_RE.search(line):
-            continue
-        path = normalize_plan_reference_path(match.group("path") or match.group("link_path") or "")
-        purpose = normalize_plan_reference_purpose(match.group("purpose"))
-        if path in seen:
-            warnings.append(f"ignored duplicate plan reference path: {path}")
-            continue
-        seen.add(path)
-        references.append(PlanReference(path, purpose))
-    return references, warnings
-
-
-def read_plan_references(plan_path: Path) -> tuple[list[PlanReference], list[str]]:
-    section = find_section(read_text(plan_path).splitlines(), PLAN_REFERENCE_HEADING)
-    return parse_plan_references_from_body(section_body(read_text(plan_path).splitlines(), section))
-
-
-def write_plan_references_text(text: str, references: Sequence[PlanReference]) -> str:
-    return replace_section_text(text, PLAN_REFERENCE_HEADING, render_plan_reference_section(references))
-
-
-def valid_plan_reference_input_lines(plan_path: Path) -> list[str]:
-    try:
-        references, _warnings = read_plan_references(plan_path)
-    except SystemExit:
-        return [CURRENT_TASK_REFERENCE_PROMPT.removeprefix("- ")]
-    return [render_plan_reference_input(reference) for reference in references] or [
-        CURRENT_TASK_REFERENCE_PROMPT.removeprefix("- ")
-    ]
-
-
-def current_task_has_active_status(text: str) -> bool:
-    try:
-        section = find_section(text.splitlines(), "## 当前任务状态")
-    except SystemExit:
-        return False
-    return section_body(text.splitlines(), section).splitlines()[0].strip() == "Active" if section_body(text.splitlines(), section).strip() else False
-
-
-def standard_reference_line_path(line: str) -> str | None:
-    match = PLAN_REFERENCE_BULLET_RE.match(line.strip())
-    if not match or PLACEHOLDER_RE.search(line):
-        return None
-    return normalize_plan_reference_path(match.group("path") or match.group("link_path") or "")
-
-
-def sync_current_task_reference_text(
-    text: str,
-    reference: PlanReference,
-    *,
-    operation: str,
-    force: bool = False,
-) -> tuple[str, list[str]]:
-    warnings: list[str] = []
-    if not current_task_has_active_status(text):
-        warnings.append("active/Current_Task.md is not Active; skipped reference sync")
-        return text, warnings
-    lines = text.splitlines()
-    try:
-        section = find_section(lines, "## 输入材料")
-    except SystemExit:
-        warnings.append("active/Current_Task.md has no ## 输入材料 section; skipped reference sync")
-        return text, warnings
-
-    body_lines, suffix = section_content_and_suffix(lines, section)
-    target_line = render_plan_reference(reference)
-    existing_index: int | None = None
-    nonstandard_same_path = False
-    for index, line in enumerate(body_lines):
-        line_path = standard_reference_line_path(line)
-        if line_path == reference.path:
-            existing_index = index
-            break
-        if f"`{reference.path}`" in line:
-            nonstandard_same_path = True
-
-    if operation == "add":
-        if existing_index is not None:
-            if body_lines[existing_index].strip() == target_line:
-                return text, warnings
-            if force:
-                body_lines[existing_index] = target_line
-            else:
-                warnings.append(f"active/Current_Task.md already references `{reference.path}` with a different purpose")
-                return text, warnings
-        elif nonstandard_same_path:
-            warnings.append(f"active/Current_Task.md contains a non-standard reference line for `{reference.path}`; skipped reference sync")
-            return text, warnings
-        else:
-            stripped = [line.strip() for line in body_lines if line.strip()]
-            if stripped == [PLAN_REFERENCE_EMPTY]:
-                body_lines = [target_line]
-            else:
-                insert_at = len(body_lines)
-                while insert_at > 0 and not body_lines[insert_at - 1].strip():
-                    insert_at -= 1
-                body_lines.insert(insert_at, target_line)
-    elif operation == "remove":
-        if existing_index is None:
-            if nonstandard_same_path:
-                warnings.append(f"active/Current_Task.md keeps a non-standard reference line for `{reference.path}`")
-            return text, warnings
-        if body_lines[existing_index].strip() == target_line:
-            body_lines.pop(existing_index)
-        else:
-            warnings.append(f"active/Current_Task.md reference for `{reference.path}` differs from the plan entry; skipped reference sync")
-            return text, warnings
-    else:
-        raise SystemExit(f"unknown reference sync operation: {operation}")
-
-    return apply_section_body(lines, section, body_lines, suffix), warnings
-
-
 def edit_section_get_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.context)
     target = resolve_context_markdown_file(root, args.file)
@@ -5227,112 +3220,6 @@ def edit_section_append_command(args: argparse.Namespace) -> int:
     )
 
 
-def split_table_line(line: str) -> list[str]:
-    return [cell.strip() for cell in line.strip().strip("|").split("|")]
-
-
-def is_table_line(line: str) -> bool:
-    stripped = line.strip()
-    return stripped.startswith("|") and stripped.endswith("|")
-
-
-def is_table_separator(line: str) -> bool:
-    if not is_table_line(line):
-        return False
-    cells = split_table_line(line)
-    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell.replace(" ", "")) for cell in cells)
-
-
-def table_header_matches(line: str, header: str | None) -> bool:
-    if header is None:
-        return True
-    if not is_table_line(line):
-        return False
-    return split_table_line(line) == split_table_line(header)
-
-
-def find_table(lines: Sequence[str], header: str | None) -> TableRange:
-    for index, line in enumerate(lines[:-1]):
-        if not table_header_matches(line, header):
-            continue
-        if not is_table_line(line) or not is_table_separator(lines[index + 1]):
-            continue
-
-        body_start = index + 2
-        body_end = body_start
-        while body_end < len(lines) and is_table_line(lines[body_end]):
-            body_end += 1
-        return TableRange(index, index + 1, body_start, body_end, split_table_line(line))
-
-    if header is None:
-        raise SystemExit("Markdown table was not found")
-    raise SystemExit(f"Markdown table header was not found: {header}")
-
-
-def parse_cell_updates(values: Sequence[str]) -> dict[str, str]:
-    updates: dict[str, str] = {}
-    for value in values:
-        if "=" not in value:
-            raise SystemExit(f"table cell update must use COLUMN=VALUE: {value}")
-        column, cell_value = value.split("=", 1)
-        column = column.strip()
-        if not column:
-            raise SystemExit(f"table cell update has empty column name: {value}")
-        updates[column] = cell_value.strip()
-    return updates
-
-
-def render_table_row(cells: Sequence[str]) -> str:
-    return "| " + " | ".join(clean_table_cell(cell) for cell in cells) + " |"
-
-
-def upsert_table_row(
-    original: str,
-    header: str | None,
-    key_column: str,
-    key: str,
-    cell_updates: dict[str, str],
-) -> str:
-    lines = original.splitlines()
-    table = find_table(lines, header)
-    headers = table.headers
-    if key_column not in headers:
-        raise SystemExit(f"table key column was not found: {key_column}")
-
-    unknown_columns = sorted(set(cell_updates) - set(headers))
-    if unknown_columns:
-        raise SystemExit(f"table cell column was not found: {', '.join(unknown_columns)}")
-
-    key_index = headers.index(key_column)
-    updated_rows = list(lines[table.body_start : table.body_end])
-    target_row_index: int | None = None
-    for index, row in enumerate(updated_rows):
-        row_cells = split_table_line(row)
-        if len(row_cells) != len(headers):
-            raise SystemExit(f"table row has {len(row_cells)} cells but header has {len(headers)} cells: {row}")
-        if row_cells[key_index] == key:
-            target_row_index = index
-            break
-
-    if target_row_index is None:
-        row_cells = [""] * len(headers)
-    else:
-        row_cells = split_table_line(updated_rows[target_row_index])
-
-    row_cells[key_index] = key
-    for column, value in cell_updates.items():
-        row_cells[headers.index(column)] = value
-
-    rendered = render_table_row(row_cells)
-    if target_row_index is None:
-        updated_rows.append(rendered)
-    else:
-        updated_rows[target_row_index] = rendered
-
-    updated_lines = list(lines[: table.body_start]) + updated_rows + list(lines[table.body_end :])
-    return "\n".join(updated_lines).rstrip() + "\n"
-
-
 def edit_table_upsert_command(args: argparse.Namespace) -> int:
     root = require_context_root(args.context)
     dry_run = dry_run_enabled(args)
@@ -5363,164 +3250,28 @@ def slugify_file_stem(value: str) -> str:
     return normalized or hashlib.sha1(value.encode("utf-8")).hexdigest()[:8]
 
 
-def normalize_release_version(value: str) -> tuple[str, str]:
-    raw = value.strip()
-    if raw.startswith("v"):
-        raw = raw[1:]
-    if not re.fullmatch(r"\d+(?:\.\d+)+", raw):
-        raise SystemExit(f"invalid version `{value}`, expected for example v0.0.3.6")
-    return f"v{raw}", raw
-
-
-def replace_regex_once(text: str, pattern: str, replacement: str, label: str) -> str:
-    updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
-    if count != 1:
-        raise SystemExit(f"could not update {label}")
-    return updated
-
-
 def version_files() -> list[Path]:
-    root = require_source_project_root()
-    files = [root / "acf.py", root / "pyproject.toml"]
-    pkg_info = root / "ai_context_framework.egg-info" / "PKG-INFO"
-    uv_lock = root / "uv.lock"
-    if pkg_info.exists():
-        files.append(pkg_info)
-    if uv_lock.exists():
-        files.append(uv_lock)
-    return files
-
-
-def is_source_project_root(path: Path) -> bool:
-    pyproject_path = path / "pyproject.toml"
-    acf_path = path / "acf.py"
-    if not pyproject_path.exists() or not acf_path.exists():
-        return False
-    return 'name = "ai-context-framework"' in read_text(pyproject_path)
+    return versioning_commands.version_files(require_source_project_root())
 
 
 def discover_source_project_root(start: Path | None = None) -> Path | None:
-    candidates: list[Path] = []
-    if start is not None:
-        candidates.extend([start.resolve(), *start.resolve().parents])
-    candidates.append(ROOT)
-    for candidate in candidates:
-        if is_source_project_root(candidate):
-            return candidate
-    return None
+    return versioning_commands.discover_source_project_root(start, source_root=ROOT)
 
 
 def require_source_project_root() -> Path:
-    root = discover_source_project_root(Path.cwd())
-    if root is None:
-        raise SystemExit("version set requires an ai-context-framework source checkout")
-    return root
-
-
-def installed_package_version() -> str | None:
-    try:
-        return importlib.metadata.version("ai-context-framework")
-    except importlib.metadata.PackageNotFoundError:
-        return None
+    return versioning_commands.require_source_project_root(source_root=ROOT)
 
 
 def read_project_versions() -> dict[str, str | None]:
-    versions: dict[str, str | None] = {
-        "cli": VERSION,
-        "pyproject": None,
-        "pkg_info": None,
-        "uv_lock": None,
-    }
-    source_root = discover_source_project_root(Path.cwd())
-    if source_root is None:
-        versions["pkg_info"] = installed_package_version()
-        return versions
-
-    acf_path = source_root / "acf.py"
-    pyproject_path = source_root / "pyproject.toml"
-    pkg_info_path = source_root / "ai_context_framework.egg-info" / "PKG-INFO"
-    uv_lock_path = source_root / "uv.lock"
-    if acf_path.exists():
-        match = re.search(r'^VERSION = "([^"]+)"', read_text(acf_path), flags=re.MULTILINE)
-        if match:
-            versions["cli"] = match.group(1)
-    if pyproject_path.exists():
-        match = re.search(r'^version = "([^"]+)"', read_text(pyproject_path), flags=re.MULTILINE)
-        if match:
-            versions["pyproject"] = match.group(1)
-    if pkg_info_path.exists():
-        match = re.search(r"^Version: (.+)$", read_text(pkg_info_path), flags=re.MULTILINE)
-        if match:
-            versions["pkg_info"] = match.group(1).strip()
-    else:
-        versions["pkg_info"] = installed_package_version()
-    if uv_lock_path.exists():
-        match = re.search(r'(?ms)name = "ai-context-framework".*?^version = "([^"]+)"', read_text(uv_lock_path))
-        if match:
-            versions["uv_lock"] = match.group(1)
-    return versions
+    return versioning_commands.read_project_versions(source_root=ROOT)
 
 
 def version_show_command(args: argparse.Namespace) -> int:
-    versions = read_project_versions()
-    payload: dict[str, object] = {
-        "command": "version show",
-        "ok": True,
-        "version": versions.get("cli"),
-        "versions": versions,
-        "error_code": None,
-        "next_actions": [],
-    }
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(f"version: {versions.get('cli')}")
-        for key, value in versions.items():
-            print(f"{key}: {value}")
-    return 0
+    return versioning_commands.version_show_command(args, source_root=ROOT)
 
 
 def version_set_command(args: argparse.Namespace) -> int:
-    dry_run = dry_run_enabled(args)
-    cli_version, package_version = normalize_release_version(args.value)
-    root = require_source_project_root()
-    changed = version_files()
-    if not dry_run:
-        acf_path = root / "acf.py"
-        pyproject_path = root / "pyproject.toml"
-        acf_path.write_text(
-            replace_regex_once(read_text(acf_path), r'^VERSION = "[^"]+"', f'VERSION = "{cli_version}"', "acf.py VERSION"),
-            encoding="utf-8",
-        )
-        pyproject_path.write_text(
-            replace_regex_once(read_text(pyproject_path), r'^version = "[^"]+"', f'version = "{package_version}"', "pyproject.toml version"),
-            encoding="utf-8",
-        )
-        pkg_info_path = root / "ai_context_framework.egg-info" / "PKG-INFO"
-        if pkg_info_path.exists():
-            pkg_info_path.write_text(
-                replace_regex_once(read_text(pkg_info_path), r"^Version: .+$", f"Version: {package_version}", "PKG-INFO version"),
-                encoding="utf-8",
-            )
-        uv_lock_path = root / "uv.lock"
-        if uv_lock_path.exists():
-            uv_lock_path.write_text(
-                replace_regex_once(
-                    read_text(uv_lock_path),
-                    r'(?ms)(name = "ai-context-framework".*?^version = ")[^"]+(")',
-                    rf"\g<1>{package_version}\2",
-                    "uv.lock version",
-                ),
-                encoding="utf-8",
-            )
-    action = "would set" if dry_run else "set"
-    return emit_write_result(
-        args,
-        "version set",
-        f"{action} version to {cli_version}",
-        changed,
-        extra_payload={"version": cli_version, "package_version": package_version},
-    )
+    return versioning_commands.version_set_command(args, source_root=ROOT)
 
 
 def render_empty_task_plan() -> str:
@@ -8489,43 +6240,6 @@ def archive_title_fallback(path: Path) -> str:
     return match.group(2) if match else path.stem
 
 
-def archive_record_marker(
-    archive_date: str,
-    item_type: str,
-    item_id: str,
-    source_rel: str,
-    archive_rel: str,
-    status: str,
-    reason: str,
-) -> str:
-    return f"""{ARCHIVE_RECORD_MARKER_START}
-- archived_at: {archive_date}
-- item_type: {item_type}
-- item_id: {item_id}
-- source_path: {source_rel}
-- archive_path: `{archive_rel}`
-- status: {status}
-- archive_reason: {reason}
-{ARCHIVE_RECORD_MARKER_END}
-"""
-
-
-def marker_fields(text: str, start_marker: str, end_marker: str) -> dict[str, str] | None:
-    if start_marker not in text or end_marker not in text:
-        return None
-    start = text.find(start_marker)
-    end = text.find(end_marker, start + len(start_marker))
-    if end < 0:
-        return None
-    body = text[start + len(start_marker) : end]
-    fields: dict[str, str] = {}
-    for line in body.splitlines():
-        match = re.match(r"^-\s+([A-Za-z_]+):\s*(.+?)\s*$", line.strip())
-        if match:
-            fields[match.group(1)] = strip_code_ticks(match.group(2))
-    return fields
-
-
 def render_archive_index_table(rows: Sequence[dict[str, str]]) -> str:
     lines = [ARCHIVE_TABLE_HEADER, "|---|---|---|---|---|---|---|"]
     if rows:
@@ -8584,10 +6298,6 @@ def collect_task_plan_archive_rows(root: Path) -> tuple[list[dict[str, str]], li
             if marker is None or not reason:
                 fallback_reason_count += 1
     return rows, skipped, fallback_reason_count
-
-
-def workstream_archive_marker_fields(text: str) -> dict[str, str] | None:
-    return marker_fields(text, WORKSTREAM_ARCHIVE_MARKER_START, WORKSTREAM_ARCHIVE_MARKER_END)
 
 
 def collect_workstream_archive_rows(root: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
@@ -9202,20 +6912,6 @@ def render_workstream_detail(
     return format_front_matter(metadata, body, WORKSTREAM_METADATA_FIELDS)
 
 
-def replace_or_append_section(text: str, heading: str, replacement: str) -> str:
-    try:
-        return replace_section_text(text, heading, replacement)
-    except SystemExit:
-        return text.rstrip() + f"\n\n---\n\n{heading}\n\n{replacement.strip()}\n"
-
-
-def append_or_create_section(text: str, heading: str, addition: str) -> str:
-    try:
-        return append_section_text(text, heading, addition)
-    except SystemExit:
-        return text.rstrip() + f"\n\n---\n\n{heading}\n\n{addition.strip()}\n"
-
-
 def update_workstream_index_state_text(text: str, entries: Sequence[WorkstreamEntry]) -> str:
     state = "Active" if any(entry.status in ACTIVE_WORKSTREAM_STATUSES for entry in entries) else "Inactive"
     explanation = (
@@ -9800,18 +7496,6 @@ def workstream_archive_draft_command(args: argparse.Namespace) -> int:
     )
 
 
-def workstream_archive_marker(archive_date: date, source_rel: str, archive_rel: str, reason: str) -> str:
-    return f"""{WORKSTREAM_ARCHIVE_MARKER_START}
-## 归档记录
-
-- archived_at: {archive_date.isoformat()}
-- source_path: {source_rel}
-- archive_path: `{archive_rel}`
-- archive_reason: {reason}
-{WORKSTREAM_ARCHIVE_MARKER_END}
-"""
-
-
 def active_workstream_index_matches(entries: Sequence[WorkstreamEntry], workstream_id: str) -> list[WorkstreamEntry]:
     return [entry for entry in entries if entry.workstream_id == workstream_id]
 
@@ -10138,20 +7822,6 @@ def render_workstream_merge_request(
 ### 建议合并方式
 
 {strategy or "人工审阅后合并到对应权威上下文。"}"""
-
-
-def subsection_body(text: str, heading: str) -> str:
-    lines = text.splitlines()
-    heading_index = next((index for index, line in enumerate(lines) if line.strip() == heading), None)
-    if heading_index is None:
-        return ""
-    body_start = heading_index + 1
-    body_end = len(lines)
-    for index in range(body_start, len(lines)):
-        if heading_level(lines[index]) is not None and heading_level(lines[index]) <= 3:
-            body_end = index
-            break
-    return "\n".join(lines[body_start:body_end]).strip()
 
 
 def merge_request_has_required_fields(body: str) -> bool:
@@ -11170,14 +8840,6 @@ def resolve_knowledge_draft(root: Path, draft: Path) -> Path:
     raise SystemExit(f"knowledge draft does not exist: {draft}")
 
 
-def safe_section_body_from_text(text: str, heading: str) -> str:
-    try:
-        lines = text.splitlines()
-        return section_body(lines, find_section(lines, heading))
-    except SystemExit:
-        return ""
-
-
 def knowledge_title_from_text(text: str, fallback: str) -> str:
     first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
     if first_line.startswith("# K-草案："):
@@ -12069,28 +9731,6 @@ def audit_candidate(
     }
 
 
-def markdown_sections(text: str) -> list[tuple[int, str, list[str]]]:
-    lines = text.splitlines()
-    sections: list[tuple[int, str, list[str]]] = []
-    for index, line in enumerate(lines):
-        level = heading_level(line)
-        if level is None:
-            continue
-        body_end = len(lines)
-        for candidate_index in range(index + 1, len(lines)):
-            candidate_level = heading_level(lines[candidate_index])
-            if candidate_level is not None and candidate_level <= level:
-                body_end = candidate_index
-                break
-        title = line.strip().lstrip("#").strip()
-        sections.append((level, title, lines[index + 1 : body_end]))
-    return sections
-
-
-def section_contains_child_heading(body_lines: list[str]) -> bool:
-    return any(heading_level(line) is not None for line in body_lines)
-
-
 def audit_active_section_too_long(root: Path) -> list[dict[str, object]]:
     candidates: list[dict[str, object]] = []
     active_paths = [
@@ -12497,197 +10137,6 @@ def extract_heading_value(path: Path, heading: str) -> str | None:
     return None
 
 
-def should_check_ref(ref: str) -> bool:
-    if "*" in ref:
-        return False
-    if PLACEHOLDER_RE.search(ref):
-        return False
-    if ref.startswith(("http://", "https://", "file://")):
-        return False
-    if ref.startswith("<") or ref.startswith("$"):
-        return False
-    return True
-
-
-def clean_markdown_link_target(value: str) -> str:
-    target = value.strip()
-    if target.startswith("<") and target.endswith(">"):
-        target = target[1:-1].strip()
-    return target
-
-
-def split_ref_fragment(ref: str) -> tuple[str, str]:
-    if "#" not in ref:
-        return ref, ""
-    target, fragment = ref.split("#", 1)
-    return target, fragment
-
-
-def is_uri_ref(ref: str) -> bool:
-    return re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", ref) is not None
-
-
-def is_local_link_ref(ref: str) -> bool:
-    cleaned = clean_markdown_link_target(ref)
-    if not cleaned or PLACEHOLDER_RE.search(cleaned) or "*" in cleaned:
-        return False
-    if cleaned in {"path", "url"}:
-        return False
-    if cleaned.startswith("$"):
-        return False
-    if is_uri_ref(cleaned):
-        return False
-    return True
-
-
-def normalize_ref_path(ref: str) -> str:
-    return unquote(ref.replace("\\", "/"))
-
-
-def resolve_ref_path(root: Path, md_file: Path, ref: str) -> Path | None:
-    normalized = normalize_ref_path(ref)
-    root = root.resolve()
-    project_root = infer_project_root(root).resolve()
-    candidates = [
-        (root / normalized).resolve(),
-        (md_file.parent / normalized).resolve(),
-        (project_root / normalized).resolve(),
-    ]
-    for candidate in candidates:
-        if candidate.exists() and is_relative_to(candidate, project_root):
-            return candidate
-    return None
-
-
-def resolve_ref(root: Path, md_file: Path, ref: str) -> Path | None:
-    ref_path, _fragment = split_ref_fragment(clean_markdown_link_target(ref))
-    return resolve_ref_path(root, md_file, ref_path)
-
-
-def markdown_heading_slug(value: str) -> str:
-    text = unicodedata.normalize("NFKC", value.strip()).lower()
-    text = re.sub(r"\s+", "-", text)
-    chars: list[str] = []
-    for char in text:
-        category = unicodedata.category(char)
-        if char.isalnum() or category.startswith(("L", "N")):
-            chars.append(char)
-        elif char in {"-", "_"}:
-            chars.append(char)
-    slug = re.sub(r"-+", "-", "".join(chars)).strip("-")
-    return slug
-
-
-def markdown_heading_text(line: str) -> str | None:
-    match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
-    if not match:
-        return None
-    return re.sub(r"\s+#+\s*$", "", match.group(2)).strip()
-
-
-def markdown_heading_anchors(text: str) -> set[str]:
-    anchors: set[str] = set()
-    seen: dict[str, int] = {}
-    for line in text.splitlines():
-        heading = markdown_heading_text(line)
-        if heading is None:
-            continue
-        base = markdown_heading_slug(heading)
-        index = seen.get(base, 0)
-        seen[base] = index + 1
-        anchors.add(base if index == 0 else f"{base}-{index}")
-    return anchors
-
-
-def markdown_heading_anchor_for(text: str, heading: str) -> str | None:
-    wanted = heading.strip()
-    if wanted.startswith("#"):
-        wanted = wanted.lstrip("#").strip()
-    seen: dict[str, int] = {}
-    for line in text.splitlines():
-        current = markdown_heading_text(line)
-        if current is None:
-            continue
-        base = markdown_heading_slug(current)
-        index = seen.get(base, 0)
-        seen[base] = index + 1
-        anchor = base if index == 0 else f"{base}-{index}"
-        if current.strip() == wanted:
-            return anchor
-    return None
-
-
-def iter_non_fenced_lines(text: str) -> Iterable[tuple[int, str]]:
-    in_fence = False
-    fence_marker = ""
-    for index, line in enumerate(text.splitlines(), start=1):
-        stripped = line.lstrip()
-        fence = re.match(r"^(```+|~~~+)", stripped)
-        if fence:
-            marker = fence.group(1)[:3]
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker
-            elif marker == fence_marker:
-                in_fence = False
-                fence_marker = ""
-            continue
-        if not in_fence:
-            yield index, line
-
-
-def validate_local_markdown_link(
-    root: Path,
-    md_file: Path,
-    rel_file: str,
-    raw_target: str,
-    errors: list[str],
-) -> None:
-    target = clean_markdown_link_target(raw_target)
-    if not is_local_link_ref(target):
-        return
-    target_ref, fragment = split_ref_fragment(target)
-    if target_ref == "":
-        target_path = md_file
-    else:
-        target_path = resolve_ref_path(root, md_file, target_ref)
-        if target_path is None:
-            errors.append(f"{rel_file}: broken markdown link `{target}`")
-            return
-    if fragment and target_path.suffix.lower() == ".md":
-        anchors = markdown_heading_anchors(read_text(target_path))
-        normalized_fragment = markdown_heading_slug(unquote(fragment))
-        if fragment not in anchors and normalized_fragment not in anchors:
-            errors.append(f"{rel_file}: broken markdown link anchor `{target}`")
-
-
-def is_placeholder(value: str) -> bool:
-    return "【" in value and "】" in value
-
-
-def parse_markdown_table_rows(text: str) -> list[list[str]]:
-    rows: list[list[str]] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("|") or not stripped.endswith("|"):
-            continue
-        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-        if not cells or all(set(cell) <= {"-", " "} for cell in cells):
-            continue
-        rows.append(cells)
-    return rows
-
-
-def strip_code_ticks(value: str) -> str:
-    value = value.strip()
-    if value.startswith("`") and value.endswith("`"):
-        return value[1:-1]
-    link_match = MARKDOWN_LINK_RE.fullmatch(value)
-    if link_match:
-        return link_match.group(2).strip() or clean_markdown_link_target(link_match.group(3))
-    return value
-
-
 def check_decisions(root: Path, errors: list[str]) -> None:
     index_path = root / "reference" / "Decisions_Index.md"
     if not index_path.exists():
@@ -12811,14 +10260,6 @@ def check_human_index(root: Path, errors: list[str]) -> None:
             if rel_path in seen_paths:
                 errors.append(f"human/Human_Index.md: duplicate path `{rel_path}`")
             seen_paths.add(rel_path)
-
-
-def safe_section_body(path: Path, heading: str) -> str | None:
-    try:
-        lines = read_text(path).splitlines()
-        return section_body(lines, find_section(lines, heading))
-    except SystemExit:
-        return None
 
 
 def meaningful_ref_value(value: str | None) -> bool:
@@ -13417,36 +10858,6 @@ def check_workstreams(root: Path, errors: list[str], warnings: list[str], strict
     check_workstream_scope_claims(root, details, errors, warnings, strict)
 
 
-def template_packaging_files_from_pyproject(pyproject_path: Path) -> set[str]:
-    if not pyproject_path.exists():
-        return set()
-    text = read_text(pyproject_path)
-    return {
-        match.replace("\\", "/").removeprefix("template/")
-        for match in re.findall(r'"(template/[^"]+)"', text)
-    }
-
-
-def check_template_packaging(root: Path, errors: list[str]) -> None:
-    pyproject_path = ROOT / "pyproject.toml"
-    if root.resolve() != TEMPLATE_DIR.resolve() or not pyproject_path.exists():
-        return
-
-    actual_files = {
-        path.relative_to(root).as_posix()
-        for path in root.rglob("*")
-        if path.is_file()
-    }
-    packaged_files = template_packaging_files_from_pyproject(pyproject_path)
-    missing = sorted(actual_files - packaged_files)
-    extra = sorted(packaged_files - actual_files)
-
-    for rel_path in missing:
-        errors.append(f"pyproject.toml: missing template data-file entry for `{rel_path}`")
-    for rel_path in extra:
-        errors.append(f"pyproject.toml: stale template data-file entry for `{rel_path}`")
-
-
 def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
     errors: list[str] = []
     warnings: list[str] = []
@@ -13601,218 +11012,6 @@ def status_command(args: argparse.Namespace) -> int:
             print(f"WARN: {warning}")
 
     return 0 if result.ok else 1
-
-
-def log_enable_command(args: argparse.Namespace) -> int:
-    location = resolve_status_location(args.path)
-    write_usage_config(location.project_root, True)
-    payload: dict[str, object] = {
-        "command": "log enable",
-        "ok": True,
-        "enabled": True,
-        "project_root": str(location.project_root),
-        "config_path": str(usage_config_path(location.project_root)),
-        "log_path": str(usage_log_path(location.project_root)),
-    }
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(f"usage log enabled: {usage_log_path(location.project_root)}")
-    return 0
-
-
-def log_disable_command(args: argparse.Namespace) -> int:
-    location = resolve_status_location(args.path)
-    write_usage_config(location.project_root, False)
-    payload: dict[str, object] = {
-        "command": "log disable",
-        "ok": True,
-        "enabled": False,
-        "project_root": str(location.project_root),
-        "config_path": str(usage_config_path(location.project_root)),
-        "log_path": str(usage_log_path(location.project_root)),
-    }
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(f"usage log disabled: {usage_log_path(location.project_root)}")
-    return 0
-
-
-def log_status_command(args: argparse.Namespace) -> int:
-    location = resolve_status_location(args.path)
-    payload = usage_log_status_payload(location.project_root)
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        state = "enabled" if payload["enabled"] else "disabled"
-        print(f"usage log: {state}")
-        print(f"project root: {payload['project_root']}")
-        print(f"log path: {payload['log_path']}")
-        print(f"events: {payload['event_count']}")
-        if payload["latest_event_at"]:
-            print(f"latest event: {payload['latest_event_at']}")
-    return 0
-
-
-def log_tail_command(args: argparse.Namespace) -> int:
-    if args.limit < 0:
-        raise SystemExit("log tail limit cannot be negative")
-    location = resolve_status_location(args.path)
-    events = read_usage_events(location.project_root)
-    tail_events = events[-args.limit :] if args.limit else []
-    payload: dict[str, object] = {
-        "command": "log tail",
-        "ok": True,
-        "project_root": str(location.project_root),
-        "log_path": str(usage_log_path(location.project_root)),
-        "limit": args.limit,
-        "event_count": len(tail_events),
-        "events": tail_events,
-    }
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        for event in tail_events:
-            print(json.dumps(event, ensure_ascii=False, sort_keys=True))
-    return 0
-
-
-def log_summarize_command(args: argparse.Namespace) -> int:
-    if args.days is not None and args.days < 0:
-        raise SystemExit("log summarize days cannot be negative")
-    location = resolve_status_location(args.path)
-    events = read_usage_events(location.project_root)
-    since = parse_usage_since(args.since) if args.since else None
-    if args.days is not None:
-        days_since = datetime.now(timezone.utc) - timedelta(days=args.days)
-        since = max(since, days_since) if since is not None else days_since
-    filtered_events = filter_usage_events(events, since=since, commands=args.command_filter or (), errors_only=args.errors_only)
-    payload: dict[str, object] = {
-        "command": "log summarize",
-        "ok": True,
-        "project_root": str(location.project_root),
-        "log_path": str(usage_log_path(location.project_root)),
-        "filters": {
-            "days": args.days,
-            "since": args.since,
-            "command": args.command_filter or [],
-            "errors_only": args.errors_only,
-        },
-        "total_event_count": len(events),
-        **summarize_usage_events(filtered_events),
-    }
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(f"events: {payload['event_count']}")
-        print(f"ok: {payload['ok_count']}")
-        print(f"failed: {payload['failed_count']}")
-        print(f"dry-run: {payload['dry_run_count']}")
-        print(f"changed files: {payload['changed_files_count']}")
-        print("commands:")
-        for command, count in sorted(payload["command_counts"].items()):
-            print(f"- {command}: {count}")
-        if payload["error_counts"]:
-            print("errors:")
-            for error_code, count in sorted(payload["error_counts"].items()):
-                print(f"- {error_code}: {count}")
-    return 0
-
-
-def read_log_feedback_input(args: argparse.Namespace) -> str:
-    if args.text and args.input:
-        raise SystemExit("use either --text or --input, not both")
-    if args.text:
-        return args.text
-    if args.input:
-        input_path = args.input.resolve()
-        if not input_path.is_file():
-            raise SystemExit(f"log feedback input file does not exist: {input_path}")
-        return input_path.read_text(encoding="utf-8")
-    if not sys.stdin.isatty():
-        return sys.stdin.read()
-    raise SystemExit("log feedback requires --text, --input, or stdin")
-
-
-def log_feedback_command(args: argparse.Namespace) -> int:
-    location = resolve_status_location(args.path)
-    if not usage_log_enabled(location.project_root):
-        raise SystemExit("usage log is disabled for this project")
-    text = read_log_feedback_input(args).strip()
-    if not text:
-        raise SystemExit("log feedback text cannot be empty")
-    feedback_type = (args.type or "Feedback").strip() or "Feedback"
-    source = (args.source or "manual").strip() or "manual"
-    event: dict[str, object] = {
-        "schema_version": JSON_SCHEMA_VERSION,
-        "timestamp": utc_now_iso(),
-        "event_kind": "feedback",
-        "command": "log feedback",
-        "cwd_rel": relative_display_path(Path.cwd().resolve(), location.project_root),
-        "context_rel": relative_display_path(location.context_root, location.project_root),
-        "profile": location.profile,
-        "ok": True,
-        "exit_code": 0,
-        "error_code": None,
-        "feedback_type": feedback_type,
-        "source": source,
-        "text": text,
-    }
-    if args.related_command:
-        event["related_command"] = args.related_command.strip()
-    append_usage_event(location.project_root, event)
-    payload: dict[str, object] = {
-        "command": "log feedback",
-        "ok": True,
-        "project_root": str(location.project_root),
-        "log_path": str(usage_log_path(location.project_root)),
-        "feedback_type": feedback_type,
-        "source": source,
-        "message": "recorded feedback event",
-        "event": event,
-    }
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(f"recorded feedback: {feedback_type}")
-        print(f"log path: {payload['log_path']}")
-    return 0
-
-
-def log_prune_command(args: argparse.Namespace) -> int:
-    if args.days < 0:
-        raise SystemExit("log prune days cannot be negative")
-    location = resolve_status_location(args.path)
-    log_path = usage_log_path(location.project_root)
-    events = read_usage_events(location.project_root)
-    if args.days <= 0:
-        kept_events: list[dict[str, object]] = []
-    else:
-        threshold = datetime.now(timezone.utc) - timedelta(days=args.days)
-        kept_events = [
-            event
-            for event in events
-            if (parse_usage_timestamp(event.get("timestamp")) or threshold) >= threshold
-        ]
-    removed_count = len(events) - len(kept_events)
-    if events or log_path.exists():
-        write_usage_events(location.project_root, kept_events)
-    payload: dict[str, object] = {
-        "command": "log prune",
-        "ok": True,
-        "project_root": str(location.project_root),
-        "log_path": str(log_path),
-        "days": args.days,
-        "removed_count": removed_count,
-        "kept_count": len(kept_events),
-    }
-    if json_enabled(args):
-        print_json(payload)
-    else:
-        print(f"removed events: {removed_count}")
-        print(f"kept events: {len(kept_events)}")
-    return 0
 
 
 def add_json_argument(parser: argparse.ArgumentParser) -> None:
