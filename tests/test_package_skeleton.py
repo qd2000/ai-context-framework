@@ -15,6 +15,19 @@ class PackageSkeletonTests(unittest.TestCase):
         constants = importlib.import_module("ai_context_framework.constants")
         doctor = importlib.import_module("ai_context_framework.commands.doctor")
         runtime = importlib.import_module("ai_context_framework.runtime")
+        runtime_parts = [
+            importlib.import_module(f"ai_context_framework.runtime_parts.{name}")
+            for name in (
+                "archive_workstream",
+                "check",
+                "core",
+                "doctor",
+                "knowledge_review",
+                "objects",
+                "plan_task",
+                "upgrade",
+            )
+        ]
         task_domain = importlib.import_module("ai_context_framework.domains.tasks")
         decisions = importlib.import_module("ai_context_framework.commands.decisions")
         front_matter = importlib.import_module("ai_context_framework.front_matter")
@@ -47,6 +60,7 @@ class PackageSkeletonTests(unittest.TestCase):
         self.assertEqual(package.__all__, ())
         self.assertTrue(callable(cli.main))
         self.assertTrue(callable(runtime.main))
+        self.assertTrue(all(module.__name__.startswith("ai_context_framework.runtime_parts.") for module in runtime_parts))
         self.assertTrue(callable(front_matter.parse_front_matter))
         self.assertTrue(callable(json_contract.print_json))
         self.assertTrue(callable(locks.acquire_context_lock))
@@ -89,6 +103,15 @@ class PackageSkeletonTests(unittest.TestCase):
         self.assertEqual(constants.APPEND_FORCE_CONFLICT, "APPEND_FORCE_CONFLICT")
         self.assertEqual(constants.ANCHOR_NOT_FOUND, "ANCHOR_NOT_FOUND")
         self.assertEqual(task_domain.normalize_plan_reference_path("reference/Plan.md"), "reference/Plan.md")
+
+    def test_package_modules_stay_agent_friendly_in_size(self):
+        oversized = []
+        for path in (ROOT / "ai_context_framework").rglob("*.py"):
+            line_count = len(path.read_text(encoding="utf-8").splitlines())
+            if line_count > 2000:
+                oversized.append((path.relative_to(ROOT).as_posix(), line_count))
+
+        self.assertEqual(oversized, [])
 
     def test_package_modules_do_not_import_top_level_acf(self):
         package_dir = ROOT / "ai_context_framework"

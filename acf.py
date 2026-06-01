@@ -19,11 +19,13 @@ ROOT = _runtime.ROOT
 
 def main(argv: Sequence[str] | None = None) -> int:
     _runtime.ROOT = ROOT
+    _runtime._sync_runtime_part_globals()
     return _runtime.main(argv)
 
 
 def __getattr__(name: str) -> Any:
     _runtime.ROOT = ROOT
+    _runtime._sync_runtime_part_globals()
     try:
         return getattr(_runtime, name)
     except AttributeError as exc:

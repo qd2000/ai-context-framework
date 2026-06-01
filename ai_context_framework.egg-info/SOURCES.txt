@@ -41,6 +41,15 @@ ai_context_framework/commands/worklog.py
 ai_context_framework/commands/workstream.py
 ai_context_framework/domains/__init__.py
 ai_context_framework/domains/tasks.py
+ai_context_framework/runtime_parts/__init__.py
+ai_context_framework/runtime_parts/archive_workstream.py
+ai_context_framework/runtime_parts/check.py
+ai_context_framework/runtime_parts/core.py
+ai_context_framework/runtime_parts/doctor.py
+ai_context_framework/runtime_parts/knowledge_review.py
+ai_context_framework/runtime_parts/objects.py
+ai_context_framework/runtime_parts/plan_task.py
+ai_context_framework/runtime_parts/upgrade.py
 ai_context_framework/validators/__init__.py
 ai_context_framework/validators/checks.py
 ai_context_framework/validators/template_checks.py
