@@ -274,8 +274,72 @@ def upgrade_notes_block(target: str) -> str:
 
 - `acf upgrade [target]` 只补齐 Feedback_Inbox、Task_Plan、archive、archive/feedback、Knowledge 结构和 active -> reference 规划依据追溯入口。
 - 推荐升级流程：`acf upgrade --dry-run --json` -> 审阅 changed_files -> `acf upgrade --check-after --json` -> `acf check --strict --json`。
-- Active `active/Current_Task.md` 不会被覆盖，旧任务归档请显式使用 `acf archive current-task` 或 `acf archive task-plan`。"""
+- Active `active/Current_Task.md` 不会被覆盖，旧任务归档请显式使用 `acf archive current-task` 或 `acf archive task-plan`。
+
+""" + WORKSTREAM_GUARD_MODES_SECTION
     return f"\n\n{UPGRADE_NOTES_START}\n{body}\n{UPGRADE_NOTES_END}\n"
+
+
+WORKSTREAM_GUARD_MODES_SECTION = """### Workstream guard 模式
+
+`acf workstream guard` 检查的是“变更文件是否符合当前 Workstream 的写入范围”，不是默认独占整个工作区。多个 agent 或多个 Workstream 在同一仓库并行时，完成、ready、done 或切换状态前，优先显式传入本次要验收的文件集：
+
+```bash
+acf workstream guard WS001 --files src/foo.py docs/ai/active/workstreams/WS001.md --json
+```
+
+| 场景 | 推荐命令 | 语义 |
+|---|---|---|
+| 本次变更文件明确 | `acf workstream guard WS001 --files path1 path2 --json` | 权威文件集强验收；失败表示这些文件越过当前 Workstream scope。 |
+| 单个文件验收 | `acf workstream guard WS001 --file path --json` | `--files` 的单文件形式，可重复传入。 |
+| 快速查看当前 git diff | `acf workstream guard WS001 --from-git --json` 或裸 `guard` | 读取 git diff；若存在其他 Workstream 或未归属 dirty files，结果不能直接作为完成证据。 |
+| 旧式整工作区排他检查 | `acf workstream guard WS001 --workspace --strict-workspace --json` | 要求整个工作区没有无关改动；只适合单线或需要强制清空工作区的场景。 |
+| 禁止 shared 写入 | `acf workstream guard WS001 --files path --owned-only --json` | shared scope 也会失败，用于严格 ownership 验收。 |
+
+只有显式文件集模式可作为完成或切换状态的强验收证据；裸 guard 和 `--from-git` 适合发现当前工作区风险，不应在存在并行 dirty files 时替代 `--files`。"""
+
+
+def add_workstream_guard_modes_section(text: str) -> str:
+    heading = "### Workstream guard 模式"
+    body = WORKSTREAM_GUARD_MODES_SECTION.split("\n", 1)[1].strip()
+    if section_exists(text, heading):
+        return replace_section_text(text, heading, body)
+    if "Workstream guard 模式" in text and "--workspace --strict-workspace" in text:
+        return text
+    block = "\n\n" + WORKSTREAM_GUARD_MODES_SECTION + "\n"
+    anchors = (
+        "\n### 旧版本上下文升级",
+        "\n### 15.3 旧版本上下文升级",
+        "\nPowerShell 中反引号是转义字符",
+        f"\n{UPGRADE_NOTES_START}",
+    )
+    for anchor in anchors:
+        if anchor in text:
+            return text.replace(anchor, block + anchor, 1)
+    return text.rstrip() + block
+
+
+def add_workstream_guard_modes_to_upgrade_notes(text: str) -> str:
+    if not has_upgrade_notes_marker(text):
+        return text
+    if "Workstream guard 模式" in text and "--workspace --strict-workspace" in text:
+        return text
+    insertion = "\n\n" + WORKSTREAM_GUARD_MODES_SECTION + "\n"
+    return text.replace(f"\n{UPGRADE_NOTES_END}", insertion + UPGRADE_NOTES_END, 1)
+
+
+def system_manual_has_known_anchor(text: str) -> bool:
+    return any(
+        anchor in text
+        for anchor in (
+            "CLI 辅助工具",
+            "## 1. active/ 使用规则",
+            "## 13. 更新项目上下文的规则",
+            "### 14.2 常用命令",
+            "### 15.2 常用命令",
+            "### Workstream guard 模式",
+        )
+    )
 
 
 def append_upgrade_notes_if_needed(text: str, target: str) -> str:
@@ -492,8 +556,13 @@ def upgraded_system_manual_text(text: str) -> str:
     if "修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为" not in text and "旧版本上下文升级" in text:
         addition = "\n\n维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档、init/upgrade 单元测试和 upgrade compatibility runner；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。\n"
         text = text.rstrip() + addition
-    if "acf upgrade [target]" not in text and not has_upgrade_notes_marker(text):
+    known_anchor = system_manual_has_known_anchor(text)
+    if "acf upgrade [target]" not in text and not has_upgrade_notes_marker(text) and not known_anchor:
         text = append_upgrade_notes_if_needed(text, "manual")
+    if has_upgrade_notes_marker(text):
+        text = add_workstream_guard_modes_to_upgrade_notes(text)
+    else:
+        text = add_workstream_guard_modes_section(text)
     if "PowerShell 中反引号是转义字符" not in text:
         text = text.rstrip() + "\n\nPowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`。\n"
     return text

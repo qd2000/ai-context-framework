@@ -620,10 +620,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="non-destructively add missing files for the current context schema",
         description=(
             "Upgrade an existing AI context to the current schema by adding missing "
-            "Feedback_Inbox, Task_Plan, archive, archive/feedback, and Knowledge files/directories. "
-            "This command does "
+            "Feedback_Inbox, Task_Plan, archive, archive/feedback, and Knowledge files/directories, "
+            "and by safely refreshing recognized managed documentation sections such as AGENTS.md "
+            "and reference/System_Manual.md. This command does "
             "not move old content, archive active tasks, or overwrite an Active "
-            "Current_Task.md. Use --dry-run --json first to review changed_files."
+            "Current_Task.md. Use --plan --json for read-only assessment and --dry-run --json "
+            "to review changed_files before writing."
         ),
     )
     upgrade_parser.add_argument("path", nargs="?", type=Path)

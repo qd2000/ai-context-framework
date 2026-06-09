@@ -1143,7 +1143,7 @@ def workstream_context_payload(root: Path, detail: WorkstreamDetail) -> dict[str
         "required_evidence": [
             "ReadyToMerge requires a merge request with target and summary.",
             "Done requires evidence and merge_resolution.",
-            "Run `acf workstream guard <ID>` before ready/done.",
+            "Run `acf workstream guard <ID> --files <changed-files...> --json` before ready/done.",
         ],
     }
 
@@ -1162,7 +1162,7 @@ def workstream_context_command(args: argparse.Namespace, *, deps: WorkstreamDepe
         "error_code": None,
         "next_actions": [
             f"Read {context['detail']} first, then only the declared read_scope needed for this task.",
-            f"Before changing status, run `acf workstream guard {args.id}`.",
+            f"Before changing status, run `acf workstream guard {args.id} --files <changed-files...> --json`.",
         ],
     }
     set_result_payload(args, payload)
@@ -1188,7 +1188,7 @@ def workstream_context_command(args: argparse.Namespace, *, deps: WorkstreamDepe
         for item in context["forbidden_scope"]:
             print(f"- {item}")
         print("")
-        print(f"Before ready/done: acf workstream guard {args.id}")
+        print(f"Before ready/done: acf workstream guard {args.id} --files <changed-files...> --json")
     return 0
 
 
@@ -1560,7 +1560,7 @@ def workstream_dashboard_command(args: argparse.Namespace, *, deps: WorkstreamDe
         "next_actions": [
             "Resolve conflicts before starting parallel work." if errors else "No write-scope conflicts detected.",
             "Use `acf workstream context <ID>` before executing a specific Workstream.",
-            "Use `acf workstream guard <ID>` before ready/done.",
+            "Use `acf workstream guard <ID> --files <changed-files...> --json` before ready/done.",
         ],
         "error_code": None if not errors else "workstream_dashboard_conflicts",
     }

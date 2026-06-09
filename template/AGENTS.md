@@ -61,7 +61,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 
 - 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
 - 新增或更新当前计划、规划依据、当前任务、资料索引、human 索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`（包括 `acf plan reference`）、`acf task`、`acf human`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
-- 处理并行 Workstream 时，先运行 `acf workstream context WSxxx` 获取专属任务入口；需要扩展边界时使用 `acf workstream scope-add WSxxx --reason ...`；完成或切换状态前运行 `acf workstream guard WSxxx`；需要总览时运行 `acf workstream dashboard`。
+- 处理并行 Workstream 时，先运行 `acf workstream context WSxxx` 获取专属任务入口；需要扩展边界时使用 `acf workstream scope-add WSxxx --reason ...`；完成、ready、done 或切换状态前，优先运行 `acf workstream guard WSxxx --files <本次修改文件...> --json` 做文件集强验收；裸 `guard` / `--from-git` 只适合快速查看当前 git diff，旧式整工作区排他检查需显式使用 `--workspace --strict-workspace`；需要总览时运行 `acf workstream dashboard`。
 - 需要参数细节时，先查看 `acf --help`；需要系统级说明时，再读取 `reference/System_Manual.md`。
 
 `acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。

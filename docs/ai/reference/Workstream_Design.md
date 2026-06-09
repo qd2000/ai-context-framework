@@ -23,7 +23,7 @@
 2. 默认单线项目仍使用 [../active/Task_Plan.md](../active/Task_Plan.md) 和 [../active/Current_Task.md](../active/Current_Task.md)。
 3. 只有当目标线需要独立 owner、独立上下文、独立写入边界或独立合并审查时，才创建 Workstream。
 4. Workstream 的读取范围是允许读取的最小上下文入口，不覆盖项目级 `AGENTS.md`、rules 和人工指令。
-5. Workstream 的写入范围是工具可检查的协作边界；执行前用 `acf workstream context WSxxx`，完成前用 `acf workstream guard WSxxx`。
+5. Workstream 的写入范围是工具可检查的协作边界；执行前用 `acf workstream context WSxxx`，完成、ready、done 或切换状态前优先用 `acf workstream guard WSxxx --files <本次修改文件...> --json` 做文件集强验收；裸 guard / `--from-git` 只用于快速查看当前 git diff。
 6. Task Workstream 默认不直接写入权威上下文；应写入自己的 workstream 文件、草案文件或明确拥有的代码/文档文件。
 7. Active 类 Workstream 默认禁止重叠 `owned:` 写入；共享文件必须显式 `shared:` 并指定 merge_owner 或 serial coordination。
 8. `ReadyToMerge` 表示 workstream 已产出可审查、可落盘、可验证的合并输入；不表示权威上下文已经更新。

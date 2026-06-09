@@ -304,6 +304,64 @@ class UpgradeAuditTests(unittest.TestCase):
             findings = {item["code"]: item for item in payload["findings"]}
             self.assertEqual(findings["managed_doc_upgrade_skipped"]["auto_fix"], "manual")
 
+    def test_upgrade_refreshes_legacy_system_manual_with_workstream_guard_modes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            context = Path(tmp) / "project" / "docs" / "ai"
+            exit_code, _stdout, stderr = self.run_cli_output(["init", str(context), "--profile", "minimal", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.replace_template_placeholders(context)
+            manual = context / "reference" / "System_Manual.md"
+            manual.write_text(
+                "# System Manual\n\n"
+                "## 14. CLI 辅助工具\n\n"
+                "Workstream 完成前运行 `acf workstream guard WS001` 检查真实 git diff。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["upgrade", str(context), "--dry-run", "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(any(str(path).endswith("reference\\System_Manual.md") or str(path).endswith("reference/System_Manual.md") for path in payload["changed_files"]))
+            self.assertNotIn("Workstream guard 模式", manual.read_text(encoding="utf-8"))
+
+            exit_code, stdout, stderr = self.run_cli_output(["upgrade", str(context), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(any(str(path).endswith("reference\\System_Manual.md") or str(path).endswith("reference/System_Manual.md") for path in payload["changed_files"]))
+            updated = manual.read_text(encoding="utf-8")
+            self.assertIn("### Workstream guard 模式", updated)
+            self.assertIn("acf workstream guard WS001 --files", updated)
+            self.assertIn("acf workstream guard WS001 --workspace --strict-workspace", updated)
+            self.assertIn("只有显式文件集模式可作为完成或切换状态的强验收证据", updated)
+
+    def test_upgrade_replaces_incomplete_workstream_guard_modes_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            context = Path(tmp) / "project" / "docs" / "ai"
+            exit_code, _stdout, stderr = self.run_cli_output(["init", str(context), "--profile", "minimal", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.replace_template_placeholders(context)
+            manual = context / "reference" / "System_Manual.md"
+            manual.write_text(
+                "# System Manual\n\n"
+                "## 14. CLI 辅助工具\n\n"
+                "### Workstream guard 模式\n\n"
+                "旧说明：完成前运行裸 guard。\n\n"
+                "### 旧版本上下文升级\n\n"
+                "旧升级说明。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, _stdout, stderr = self.run_cli_output(["upgrade", str(context), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            updated = manual.read_text(encoding="utf-8")
+            self.assertEqual(updated.count("### Workstream guard 模式"), 1)
+            self.assertNotIn("旧说明：完成前运行裸 guard。", updated)
+            self.assertIn("acf workstream guard WS001 --files", updated)
+            self.assertIn("acf workstream guard WS001 --workspace --strict-workspace", updated)
+
     def test_upgrade_plan_maps_runtime_environment_signals_to_stable_codes(self):
         with tempfile.TemporaryDirectory() as tmp:
             context = Path(tmp) / "项目" / "docs" / "ai"

@@ -369,7 +369,25 @@ Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging 
 - `acf audit context [target]`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告长 active section、陈旧当前任务 / Workstream 阶段和 ReadyToMerge 待合并或 Done 缺合并结果候选；支持 `--json`。
 - `acf curate draft [target]`：复用 `review stale` 的 stale candidates 生成 curation-drafts 目录下的日期命名注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days`、`--today` 和 `--name`。
 - `acf doctor [target]`：跨文件诊断上下文状态漂移、generated index 漂移、Workstream 生命周期、数据证据和注意力治理信号；默认只读，`--fix safe` 只应用确定性机械修复，`--fix evidence` 只规划 evidence 修复且不改写语义权威文件，`--report` 生成 doctor report，`--draft-semantic` 生成可审阅语义回写草案；支持 `--json`、`--strict`、`--check-after`、`--today`、`--projects`、`--dry-run` 和 `--force`。
-- `acf workstream init|status|list|dashboard|archive-candidates|archive-draft|sync|add [target]` / `acf workstream archive WS001 [target] --reason "..."` / `acf workstream show|context|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note WS001 [target]` / `acf workstream stage add|list|done WS001 [target]` / `acf workstream focus WS001 WS001.1 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`context` 输出 AI 专属任务入口，`guard` 默认检查真实 git diff 是否越过 Workstream 写入边界，`scope-add` 以工具化方式扩展 scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并目标；Workstream 类型为 Task / Merge / Maintenance，Task 不直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive` 只在显式指定单个终态 Workstream 和 `--reason` 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 Workstream 详情 front matter 更新 Workstreams 索引，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，ReadyToMerge 表示任务产物完成，`ready` 需要人工确认参数 `--human-approved`，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
+- `acf workstream init|status|list|dashboard|archive-candidates|archive-draft|sync|add [target]` / `acf workstream archive WS001 [target] --reason "..."` / `acf workstream show|context|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note WS001 [target]` / `acf workstream stage add|list|done WS001 [target]` / `acf workstream focus WS001 WS001.1 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`context` 输出 AI 专属任务入口，`guard` 检查变更文件是否符合当前 Workstream 写入边界，完成或切换状态前优先用 `--files` 显式传入本次修改文件做强验收；`scope-add` 以工具化方式扩展 scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并目标；Workstream 类型为 Task / Merge / Maintenance，Task 不直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive` 只在显式指定单个终态 Workstream 和 `--reason` 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 Workstream 详情 front matter 更新 Workstreams 索引，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，ReadyToMerge 表示任务产物完成，`ready` 需要人工确认参数 `--human-approved`，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
+
+### Workstream guard 模式
+
+`acf workstream guard` 检查的是“变更文件是否符合当前 Workstream 的写入范围”，不是默认独占整个工作区。多个 agent 或多个 Workstream 在同一仓库并行时，完成、ready、done 或切换状态前，优先显式传入本次要验收的文件集：
+
+```bash
+acf workstream guard WS001 --files src/foo.py docs/ai/active/workstreams/WS001.md --json
+```
+
+| 场景 | 推荐命令 | 语义 |
+|---|---|---|
+| 本次变更文件明确 | `acf workstream guard WS001 --files path1 path2 --json` | 权威文件集强验收；失败表示这些文件越过当前 Workstream scope。 |
+| 单个文件验收 | `acf workstream guard WS001 --file path --json` | `--files` 的单文件形式，可重复传入。 |
+| 快速查看当前 git diff | `acf workstream guard WS001 --from-git --json` 或裸 `guard` | 读取 git diff；若存在其他 Workstream 或未归属 dirty files，结果不能直接作为完成证据。 |
+| 旧式整工作区排他检查 | `acf workstream guard WS001 --workspace --strict-workspace --json` | 要求整个工作区没有无关改动；只适合单线或需要强制清空工作区的场景。 |
+| 禁止 shared 写入 | `acf workstream guard WS001 --files path --owned-only --json` | shared scope 也会失败，用于严格 ownership 验收。 |
+
+只有显式文件集模式可作为完成或切换状态的强验收证据；裸 guard 和 `--from-git` 适合发现当前工作区风险，不应在存在并行 dirty files 时替代 `--files`。
 - `acf new task [target] --title "..." --goal "..."`：生成或重置当前任务文件；如果现有任务是 Active，需传入 `--force` 才能覆盖。
 - `acf new source [target] --title "..." --type "..." --location "..." --relation "..."`：添加或更新资料索引行；重复资料标题需传入 `--force` 才能覆盖。
 - `acf new reference [target] --title "..." --summary "..."`：在 `reference/` 下创建长期按需读取的 Markdown 文档；可用 `--file reference/X.md` 指定文件，拒绝写到 context 外或 `reference/knowledge/` 托管目录。
@@ -432,7 +450,7 @@ uv run --project <ai-context-framework 路径> acf upgrade --dry-run --json
 
 - `acf status --json`：获取机器可读的上下文位置、profile、当前任务状态和检查结果。
 - `acf check --json --strict`：获取机器可读的检查结果。
-- `acf workstream status|list|show|context|dashboard|guard --json`：获取机器可读的 Workstream 初始化状态、索引行、详情 metadata、执行上下文入口、并行安全仪表盘和写入边界检查结果。
+- `acf workstream status|list|show|context|dashboard --json` 和 `acf workstream guard WS001 --files <本次修改文件...> --json`：获取机器可读的 Workstream 初始化状态、索引行、详情 metadata、执行上下文入口、并行安全仪表盘和文件集写入边界检查结果。
 - `acf review stale --json`：获取机器可读的 stale candidates；这些候选只表示默认注意力入口可能过期，不代表事实真假。JSON 顶层包含 `summary.total`、`summary.by_kind` 和 `summary.by_path`；每个候选包含 `kind`、`signal`、`path`、`reason`、`age_days`、`status` 和 `suggested_action`；`next_actions` 会在 clean 状态或按 stale `kind` 给出机械下一步建议。
 - `acf audit context --json`：获取机器可读的 context audit candidates；这些候选只表示上下文可能需要治理，不代表事实真假。JSON 顶层包含 `candidates`、`summary.total`、`summary.by_kind`、`summary.by_path`、`summary.by_severity` 和 `next_actions`；每个候选包含 `kind`、`severity`、`path`、`section`、`reason` 和 `suggested_action`。
 - `acf curate draft --json`：把 `review stale` 的机器信号转换成可审阅治理草案；JSON 输出包含 `draft_path`、`created`、`stale_summary`、`stale_items`、`changed_files` 和 `next_actions`。该命令不读取 archive、不裁决语义、不修改权威上下文；无 stale candidate 时不创建空草案。
