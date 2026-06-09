@@ -48,6 +48,7 @@
 | 2026-05-08 | Task | Verify and record route calibration | active/Current_Task.md | `archive/tasks/2026-05-08-verify-and-record-route-calibration.md` | Archived | 未记录。 |
 | 2026-05-29 | workstream | WS001 | active/workstreams/WS001.md | `archive/workstreams/WS001.md` | Done | 用户确认 WS001 仅用于测试，已完成且不需要继续保留在 active。 |
 | 2026-06-01 | workstream | WS002 | active/workstreams/WS002.md | `archive/workstreams/WS002.md` | Done | WS002 已完成并以 no_merge_required 在本地 master 处置；归档以移出默认 active 上下文。 |
+| 2026-06-09 | workstream | WS003 | active/workstreams/WS003.md | `archive/workstreams/WS003.md` | Done | WS003 implemented, validated, and released as v0.0.3.50. |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |

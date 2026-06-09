@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Active
+Inactive
 
-说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Active
 
 | ID    | 状态   | 标题                         | Owner   | 写入范围                                                                                                                                                                                                                                                                                                                                                                                                      | 依赖                  | 输出物                              | 详情                                                  |
 | ----- | ---- | -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------- | --------------------------------------------------- |
-| WS003 | Active | Workstream-first Context Control Layer | 主 agent | owned: active/workstreams/WS003.md, draft: worklog/writeback-drafts/WS003-*, shared: active/Workstreams.md, assigned: active/Workstreams.md, assigned: tests/ws003_acceptance.py, assigned: ai_context_framework/runtime.py, assigned: ai_context_framework/runtime_parts/knowledge_review.py, assigned: ai_context_framework/runtime_parts/check.py, assigned: ai_context_framework/commands/knowledge.py, assigned: ai_context_framework/commands/workstream.py, assigned: ai_context_framework/commands/links.py, assigned: ai_context_framework/commands/next_status.py, assigned: README.md, authority: docs/ai/AGENTS.md, authority: docs/ai/reference/System_Manual.md, assigned: template/AGENTS.md, assigned: template/reference/System_Manual.md, assigned: template/reference/Knowledge_Index.md, assigned: ai_context_framework.egg-info/SOURCES.txt, assigned: tests/test_cli.py, assigned: ai_context_framework/commands/status_check.py, assigned: ai_context_framework/front_matter.py, assigned: ai_context_framework/runtime_parts/archive_workstream.py |  | WS003 详情中的模块目标、需求、实现路径、验收标准和后续实施切片 | active/workstreams/WS003.md |
+| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |
 
 ---
 

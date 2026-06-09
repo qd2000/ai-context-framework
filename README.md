@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.49` 是当前推荐的真实项目正式使用稳定版本。该版本在 `v0.0.3.48` 模块化重构基线上完成复验，保留 active -> reference 规划依据追溯能力，并固化标准 profile 的 `human/` 人类输入材料层和 `Human_Index.md` 治理能力，包含统一 `【ACF:KEY|提示】` 模板占位符、canonical ACF marker、可点击 Markdown 链接维护能力、Knowledge / Decisions / Archive index sync MVP、Feedback 生命周期辅助命令、`human index/list/mark`、`new human-note`，以及 `new reference` / `new rule` / `new feedback` 安全创建能力；`archive current-task/task-plan` 会在归档移动时重写本地 Markdown 相对链接，并追加 `ACF:ARCHIVE:RECORD` marker 供 `archive sync` 恢复归档原因。本版包含 Workstream 强隔离治理、`doctor` 诊断入口，以及重构后的 package 入口和薄 `acf.py` 兼容入口：`doctor` 可报告 Task / Current_Task 生命周期漂移、终态 Workstream 权威写入范围残留、generated index 漂移、attention hygiene、数据副本和 source evidence 信号；`--fix safe` 只执行确定性安全修复，`--report` 和 `--draft-semantic` 生成可审阅产物。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
+`v0.0.3.50` 是当前推荐的真实项目正式使用稳定版本。该版本在 `v0.0.3.49` 稳定基线上加入 WS003 Workstream-first 上下文治理能力：`status` / `next` 会在存在 Active-class Workstream 时推荐合适入口，`workstream guard` 支持文件集强验收，`workstream next-actions` / `preflight` 提供低风险下一步，`knowledge draft/apply/mark` 支持 v2 metadata 草案链路，`links graph/check/backlinks/sync-backlinks` 提供结构化链接和派生 backlink 视图，`draft status` 可列出待审阅草案。`upgrade` 仍应 dry-run first，Workstream 仍保持显式启用。
 
 WS003 以后，ACF 的 AI 入口采用 Workstream-first when active：当存在 Active / Blocked / ReadyToMerge / Merging Workstream 时，agent 应优先查看 Workstreams 索引和对应 context packet；`Task_Plan` 可以为空但项目仍有当前执行线。`reference/` 是项目内中间材料层，Knowledge 是有来源、证据和适用边界的高可信精炼层。
 

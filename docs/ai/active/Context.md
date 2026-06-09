@@ -8,8 +8,8 @@
 
 ## 审阅标记
 
-- Last reviewed: 2026-06-01
-- Review scope: 文件级；同步 WS002 模块化完成事实和 v0.0.3.49 稳定版版本事实。
+- Last reviewed: 2026-06-09
+- Review scope: 文件级；同步 WS003 Workstream-first 上下文治理完成事实和 v0.0.3.50 稳定版版本事实。
 
 ---
 
@@ -53,7 +53,7 @@ Dogfooding MVP / 框架稳定化。
 
 1. 本仓库维护模型无关、Markdown-first 的 AI 上下文管理框架；核心产品源是 `template/`，真实 dogfooding 实例是 `docs/ai/`。
 2. `acf` 是主要面向 AI 的上下文维护 CLI；它负责确定性检查、生成、结构化编辑、归档、草案和审计，不替代人的事实判断，也不扩展为通用 Markdown 编辑器或常驻 runtime。
-3. 当前版本事实为 `v0.0.3.49`：`acf --version`、`pyproject.toml`、`uv.lock` 和本地包元数据应保持同步。
+3. 当前版本事实为 `v0.0.3.50`：`acf --version`、`pyproject.toml`、`uv.lock` 和本地包元数据应保持同步。
 4. 本仓库使用 uv Python 环境，Python 版本约束为 `>=3.10`；运行项目 Python 或 CLI 时优先使用 `uv run python ...` 和 `uv run acf ...`。
 5. `docs/ai/` 当前应保持 `uv run acf check --strict` 通过；CLI 或模板行为变更后还应运行 `uv run acf check template`、`uv run python -m unittest`，必要时运行 upgrade matrix。
 
@@ -66,10 +66,11 @@ Dogfooding MVP / 框架稳定化。
 5. 观测与评测：usage event log 默认开启并写入用户级目录；`scripts/minimal_smoke.py` 和 `scripts/upgrade_matrix.py` 覆盖最小 smoke 与旧上下文升级兼容性。
 6. 注意力治理：`review stale`、`audit context`、`curate draft`、`doctor` 和 [reference/Context_Curation_Prompt.md](../reference/Context_Curation_Prompt.md) 已提供机械 stale signal、active 污染候选、可审阅整理草案、跨文件健康诊断、doctor report / semantic draft 和 safe repair；CLI 不裁决事实真假。
 7. 链接治理：P2-7 已实现 Markdown link check/linkify/link add 能力，并完成 README、template manual、dogfooding manual 和 gap 文档同步。
+8. Workstream-first 上下文治理：WS003 已实现 Workstream-first 入口推荐、文件集型 guard 强验收、workstream next-actions / preflight、Knowledge v2 metadata 草案链路、links graph / backlinks 派生视图和 draft status。
 
 ### 当前进展与未完成项
 
-1. 当前阶段处在 P2 收尾和阶段 6「事实与注意力治理」深化之间；WS002 模块化拆分已完成并归档，`v0.0.3.49` 已通过发布前验收，可作为重构后的正式使用稳定版本。
+1. 当前阶段处在 P2 收尾和阶段 6「事实与注意力治理」深化之间；WS002 模块化拆分已完成并归档，WS003 Workstream-first 上下文治理已完成实现和验收，`v0.0.3.50` 是当前推荐正式使用稳定版本。
 2. 当前无活跃计划；[active/Task_Plan.md](Task_Plan.md) 为 Empty。
 3. 当前无活跃任务；[active/Current_Task.md](Current_Task.md) 为 Empty。
 4. Knowledge / ADR / Archive sync 的 generated marker 设计已落地 [reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)；通用 marker helper、`acf knowledge sync` MVP、`acf decisions sync` MVP 和 `acf archive sync` MVP 已实现。
