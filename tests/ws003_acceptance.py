@@ -319,6 +319,19 @@ class Ws003AcceptanceTests(unittest.TestCase):
             next_actions = self.assert_cli_json_ok(["workstream", "next-actions", workstream_id, str(target), "--json"])
             self.assertEqual(next_actions["changed_files"], [])
             self.assertTrue(next_actions["next_actions"])
+            guard_command = next_actions["next_actions"][0]["command"]
+            self.assertIn(f"--file docs/ai/active/workstreams/{workstream_id}.md", guard_command)
+            self.assert_cli_json_ok(
+                [
+                    "workstream",
+                    "guard",
+                    workstream_id,
+                    str(target),
+                    "--file",
+                    f"docs/ai/active/workstreams/{workstream_id}.md",
+                    "--json",
+                ]
+            )
             for action in next_actions["next_actions"]:
                 self.assertIsInstance(action["command"], str)
                 self.assertIsInstance(action["reason"], str)

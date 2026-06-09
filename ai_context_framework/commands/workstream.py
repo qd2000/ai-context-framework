@@ -1198,9 +1198,11 @@ def workstream_next_actions_command(args: argparse.Namespace, *, deps: Workstrea
     detail = read_workstream_detail(root, args.id)
     status = workstream_detail_metadata_value(detail, "status", "Unknown")
     if status == "Active":
+        project_root = infer_project_root(root).resolve()
+        detail_arg = detail.path.resolve().relative_to(project_root).as_posix()
         actions = [
             {
-                "command": f"acf workstream guard {args.id} {root} --file {detail.path.relative_to(root).as_posix()} --json",
+                "command": f"acf workstream guard {args.id} {root} --file {detail_arg} --json",
                 "reason": "verify current Workstream-owned changes before merge request or status transition",
                 "risk": "low",
                 "writes": False,
