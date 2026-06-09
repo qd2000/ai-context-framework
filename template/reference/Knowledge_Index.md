@@ -27,6 +27,7 @@
 ## 使用规则
 
 1. Knowledge 不是当前事实源。
-2. 每条 Knowledge 必须引用来源。
+2. Knowledge 是高可信精炼层；每条 Knowledge 必须引用来源。
 3. Knowledge 只记录可迁移判断，不复述当前状态。
 4. 如果经验升级为强约束或重要决策，应标记为 Promoted，并指向新的权威位置。
+5. 每条 Active Knowledge 必须有证据和适用边界，避免把未经验证的 reference 中间材料当成可复用知识。

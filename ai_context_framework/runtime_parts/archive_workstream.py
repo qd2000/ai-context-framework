@@ -936,6 +936,14 @@ def workstream_context_command(args: argparse.Namespace) -> int:
     return workstream_commands.workstream_context_command(args, deps=workstream_deps())
 
 
+def workstream_next_actions_command(args: argparse.Namespace) -> int:
+    return workstream_commands.workstream_next_actions_command(args, deps=workstream_deps())
+
+
+def workstream_preflight_command(args: argparse.Namespace) -> int:
+    return workstream_commands.workstream_preflight_command(args, deps=workstream_deps())
+
+
 def workstream_guard_command(args: argparse.Namespace) -> int:
     return workstream_commands.workstream_guard_command(args, deps=workstream_deps())
 

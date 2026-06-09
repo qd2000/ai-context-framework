@@ -99,6 +99,15 @@ Knowledge 是可复用经验层，不是当前事实源；human 是人工异步�
 
 ---
 
+## Workstream-first when active
+
+- Workstream-first 表示有 Active / Blocked / ReadyToMerge / Merging Workstream 时，当前执行入口优先从 `active/Workstreams.md` 和 `acf workstream context WSxxx` 进入。
+- `Task_Plan.md 为 Empty` 不表示项目没有任务；若存在 Active Workstream，应以 Workstream 详情作为该执行线的核心上下文。
+- `reference/ 是中间材料层`，可放规划、背景、分析和阶段性方案，但不自动等同当前事实。
+- `Knowledge 是高可信` 精炼层，必须有来源、证据和适用边界；按场景读取，不默认全量读取。
+
+---
+
 ## 会话结束回写建议
 
 重要协作结束时，AI 不应默认重复打印完整回写建议清单。先判断是否存在可确定写入的内容；有则优先落盘或生成可审阅草案，最终报告只列出实际变更、草案路径、验证结果和仍需人工判断的风险。

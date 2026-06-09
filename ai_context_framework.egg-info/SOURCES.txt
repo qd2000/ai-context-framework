@@ -31,8 +31,10 @@ ai_context_framework/commands/feedback.py
 ai_context_framework/commands/human.py
 ai_context_framework/commands/init_upgrade.py
 ai_context_framework/commands/knowledge.py
+ai_context_framework/commands/links.py
 ai_context_framework/commands/log.py
 ai_context_framework/commands/new_context.py
+ai_context_framework/commands/next_status.py
 ai_context_framework/commands/plan_task.py
 ai_context_framework/commands/review_audit_curate.py
 ai_context_framework/commands/status_check.py

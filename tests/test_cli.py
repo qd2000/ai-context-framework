@@ -7170,6 +7170,7 @@ This records a reusable write-safety pattern instead of a current task fact.
                     ".pytest_cache",
                     ".ruff_cache",
                     ".venv",
+                    ".venv-*",
                     "__pycache__",
                     "*.egg-info",
                     "build",

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from ai_context_framework.constants import EXIT_CHECK_FAILED
+from ai_context_framework.front_matter import parse_front_matter
 from ai_context_framework.json_contract import (
     check_error_code,
     check_next_actions,
@@ -22,6 +23,88 @@ from ai_context_framework.paths import infer_context_profile, resolve_context_ro
 
 CheckContext = Callable[[Path, str, bool], CheckResult]
 ExtractCurrentTaskStatus = Callable[[Path], str | None]
+ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge", "Merging"}
+
+
+def workstream_summaries(root: Path) -> list[dict[str, object]]:
+    details_dir = root / "active" / "workstreams"
+    if not details_dir.exists():
+        return []
+    summaries: list[dict[str, object]] = []
+    for path in sorted(details_dir.glob("WS*.md")):
+        metadata, _body, diagnostics = parse_front_matter(path.read_text(encoding="utf-8"))
+        if diagnostics:
+            continue
+        workstream_id = str(metadata.get("id") or path.stem)
+        summaries.append(
+            {
+                "id": workstream_id,
+                "status": str(metadata.get("status") or "Unknown"),
+                "title": str(metadata.get("title") or workstream_id),
+                "owner": str(metadata.get("owner") or "未分配"),
+                "detail": path.relative_to(root).as_posix(),
+                "current_stage": metadata.get("current_stage") if isinstance(metadata.get("current_stage"), str) else None,
+                "type": str(metadata.get("type") or "Task"),
+            }
+        )
+    return summaries
+
+
+def workstream_entry_payload(root: Path) -> dict[str, object]:
+    summaries = workstream_summaries(root)
+    active_class = [item for item in summaries if item["status"] in ACTIVE_WORKSTREAM_STATUSES]
+    active = [item for item in summaries if item["status"] == "Active"]
+    blocked = [item for item in summaries if item["status"] == "Blocked"]
+    ready = [item for item in summaries if item["status"] == "ReadyToMerge"]
+    merging = [item for item in summaries if item["status"] == "Merging"]
+    terminal = [item for item in summaries if item["status"] in {"Done", "Cancelled"}]
+    state = "NotInitialized" if not (root / "active" / "Workstreams.md").exists() else ("ActiveClassPresent" if active_class else "Inactive")
+    recommended: dict[str, object] = {"kind": "none", "priority": 1, "reason": "no active Workstream"}
+    candidates: list[dict[str, object]] = []
+    if len(active_class) == 1:
+        item = active_class[0]
+        kind = "workstream_context" if item["status"] == "Active" else "workstream_next_actions"
+        command = f"acf workstream context {item['id']} {root} --json" if kind == "workstream_context" else f"acf workstream next-actions {item['id']} {root} --json"
+        recommended = {
+            "kind": kind,
+            "command": command,
+            "reason": f"single {item['status']} Workstream",
+            "priority": 1,
+            "workstream_id": item["id"],
+            "status": item["status"],
+            "detail": item["detail"],
+        }
+        candidates = [recommended]
+    elif len(active_class) > 1:
+        state = "Ambiguous"
+        recommended = {
+            "kind": "workstream_dashboard",
+            "command": f"acf workstream dashboard {root} --json",
+            "reason": "multiple active-class Workstreams",
+            "priority": 1,
+        }
+        candidates = [
+            {
+                "kind": "workstream_context" if item["status"] == "Active" else "workstream_next_actions",
+                "command": f"acf workstream context {item['id']} {root} --json",
+                "reason": f"{item['status']} Workstream",
+                "priority": index + 1,
+                "workstream_id": item["id"],
+                "status": item["status"],
+                "detail": item["detail"],
+            }
+            for index, item in enumerate(active_class)
+        ]
+    return {
+        "workstream_state": state,
+        "active_workstreams": active,
+        "ready_to_merge": ready,
+        "blocked_workstreams": blocked,
+        "merging_workstreams": merging,
+        "terminal_retained_workstreams": terminal,
+        "recommended_entry": recommended,
+        "candidate_entries": candidates,
+    }
 
 
 def check_command(args: argparse.Namespace, *, check_context: CheckContext) -> int:
@@ -78,6 +161,8 @@ def status_command(
         "ok": result.ok,
         "error_code": check_error_code(result),
         "next_actions": check_next_actions(result, args.strict),
+        "changed_files": [],
+        **workstream_entry_payload(location.context_root),
     }
     if not result.ok:
         payload["message"] = f"check failed: {len(result.errors)} error(s), {len(result.warnings)} warning(s)"

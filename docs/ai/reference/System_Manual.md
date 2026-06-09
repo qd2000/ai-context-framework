@@ -195,6 +195,8 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 5. 不为 curation 默认读取 archive 或全部历史日志；writeback draft 和 curation draft 不进入默认读取路径。
 6. 能引用权威位置时，不复制完整表述。
 
+Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging Workstream 时，agent 入口优先使用 Workstreams 索引和 `acf workstream context WSxxx`。`reference/ 是中间材料层`，Knowledge 高可信但不默认全量读取；ReadyToMerge 不表示权威事实已经合并，只表示有可审查输入。
+
 ## 会话结束回写
 
 1. 不再默认打印完整“无需更新”清单。

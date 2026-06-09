@@ -301,6 +301,8 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 3. curation draft 不进入默认读取路径。
 4. 若只处理当前任务，不读取历史日志。
 
+Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging Workstream 时，agent 入口优先使用 Workstreams 索引和 `acf workstream context WSxxx`。`reference/ 是中间材料层`，Knowledge 高可信但不默认全量读取。
+
 重要协作结束后，AI 不应默认重复打印完整回写建议清单。应先判断哪些内容可以确定落盘，优先使用 `acf plan`、`acf task`、`acf edit`、`acf new worklog`、`acf knowledge draft`、`acf archive` 或 `acf writeback draft` 写入对应文件或草案。
 
 最终回复只报告实际修改的文件、生成的草案、执行的检查和仍需人工判断的风险。没有变化的类别不需要输出“无需更新”。

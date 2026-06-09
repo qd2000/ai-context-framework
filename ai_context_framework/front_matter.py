@@ -23,8 +23,6 @@ def unsupported_front_matter_value(value: str) -> bool:
         return True
     if stripped in {"true", "false", "True", "False"}:
         return True
-    if FRONT_MATTER_NUMBER_RE.match(stripped):
-        return True
     if stripped.startswith(("{", "[")) and stripped != "[]":
         return True
     if stripped.startswith(("'", '"')) or stripped.endswith(("'", '"')):

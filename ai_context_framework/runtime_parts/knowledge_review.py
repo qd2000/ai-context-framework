@@ -17,9 +17,55 @@ def resolve_context_existing_path(root: Path, value: str) -> Path:
     return resolved
 
 
-def render_knowledge_draft(title: str, sources: Sequence[str], tags: str, summary: str) -> str:
+def render_knowledge_draft(
+    title: str,
+    sources: Sequence[str],
+    tags: str,
+    summary: str,
+    evidence: Sequence[str] | None = None,
+    applies_to: Sequence[str] | None = None,
+    not_applies_to: Sequence[str] | None = None,
+    read_when: Sequence[str] | None = None,
+    from_workstream: str | None = None,
+) -> str:
     source_lines = "\n".join(f"- `{source}`" for source in sources)
-    return f"""# K-草案：{title}
+    evidence_values = list(evidence or [])
+    applies_to_values = list(applies_to or [])
+    not_applies_to_values = list(not_applies_to or [])
+    read_when_values = list(read_when or [])
+    metadata_lines = [
+        "---",
+        "id: K-DRAFT",
+        "status: Draft",
+        "tags:",
+        *(f"  - {tag.strip()}" for tag in [tags or "未分类"] if tag.strip()),
+        "source:",
+        *(f"  - {source}" for source in sources),
+        "evidence:",
+        *(f"  - {item}" for item in evidence_values),
+        "validated_by:",
+        *(f"  - workstream:{from_workstream}" for _ in [from_workstream] if from_workstream),
+        "applies_to:",
+        *(f"  - {item}" for item in applies_to_values),
+        "not_applies_to:",
+        *(f"  - {item}" for item in not_applies_to_values),
+        "read_when:",
+        *(f"  - {item}" for item in read_when_values),
+        f"last_reviewed: {date.today().isoformat()}",
+        "stale_after_days: 60",
+        "promoted_to: []",
+        "supersedes: []",
+        "depends_on: []",
+        "derived_from: []",
+        "related: []",
+        "---",
+    ]
+    evidence_lines = "\n".join(f"- `{item}`" for item in evidence_values) or "- 待补充。"
+    applies_lines = "\n".join(f"- {item}" for item in applies_to_values) or "- 待补充。"
+    not_applies_lines = "\n".join(f"- {item}" for item in not_applies_to_values) or "- 待补充。"
+    metadata_text = "\n".join(metadata_lines)
+    return f"""{metadata_text}
+# K-草案：{title}
 
 ## 状态
 
@@ -39,11 +85,15 @@ Draft
 
 ## 适用场景
 
-- 待补充。
+{applies_lines}
 
 ## 不适用场景
 
-- 待补充。
+{not_applies_lines}
+
+## 证据
+
+{evidence_lines}
 
 ## 来源
 
@@ -143,6 +193,9 @@ def resolve_knowledge_draft(root: Path, draft: Path) -> Path:
 
 
 def knowledge_title_from_text(text: str, fallback: str) -> str:
+    _metadata, body, diagnostics = parse_front_matter(text)
+    if not diagnostics and body != text:
+        text = body
     first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
     if first_line.startswith("# K-草案："):
         return first_line.replace("# K-草案：", "", 1).strip() or fallback

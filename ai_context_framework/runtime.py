@@ -40,6 +40,8 @@ from ai_context_framework.commands import decisions as decisions_commands
 from ai_context_framework.commands import feedback as feedback_commands
 from ai_context_framework.commands import human as human_commands
 from ai_context_framework.commands import knowledge as knowledge_commands
+from ai_context_framework.commands import links as links_commands
+from ai_context_framework.commands import next_status as next_status_commands
 from ai_context_framework.commands import archive as archive_commands
 from ai_context_framework.commands import review_audit_curate as review_audit_curate_commands
 from ai_context_framework.commands import doctor as doctor_commands
@@ -592,6 +594,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(status_parser)
     status_parser.set_defaults(func=status_command)
 
+    next_parser = subparsers.add_parser("next", help="show the next low-risk context entry")
+    next_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(next_parser)
+    next_parser.set_defaults(func=next_status_commands.next_command)
+
     init_parser = subparsers.add_parser("init", help="create a context template")
     init_parser.add_argument("target", type=Path)
     init_parser.add_argument("--profile", choices=("standard", "minimal"), default="standard")
@@ -658,6 +665,32 @@ def build_parser() -> argparse.ArgumentParser:
     link_add_parser.add_argument("--force", action="store_true", help="allow duplicate links")
     add_write_arguments(link_add_parser)
     link_add_parser.set_defaults(func=link_add_command)
+
+    links_parser = subparsers.add_parser("links", help="manage structured link graph and generated backlinks")
+    links_subparsers = links_parser.add_subparsers(dest="links_command", required=True)
+    links_graph_parser = links_subparsers.add_parser("graph", help="print structured link graph")
+    links_graph_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(links_graph_parser)
+    links_graph_parser.set_defaults(func=links_commands.links_graph_command)
+
+    links_check_parser = links_subparsers.add_parser("check", help="check structured link targets")
+    links_check_parser.add_argument("path", nargs="?", type=Path)
+    links_check_parser.add_argument("--strict", action="store_true", help="treat governance link breakage as errors")
+    add_json_argument(links_check_parser)
+    links_check_parser.set_defaults(func=links_commands.links_check_command)
+
+    links_backlinks_parser = links_subparsers.add_parser("backlinks", help="show structured backlinks for a target")
+    links_backlinks_parser.add_argument("target", help="target path")
+    links_backlinks_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(links_backlinks_parser)
+    links_backlinks_parser.set_defaults(func=links_commands.links_backlinks_command)
+
+    links_sync_parser = links_subparsers.add_parser("sync-backlinks", help="preview or sync generated backlink blocks")
+    links_sync_parser.add_argument("path", nargs="?", type=Path)
+    links_sync_parser.add_argument("--apply", action="store_true", help="write generated backlink blocks")
+    links_sync_parser.add_argument("--dry-run", action="store_true", help="report planned backlinks without writing")
+    add_json_argument(links_sync_parser)
+    links_sync_parser.set_defaults(func=links_commands.links_sync_backlinks_command)
 
     log_parser = subparsers.add_parser("log", help="manage global acf usage logs")
     log_subparsers = log_parser.add_subparsers(dest="log_command", required=True)
@@ -829,6 +862,18 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(workstream_context_parser)
     workstream_context_parser.set_defaults(func=workstream_context_command)
 
+    workstream_next_actions_parser = workstream_subparsers.add_parser("next-actions", help="recommend safe next actions for a Workstream")
+    workstream_next_actions_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_next_actions_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(workstream_next_actions_parser)
+    workstream_next_actions_parser.set_defaults(func=workstream_next_actions_command)
+
+    workstream_preflight_parser = workstream_subparsers.add_parser("preflight", help="check Workstream scope before editing")
+    workstream_preflight_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
+    workstream_preflight_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(workstream_preflight_parser)
+    workstream_preflight_parser.set_defaults(func=workstream_preflight_command)
+
     workstream_add_parser = workstream_subparsers.add_parser("add", help="create a Workstream detail and index row")
     workstream_add_parser.add_argument("path", nargs="?", type=Path)
     workstream_add_parser.add_argument("--id", type=validate_workstream_id, required=True, help="Workstream id, for example WS002")
@@ -932,6 +977,12 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_guard_parser = workstream_subparsers.add_parser("guard", help="check changed files against one Workstream write boundary")
     workstream_guard_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")
     workstream_guard_parser.add_argument("path", nargs="?", type=Path)
+    workstream_guard_parser.add_argument("--file", action="append", default=None, help="explicit changed file; can be repeated")
+    workstream_guard_parser.add_argument("--files", action="append", nargs="+", default=None, help="explicit changed files")
+    workstream_guard_parser.add_argument("--from-git", action="store_true", help="read changed files from git")
+    workstream_guard_parser.add_argument("--workspace", action="store_true", help="check the whole workspace")
+    workstream_guard_parser.add_argument("--strict-workspace", action="store_true", help="fail on unrelated workspace changes")
+    workstream_guard_parser.add_argument("--owned-only", action="store_true", help="disallow shared scope writes")
     workstream_guard_parser.add_argument("--changed-file", action="append", default=None, help="override git diff with explicit changed file; can be repeated")
     add_json_argument(workstream_guard_parser)
     workstream_guard_parser.set_defaults(func=workstream_guard_command)
@@ -1137,6 +1188,11 @@ def build_parser() -> argparse.ArgumentParser:
     knowledge_draft_parser.add_argument("path", nargs="?", type=Path)
     knowledge_draft_parser.add_argument("--title", required=True, help="knowledge title")
     knowledge_draft_parser.add_argument("--source", action="append", required=True, help="source path inside context; can be repeated")
+    knowledge_draft_parser.add_argument("--from-workstream", default=None, help="Workstream id that produced this draft")
+    knowledge_draft_parser.add_argument("--evidence", action="append", default=None, help="evidence path; can be repeated")
+    knowledge_draft_parser.add_argument("--applies-to", action="append", default=None, help="applicable scenario; can be repeated")
+    knowledge_draft_parser.add_argument("--not-applies-to", action="append", default=None, help="non-applicable scenario; can be repeated")
+    knowledge_draft_parser.add_argument("--read-when", action="append", default=None, help="read recommendation trigger; can be repeated")
     knowledge_draft_parser.add_argument("--tag", default="未分类", help="knowledge tags")
     knowledge_draft_parser.add_argument("--summary", default="待补充。", help="one-line summary")
     knowledge_draft_parser.add_argument("--force", action="store_true", help="replace existing draft")
@@ -1146,6 +1202,7 @@ def build_parser() -> argparse.ArgumentParser:
     knowledge_apply_parser = knowledge_subparsers.add_parser("apply", help="apply a knowledge draft")
     knowledge_apply_parser.add_argument("draft", type=Path, help="draft path")
     knowledge_apply_parser.add_argument("path", nargs="?", type=Path, help="context path")
+    knowledge_apply_parser.add_argument("--draft", dest="draft_option", type=Path, default=None, help="draft path when the positional argument is the context path")
     knowledge_apply_parser.add_argument("--allow-similar", action="store_true", help="apply even when similar Knowledge exists")
     add_write_arguments(knowledge_apply_parser)
     knowledge_apply_parser.set_defaults(func=knowledge_apply_command)
@@ -1174,6 +1231,13 @@ def build_parser() -> argparse.ArgumentParser:
     knowledge_sync_parser.add_argument("--init-marker", action="store_true", help="insert generated markers when missing")
     add_write_arguments(knowledge_sync_parser)
     knowledge_sync_parser.set_defaults(func=knowledge_sync_command)
+
+    draft_group_parser = subparsers.add_parser("draft", help="inspect reviewable drafts")
+    draft_subparsers = draft_group_parser.add_subparsers(dest="draft_command", required=True)
+    draft_status_parser = draft_subparsers.add_parser("status", help="list reviewable drafts without reading bodies")
+    draft_status_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(draft_status_parser)
+    draft_status_parser.set_defaults(func=next_status_commands.draft_status_command)
 
     feedback_parser = subparsers.add_parser("feedback", help="manage active/Feedback_Inbox.md lifecycle")
     feedback_subparsers = feedback_parser.add_subparsers(dest="feedback_command", required=True)

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from ai_context_framework.json_contract import dry_run_enabled, emit_write_result, json_enabled, print_json, set_result_payload
+from ai_context_framework.front_matter import format_front_matter, parse_front_matter
 from ai_context_framework.markers import (
     KNOWLEDGE_INDEX_MARKER_END,
     KNOWLEDGE_INDEX_MARKER_START,
@@ -66,7 +67,20 @@ def knowledge_draft_command(args: argparse.Namespace, *, deps: KnowledgeDependen
         raise SystemExit(f"knowledge draft already exists: {draft_path}")
     if not dry_run:
         draft_dir.mkdir(parents=True, exist_ok=True)
-        draft_path.write_text(deps.render_knowledge_draft(title, sources, args.tag, args.summary), encoding="utf-8")
+        draft_path.write_text(
+            deps.render_knowledge_draft(
+                title,
+                sources,
+                args.tag,
+                args.summary,
+                getattr(args, "evidence", None),
+                getattr(args, "applies_to", None),
+                getattr(args, "not_applies_to", None),
+                getattr(args, "read_when", None),
+                getattr(args, "from_workstream", None),
+            ),
+            encoding="utf-8",
+        )
     check_result = deps.maybe_check_after(args, root, None)
     action = "would create" if dry_run else "created"
     return emit_write_result(args, "knowledge draft", f"{action} knowledge draft {draft_path}", [draft_path], check_result)
@@ -131,15 +145,24 @@ def knowledge_sync_command(args: argparse.Namespace, *, deps: KnowledgeDependenc
 
 
 def knowledge_apply_command(args: argparse.Namespace, *, deps: KnowledgeDependencies) -> int:
-    root = require_context_root(args.path)
+    draft_arg = getattr(args, "draft_option", None) or args.draft
+    context_arg = args.path
+    if getattr(args, "draft_option", None) is not None and context_arg is None:
+        context_arg = args.draft
+    root = require_context_root(context_arg)
     dry_run = dry_run_enabled(args)
-    draft_path = deps.resolve_knowledge_draft(root, args.draft)
+    draft_path = deps.resolve_knowledge_draft(root, draft_arg)
     text = deps.read_text(draft_path)
+    metadata, body, _diagnostics = parse_front_matter(text)
     title = deps.knowledge_title_from_text(text, draft_path.stem)
     status = deps.extract_heading_value(draft_path, "## 状态") or "Draft"
+    if isinstance(metadata.get("status"), str):
+        status = str(metadata["status"])
     if status not in deps.valid_knowledge_statuses:
         raise SystemExit(f"invalid knowledge status: {status}")
     tags = deps.extract_heading_value(draft_path, "## 标签") or "未分类"
+    if isinstance(metadata.get("tags"), list) and metadata["tags"]:
+        tags = ", ".join(metadata["tags"])
     summary = deps.extract_heading_value(draft_path, "## 摘要") or "无。"
     candidate = KnowledgeEntry(
         knowledge_id="KNEW",
@@ -160,7 +183,14 @@ def knowledge_apply_command(args: argparse.Namespace, *, deps: KnowledgeDependen
     changed = [destination, deps.knowledge_index_path(root)]
     if not dry_run:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(text.replace("# K-草案：", f"# {knowledge_id}：", 1), encoding="utf-8")
+        if metadata:
+            metadata["id"] = knowledge_id
+            metadata.setdefault("status", status)
+            updated_body = body.replace("# K-草案：", f"# {knowledge_id}：", 1)
+            updated_text = format_front_matter(metadata, updated_body)
+        else:
+            updated_text = text.replace("# K-草案：", f"# {knowledge_id}：", 1)
+        destination.write_text(updated_text, encoding="utf-8")
         deps.update_knowledge_index(root, knowledge_id, title, status, tags, summary, destination.relative_to(root).as_posix())
     check_result = deps.maybe_check_after(args, root, None)
     action = "would apply" if dry_run else "applied"
@@ -229,7 +259,13 @@ def knowledge_mark_command(args: argparse.Namespace, *, deps: KnowledgeDependenc
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     detail = deps.knowledge_detail_path(root, args.id)
-    text = replace_section_text(deps.read_text(detail), "## 状态", args.status)
+    original = deps.read_text(detail)
+    metadata, body, _diagnostics = parse_front_matter(original)
+    if metadata:
+        metadata["status"] = args.status
+        text = format_front_matter(metadata, replace_section_text(body, "## 状态", args.status))
+    else:
+        text = replace_section_text(original, "## 状态", args.status)
     if args.status == "Promoted" and not args.promoted_to.strip():
         raise SystemExit("--promoted-to is required when status is Promoted")
     if args.promoted_to.strip():
@@ -251,4 +287,11 @@ def knowledge_mark_command(args: argparse.Namespace, *, deps: KnowledgeDependenc
         index_path.write_text("\n".join(lines[: table.body_start] + updated_rows + lines[table.body_end :]).rstrip() + "\n", encoding="utf-8")
     check_result = deps.maybe_check_after(args, root, None)
     action = "would mark" if dry_run else "marked"
-    return emit_write_result(args, "knowledge mark", f"{action} knowledge {args.id}", [detail, deps.knowledge_index_path(root)], check_result)
+    return emit_write_result(
+        args,
+        "knowledge mark",
+        f"{action} knowledge {args.id}",
+        [detail, deps.knowledge_index_path(root)],
+        check_result,
+        extra_payload={"id": args.id, "status": args.status},
+    )

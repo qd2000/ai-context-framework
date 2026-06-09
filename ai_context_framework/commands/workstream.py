@@ -1192,6 +1192,72 @@ def workstream_context_command(args: argparse.Namespace, *, deps: WorkstreamDepe
     return 0
 
 
+def workstream_next_actions_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
+    _bind(deps)
+    root = require_context_root(args.path)
+    detail = read_workstream_detail(root, args.id)
+    status = workstream_detail_metadata_value(detail, "status", "Unknown")
+    if status == "Active":
+        actions = [
+            {
+                "command": f"acf workstream guard {args.id} {root} --file {detail.path.relative_to(root).as_posix()} --json",
+                "reason": "verify current Workstream-owned changes before merge request or status transition",
+                "risk": "low",
+                "writes": False,
+                "requires_human": False,
+            }
+        ]
+    elif status == "Blocked":
+        actions = [
+            {
+                "command": f"acf workstream show {args.id} {root}",
+                "reason": "read blocker before choosing a transition",
+                "risk": "low",
+                "writes": False,
+                "requires_human": False,
+            }
+        ]
+    elif status == "ReadyToMerge":
+        actions = [
+            {
+                "command": f"acf workstream done {args.id} {root} --merge-resolution no_merge_required --evidence <evidence>",
+                "reason": "record final merge disposition after review",
+                "risk": "medium",
+                "writes": True,
+                "requires_human": True,
+            }
+        ]
+    else:
+        actions = [
+            {
+                "command": f"acf workstream context {args.id} {root} --json",
+                "reason": "inspect Workstream context before acting",
+                "risk": "low",
+                "writes": False,
+                "requires_human": False,
+            }
+        ]
+    payload = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": "workstream next-actions",
+        "ok": True,
+        "context": str(root),
+        "changed_files": [],
+        "id": args.id,
+        "status": status,
+        "next_actions": actions,
+        "error_code": None,
+        "warnings": [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        for action in actions:
+            print(action["command"])
+    return 0
+
+
 def git_command_lines(project_root: Path, args: Sequence[str]) -> list[str]:
     result = subprocess.run(
         ["git", "-C", str(project_root), *args],
@@ -1343,18 +1409,35 @@ def workstream_guard_command(args: argparse.Namespace, *, deps: WorkstreamDepend
     _bind(deps)
     root = require_context_root(args.path)
     detail = read_workstream_detail(root, args.id)
-    explicit_files = bool(args.changed_file)
-    changed_files = [normalize_scope_path(value) for value in (args.changed_file or [])] if explicit_files else workstream_changed_files(root)
+    explicit_values: list[str] = []
+    explicit_values.extend(args.file or [])
+    for group in args.files or []:
+        explicit_values.extend(group)
+    explicit_values.extend(args.changed_file or [])
+    explicit_files = bool(explicit_values)
+    mode = "files" if explicit_files else "from_git"
+    checked_files = [normalize_scope_path(value) for value in explicit_values] if explicit_files else workstream_changed_files(root)
     project_root = infer_project_root(root).resolve() if explicit_files else git_toplevel(infer_project_root(root))
-    violations = guard_violations_for_files(root, detail, changed_files, project_root)
+    violations = guard_violations_for_files(root, detail, checked_files, project_root)
     ok = not violations
+    out_of_scope_files = [item["path"] for item in violations if "outside direct write_scope" in item.get("reason", "")]
+    authority_write_attempts = [item["path"] for item in violations if "authority" in item.get("reason", "")]
     payload: dict[str, object] = {
         "schema_version": JSON_SCHEMA_VERSION,
         "command": "workstream guard",
         "ok": ok,
         "context": str(root),
         "id": args.id,
-        "changed_files": changed_files,
+        "mode": mode,
+        "authoritative_for_completion": ok and mode == "files",
+        "checked_files": checked_files,
+        "changed_files": [],
+        "in_scope_files": [] if not ok else checked_files,
+        "out_of_scope_files": out_of_scope_files,
+        "unattributed_dirty_files": [],
+        "other_workstream_dirty_files": [],
+        "conflicts_with_active_workstreams": [],
+        "authority_write_attempts": authority_write_attempts,
         "violations": violations,
         "error_code": None if ok else "workstream_guard_failed",
         "next_actions": [] if ok else ["Move the change into this Workstream write_scope, run scope-add with a reason, or create a Merge/Maintenance Workstream."],
@@ -1370,6 +1453,36 @@ def workstream_guard_command(args: argparse.Namespace, *, deps: WorkstreamDepend
             for violation in violations:
                 print(f"- {violation['path']}: {violation['reason']}")
     return 0 if ok else EXIT_CHECK_FAILED
+
+
+def workstream_preflight_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
+    _bind(deps)
+    root = require_context_root(args.path)
+    detail = read_workstream_detail(root, args.id)
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": "workstream preflight",
+        "ok": True,
+        "context": str(root),
+        "id": args.id,
+        "mode": "preflight",
+        "changed_files": [],
+        "checked_files": [],
+        "unattributed_dirty_files": [],
+        "other_workstream_dirty_files": [],
+        "conflicts_with_active_workstreams": [],
+        "authority_write_attempts": [],
+        "write_scope": normalize_typed_scope_values(detail.metadata.get("write_scope")),
+        "error_code": None,
+        "warnings": [],
+        "next_actions": [],
+    }
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(f"preflight passed for {args.id}")
+    return 0
 
 
 def workstream_merge_start_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
