@@ -48,10 +48,10 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 
 常见安装方式：
 
-- 稳定安装当前源码快照：`uv tool install .`
+- 稳定安装当前源码快照（在仓库根目录执行）：`uv tool install .`
 - 调试 CLI 改动或安装链路时使用 editable 安装：`uv tool install -e .`
 - 安装后更新 shell PATH：`uv tool update-shell`
-- 已安装旧快照时覆盖重装：`uv tool install --reinstall .`
+- 已安装旧快照时覆盖重装（在仓库根目录执行）：`uv tool install --reinstall .`
 - 发布后按包名安装：`uv tool install ai-context-framework`
 - 从 Git 地址安装：`uv tool install git+<repo-url>`
 
@@ -99,7 +99,7 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf new worklog docs/ai --summary "补记一次上下文维护。" --append --dry-run --json`
 - `uv run acf version show --json`
-- `uv run acf version set v0.0.3.30 --dry-run --json`
+- `uv run acf version set vX.Y.Z --dry-run --json`
 - `uv run python scripts/upgrade_matrix.py --mode quick`
 - `uv run python scripts/upgrade_matrix.py --mode full --acf uv run acf`
 

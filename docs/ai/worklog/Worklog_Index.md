@@ -12,6 +12,7 @@
 
 | 日期 | 摘要 | 关键结论 | 详情 |
 |---|---|---|---|
+| 2026-06-09 | 清理外部复审后的上下文卫生：F016 标记完成并归档，F001-F014/F016/F018 移入 archive/feedback/2026-06.md，F015/F017 回到真实 Triaged 状态，旧 Knowledge 草案移入 archive/knowledge-drafts，并修正文档安装路径和版本示例。验证：acf check --strict、acf check template、review stale、feedback archive-candidates、version show、git diff --check。 | 无。 | `worklog/daily/2026-06-09.md` |
 | 2026-05-30 | 实现 Workstream ReadyToMerge 人工确认硬门禁：acf workstream ready 默认拒绝未带 --human-approved 的状态迁移，新增 workstream_human_approval_required 错误码和 next_actions；带 --human-approved 后继续保留原有状态、合并请求和未完成 stage 检查。同步 README、模板 System_Manual、dogfooding System_Manual 和 Workstream_Design，并更新测试覆盖。验证：uv run acf check template、uv run acf check --strict、uv run python -m unittest、全局 acf workstream ready WS020 --dry-run --json 均符合预期。 | 无。 | `worklog/daily/2026-05-30.md` |
 | 2026-05-29 | 归档测试用 WS001 并记录多 agent 多 Workstream 使用体验反馈。 | WS001 已移出 active，Workstream 层回到 Inactive；并行使用体验需要后续从产品设计上降低操作摩擦。 | `worklog/daily/2026-05-29.md` |
 | 2026-05-09 | 固化 human 层索引治理并发布 v0.0.3.44; 追加：完成 Workstream 强隔离治理：新增 context/guard/scope-add/dashboard/merge-start、Task/Merge/Maintenance 类型、Merging 状态、shared/owned 门禁和 docs/template 同步；版本提升到 v0.0.3.45。验证：235 个 unittest、docs/ai strict check、template check、version show、workstream dashboard。 | human/ 保留为 context root 下的人类半结构化输入层；新增 Human_Index、acf human index/list/mark、strict path check 和升级补齐能力，已通过模板检查、strict check、单元测试和 minimal smoke。 | `worklog/daily/2026-05-09.md` |

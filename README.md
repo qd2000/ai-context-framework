@@ -135,16 +135,16 @@ ACF 不追求保存更多上下文，而是维护一个低噪声、高权威、�
 
 `acf` 已经通过 `pyproject.toml` 暴露为标准 console script。Windows 和 WSL/Linux 是两套独立环境：在哪个环境里运行 `acf`，就需要在哪个环境里安装一次。
 
-- 稳定安装（推荐）：`uv tool install .`
+- 稳定安装当前源码快照（在仓库根目录执行）：`uv tool install .`
 - 开发安装（仅调试 CLI 修改时使用）：`uv tool install -e .`
-- 已安装旧版本时覆盖当前源码快照：`uv tool install --reinstall .`
+- 已安装旧版本时覆盖当前源码快照（在仓库根目录执行）：`uv tool install --reinstall .`
 
 #### Windows PowerShell
 
 稳定安装（推荐）：
 
 ```bash
-cd E:\Codes\Tools\ai-context-framework
+cd C:\path\to\ai-context-framework
 uv tool install .
 uv tool update-shell
 ```
@@ -152,7 +152,7 @@ uv tool update-shell
 开发安装（仅仓库维护或调试安装链路时使用）：
 
 ```bash
-cd E:\Codes\Tools\ai-context-framework
+cd C:\path\to\ai-context-framework
 uv tool install -e .
 uv tool update-shell
 ```
@@ -170,12 +170,12 @@ Windows CMD 可用 `where.exe acf` 查看命令位置。
 
 #### WSL / Linux / macOS
 
-在 WSL 中访问本仓库时，Windows 路径 `E:\Codes\Tools\ai-context-framework` 通常对应 `/mnt/e/Codes/Tools/ai-context-framework`：
+在 WSL 中访问 Windows 盘上的仓库时，请先换成当前机器对应的 `/mnt/<drive>/...` 路径。
 
 稳定安装（推荐）：
 
 ```bash
-cd /mnt/e/Codes/Tools/ai-context-framework
+cd /path/to/ai-context-framework
 uv tool install .
 uv tool update-shell
 ```
@@ -183,7 +183,7 @@ uv tool update-shell
 开发安装（仅仓库维护或调试安装链路时使用）：
 
 ```bash
-cd /mnt/e/Codes/Tools/ai-context-framework
+cd /path/to/ai-context-framework
 uv tool install -e .
 uv tool update-shell
 ```
@@ -384,7 +384,7 @@ acf check --strict --json
 如果全局 `acf` 未安装，可在本仓库源码环境中对其他项目运行：
 
 ```bash
-uv run --project E:\Codes\Tools\ai-context-framework acf upgrade --dry-run --json
+uv run --project path/to/ai-context-framework acf upgrade --dry-run --json
 ```
 
 ## 维护与验证

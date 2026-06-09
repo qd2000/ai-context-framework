@@ -15,7 +15,7 @@ Description-Content-Type: text/markdown
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
-稳定入口和开发入口需要分开：真实项目中使用非 editable 安装的稳定 `acf`；在本仓库开发时使用 `uv run acf` 或 `uv run python acf.py`。不要把全局 `acf` 作为 editable install 指向开发工作区。
+稳定入口和开发入口需要分开：真实项目中使用非 editable 安装的稳定 `acf`；在本仓库开发时使用 `uv run acf` 或 `uv run python acf.py`。只有在调试安装链路或 CLI 改动时，才临时使用 editable install。
 
 ## 设计理念
 
@@ -140,12 +140,26 @@ ACF 不追求保存更多上下文，而是维护一个低噪声、高权威、�
 
 ### 安装到 PATH
 
-开发本仓库时，可从仓库根目录安装 editable 工具。Windows 和 WSL/Linux 是两套独立环境：在哪个环境里运行 `acf`，就需要在哪个环境里安装一次。
+`acf` 已经通过 `pyproject.toml` 暴露为标准 console script。Windows 和 WSL/Linux 是两套独立环境：在哪个环境里运行 `acf`，就需要在哪个环境里安装一次。
+
+- 稳定安装当前源码快照（在仓库根目录执行）：`uv tool install .`
+- 开发安装（仅调试 CLI 修改时使用）：`uv tool install -e .`
+- 已安装旧版本时覆盖当前源码快照（在仓库根目录执行）：`uv tool install --reinstall .`
 
 #### Windows PowerShell
 
+稳定安装（推荐）：
+
 ```bash
-cd E:\Codes\Tools\ai-context-framework
+cd C:\path\to\ai-context-framework
+uv tool install .
+uv tool update-shell
+```
+
+开发安装（仅仓库维护或调试安装链路时使用）：
+
+```bash
+cd C:\path\to\ai-context-framework
 uv tool install -e .
 uv tool update-shell
 ```
@@ -163,10 +177,20 @@ Windows CMD 可用 `where.exe acf` 查看命令位置。
 
 #### WSL / Linux / macOS
 
-在 WSL 中访问本仓库时，Windows 路径 `E:\Codes\Tools\ai-context-framework` 通常对应 `/mnt/e/Codes/Tools/ai-context-framework`：
+在 WSL 中访问 Windows 盘上的仓库时，请先换成当前机器对应的 `/mnt/<drive>/...` 路径。
+
+稳定安装（推荐）：
 
 ```bash
-cd /mnt/e/Codes/Tools/ai-context-framework
+cd /path/to/ai-context-framework
+uv tool install .
+uv tool update-shell
+```
+
+开发安装（仅仓库维护或调试安装链路时使用）：
+
+```bash
+cd /path/to/ai-context-framework
 uv tool install -e .
 uv tool update-shell
 ```
@@ -182,7 +206,7 @@ acf status --json
 
 如果 WSL 项目目录位于 `/mnt/*` 挂载盘，`uv` 可能提示 hardlink 失败并降级为 copy；这是跨文件系统性能提示，不影响安装。需要消除提示时可设置 `export UV_LINK_MODE=copy`。
 
-后续发布后，用户可通过包名或 Git URL 安装，例如 `uv tool install ai-context-framework` 或 `uv tool install git+<repo-url>`。
+如果需要把 CLI 装进当前 Python 环境而不是 `uv tool` 工具目录，也可以使用 `python -m pip install .`。后续发布后，用户可通过包名或 Git URL 安装，例如 `uv tool install ai-context-framework` 或 `uv tool install git+<repo-url>`。
 
 “任意目录可运行 `acf`”表示命令已进入 PATH；是否能自动找到上下文，取决于当前目录是否位于包含 `docs/ai`、`docs-acf/ai` 或上下文根目录的项目中。
 
@@ -367,7 +391,7 @@ acf check --strict --json
 如果全局 `acf` 未安装，可在本仓库源码环境中对其他项目运行：
 
 ```bash
-uv run --project E:\Codes\Tools\ai-context-framework acf upgrade --dry-run --json
+uv run --project path/to/ai-context-framework acf upgrade --dry-run --json
 ```
 
 ## 维护与验证
