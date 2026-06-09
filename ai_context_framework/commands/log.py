@@ -86,6 +86,8 @@ def command_label(args: argparse.Namespace) -> str:
 
 
 def usage_loggable(args: argparse.Namespace) -> bool:
+    if getattr(args, "command", None) == "upgrade" and bool(getattr(args, "plan", False)):
+        return False
     return getattr(args, "command", None) != "log"
 
 
@@ -151,6 +153,8 @@ def build_usage_event(
         "schema_version": JSON_SCHEMA_VERSION,
         "timestamp": utc_now_iso(),
         "command": command_label(args),
+        "project_root": str(location.project_root),
+        "context_root": str(location.context_root),
         "cwd_rel": relative_display_path(Path.cwd().resolve(), location.project_root),
         "context_rel": relative_display_path(location.context_root, location.project_root),
         "profile": location.profile,

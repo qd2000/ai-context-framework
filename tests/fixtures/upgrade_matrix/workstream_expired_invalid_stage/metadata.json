@@ -1,0 +1,24 @@
+{
+  "source_version": "workstream-lifecycle-debt",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["workstream", "retention_expired", "invalid_stage"],
+  "intent": "Verify Workstream lifecycle debt is reported with stable blocking and cleanup finding codes.",
+  "expected_upgrade_behavior": "Upgrade plan reports invalid stage as blocking and expired terminal retention as cleanup debt.",
+  "files": {
+    "active/Current_Task.md": "## 当前任务状态\n\nEmpty\n",
+    "active/Workstreams.md": "本文件记录显式启用的并行 Workstream 索引。\n\n---\n\n## Workstream 状态\n\nActive\n\n说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。\n\n---\n\n## Workstreams\n\n| ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |\n|---|---|---|---|---|---|---|---|\n| WS030 | Done | Expired retained workstream | codex | owned: active/workstreams/WS030.md | 无。 | out | active/workstreams/WS030.md |\n",
+    "active/workstreams/WS030.md": "---\nid: WS030\ntype: Maintenance\nstatus: Done\nowner: codex\ntitle: Expired retained workstream\nmerge_resolution: no_merge_required\nkeep_active_reason: old evidence\nkeep_active_until: 2000-01-01\ndepends_on: []\nread_scope:\n  - active/Context.md\nwrite_scope:\n  - owned: active/workstreams/WS030.md\n---\n# WS030 - Expired retained workstream\n\n## 目标\n\nDone goal.\n\n---\n\n## 阶段\n\n| ID | 状态 | 阶段 | 依赖 | 输出物 | 证据 | 下一步 |\n|---|---|---|---|---|---|---|\n| WS030.1a | Active | Invalid | 无。 | out | evidence | next |\n\n---\n\n## 证据\n\nevidence\n"
+  },
+  "expected_plan_readiness": "blocked",
+  "expected_finding_codes": [
+    "workstream_invalid_stage_id",
+    "workstream_retention_expired"
+  ],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
+  "expect_apply_check_failed": true,
+  "expect_stale": false
+}

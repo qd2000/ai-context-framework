@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Inactive
+Active
 
-说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Inactive
 
 | ID    | 状态   | 标题                         | Owner   | 写入范围                                                                                                                                                                                                                                                                                                                                                                                                      | 依赖                  | 输出物                              | 详情                                                  |
 | ----- | ---- | -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------- | --------------------------------------------------- |
-| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |
+| WS004 | Active | Legacy project upgrade path and audit | codex | owned: ai_context_framework/runtime_parts/upgrade.py, owned: ai_context_framework/commands/init_upgrade.py, owned: ai_context_framework/observability.py, owned: ai_context_framework/commands/log.py, owned: ai_context_framework/runtime.py, owned: scripts/upgrade_matrix.py, owned: tests/test_cli.py, owned: tests/test_upgrade_matrix.py, owned: tests/fixtures/upgrade_matrix, owned: README.md, owned: template/reference/System_Manual.md, owned: docs/ai/reference/System_Manual.md, owned: docs/Automation.md, owned: ai_context_framework/domains/upgrade_audit.py, owned: ai_context_framework/commands/log_inventory.py, owned: tests/test_upgrade_audit.py, owned: tests/test_log_inventory.py, owned: docs/ai/active/workstreams/WS004.md, owned: docs/ai/active/Workstreams.md, owned: ai_context_framework/runtime_parts/core.py, owned: ai_context_framework.egg-info/PKG-INFO, owned: ai_context_framework.egg-info/SOURCES.txt, owned: tests/test_package_skeleton.py |  | WS004 规划、升级审计命令/路径、真实旧项目风险模型、完整升级测试矩阵和文档 | active/workstreams/WS004.md |
 
 ---
 

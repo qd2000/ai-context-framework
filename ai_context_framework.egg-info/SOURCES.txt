@@ -33,6 +33,7 @@ ai_context_framework/commands/init_upgrade.py
 ai_context_framework/commands/knowledge.py
 ai_context_framework/commands/links.py
 ai_context_framework/commands/log.py
+ai_context_framework/commands/log_inventory.py
 ai_context_framework/commands/new_context.py
 ai_context_framework/commands/next_status.py
 ai_context_framework/commands/plan_task.py
@@ -43,6 +44,7 @@ ai_context_framework/commands/worklog.py
 ai_context_framework/commands/workstream.py
 ai_context_framework/domains/__init__.py
 ai_context_framework/domains/tasks.py
+ai_context_framework/domains/upgrade_audit.py
 ai_context_framework/runtime_parts/__init__.py
 ai_context_framework/runtime_parts/archive_workstream.py
 ai_context_framework/runtime_parts/check.py
@@ -94,5 +96,7 @@ template/worklog/knowledge-drafts/.gitkeep
 tests/test_cli.py
 tests/test_context_matrix.py
 tests/test_entrypoint_smoke.py
+tests/test_log_inventory.py
 tests/test_package_skeleton.py
+tests/test_upgrade_audit.py
 tests/test_upgrade_matrix.py

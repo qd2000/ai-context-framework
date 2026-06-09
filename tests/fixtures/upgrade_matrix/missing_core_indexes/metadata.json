@@ -1,0 +1,29 @@
+{
+  "source_version": "missing-core-indexes",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["missing_core_indexes", "missing_structure"],
+  "intent": "Verify missing active/reference/archive core index files are structural upgrade candidates.",
+  "expected_upgrade_behavior": "Upgrade plan reports missing_structure for core index files and does not write during plan.",
+  "remove_paths": [
+    "active/Feedback_Inbox.md",
+    "active/Task_Plan.md",
+    "archive/Archive_Index.md",
+    "reference/Knowledge_Index.md"
+  ],
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "legacy_minimal_context",
+    "missing_structure"
+  ],
+  "expected_structural_change_suffixes": [
+    "active/Feedback_Inbox.md",
+    "active/Task_Plan.md",
+    "archive/Archive_Index.md",
+    "reference/Knowledge_Index.md"
+  ],
+  "expect_plan_no_write": true,
+  "expect_stale": false
+}

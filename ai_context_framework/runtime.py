@@ -63,6 +63,7 @@ from ai_context_framework.commands.log import (
     relative_usage_paths,
     usage_loggable,
 )
+from ai_context_framework.commands.log_inventory import log_projects_command
 from ai_context_framework.commands.edit_link import (
     LINKIFY_DEFAULT_DIRS,
     LINKIFY_DEFAULT_FILES,
@@ -626,6 +627,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     upgrade_parser.add_argument("path", nargs="?", type=Path)
+    upgrade_parser.add_argument("--plan", action="store_true", help="print a read-only upgrade assessment plan")
     add_write_arguments(upgrade_parser)
     upgrade_parser.set_defaults(func=upgrade_command)
 
@@ -740,6 +742,14 @@ def build_parser() -> argparse.ArgumentParser:
     log_prune_parser.add_argument("--days", type=int, default=30, help="keep events from this many recent days")
     add_json_argument(log_prune_parser)
     log_prune_parser.set_defaults(func=log_prune_command)
+
+    log_projects_parser = log_subparsers.add_parser("projects", help="summarize all usage-log projects")
+    log_projects_parser.add_argument("--log-root", type=Path, default=None, help="ACF home or projects directory to read")
+    log_projects_parser.add_argument("--scan-root", type=Path, action="append", default=None, help="scan for real context roots; can be repeated")
+    log_projects_parser.add_argument("--min-events", type=int, default=0, help="minimum event count for listed projects")
+    log_projects_parser.add_argument("--include-unresolved", action="store_true", help="include log-only projects not matched to scan roots")
+    add_json_argument(log_projects_parser)
+    log_projects_parser.set_defaults(func=log_projects_command)
 
     version_parser = subparsers.add_parser("version", help="show or update project version metadata")
     version_subparsers = version_parser.add_subparsers(dest="version_command", required=True)

@@ -1,0 +1,31 @@
+{
+  "source_version": "old-standard-missing-layers",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["old_standard_missing_layers", "missing_structure"],
+  "intent": "Verify old standard contexts missing governance layers are reported as structural upgrade candidates.",
+  "expected_upgrade_behavior": "Upgrade plan reports old_standard_missing_layers and missing_structure.",
+  "remove_paths": [
+    "human",
+    "archive/feedback/.gitkeep",
+    "reference/knowledge/.gitkeep",
+    "worklog/knowledge-drafts/.gitkeep"
+  ],
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "old_standard_missing_layers",
+    "missing_structure",
+    "template_placeholder"
+  ],
+  "expected_structural_change_suffixes": [
+    "human/Human_Index.md",
+    "human/Human_Notes.md",
+    "archive/feedback/.gitkeep",
+    "reference/knowledge/.gitkeep",
+    "worklog/knowledge-drafts/.gitkeep"
+  ],
+  "expect_plan_no_write": true,
+  "expect_stale": false
+}

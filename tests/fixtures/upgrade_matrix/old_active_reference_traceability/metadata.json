@@ -39,5 +39,15 @@
       "text": "相关 reference 规划依据请查看"
     }
   ],
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "managed_doc_update",
+    "template_placeholder"
+  ],
+  "expected_structural_change_suffixes": [
+    "active/Task_Plan.md",
+    "active/Current_Task.md"
+  ],
+  "expect_plan_no_write": true,
   "expect_stale": false
 }

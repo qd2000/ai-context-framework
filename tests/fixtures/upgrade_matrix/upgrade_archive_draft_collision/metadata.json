@@ -1,0 +1,21 @@
+{
+  "source_version": "draft-collision",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["draft_exists", "archive_draft"],
+  "intent": "Verify existing upgrade/archive drafts are reported before generating new cleanup drafts.",
+  "expected_upgrade_behavior": "Upgrade plan reports draft_exists and does not overwrite drafts.",
+  "files": {
+    "active/Current_Task.md": "## 当前任务状态\n\nEmpty\n",
+    "worklog/archive-drafts/2026-06-09.md": "# Existing archive draft\n"
+  },
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "draft_exists"
+  ],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
+  "expect_stale": false
+}

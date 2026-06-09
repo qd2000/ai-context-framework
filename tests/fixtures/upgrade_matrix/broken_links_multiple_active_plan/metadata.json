@@ -1,0 +1,25 @@
+{
+  "source_version": "semantic-debt",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["broken_links", "multiple_active_task", "duplicate_current_fact"],
+  "intent": "Verify semantic debt is separated from structural upgrade.",
+  "expected_upgrade_behavior": "Upgrade plan reports broken links, duplicate current facts, and multiple active subtasks without applying changes.",
+  "files": {
+    "active/Context.md": "本文件记录当前事实。\n\n## 当前有效事实\n\n- duplicated fact.\n- duplicated fact.\n- See [missing](../reference/Missing.md).\n",
+    "active/Task_Plan.md": "本文件记录任务计划。\n\n## 大任务状态\n\nActive\n\n---\n\n## 大任务名称\n\nSemantic debt plan\n\n---\n\n## 大任务目标\n\n1. Keep old goal.\n\n---\n\n## 成功标准\n\n1. Keep old success.\n\n---\n\n## 规划依据\n\n| 类型 | 路径 | 用途 | 状态 |\n|---|---|---|---|\n| 暂无 |  |  |  |\n\n---\n\n## 当前焦点\n\nT001\n\n---\n\n## 子任务\n\n| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |\n|---|---|---|---|---|---|---|\n| T001 | Active | First | 无。 | out | 无。 | next |\n| T002 | Active | Second | 无。 | out | 无。 | next |\n",
+    "active/Current_Task.md": "## 当前任务状态\n\nEmpty\n"
+  },
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "broken_link",
+    "multiple_active_subtasks",
+    "duplicate_or_conflicting_current_fact"
+  ],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
+  "expect_apply_check_failed": true,
+  "expect_stale": true
+}

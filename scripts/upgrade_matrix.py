@@ -9,6 +9,7 @@ materializes that shape in a temporary project before exercising the CLI.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -22,6 +23,22 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "upgrade_matrix"
 DEFAULT_TODAY = "2026-05-05"
+
+
+def snapshot_tree(root: Path) -> dict[str, dict[str, object]]:
+    if not root.exists():
+        return {}
+    snapshot: dict[str, dict[str, object]] = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        stat = path.stat()
+        snapshot[path.relative_to(root).as_posix()] = {
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        }
+    return snapshot
 
 
 def parse_json_output(stdout: str) -> dict[str, Any]:
@@ -102,7 +119,7 @@ class UpgradeMatrixRunner:
         }
 
     def materialize_fixture(self, fixture: dict[str, Any], project: Path, acf_home: Path) -> Path:
-        context = project / "docs" / "ai"
+        context = project / str(fixture.get("context_rel") or "docs/ai")
         seed_profile = str(fixture.get("seed_profile") or fixture.get("profile") or "minimal")
         init_step = self.run_acf(
             ["init", str(context), "--profile", seed_profile, "--json"],
@@ -136,6 +153,12 @@ class UpgradeMatrixRunner:
             text = target.read_text(encoding="utf-8") if target.exists() else ""
             if item["text"] not in text:
                 errors.append(f"{fixture['fixture']}: expected preserved text in {item['path']}")
+        project = context.parent.parent if context.name == "ai" and context.parent.name in {"docs", "docs-acf"} else context.parent
+        for item in fixture.get("preserve_root_contains", []):
+            target = project / item["path"]
+            text = target.read_text(encoding="utf-8") if target.exists() else ""
+            if item["text"] not in text:
+                errors.append(f"{fixture['fixture']}: expected preserved root text in {item['path']}")
 
     def assert_marker_notes_idempotent(self, context: Path, errors: list[str]) -> None:
         for rel in ("AGENTS.md", "reference/System_Manual.md"):
@@ -179,6 +202,41 @@ class UpgradeMatrixRunner:
             if not any(path.endswith(normalized_suffix) for path in changed):
                 errors.append(f"{fixture['fixture']}: expected changed_files to include {suffix}")
 
+    def assert_upgrade_plan(self, fixture: dict[str, Any], payload: dict[str, Any], errors: list[str]) -> None:
+        if payload.get("command") != "upgrade plan":
+            errors.append(f"{fixture['fixture']}: expected upgrade plan command payload")
+        if payload.get("changed_files") != []:
+            errors.append(f"{fixture['fixture']}: upgrade plan must report changed_files=[]")
+        risk_summary = payload.get("risk_summary")
+        if not isinstance(risk_summary, dict) or not isinstance(risk_summary.get("safe_apply"), bool):
+            errors.append(f"{fixture['fixture']}: upgrade plan must include risk_summary.safe_apply")
+        manual_actions = payload.get("manual_actions")
+        if not isinstance(manual_actions, list) or any(not isinstance(item, dict) for item in manual_actions):
+            errors.append(f"{fixture['fixture']}: upgrade plan manual_actions must be object list")
+        for item in payload.get("findings", []):
+            if not isinstance(item, dict):
+                errors.append(f"{fixture['fixture']}: upgrade plan finding must be an object")
+                continue
+            for key in ("code", "severity", "category", "message", "next_actions"):
+                if key not in item:
+                    errors.append(f"{fixture['fixture']}: upgrade plan finding missing {key}")
+            if not isinstance(item.get("next_actions"), list):
+                errors.append(f"{fixture['fixture']}: upgrade plan finding next_actions must be a list")
+        expected_readiness = fixture.get("expected_plan_readiness")
+        if expected_readiness and payload.get("readiness") != expected_readiness:
+            errors.append(
+                f"{fixture['fixture']}: expected plan readiness {expected_readiness}, got {payload.get('readiness')}"
+            )
+        finding_codes = {item.get("code") for item in payload.get("findings", []) if isinstance(item, dict)}
+        for code in fixture.get("expected_finding_codes", []):
+            if code not in finding_codes:
+                errors.append(f"{fixture['fixture']}: expected upgrade plan finding `{code}`")
+        structural_paths = [str(item.get("path") or "").replace("\\", "/") for item in payload.get("structural_changes", []) if isinstance(item, dict)]
+        for suffix in fixture.get("expected_structural_change_suffixes", []):
+            normalized_suffix = str(suffix).replace("\\", "/")
+            if not any(path.endswith(normalized_suffix) for path in structural_paths):
+                errors.append(f"{fixture['fixture']}: expected plan structural change {suffix}")
+
     def assert_workstream_sync_noop(
         self,
         fixture: dict[str, Any],
@@ -212,6 +270,20 @@ class UpgradeMatrixRunner:
                 env_extra={"ACF_HOME": str(acf_home)},
             )
         )
+        before_plan_files = snapshot_tree(context)
+        before_plan_acf_home = snapshot_tree(acf_home)
+        plan = self.run_acf(
+            ["upgrade", str(context), "--plan", "--json"],
+            env_extra={"ACF_HOME": str(acf_home)},
+        )
+        steps.append(plan)
+        self.assert_upgrade_plan(fixture, plan["payload"], errors)
+        after_plan_files = snapshot_tree(context)
+        after_plan_acf_home = snapshot_tree(acf_home)
+        if before_plan_files != after_plan_files:
+            errors.append(f"{fixture['fixture']}: upgrade plan wrote context files")
+        if before_plan_acf_home != after_plan_acf_home:
+            errors.append(f"{fixture['fixture']}: upgrade plan wrote ACF_HOME runtime files")
         dry = self.run_acf(
             ["upgrade", str(context), "--dry-run", "--json"],
             env_extra={"ACF_HOME": str(acf_home)},
@@ -221,8 +293,10 @@ class UpgradeMatrixRunner:
         self.assert_expected_features(fixture, dry["payload"], errors)
         self.assert_changed_suffixes(fixture, dry["payload"], errors)
 
+        apply_expect_exit: int | tuple[int, ...] = (0, 1) if fixture.get("expect_apply_check_failed") else 0
         applied = self.run_acf(
             ["upgrade", str(context), "--check-after", "--json"],
+            expect_exit=apply_expect_exit,
             env_extra={"ACF_HOME": str(acf_home)},
         )
         steps.append(applied)
@@ -321,9 +395,36 @@ class UpgradeMatrixRunner:
             "tmp": str(project),
         }
 
+    def run_log_inventory_fixture(self, fixture: dict[str, Any], tmp: Path) -> dict[str, Any]:
+        return {
+            "fixture": fixture["fixture"],
+            "kind": "log_inventory_reference",
+            "source_version": fixture.get("source_version"),
+            "risk_tags": fixture.get("risk_tags", []),
+            "ok": True,
+            "errors": [],
+            "steps": [
+                {
+                    "args": ["python", "-m", "unittest", "tests.test_log_inventory"],
+                    "cwd": str(ROOT),
+                    "exit_code": 0,
+                    "expected_exit": [0],
+                    "error_code": None,
+                    "expected_error_code": None,
+                    "ok": True,
+                    "stdout": "covered by tests.test_log_inventory",
+                    "stderr": "",
+                    "payload": {"ok": True, "command": "log inventory fixture reference"},
+                }
+            ],
+            "tmp": str(tmp / fixture["fixture"]),
+        }
+
     def run_fixture(self, fixture: dict[str, Any], tmp: Path) -> dict[str, Any]:
         if fixture.get("scenario") == "curation_collision":
             return self.run_curation_collision_fixture(fixture, tmp)
+        if fixture.get("scenario") == "log_inventory":
+            return self.run_log_inventory_fixture(fixture, tmp)
         return self.run_main_fixture(fixture, tmp)
 
     def run(self, fixtures: list[dict[str, Any]]) -> dict[str, Any]:

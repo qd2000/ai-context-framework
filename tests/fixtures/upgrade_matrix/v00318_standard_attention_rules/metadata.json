@@ -11,5 +11,16 @@
     "AGENTS.md": "## 默认读取顺序\n\n1. `active/Context.md`\n2. `rules/Always_Active.md`\n3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）\n4. `active/Task_Plan.md`\n5. `active/Current_Task.md`（仅当任务状态为 Active 时）\n\n---\n\n## 会话结束回写要求\n\n每次重要协作结束时，AI 必须输出标准化的回写建议。\n\n最终是否写入，由用户决定。\n",
     "reference/System_Manual.md": "本文件是旧手册。\n\n## 13. 更新项目上下文的规则\n\n每次重要协作结束后，AI 应输出标准化的回写建议（格式见 AGENTS.md）。\n\n最终是否写入，由用户决定。\n"
   },
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "custom_managed_doc",
+    "managed_doc_update",
+    "template_placeholder"
+  ],
+  "expected_structural_change_suffixes": [
+    "AGENTS.md",
+    "reference/System_Manual.md"
+  ],
+  "expect_plan_no_write": true,
   "expect_stale": false
 }

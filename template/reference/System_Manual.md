@@ -393,6 +393,7 @@ Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging 
 - `acf log tail [target] --limit 20 --json`：读取最近 usage event。
 - `acf log summarize [target] --json`：统计命令次数、成功率、错误类型、dry-run 次数和 changed files 数量。
 - `acf log summarize [target] --days 7 --errors-only --json`：按时间窗口和失败状态筛选统计。
+- `acf log projects --scan-root <path> --json`：只读汇总全局 usage log 项目，并尝试把日志 project id 映射到磁盘上的真实 context root；`--log-root` 可读取测试或备份日志目录，`--min-events` 和 `--include-unresolved` 用于过滤展示。
 - `acf log feedback [target] --text "..." --type Problem --source manual --json`：显式记录实际使用反馈正文，写入用户级 usage log；普通命令不会自动记录正文。
 - `acf log prune [target] --days 30`：删除旧 usage event。
 
@@ -403,12 +404,13 @@ Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging 
 旧项目升级到当前模板结构时，推荐流程：
 
 1. `acf status --json`：确认当前目录能发现目标上下文。
-2. `acf upgrade --dry-run --json`：预览将补齐的文件和目录。
-3. 审阅 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`。
-4. `acf upgrade --check-after --json`：正式补齐结构并检查。
-5. `acf check --strict --json`：在正式项目中确认占位符和结构问题。
+2. `acf upgrade --plan --json`：只读生成升级评估，区分结构补齐、语义债务和 Workstream 债务。
+3. `acf upgrade --dry-run --json`：预览将补齐的文件和目录。
+4. 审阅 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`。
+5. `acf upgrade --check-after --json`：正式补齐结构并检查。
+6. `acf check --strict --json`：在正式项目中确认占位符和结构问题。
 
-`upgrade` 是非破坏式命令，只补齐当前 schema 缺失的 `active/Task_Plan.md`、标准 profile 的 human 层（含 `human/Human_Index.md`）、archive、archive/feedback 和 Knowledge 文件/目录，并为旧 `active/Task_Plan.md` 补 `## 规划依据` 结构、为 Active `active/Current_Task.md` 的 `## 输入材料` 保守追加规划依据提示；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`，也不自动判断哪些 reference 是正确依据。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE:NOTES` marker 块而不是强行重排原文；旧 `ACF:UPGRADE-NOTES` marker 会被兼容识别并在可管理文档中迁移。
+`upgrade --plan --json` 不写项目文件、不写 usage log、不获取写锁；JSON 输出包含 `readiness`、`risk_summary`、`findings`、`structural_changes`、`manual_actions` 和 `recommended_commands`。`upgrade` 是非破坏式命令，只补齐当前 schema 缺失的 `active/Task_Plan.md`、标准 profile 的 human 层（含 `human/Human_Index.md`）、archive、archive/feedback 和 Knowledge 文件/目录，并为旧 `active/Task_Plan.md` 补 `## 规划依据` 结构、为 Active `active/Current_Task.md` 的 `## 输入材料` 保守追加规划依据提示；它不移动旧内容、不自动归档任务、不覆盖 Active `active/Current_Task.md`，也不自动判断哪些 reference 是正确依据。`--json` 输出包含 `detected_features`、`planned_changes`、`skipped_changes` 和 `changed_files`，用于审查升级原因、预期写入和已跳过项。对高度自定义的旧入口文档，`upgrade` 会追加 `ACF:UPGRADE:NOTES` marker 块而不是强行重排原文；旧 `ACF:UPGRADE-NOTES` marker 会被兼容识别并在可管理文档中迁移。
 
 维护本框架时，如果修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为，必须同时评估旧版本上下文的升级路径。新增结构应同步到 init 文件清单、upgrade 补齐清单、`pyproject.toml` data-files、文档、init/upgrade 单元测试和 upgrade compatibility runner；入口或手册变更不能安全重排旧文档时，应通过 marker notes 非破坏式提示。ACF 维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START -->` 与对应 `END` marker，例如 `ACF:UPGRADE:NOTES`、`ACF:ARCHIVE:RECORD`、`ACF:WORKSTREAM:ARCHIVE-RECORD`、`ACF:KNOWLEDGE:INDEX-GENERATED`、`ACF:DECISIONS:INDEX-GENERATED` 和 `ACF:ARCHIVE:INDEX-GENERATED`；旧 marker 保持兼容，但 `check` 会给出 future warning。
 
@@ -422,6 +424,7 @@ Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging 
 如果全局 `acf` 未安装，可以从本框架源码环境运行：
 
 ```bash
+uv run --project <ai-context-framework 路径> acf upgrade --plan --json
 uv run --project <ai-context-framework 路径> acf upgrade --dry-run --json
 ```
 
@@ -456,7 +459,7 @@ JSON 输出包含稳定字段：`schema_version`、`ok`、`error_code`、`next_a
 
 PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多行正文时，优先使用 `--input <file>`，避免 shell 改写正文。
 
-`log` 命令默认开启，写入用户级全局目录：Windows 为 `%USERPROFILE%\.acf\projects\<project-id>\`，macOS/Linux 为 `~/.acf/projects/<project-id>/`；也可通过 `ACF_HOME` 指定根目录。自动 usage event 只记录命令形态、结果、错误分类、耗时、dry-run 状态和 changed files 等元数据，不记录 `--text` 正文、stdin 内容、Markdown diff、模型对话或完整 stdout/stderr。需要保存实际使用反馈时，显式运行 `acf log feedback --text ...` 或 `--input <file>`，该命令会把反馈正文作为 `event_kind=feedback` 事件写入同一日志。usage event log 是评测和排障资料，不是权威上下文，也不应直接写入 `worklog/`。日志写入带用户级锁，配置和 prune 重写使用原子替换；如需关闭某项目日志，运行 `acf log disable [target]`。
+`log` 命令默认开启，写入用户级全局目录：Windows 为 `%USERPROFILE%\.acf\projects\<project-id>\`，macOS/Linux 为 `~/.acf/projects/<project-id>/`；也可通过 `ACF_HOME` 指定根目录。自动 usage event 只记录命令形态、结果、错误分类、耗时、dry-run 状态、changed files、项目根和上下文根等元数据，不记录 `--text` 正文、stdin 内容、Markdown diff、模型对话或完整 stdout/stderr。需要保存实际使用反馈时，显式运行 `acf log feedback --text ...` 或 `--input <file>`，该命令会把反馈正文作为 `event_kind=feedback` 事件写入同一日志。usage event log 是评测和排障资料，不是权威上下文，也不应直接写入 `worklog/`。日志写入带用户级锁，配置和 prune 重写使用原子替换；如需关闭某项目日志，运行 `acf log disable [target]`。
 
 退出码约定：
 

@@ -13,5 +13,14 @@
   "expect_exists": [
     "reference/Context_Curation_Prompt.md"
   ],
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "missing_structure",
+    "template_placeholder"
+  ],
+  "expected_structural_change_suffixes": [
+    "reference/Context_Curation_Prompt.md"
+  ],
+  "expect_plan_no_write": true,
   "expect_stale": false
 }

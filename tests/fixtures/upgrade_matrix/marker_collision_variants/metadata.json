@@ -1,0 +1,23 @@
+{
+  "source_version": "marker-collision",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["marker_collision", "marker_duplicate"],
+  "intent": "Verify duplicate or unbalanced generated markers block upgrade plan.",
+  "expected_upgrade_behavior": "Upgrade plan reports marker_duplicate with blocking readiness.",
+  "files": {
+    "active/Current_Task.md": "## 当前任务状态\n\nEmpty\n\n<!-- ACF:TASK:STATE:START -->\n",
+    "reference/Knowledge_Index.md": "本文件记录可复用经验索引。\n\n<!-- ACF:KNOWLEDGE:INDEX:START -->\nrow\n<!-- ACF:KNOWLEDGE:INDEX:END -->\n<!-- ACF:KNOWLEDGE:INDEX:START -->\nrow\n<!-- ACF:KNOWLEDGE:INDEX:END -->\n"
+  },
+  "expected_plan_readiness": "blocked",
+  "expected_finding_codes": [
+    "marker_duplicate",
+    "marker_collision"
+  ],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
+  "expect_apply_check_failed": true,
+  "expect_stale": false
+}

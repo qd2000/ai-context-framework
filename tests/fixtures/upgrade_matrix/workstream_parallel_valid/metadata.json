@@ -1,0 +1,24 @@
+{
+  "source_version": "parallel-workstream-valid",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["workstream_parallel_valid", "workstream_state_parallel"],
+  "intent": "Verify multiple valid parallel Active Workstreams are reported as state, not a blocking error.",
+  "expected_upgrade_behavior": "Upgrade plan reports workstream_state_parallel while structural upgrade remains no-op.",
+  "files": {
+    "active/Current_Task.md": "## 当前任务状态\n\nEmpty\n",
+    "active/Workstreams.md": "本文件记录显式启用的并行 Workstream 索引。\n\n---\n\n## Workstream 状态\n\nActive\n\n说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。\n\n---\n\n## Workstreams\n\n| ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |\n|---|---|---|---|---|---|---|---|\n| WS101 | Active | Parallel A | codex | assigned: src/a.py | 无。 | out | active/workstreams/WS101.md |\n| WS102 | Active | Parallel B | codex | assigned: src/b.py | 无。 | out | active/workstreams/WS102.md |\n",
+    "active/workstreams/WS101.md": "---\nid: WS101\ntype: Task\nstatus: Active\nowner: codex\ntitle: Parallel A\ndepends_on: []\nread_scope:\n  - active/Context.md\nwrite_scope:\n  - assigned: src/a.py\n---\n# WS101 - Parallel A\n\n## 目标\n\nParallel A goal.\n\n---\n\n## 输出物\n\nout\n",
+    "active/workstreams/WS102.md": "---\nid: WS102\ntype: Task\nstatus: Active\nowner: codex\ntitle: Parallel B\ndepends_on: []\nread_scope:\n  - active/Context.md\nwrite_scope:\n  - assigned: src/b.py\n---\n# WS102 - Parallel B\n\n## 目标\n\nParallel B goal.\n\n---\n\n## 输出物\n\nout\n"
+  },
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "template_placeholder",
+    "workstream_state_parallel"
+  ],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
+  "expect_stale": false
+}

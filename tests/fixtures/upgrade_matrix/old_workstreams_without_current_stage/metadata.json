@@ -21,5 +21,11 @@
     "workstreams"
   ],
   "expect_workstream_sync_noop": true,
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "template_placeholder"
+  ],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
   "expect_stale": false
 }

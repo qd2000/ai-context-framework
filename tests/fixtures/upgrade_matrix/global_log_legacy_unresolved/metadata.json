@@ -1,0 +1,15 @@
+{
+  "source_version": "log-inventory-fixture",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "log_inventory",
+  "risk_tags": ["global_log_legacy_unresolved", "missing_path", "synthetic_or_test_like"],
+  "intent": "Document that global usage-log inventory is covered by tests/test_log_inventory.py rather than the context upgrade matrix main path.",
+  "expected_upgrade_behavior": "Log inventory tests cover unresolved legacy logs, missing_path events, synthetic project filtering, and scan-root resolution.",
+  "expected_plan_readiness": "current",
+  "expected_finding_codes": [],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
+  "expect_stale": false
+}

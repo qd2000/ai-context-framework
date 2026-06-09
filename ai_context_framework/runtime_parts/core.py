@@ -45,6 +45,8 @@ def write_command_context_root(args: argparse.Namespace) -> Path | None:
         }:
             return require_context_root(getattr(args, "path", None))
         return None
+    if command == "upgrade" and getattr(args, "plan", False):
+        return None
     if command in {"upgrade", "new", "writeback", "plan", "task", "archive", "decisions", "knowledge", "curate", "linkify"}:
         return require_context_root(getattr(args, "path", None))
     if command == "human":

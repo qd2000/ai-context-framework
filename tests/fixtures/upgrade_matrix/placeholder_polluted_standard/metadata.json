@@ -1,0 +1,17 @@
+{
+  "source_version": "placeholder-polluted",
+  "profile": "standard",
+  "seed_profile": "standard",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["placeholder_pollution", "semantic_cleanup"],
+  "intent": "Verify a current-shaped standard context with template placeholders is reported as semantic cleanup, not structural upgrade.",
+  "expected_upgrade_behavior": "Upgrade plan reports template_placeholder and no structural changes.",
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "template_placeholder"
+  ],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
+  "expect_stale": false
+}

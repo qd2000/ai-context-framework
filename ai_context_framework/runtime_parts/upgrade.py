@@ -6,6 +6,10 @@ migration can stay mechanical while behavior remains unchanged.
 
 from __future__ import annotations
 import re
+from pathlib import Path
+
+from ai_context_framework.domains.upgrade_audit import build_upgrade_plan_payload
+from ai_context_framework.paths import resolve_status_location
 
 def render_empty_task_plan() -> str:
     return render_task_plan(
@@ -721,6 +725,64 @@ def upgrade_contract_payload(root: Path, changed_files: Sequence[Path]) -> dict[
 
 
 def upgrade_command(args: argparse.Namespace) -> int:
+    if getattr(args, "plan", False):
+        if dry_run_enabled(args) or check_after_enabled(args):
+            payload = {
+                "command": "upgrade plan",
+                "ok": False,
+                "error_code": "input_error",
+                "message": "`--plan` cannot be combined with `--dry-run` or `--check-after`.",
+                "next_actions": ["Use `acf upgrade --plan --json` for read-only assessment or `acf upgrade --dry-run --json` for structural dry-run."],
+            }
+            set_result_payload(args, payload)
+            if json_enabled(args):
+                print_json(payload)
+            else:
+                print(payload["message"], file=sys.stderr)
+            return EXIT_INPUT_ERROR
+        target = getattr(args, "path", None)
+        try:
+            root = resolve_status_location(target).context_root
+        except SystemExit:
+            root = (target.resolve() if target is not None else Path.cwd().resolve())
+            payload = {
+                "command": "upgrade plan",
+                "ok": False,
+                "error_code": "context_not_found",
+                "message": f"context directory is not an ACF context root: {root}",
+                "readiness": "blocked",
+                "changed_files": [],
+                "findings": [
+                    {
+                        "code": "not_acf_context",
+                        "severity": "blocking",
+                        "category": "inventory",
+                        "message": f"context directory is not an ACF context root: {root}",
+                        "auto_fix": "manual",
+                        "next_actions": ["Run `acf init docs/ai` for this project or pass an existing ACF context root."],
+                    }
+                ],
+                "structural_changes": [],
+                "manual_actions": [],
+                "recommended_commands": ["acf init docs/ai --profile minimal --json"],
+                "next_actions": ["Run `acf init docs/ai` for this project or pass an existing ACF context root."],
+            }
+            set_result_payload(args, payload)
+            if json_enabled(args):
+                print_json(payload)
+            else:
+                print(payload["message"], file=sys.stderr)
+            return 1
+        changed_files, warnings = ensure_upgrade_structure(root, True)
+        result = check_context(root, infer_context_profile(root), True)
+        payload = build_upgrade_plan_payload(root, changed_files, warnings, result)
+        set_result_payload(args, payload)
+        if json_enabled(args):
+            print_json(payload)
+        else:
+            print(f"readiness: {payload['readiness']}")
+            print(f"findings: {len(payload['findings'])}")
+        return 0
     return init_upgrade_commands.upgrade_command(
         args,
         maybe_check_after=maybe_check_after,

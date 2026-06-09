@@ -1,0 +1,26 @@
+{
+  "source_version": "merge-terminal-retained",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["workstream_merge_state", "workstream_terminal_retained"],
+  "intent": "Verify merge and terminal retained Workstreams are visible in upgrade plan state findings.",
+  "expected_upgrade_behavior": "Upgrade plan reports workstream_merge_state and workstream_terminal_retained without treating retained terminal rows as structural drift.",
+  "files": {
+    "active/Current_Task.md": "## 当前任务状态\n\nEmpty\n",
+    "active/Workstreams.md": "本文件记录显式启用的并行 Workstream 索引。\n\n---\n\n## Workstream 状态\n\nActive\n\n说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。\n\n---\n\n## Workstreams\n\n| ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |\n|---|---|---|---|---|---|---|---|\n| WS201 | ReadyToMerge | Merge candidate | codex | owned: active/workstreams/WS201.md | 无。 | out | active/workstreams/WS201.md |\n| WS202 | Done | Retained done | codex | owned: active/workstreams/WS202.md | 无。 | out | active/workstreams/WS202.md |\n",
+    "active/workstreams/WS201.md": "---\nid: WS201\ntype: Maintenance\nstatus: ReadyToMerge\nowner: codex\ntitle: Merge candidate\ndepends_on: []\nread_scope:\n  - active/Context.md\nwrite_scope:\n  - owned: active/workstreams/WS201.md\nmerge_targets:\n  - README.md\n---\n# WS201 - Merge candidate\n\n## 目标\n\nMerge goal.\n\n---\n\n## 合并请求\n\n### 需要合并到哪里\n\n- README.md\n\n### 候选变更摘要\n\nMerge candidate summary.\n\n### 验证结果\n\nunit tests\n\n### 建议合并方式\n\nmanual merge\n\n---\n\n## 输出物\n\nout\n",
+    "active/workstreams/WS202.md": "---\nid: WS202\ntype: Maintenance\nstatus: Done\nowner: codex\ntitle: Retained done\ndepends_on: []\nread_scope:\n  - active/Context.md\nwrite_scope:\n  - owned: active/workstreams/WS202.md\nmerge_resolution: no_merge_required\nkeep_active_reason: retained for upgrade audit\nkeep_active_until: 2099-01-01\n---\n# WS202 - Retained done\n\n## 目标\n\nDone goal.\n\n---\n\n## 证据\n\nevidence\n\n---\n\n## 输出物\n\nout\n"
+  },
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "template_placeholder",
+    "workstream_merge_state",
+    "workstream_terminal_retained"
+  ],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
+  "expect_apply_check_failed": true,
+  "expect_stale": false
+}

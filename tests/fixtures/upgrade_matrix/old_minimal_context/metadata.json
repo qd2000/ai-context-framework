@@ -1,0 +1,24 @@
+{
+  "source_version": "old-minimal",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["legacy_minimal_context"],
+  "intent": "Verify old minimal contexts get current minimal schema additions without standard-only layers.",
+  "expected_upgrade_behavior": "Upgrade plan reports legacy_minimal_context and missing_structure, but does not add human Workstream layers.",
+  "remove_paths": [
+    "reference/Context_Curation_Prompt.md"
+  ],
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "legacy_minimal_context",
+    "missing_structure",
+    "template_placeholder"
+  ],
+  "expected_structural_change_suffixes": [
+    "reference/Context_Curation_Prompt.md"
+  ],
+  "expect_plan_no_write": true,
+  "expect_stale": false
+}

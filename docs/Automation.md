@@ -30,7 +30,7 @@
 - `edit section get|replace|append`：读取、替换或追加上下文根目录内 Markdown 文件的指定 section body。
 - `edit table upsert`：按 key column 更新或追加上下文根目录内 Markdown 表格行。
 - `doctor`：面向人和 AI 的健康诊断入口，复用 `check` 并报告跨文件生命周期漂移、终态 Workstream authority scope 残留、generated index 漂移、attention hygiene 和本地数据副本证据信号；`--fix safe` 只执行确定性低风险修复，`--report` 和 `--draft-semantic` 生成可审阅产物，`--projects` 支持多项目只读诊断。
-- 使用状态日志：`log enable|disable|status|tail|summarize|prune` 管理默认开启的用户级全局 usage event log，按项目子目录记录命令结果元数据，支撑跨项目 dogfooding 评测。
+- 使用状态日志：`log enable|disable|status|tail|summarize|projects|prune` 管理默认开启的用户级全局 usage event log，按项目子目录记录命令结果元数据；`log projects --scan-root <path> --json` 支撑跨项目 dogfooding 和旧项目升级盘点。
 - CLI 渐进式披露入口：模板和 minimal init 产物会在 AGENTS.md 中提示 `acf status --json`、`acf --help` 和系统手册发现路径，但不在默认入口列完整命令手册。
 - 最小 smoke runner：`scripts/minimal_smoke.py` 使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code`、Workstream 最小 happy path、archive-candidates / archive-draft / explicit archive 主路径和 Task Stage 最小 happy path；不覆盖真实项目批量评测或漂移样本诊断。
 - 升级兼容 runner：`scripts/upgrade_matrix.py` 使用风险驱动 fixture 验证旧上下文可被非破坏式带到当前工具可治理状态；quick 模式随单元测试运行，full 模式用于 release 前扩展检查。
@@ -164,7 +164,7 @@ P1 命令：
 - 已实现：`acf curate draft` 最小版只消费 `review stale` 的结构化 stale signals，生成 `worklog/curation-drafts/` 下的可审阅注意力治理草案；无候选时不创建空草案，同名草案已存在时安全拒绝。
 - 已实现：`acf audit context` MVP，只读输出 active 层上下文治理 candidates；第一版仅覆盖 `active_section_too_long`、`stale_current_task_or_workstream_stage` 和 `terminal_conclusion_not_merged`（ReadyToMerge 待合并或 Done 缺合并结果），不判断事实真假、不写文件、不接入 strict。
 - 已实现：`acf doctor`，设计文档为 `docs/ai/reference/Doctor_Reconcile_Design.md`；命令默认只读，报告 Task / Current_Task 生命周期漂移、终态 Workstream authority scope 残留、Workstreams / Archive generated index 漂移、Workstream 协议 drift、Decisions / Sources / data evidence 和 attention hygiene findings；`--fix safe` 只做可回退的确定性修复，数据 hash 证据只读取项目根内相对路径，`--report` / `--draft-semantic` 生成人工可审阅产物，`--projects` 用于多项目只读巡检。
-- 已实现：upgrade compatibility runner，以 `tests/fixtures/upgrade_matrix/` 的最小旧形态 fixture 验证旧项目可以升级到当前工具可治理状态，而不是自动变干净；quick 模式随单元测试运行，full 模式作为 release 前扩展检查。
+- 已实现：upgrade compatibility runner，以 `tests/fixtures/upgrade_matrix/` 的最小旧形态 fixture 验证旧项目可以升级到当前工具可治理状态，而不是自动变干净；runner 先执行 `upgrade --plan --json` 验证只读评估和 no-write/no-log，再执行 dry-run/apply/idempotency 检查；quick 模式随单元测试运行，full 模式作为 release 前扩展检查。
 - 已实现：`reference/Context_Curation_Prompt.md` 作为按需读取的上下文整理 prompt 模板，帮助 AI 输出整理建议；它不是默认 active 规则，也不是 CLI 自动语义清理能力。
 - 后续增强：`acf curate draft` 可再考虑基于 changed files、`active/`、索引文件和最近 N 天 worklog 生成更丰富整理草案，列出疑似重复事实、疑似陈旧 active 内容、已完成但未归档任务、已处理但仍留在 inbox 的内容，以及可能应升格到 Context / Knowledge / ADR 的近期结论。
 

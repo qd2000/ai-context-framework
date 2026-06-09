@@ -62,6 +62,7 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 ## 常用维护命令
 
 - `uv run acf status --json`
+- `uv run acf upgrade docs/ai --plan --json`
 - `uv run acf upgrade docs/ai --dry-run --json`
 - 通用升级形式：`acf upgrade [target]`
 - `uv run acf check --strict`
@@ -95,6 +96,7 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 - `uv run acf doctor --projects docs/ai ../other-project/docs/ai --json`
 - `uv run acf curate draft docs/ai --dry-run --json`
 - 需要整理、归纳、精简上下文时，按需读取 [reference/Context_Curation_Prompt.md](Context_Curation_Prompt.md)；默认产物是整理建议，不是文件修改。
+- `uv run acf log projects --scan-root E:\Codes --json`
 - `uv run acf log feedback docs/ai --type Problem --source manual --text "实际使用反馈。" --json`
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf new worklog docs/ai --summary "补记一次上下文维护。" --append --dry-run --json`
@@ -219,6 +221,6 @@ Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging 
 1. 新增目录或文件时，同步更新 init 文件清单、upgrade 补齐清单和 `pyproject.toml` data-files。
 2. 修改入口、手册或默认读取顺序时，检查 `acf upgrade` 是否能非破坏式更新旧 AGENTS/System Manual，不能安全重排时应追加 marker notes。
 3. 补充或更新 init/upgrade 单元测试，覆盖新项目生成和旧项目 dry-run/正式 upgrade。
-4. 验证 `uv run acf check template`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf check docs/ai --strict --json`、`uv run python -m unittest` 和 upgrade compatibility quick/full 模式。
+4. 验证 `uv run acf check template`、`uv run acf upgrade docs/ai --plan --json`、`uv run acf upgrade docs/ai --dry-run --json`、`uv run acf check docs/ai --strict --json`、`uv run python -m unittest` 和 upgrade compatibility quick/full 模式。
 
 ACF 维护块统一使用 `<!-- ACF:<DOMAIN>:<PURPOSE>:START -->` 与对应 `END` marker，例如 `ACF:UPGRADE:NOTES`、`ACF:ARCHIVE:RECORD`、`ACF:WORKSTREAM:ARCHIVE-RECORD`、`ACF:KNOWLEDGE:INDEX-GENERATED`、`ACF:DECISIONS:INDEX-GENERATED` 和 `ACF:ARCHIVE:INDEX-GENERATED`；旧 marker 保持兼容，但 `check` 会给出 future warning。`acf knowledge sync`、`acf decisions sync` 和 `acf archive sync` 只重算对应 generated marker 内表格，旧索引首次接入需显式 `--init-marker`。模板占位符统一使用 ACF-keyed placeholder form，表格单元格内使用无提示形式，避免 `|` 破坏 Markdown 表格。

@@ -1,0 +1,29 @@
+{
+  "source_version": "root-agent-custom",
+  "profile": "minimal",
+  "seed_profile": "minimal",
+  "quick": false,
+  "scenario": "main",
+  "risk_tags": ["root_agent_custom"],
+  "intent": "Verify custom project-root AGENTS.md is reported and not overwritten by upgrade plan.",
+  "expected_upgrade_behavior": "Upgrade plan reports root_agent_custom and keeps custom root entrypoint unchanged.",
+  "root_files": {
+    "AGENTS.md": "Custom root agent entrypoint without docs/ai delegation.\n"
+  },
+  "files": {
+    "active/Current_Task.md": "## 当前任务状态\n\nEmpty\n"
+  },
+  "preserve_root_contains": [
+    {
+      "path": "AGENTS.md",
+      "text": "Custom root agent entrypoint"
+    }
+  ],
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "root_agent_custom"
+  ],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
+  "expect_stale": false
+}

@@ -26,5 +26,16 @@
     "AGENTS.md",
     "reference/Context_Curation_Prompt.md"
   ],
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "custom_managed_doc",
+    "missing_structure",
+    "template_placeholder"
+  ],
+  "expected_structural_change_suffixes": [
+    "AGENTS.md",
+    "reference/Context_Curation_Prompt.md"
+  ],
+  "expect_plan_no_write": true,
   "expect_stale": false
 }

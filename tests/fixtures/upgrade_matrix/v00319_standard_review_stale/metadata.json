@@ -10,5 +10,11 @@
   "files": {
     "active/Context.md": "本文件记录当前阶段事实。\n\n## 当前有效事实\n\n- 该旧上下文缺少 Last reviewed 标记。\n"
   },
+  "expected_plan_readiness": "needs_cleanup",
+  "expected_finding_codes": [
+    "template_placeholder"
+  ],
+  "expected_structural_change_suffixes": [],
+  "expect_plan_no_write": true,
   "expect_stale": true
 }
