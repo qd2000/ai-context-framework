@@ -329,8 +329,10 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 
 常见安装方式：
 
-- 从本框架源码目录开发安装：`uv tool install -e .`
+- 稳定安装当前源码快照：`uv tool install .`
+- 调试 CLI 改动或安装链路时使用 editable 安装：`uv tool install -e .`
 - 安装后更新 shell PATH：`uv tool update-shell`
+- 已安装旧快照时覆盖重装：`uv tool install --reinstall .`
 - 发布后按包名安装：`uv tool install ai-context-framework`
 - 从 Git 地址安装：`uv tool install git+<repo-url>`
 

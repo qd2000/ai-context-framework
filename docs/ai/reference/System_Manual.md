@@ -42,6 +42,23 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 
 ---
 
+## 安装与入口
+
+`acf` 已通过 `pyproject.toml` 暴露为标准 console script。真实项目中应使用非 editable 的稳定安装；本仓库开发时优先使用 `uv run acf ...` 或 `uv run python acf.py ...`。
+
+常见安装方式：
+
+- 稳定安装当前源码快照：`uv tool install .`
+- 调试 CLI 改动或安装链路时使用 editable 安装：`uv tool install -e .`
+- 安装后更新 shell PATH：`uv tool update-shell`
+- 已安装旧快照时覆盖重装：`uv tool install --reinstall .`
+- 发布后按包名安装：`uv tool install ai-context-framework`
+- 从 Git 地址安装：`uv tool install git+<repo-url>`
+
+如果需要把 CLI 装进当前 Python 环境而不是 `uv tool` 工具目录，可以使用 `python -m pip install .`。不要把全局 `acf` 长期 editable install 指向开发工作区；只有调试安装链路或 CLI 改动时才临时使用 editable。
+
+---
+
 ## 常用维护命令
 
 - `uv run acf status --json`

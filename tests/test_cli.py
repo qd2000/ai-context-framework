@@ -2,6 +2,8 @@ import io
 import json
 import os
 import re
+import subprocess
+import sys
 import shutil
 import tempfile
 import unittest
@@ -7151,6 +7153,102 @@ This records a reusable write-safety pattern instead of a current task fact.
         self.assertIn('acf = "ai_context_framework.cli:main"', pyproject_text)
         self.assertIn('py-modules = ["acf"]', pyproject_text)
         self.assertIn("[tool.setuptools.data-files]", pyproject_text)
+
+    def test_installed_console_script_can_init_context_outside_source_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            package_source = tmp_path / "package-source"
+            venv_dir = tmp_path / "venv"
+            workspace = tmp_path / "workspace"
+            shutil.copytree(
+                acf.ROOT,
+                package_source,
+                ignore=shutil.ignore_patterns(
+                    ".git",
+                    ".mypy_cache",
+                    ".omx",
+                    ".pytest_cache",
+                    ".ruff_cache",
+                    ".venv",
+                    "__pycache__",
+                    "*.egg-info",
+                    "build",
+                    "dist",
+                ),
+            )
+            workspace.mkdir()
+            subprocess.run(
+                [sys.executable, "-m", "venv", str(venv_dir)],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if os.name == "nt":
+                python_exe = venv_dir / "Scripts" / "python.exe"
+                acf_exe = venv_dir / "Scripts" / "acf.exe"
+            else:
+                python_exe = venv_dir / "bin" / "python"
+                acf_exe = venv_dir / "bin" / "acf"
+            install = subprocess.run(
+                [str(python_exe), "-m", "pip", "install", "--disable-pip-version-check", str(package_source)],
+                check=False,
+                cwd=str(tmp_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertEqual(install.returncode, 0, install.stdout)
+            self.assertTrue(acf_exe.exists(), install.stdout)
+
+            version = subprocess.run(
+                [str(acf_exe), "--version"],
+                check=False,
+                cwd=str(workspace),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertEqual(version.returncode, 0, version.stdout)
+            self.assertIn(acf.VERSION, version.stdout)
+
+            init = subprocess.run(
+                [str(acf_exe), "init", "docs/ai"],
+                check=False,
+                cwd=str(workspace),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertEqual(init.returncode, 0, init.stdout)
+            target = workspace / "docs" / "ai"
+            self.assertTrue((workspace / "AGENTS.md").exists(), init.stdout)
+            self.assertTrue((target / "AGENTS.md").exists(), init.stdout)
+            self.assertTrue((target / "reference" / "System_Manual.md").exists(), init.stdout)
+
+            status = subprocess.run(
+                [str(acf_exe), "status", "--json"],
+                check=False,
+                cwd=str(workspace),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertEqual(status.returncode, 0, status.stdout)
+            payload = json.loads(status.stdout)
+            self.assertTrue(payload["ok"], payload)
+            self.assertEqual(Path(payload["context"]).resolve(), target.resolve())
+            self.assertEqual(Path(payload["project_root"]).resolve(), workspace.resolve())
 
     def test_simplify_copies_real_history_without_placeholder_templates(self):
         with tempfile.TemporaryDirectory() as tmp:
