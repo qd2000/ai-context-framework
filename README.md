@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.51` 是当前推荐的真实项目正式使用稳定版本。该版本在 `v0.0.3.50` 稳定基线上加入 WS004 旧项目升级审计能力：`upgrade --plan --json` 可只读生成升级计划，区分结构补齐、语义债务和 Workstream lifecycle 债务；`log projects --scan-root <path> --json` 可从全局 usage log 盘点真实项目并过滤测试/临时日志。WS003 Workstream-first 上下文治理能力仍保持稳定：`status` / `next` 会在存在 Active-class Workstream 时推荐合适入口，`workstream guard` 支持文件集强验收，`workstream next-actions` / `preflight` 提供低风险下一步，`knowledge draft/apply/mark` 支持 v2 metadata 草案链路，`links graph/check/backlinks/sync-backlinks` 提供结构化链接和派生 backlink 视图，`draft status` 可列出待审阅草案。`upgrade` 仍应先 plan/dry-run，Workstream 仍保持显式启用。
+`v0.0.3.52` 是当前推荐的真实项目正式使用稳定版本。该版本在 `v0.0.3.51` 稳定基线上纳入 Workstream guard 文档契约和旧项目迁移修复：README、模板入口、System Manual、dogfooding 入口、Workstream 生成文案和 CLI next_actions 都明确推荐完成 / ready / done / 状态切换前使用 `workstream guard --files ... --json` 做文件集强验收；裸 `guard` / `--from-git` 只用于快速查看 git diff，旧式整工作区排他检查需显式使用 `--workspace --strict-workspace`。`upgrade` 会为旧 `System_Manual.md` 补齐 guard 模式说明；高度自定义手册仍通过 `ACF:UPGRADE:NOTES` marker 非破坏式提示。WS004 旧项目升级审计能力仍保持稳定：`upgrade --plan --json` 可只读生成升级计划，`log projects --scan-root <path> --json` 可从全局 usage log 盘点真实项目。
 
 WS003 以后，ACF 的 AI 入口采用 Workstream-first when active：当存在 Active / Blocked / ReadyToMerge / Merging Workstream 时，agent 应优先查看 Workstreams 索引和对应 context packet；`Task_Plan` 可以为空但项目仍有当前执行线。`reference/` 是项目内中间材料层，Knowledge 是有来源、证据和适用边界的高可信精炼层。
 
