@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from ai_context_framework.constants import EXIT_CHECK_FAILED
+from ai_context_framework.context_budget import context_budget_warnings
 from ai_context_framework.front_matter import parse_front_matter
 from ai_context_framework.json_contract import (
     check_error_code,
@@ -240,6 +241,7 @@ def check_command(args: argparse.Namespace, *, check_context: CheckContext) -> i
     root = resolve_context_root(args.path)
     profile = args.profile or infer_context_profile(root)
     result = check_context(root, profile, args.strict)
+    context_warnings = context_budget_warnings(root, workstream_entry_payload(root))
     payload: dict[str, object] = {
         "command": "check",
         "context": str(root),
@@ -249,6 +251,7 @@ def check_command(args: argparse.Namespace, *, check_context: CheckContext) -> i
         "ok": result.ok,
         "error_code": check_error_code(result),
         "next_actions": check_next_actions(result, args.strict),
+        "context_warnings": context_warnings,
     }
     if not result.ok:
         payload["message"] = f"check failed: {len(result.errors)} error(s), {len(result.warnings)} warning(s)"
@@ -261,6 +264,8 @@ def check_command(args: argparse.Namespace, *, check_context: CheckContext) -> i
         print(f"ERROR: {error}", file=sys.stderr)
     for warning in result.warnings:
         print(f"WARN: {warning}", file=sys.stderr)
+    for warning in context_warnings:
+        print("WARN: " + str(warning.get("message", warning)), file=sys.stderr)
     if result.ok:
         print(f"check passed: {root}")
         return 0
@@ -279,6 +284,8 @@ def status_command(
     task_path = location.context_root / "active" / "Current_Task.md"
     task_status = extract_current_task_status(task_path) if task_path.exists() else None
     result = check_context(location.context_root, profile, args.strict)
+    routing = workstream_entry_payload(location.context_root)
+    context_warnings = context_budget_warnings(location.context_root, routing)
     payload: dict[str, object] = {
         "command": "status",
         "project_root": str(location.project_root),
@@ -291,7 +298,8 @@ def status_command(
         "error_code": check_error_code(result),
         "next_actions": check_next_actions(result, args.strict),
         "changed_files": [],
-        **workstream_entry_payload(location.context_root),
+        "context_warnings": context_warnings,
+        **routing,
     }
     if not result.ok:
         payload["message"] = f"check failed: {len(result.errors)} error(s), {len(result.warnings)} warning(s)"
@@ -313,5 +321,7 @@ def status_command(
         print(f"warnings: {len(result.warnings)}")
         for warning in result.warnings:
             print(f"WARN: {warning}")
+    for warning in context_warnings:
+        print("WARN: " + str(warning.get("message", warning)))
 
     return 0 if result.ok else 1

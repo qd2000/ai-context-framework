@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from ai_context_framework.constants import JSON_SCHEMA_VERSION
+from ai_context_framework.context_budget import context_budget_warnings
 from ai_context_framework.commands.status_check import workstream_entry_payload
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
 from ai_context_framework.paths import require_context_root, resolve_status_location
@@ -16,6 +17,9 @@ def emit_query(args: argparse.Namespace, payload: dict[str, object]) -> int:
     if json_enabled(args):
         print_json(payload)
     else:
+        for warning in payload.get("context_warnings", []):
+            if isinstance(warning, dict):
+                print("WARN: " + str(warning.get("message", warning)))
         print(payload.get("recommended_entry") or payload.get("command"))
     return 0
 
@@ -23,6 +27,7 @@ def emit_query(args: argparse.Namespace, payload: dict[str, object]) -> int:
 def next_command(args: argparse.Namespace) -> int:
     location = resolve_status_location(args.path)
     entry = workstream_entry_payload(location.context_root)
+    context_warnings = context_budget_warnings(location.context_root, entry)
     payload = {
         "schema_version": JSON_SCHEMA_VERSION,
         "ok": True,
@@ -31,6 +36,7 @@ def next_command(args: argparse.Namespace) -> int:
         "changed_files": [],
         "error_code": None,
         "warnings": [],
+        "context_warnings": context_warnings,
         "next_actions": [],
         **entry,
     }

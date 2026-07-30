@@ -410,6 +410,59 @@ class Ws003AcceptanceTests(unittest.TestCase):
             self.assertEqual(payload["workstream_state"], "Focused")
             self.assertEqual(payload["recommended_entry"]["workstream_id"], "WS101")
 
+    def test_context_budget_warnings_are_non_blocking_and_route_scoped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_standard_context(tmp)
+            self.add_active_workstream(target, "WS101")
+            self.add_active_workstream(target, "WS102")
+            self.assert_cli_json_ok(
+                ["workstream", "set", "WS101", str(target), "--attention", "Now", "--json"]
+            )
+            context_path = target / "active" / "Context.md"
+            context_path.write_text("\n".join(["context line"] * 241) + "\n", encoding="utf-8")
+            task_path = target / "active" / "Current_Task.md"
+            task_path.write_text(
+                "## 当前任务状态\n\nActive\n\n"
+                + "\n".join(["task line"] * 158)
+                + "\n",
+                encoding="utf-8",
+            )
+            selected = target / "active" / "workstreams" / "WS101.md"
+            selected.write_text(
+                selected.read_text(encoding="utf-8")
+                + "\n## Activity Log\n"
+                + "\n".join(["- activity"] * 121)
+                + "\n"
+                + "\n".join(["- detail"] * 261)
+                + "\n",
+                encoding="utf-8",
+            )
+            unselected = target / "active" / "workstreams" / "WS102.md"
+            unselected.write_text(
+                unselected.read_text(encoding="utf-8")
+                + "\n"
+                + "\n".join(["- unselected"] * 500)
+                + "\n",
+                encoding="utf-8",
+            )
+
+            next_payload = self.assert_cli_json_ok(["next", str(target), "--json"])
+            warning_kinds = {item["kind"] for item in next_payload["context_warnings"]}
+            self.assertEqual(next_payload["workstream_state"], "AttentionNow")
+            self.assertIn("context", warning_kinds)
+            self.assertIn("current_task", warning_kinds)
+            self.assertIn("selected_workstream", warning_kinds)
+            self.assertIn("selected_activity_log", warning_kinds)
+            self.assertFalse(any(item["path"].endswith("WS102.md") for item in next_payload["context_warnings"]))
+
+            status_payload = self.assert_cli_json_ok(["status", str(target), "--strict", "--json"])
+            self.assertTrue(status_payload["ok"])
+            self.assertEqual(len(status_payload["context_warnings"]), len(next_payload["context_warnings"]))
+
+            check_payload = self.assert_cli_json_ok(["check", str(target), "--strict", "--json"])
+            self.assertTrue(check_payload["ok"])
+            self.assertEqual(len(check_payload["context_warnings"]), len(next_payload["context_warnings"]))
+
     def test_inactive_current_task_link_does_not_focus_next_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = self.init_standard_context(tmp)
