@@ -345,3 +345,41 @@ class Ws003AcceptanceTests(unittest.TestCase):
             draft_status = self.assert_cli_json_ok(["draft", "status", str(target), "--json"])
             self.assertEqual(draft_status["changed_files"], [])
             self.assertIn("drafts", draft_status)
+
+    def test_current_task_workstream_link_focuses_next_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_standard_context(tmp)
+            self.add_active_workstream(target, "WS101")
+            self.add_active_workstream(target, "WS102")
+            task_path = target / "active" / "Current_Task.md"
+            task_text = task_path.read_text(encoding="utf-8").rstrip()
+            task_text = "## \u5f53\u524d\u4efb\u52a1\u72b6\u6001\n\nActive"
+            task_path.write_text(
+                task_text + "\n\n## Now\n\n- Workstream / \u5b50\u4efb\u52a1\uff1a" + chr(96) + "WS101" + chr(96) + " / T009\n",
+                encoding="utf-8",
+            )
+
+            payload = self.assert_cli_json_ok(["next", str(target), "--json"])
+            self.assertEqual(payload["workstream_state"], "Focused")
+            self.assertEqual(payload["current_task_workstreams"], ["WS101"])
+            self.assertEqual(payload["recommended_entry"]["workstream_id"], "WS101")
+            self.assertEqual(len(payload["candidate_entries"]), 1)
+
+    def test_inactive_current_task_link_does_not_focus_next_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_standard_context(tmp)
+            self.add_active_workstream(target, "WS101")
+            self.add_active_workstream(target, "WS102")
+            (target / "active" / "Current_Task.md").write_text(
+                "## \u5f53\u524d\u4efb\u52a1\u72b6\u6001\n\nEmpty\n\n## Now\n\n- Workstream / \u5b50\u4efb\u52a1\uff1a"
+                + chr(96)
+                + "WS101"
+                + chr(96)
+                + " / T009\n",
+                encoding="utf-8",
+            )
+
+            payload = self.assert_cli_json_ok(["next", str(target), "--json"])
+            self.assertEqual(payload["workstream_state"], "Ambiguous")
+            self.assertEqual(payload["current_task_workstreams"], [])
+            self.assertEqual(len(payload["candidate_entries"]), 2)

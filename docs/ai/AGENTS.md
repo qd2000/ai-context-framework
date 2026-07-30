@@ -101,7 +101,7 @@ Knowledge 是可复用经验层，不是当前事实源；human 是人工异步�
 
 ## Workstream-first when active
 
-- Workstream-first 表示有 Active / Blocked / ReadyToMerge / Merging Workstream 时，当前执行入口优先从 `active/Workstreams.md` 和 `acf workstream context WSxxx` 进入。
+- Workstream-first 表示有 Active / Blocked / ReadyToMerge / Merging Workstream 时，当前执行入口优先从 `active/Workstreams.md` 和 `acf workstream context WSxxx` 进入。若 Active 的 Current_Task 明确关联一个 Workstream，acf next 优先聚焦该 Workstream；未明确关联时再按全局 active-class 状态选择单个入口或 dashboard。
 - `Task_Plan.md 为 Empty` 不表示项目没有任务；若存在 Active Workstream，应以 Workstream 详情作为该执行线的核心上下文。
 - `reference/ 是中间材料层`，可放规划、背景、分析和阶段性方案，但不自动等同当前事实。
 - `Knowledge 是高可信` 精炼层，必须有来源、证据和适用边界；按场景读取，不默认全量读取。
