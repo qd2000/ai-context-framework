@@ -326,6 +326,7 @@ def workstream_front_matter_schema() -> FrontMatterSchema:
         enum_fields={
             "type": VALID_WORKSTREAM_TYPES,
             "status": VALID_WORKSTREAM_STATUSES,
+            "attention": VALID_WORKSTREAM_ATTENTION,
             "coordination": {"parallel", "serial"},
             "merge_resolution": VALID_MERGE_RESOLUTIONS,
         },
@@ -581,6 +582,7 @@ def render_workstream_detail(
     output: str,
     goal: str = "待补充。",
     workstream_kind: str = "Task",
+    attention: str | None = None,
 ) -> str:
     metadata: dict[str, str | list[str]] = {
         "id": workstream_id,
@@ -592,6 +594,8 @@ def render_workstream_detail(
         "read_scope": list(read_scope),
         "write_scope": list(write_scope),
     }
+    if attention is not None:
+        metadata["attention"] = attention
     body = f"""# {workstream_id} - {title}
 
 ## 边界说明
@@ -788,9 +792,9 @@ def update_workstream_status(
     detail = read_workstream_detail(root, workstream_id)
     current_status = workstream_detail_metadata_value(detail, "status", "")
     allowed = WORKSTREAM_STATE_TRANSITIONS.get(current_status, set())
-    if status == current_status:
+    if status == current_status and not section_updates and not metadata_updates:
         return []
-    if status not in allowed:
+    if status != current_status and status not in allowed:
         raise SystemExit(f"workstream_invalid_transition: {workstream_id} {current_status} -> {status}")
 
     metadata = dict(detail.metadata)

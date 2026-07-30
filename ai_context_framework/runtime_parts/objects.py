@@ -162,7 +162,10 @@ def render_current_task(
     constraints: Sequence[str],
     non_goals: Sequence[str],
     questions: Sequence[str],
+    workstreams: Sequence[str] = (),
 ) -> str:
+    workstream_text = bullet_list([f"`{item}`" for item in workstreams]) if workstreams else "无。"
+
     return f"""本文件记录当前正在处理的具体任务。
 
 - 长期目标请查看：`reference/Project_Brief.md`
@@ -204,9 +207,15 @@ def render_current_task(
 
 ---
 
+## 所属 Workstream
+
+{workstream_text}
+
+---
+
 ## 当前执行线
 
-无。
+{workstream_text}
 
 ---
 

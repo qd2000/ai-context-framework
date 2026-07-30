@@ -25,6 +25,7 @@ from ai_context_framework.validators.checks import WORKSTREAM_ID_TOKEN_RE
 CheckContext = Callable[[Path, str, bool], CheckResult]
 ExtractCurrentTaskStatus = Callable[[Path], str | None]
 ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge", "Merging"}
+ATTENTION_STATES = ("Now", "Next", "Waiting", "Retained")
 
 
 def workstream_summaries(root: Path) -> list[dict[str, object]]:
@@ -46,6 +47,7 @@ def workstream_summaries(root: Path) -> list[dict[str, object]]:
                 "detail": path.relative_to(root).as_posix(),
                 "current_stage": metadata.get("current_stage") if isinstance(metadata.get("current_stage"), str) else None,
                 "type": str(metadata.get("type") or "Task"),
+                "attention": str(metadata.get("attention") or "Unspecified"),
             }
         )
     return summaries
@@ -87,8 +89,7 @@ def current_task_workstream_ids(root: Path) -> list[str]:
     ordered: list[str] = []
     seen: set[str] = set()
     for heading in ("## \u5f53\u524d\u6267\u884c\u7ebf", "## Workstream", "## \u6240\u5c5e Workstream", "## \u5f53\u524d Workstream"):
-        value = _heading_value(lines, heading)
-        if value:
+        for value in _section_lines(lines, heading):
             _add_workstream_ids(value, ordered, seen)
     for line in _section_lines(lines, "## Now"):
         if "workstream" in line.casefold():
@@ -106,14 +107,40 @@ def workstream_entry_payload(root: Path) -> dict[str, object]:
     terminal = [item for item in summaries if item["status"] in {"Done", "Cancelled"}]
     current_task_workstreams = current_task_workstream_ids(root)
     current_task_ids = set(current_task_workstreams)
+    by_id = {str(item["id"]): item for item in summaries}
     focused = [item for item in active_class if str(item["id"]) in current_task_ids]
-    state = "NotInitialized" if not (root / "active" / "Workstreams.md").exists() else ("ActiveClassPresent" if active_class else "Inactive")
-    recommended: dict[str, object] = {"kind": "none", "priority": 1, "reason": "no active Workstream"}
+    unresolved = [item for item in current_task_workstreams if item not in by_id]
+    inactive_links = [
+        item for item in current_task_workstreams
+        if item in by_id and by_id[item]["status"] not in ACTIVE_WORKSTREAM_STATUSES
+    ]
+    attention_summary = {
+        state: sum(1 for item in summaries if item.get("attention") == state)
+        for state in ATTENTION_STATES
+    }
+    attention_now = [item for item in active_class if item.get("attention") == "Now"]
+    attention_next = [item for item in active_class if item.get("attention") == "Next"]
+    legacy_active = [item for item in active_class if item.get("attention") == "Unspecified"]
+    explicit_attention_exists = any(
+        item.get("attention") in ATTENTION_STATES for item in active_class
+    )
+    state = "NotInitialized" if not (root / "active" / "Workstreams.md").exists() else (
+        "ActiveClassPresent" if active_class else "Inactive"
+    )
+    recommended: dict[str, object] = {
+        "kind": "none",
+        "priority": 1,
+        "reason": "no active Workstream",
+    }
     candidates: list[dict[str, object]] = []
 
     def make_entry(item: dict[str, object], reason: str, priority: int) -> dict[str, object]:
         kind = "workstream_context" if item["status"] == "Active" else "workstream_next_actions"
-        command = f"acf workstream context {item['id']} {root} --json" if kind == "workstream_context" else f"acf workstream next-actions {item['id']} {root} --json"
+        command = (
+            f"acf workstream context {item['id']} {root} --json"
+            if kind == "workstream_context"
+            else f"acf workstream next-actions {item['id']} {root} --json"
+        )
         return {
             "kind": kind,
             "command": command,
@@ -121,57 +148,89 @@ def workstream_entry_payload(root: Path) -> dict[str, object]:
             "priority": priority,
             "workstream_id": item["id"],
             "status": item["status"],
+            "attention": item.get("attention", "Unspecified"),
             "detail": item["detail"],
+        }
+
+    def dashboard(reason: str) -> dict[str, object]:
+        return {
+            "kind": "workstream_dashboard",
+            "command": f"acf workstream dashboard {root} --json",
+            "reason": reason,
+            "priority": 1,
         }
 
     if len(focused) == 1:
         state = "Focused"
-        recommended = make_entry(focused[0], f"Current_Task links to {focused[0]['status']} Workstream", 1)
+        recommended = make_entry(
+            focused[0], f"Current_Task links to {focused[0]['status']} Workstream", 1
+        )
         candidates = [recommended]
     elif len(focused) > 1:
         state = "Ambiguous"
-        recommended = {
-            "kind": "workstream_dashboard",
-            "command": f"acf workstream dashboard {root} --json",
-            "reason": "Current_Task links multiple active-class Workstreams",
-            "priority": 1,
-        }
+        recommended = dashboard("Current_Task links multiple active-class WorkStreams")
         candidates = [
             make_entry(item, f"Current_Task links to {item['status']} Workstream", index + 1)
             for index, item in enumerate(focused)
         ]
     elif current_task_workstreams:
         state = "CurrentTaskLinkUnresolved"
-        recommended = {
-            "kind": "workstream_dashboard",
-            "command": f"acf workstream dashboard {root} --json",
-            "reason": "Current_Task Workstream link is not active-class",
-            "priority": 1,
-        }
-    elif len(active_class) == 1:
-        item = active_class[0]
-        recommended = make_entry(item, f"single {item['status']} Workstream", 1)
+        recommended = dashboard(
+            "Current_Task Workstream link is missing, inactive, or unresolved"
+        )
+    elif len(attention_now) == 1:
+        state = "AttentionNow"
+        recommended = make_entry(attention_now[0], "Workstream attention is Now", 1)
         candidates = [recommended]
-    elif len(active_class) > 1:
+    elif len(attention_now) > 1:
         state = "Ambiguous"
-        recommended = {
-            "kind": "workstream_dashboard",
-            "command": f"acf workstream dashboard {root} --json",
-            "reason": "multiple active-class Workstreams",
-            "priority": 1,
-        }
+        recommended = dashboard("multiple active-class WorkStreams have attention Now")
         candidates = [
-            make_entry(item, f"{item['status']} Workstream", index + 1)
-            for index, item in enumerate(active_class)
+            make_entry(item, "Workstream attention is Now", index + 1)
+            for index, item in enumerate(attention_now)
         ]
+    elif len(attention_next) == 1:
+        state = "AttentionNext"
+        recommended = make_entry(attention_next[0], "Workstream attention is Next", 1)
+        candidates = [recommended]
+    elif len(attention_next) > 1:
+        state = "Ambiguous"
+        recommended = dashboard("multiple active-class WorkStreams have attention Next")
+        candidates = [
+            make_entry(item, "Workstream attention is Next", index + 1)
+            for index, item in enumerate(attention_next)
+        ]
+    elif len(legacy_active) == 1:
+        item = legacy_active[0]
+        recommended = make_entry(
+            item, f"single legacy {item['status']} Workstream without attention state", 1
+        )
+        candidates = [recommended]
+    elif len(legacy_active) > 1:
+        state = "Ambiguous"
+        recommended = dashboard(
+            "multiple legacy active-class WorkStreams without attention state"
+        )
+        candidates = [
+            make_entry(item, f"legacy {item['status']} WorkStream", index + 1)
+            for index, item in enumerate(legacy_active)
+        ]
+    elif explicit_attention_exists:
+        state = "AttentionDeferred"
+        recommended = dashboard("all active-class WorkStreams are Waiting or Retained")
+
     return {
         "workstream_state": state,
         "current_task_workstreams": current_task_workstreams,
+        "unresolved_current_task_workstreams": unresolved,
+        "inactive_current_task_workstreams": inactive_links,
         "active_workstreams": active,
         "ready_to_merge": ready,
         "blocked_workstreams": blocked,
         "merging_workstreams": merging,
         "terminal_retained_workstreams": terminal,
+        "attention_summary": attention_summary,
+        "attention_candidates": [item["id"] for item in (*attention_now, *attention_next)],
         "recommended_entry": recommended,
         "candidate_entries": candidates,
     }

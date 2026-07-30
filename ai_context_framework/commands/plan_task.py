@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -475,7 +476,32 @@ def task_start_command(args: argparse.Namespace, *, deps: PlanTaskDependencies) 
     blocked = deps.blocked_dependency_ids(row, rows)
     if blocked and not args.force and not dry_run:
         raise SystemExit(f"task {args.id} has unfinished dependencies; use --force to start anyway: {', '.join(blocked)}")
-    fields = deps.build_task_start_fields(plan_path, row, rows, bool(blocked and args.force))
+    requested_workstreams: list[str] = []
+    for value in args.workstream or []:
+        workstream_id = value.strip().upper()
+        if not workstream_id:
+            continue
+        if not re.fullmatch(r"WS\d{3}", workstream_id):
+            raise SystemExit(f"workstream_invalid_id: {workstream_id}")
+        if not (root / "active" / "workstreams" / f"{workstream_id}.md").exists():
+            raise SystemExit(f"workstream_not_found: {workstream_id}")
+        if workstream_id not in requested_workstreams:
+            requested_workstreams.append(workstream_id)
+    stage_workstreams: list[str] = []
+    if not requested_workstreams:
+        for stage in deps.read_task_stage_rows(plan_path):
+            if stage.get("父任务") != args.id or stage.get("状态") in {"Done", "Skipped", "Superseded"}:
+                continue
+            for workstream_id in re.findall(r"WS\d{3}", stage.get("归属 Workstream", ""), re.IGNORECASE):
+                if workstream_id not in stage_workstreams:
+                    stage_workstreams.append(workstream_id)
+    if len(stage_workstreams) > 1 and not requested_workstreams:
+        raise SystemExit(
+            "workstream_ambiguous: task has multiple active Workstream owners; "
+            "pass --workstream explicitly"
+        )
+    workstreams = requested_workstreams or stage_workstreams
+    fields = deps.build_task_start_fields(plan_path, row, rows, bool(blocked and args.force), workstreams)
     for candidate in rows:
         if candidate.get("状态") == "Active" and candidate.get("ID") != args.id:
             candidate["状态"] = "Pending"
@@ -497,6 +523,7 @@ def task_start_command(args: argparse.Namespace, *, deps: PlanTaskDependencies) 
             "task_id": fields["task_id"],
             "generated_title": fields["generated_title"],
             "blocked_dependencies": fields["blocked_dependencies"],
+            "workstreams": fields.get("workstreams", []),
         },
         warnings=fields["warnings"] if isinstance(fields["warnings"], list) else [],
     )

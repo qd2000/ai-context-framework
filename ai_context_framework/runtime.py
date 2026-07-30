@@ -307,6 +307,7 @@ VALID_HUMAN_NOTE_STATUSES = {"Open", "Triaged", "Done", "Rejected"}
 VALID_HUMAN_INDEX_STATUSES = {"Open", "Reviewed", "Extracted", "Archived"}
 VALID_WORKSTREAM_STATUSES = {"Proposed", "Open", "Active", "Blocked", "ReadyToMerge", "Merging", "Done", "Cancelled"}
 VALID_WORKSTREAM_TYPES = {"Task", "Merge", "Maintenance"}
+VALID_WORKSTREAM_ATTENTION = {"Now", "Next", "Waiting", "Retained"}
 VALID_WORKSTREAM_STAGE_STATUSES = {"Pending", "Active", "Blocked", "Done", "Skipped", "Cancelled"}
 VALID_MERGE_RESOLUTIONS = {"merged", "rejected", "no_merge_required", "archived"}
 ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge", "Merging"}
@@ -361,6 +362,7 @@ WORKSTREAM_METADATA_FIELDS = (
     "id",
     "type",
     "status",
+    "attention",
     "owner",
     "title",
     "current_stage",
@@ -897,6 +899,7 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_add_parser.add_argument("--write-scope", action="append", default=None, help="typed write scope, for example `assigned: active/Current_Task.md`; can be repeated")
     workstream_add_parser.add_argument("--output", default="待补充。", help="expected output summary")
     workstream_add_parser.add_argument("--goal", default=None, help="goal text written to the Workstream detail")
+    workstream_add_parser.add_argument("--attention", choices=tuple(sorted(VALID_WORKSTREAM_ATTENTION)), default=None, help="attention state: Now, Next, Waiting, or Retained")
     add_write_arguments(workstream_add_parser)
     workstream_add_parser.set_defaults(func=workstream_add_command)
 
@@ -905,6 +908,7 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_set_parser.add_argument("path", nargs="?", type=Path)
     workstream_set_parser.add_argument("--status", choices=tuple(sorted(VALID_WORKSTREAM_STATUSES)), default=None)
     workstream_set_parser.add_argument("--goal", default=None, help="replace the Workstream goal section")
+    workstream_set_parser.add_argument("--attention", choices=tuple(sorted(VALID_WORKSTREAM_ATTENTION)), default=None, help="attention state: Now, Next, Waiting, or Retained")
     add_write_arguments(workstream_set_parser)
     workstream_set_parser.set_defaults(func=workstream_set_command)
 
@@ -1134,6 +1138,7 @@ def build_parser() -> argparse.ArgumentParser:
     task_start_parser.add_argument("path", nargs="?", type=Path)
     task_start_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
     task_start_parser.add_argument("--force", action="store_true", help="replace an Active current task")
+    task_start_parser.add_argument("--workstream", action="append", default=None, help="override owning Workstream id; can be repeated")
     add_write_arguments(task_start_parser)
     task_start_parser.set_defaults(func=task_start_command)
 
@@ -1394,6 +1399,7 @@ def build_parser() -> argparse.ArgumentParser:
     task_parser.add_argument("--title", required=True, help="task title")
     task_parser.add_argument("--plan", default="无。", help="parent task plan title or path")
     task_parser.add_argument("--task-id", default="无。", help="subtask id in active/Task_Plan.md")
+    task_parser.add_argument("--workstream", action="append", default=None, help="owning Workstream id; can be repeated")
     task_parser.add_argument("--goal", action="append", required=True, help="task goal; can be repeated")
     task_parser.add_argument("--background", default="", help="task background")
     task_parser.add_argument("--input", action="append", default=None, help="input material; can be repeated")

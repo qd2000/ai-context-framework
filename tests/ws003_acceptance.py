@@ -365,6 +365,51 @@ class Ws003AcceptanceTests(unittest.TestCase):
             self.assertEqual(payload["recommended_entry"]["workstream_id"], "WS101")
             self.assertEqual(len(payload["candidate_entries"]), 1)
 
+    def test_attention_state_routes_next_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_standard_context(tmp)
+            self.add_active_workstream(target, "WS101")
+            self.add_active_workstream(target, "WS102")
+            self.assert_cli_json_ok(
+                ["workstream", "set", "WS101", str(target), "--attention", "Waiting", "--json"]
+            )
+            self.assert_cli_json_ok(
+                ["workstream", "set", "WS102", str(target), "--attention", "Next", "--json"]
+            )
+            payload = self.assert_cli_json_ok(["next", str(target), "--json"])
+            self.assertEqual(payload["workstream_state"], "AttentionNext")
+            self.assertEqual(payload["recommended_entry"]["workstream_id"], "WS102")
+            self.assertEqual(payload["recommended_entry"]["attention"], "Next")
+            self.assertEqual(payload["attention_summary"]["Waiting"], 1)
+            self.assertEqual(payload["attention_summary"]["Next"], 1)
+
+    def test_new_task_writes_standard_workstream_link(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self.init_standard_context(tmp)
+            self.add_active_workstream(target, "WS101")
+            task = self.assert_cli_json_ok(
+                [
+                    "new",
+                    "task",
+                    str(target),
+                    "--force",
+                    "--title",
+                    "Linked task",
+                    "--goal",
+                    "Route through WS101",
+                    "--workstream",
+                    "WS101",
+                    "--json",
+                ]
+            )
+            self.assertEqual(task["changed_files"], [str(target / "active" / "Current_Task.md")])
+            text = (target / "active" / "Current_Task.md").read_text(encoding="utf-8")
+            self.assertIn("## 所属 Workstream", text)
+            self.assertIn("`WS101`", text)
+            payload = self.assert_cli_json_ok(["next", str(target), "--json"])
+            self.assertEqual(payload["workstream_state"], "Focused")
+            self.assertEqual(payload["recommended_entry"]["workstream_id"], "WS101")
+
     def test_inactive_current_task_link_does_not_focus_next_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = self.init_standard_context(tmp)
