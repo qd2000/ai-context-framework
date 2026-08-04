@@ -5,7 +5,9 @@ pyproject.toml
 ai_context_framework/__init__.py
 ai_context_framework/cli.py
 ai_context_framework/constants.py
+ai_context_framework/context_budget.py
 ai_context_framework/front_matter.py
+ai_context_framework/git_support.py
 ai_context_framework/json_contract.py
 ai_context_framework/locks.py
 ai_context_framework/markdown.py
@@ -17,6 +19,7 @@ ai_context_framework/runtime.py
 ai_context_framework/tables.py
 ai_context_framework/templates.py
 ai_context_framework/version.py
+ai_context_framework/worktree_service.py
 ai_context_framework.egg-info/PKG-INFO
 ai_context_framework.egg-info/SOURCES.txt
 ai_context_framework.egg-info/dependency_links.txt
@@ -42,6 +45,8 @@ ai_context_framework/commands/status_check.py
 ai_context_framework/commands/versioning.py
 ai_context_framework/commands/worklog.py
 ai_context_framework/commands/workstream.py
+ai_context_framework/commands/workstream_reserve.py
+ai_context_framework/commands/worktree.py
 ai_context_framework/domains/__init__.py
 ai_context_framework/domains/tasks.py
 ai_context_framework/domains/upgrade_audit.py
@@ -57,6 +62,8 @@ ai_context_framework/runtime_parts/upgrade.py
 ai_context_framework/validators/__init__.py
 ai_context_framework/validators/checks.py
 ai_context_framework/validators/template_checks.py
+docs/Worktree_Lifecycle.md
+scripts/worktree_release_smoke.py
 template/AGENTS.md
 template/active/Context.md
 template/active/Current_Task.md
@@ -100,3 +107,4 @@ tests/test_log_inventory.py
 tests/test_package_skeleton.py
 tests/test_upgrade_audit.py
 tests/test_upgrade_matrix.py
+tests/test_worktree_cli.py

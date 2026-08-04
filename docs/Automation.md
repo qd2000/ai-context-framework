@@ -30,9 +30,11 @@
 - `edit section get|replace|append`：读取、替换或追加上下文根目录内 Markdown 文件的指定 section body。
 - `edit table upsert`：按 key column 更新或追加上下文根目录内 Markdown 表格行。
 - `doctor`：面向人和 AI 的健康诊断入口，复用 `check` 并报告跨文件生命周期漂移、终态 Workstream authority scope 残留、generated index 漂移、attention hygiene 和本地数据副本证据信号；`--fix safe` 只执行确定性低风险修复，`--report` 和 `--draft-semantic` 生成可审阅产物，`--projects` 支持多项目只读诊断。
+- `workstream reserve`：在 primary branch 上通过预约锁、跨 active/archive/Git/journal 编号扫描和精确 staged-file 校验，创建唯一 WS 占位提交；它不创建 branch/worktree，原 `workstream add` 不加载 Git 生命周期。
+- `worktree create|attach|verify|list|audit|sync|merge-plan|merge|close|resume`：供 AI 选择调用的可选 Git 生命周期。实现位于独立 Git adapter/service/command 模块，使用 common-dir journal、registry 和锁；临时真实 Git 仓库测试覆盖幂等创建、错误仓库、detached、冲突预演、检查失败、部分恢复和安全关闭。
 - 使用状态日志：`log enable|disable|status|tail|summarize|projects|prune` 管理默认开启的用户级全局 usage event log，按项目子目录记录命令结果元数据；`log projects --scan-root <path> --json` 支撑跨项目 dogfooding 和旧项目升级盘点。
 - CLI 渐进式披露入口：模板和 minimal init 产物会在 AGENTS.md 中提示 `acf status --json`、`acf --help` 和系统手册发现路径，但不在默认入口列完整命令手册。
-- 最小 smoke runner：`scripts/minimal_smoke.py` 使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code`、Workstream 最小 happy path、archive-candidates / archive-draft / explicit archive 主路径和 Task Stage 最小 happy path；不覆盖真实项目批量评测或漂移样本诊断。
+- 最小 smoke runner：`scripts/minimal_smoke.py` 使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code`、Workstream 最小 happy path、archive-candidates / archive-draft / explicit archive 主路径和 Task Stage 最小 happy path；Git worktree 事务由 `tests/test_worktree_cli.py` 的临时真实仓库矩阵单独覆盖，不接触用户仓库。
 - 升级兼容 runner：`scripts/upgrade_matrix.py` 使用风险驱动 fixture 验证旧上下文可被非破坏式带到当前工具可治理状态；quick 模式随单元测试运行，full 模式用于 release 前扩展检查。
 - Context governance fixture matrix：`tests/fixtures/context_matrix/` 和 `tests/test_context_matrix.py` 覆盖 minimal clean、legacy reference、audit long section、complex Workstream、Workstream lifecycle/archive candidate 和 authority gate，作为 P3 audit rule expansion 前的防过拟合样本。
 

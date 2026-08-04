@@ -107,6 +107,22 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 
 Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点；`workstream stage add/list` 只维护详情文件阶段表，`workstream focus` 只切换详情文件内的 `current_stage` 和目标阶段 Active 状态，`workstream stage done` 要求 evidence，完成当前阶段时需要 `--clear-current`，不会自动激活下一阶段或更新全局 [../active/Current_Task.md](../active/Current_Task.md)。`merge_targets` 用于记录候选合并目标，不表示 Task Workstream 可以直接写 authority 文件。Workstream 类型为 Task / Merge / Maintenance：Task 只直接修改自己的 write_scope，Merge / Maintenance 才能在显式声明 `authority:` 时修改主线；Active 类 Workstream 默认禁止重叠 `owned:` 写入；`shared:` 必须指定 `merge_owner` 或 `coordination: serial`。执行前用 `acf workstream context WSxxx` 获取 AI 专属上下文入口，扩权用 `acf workstream scope-add WSxxx --reason ...` 留痕，完成、ready、done 或切换状态前用 `acf workstream guard WSxxx --files <本次修改文件...> --json` 做文件集强验收；裸 `guard` / `--from-git` 只适合快速查看当前 git diff，旧式整工作区排他检查需显式使用 `--workspace --strict-workspace`；日常总览用 `acf workstream dashboard`。`acf check` 会检查当前阶段已注册、属于本 Workstream、状态合法，strict 下检查 Done 阶段 evidence，检查 Workstreams 索引与详情 front matter 是否一致，并在 strict 下拒绝 Task authority 直接写入、Active 类写入冲突和 shared 缺 merge owner/serial coordination；ReadyToMerge / Done Workstream 声明 `merge_targets` 时必须有合并请求；ReadyToMerge 表示任务产物完成，`ready` 需要人工确认参数 `--human-approved`，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `merge_resolution`，仍留在 active 时需要 keep-active metadata。
 
+### Workstream 编号预约与可选 Git Worktree
+
+`acf workstream add` 保持纯上下文行为，不创建 Git branch/worktree。需要在 primary branch 先占用唯一编号时，AI 可调用：
+
+```powershell
+acf workstream reserve --title "任务" --slug task-slug --owner codex --apply --json
+```
+
+`reserve` 扫描 active/archive/index、Git refs、worktree registry 和 operation journal，在预约锁内重查编号，只提交 Workstream detail 与索引。创建 worktree 是后续可选动作：
+
+```powershell
+acf worktree create --workstream WS005 --apply --json
+```
+
+非 WS 隔离任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach` 用于发现和绑定，`sync` 默认把冻结 primary commit merge 到任务分支，`merge-plan|merge` 使用无冲突预演和 `--no-ff`，`close` 只删除已合并且 clean 的 worktree/branch。所有写操作默认 plan-only，显式 `--apply` 后执行；journal、registry 和锁保存在 Git common-dir 的 `acf/` 子目录。命令禁止 stash、reset、clean、rebase、force、push、目录覆盖和自动解决冲突。产品级说明见仓库 [docs/Worktree_Lifecycle.md](../../../docs/Worktree_Lifecycle.md)。
+
 ### Workstream guard 模式
 
 `acf workstream guard` 检查的是“变更文件是否符合当前 Workstream 的写入范围”，不是默认独占整个工作区。多个 agent 或多个 Workstream 在同一仓库并行时，完成、ready、done 或切换状态前，优先显式传入本次要验收的文件集：
