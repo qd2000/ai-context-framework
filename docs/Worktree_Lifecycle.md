@@ -12,6 +12,29 @@ ACF 的 Workstream 和 Git worktree 是两项独立能力：
 
 未配置或未调用 `acf worktree` 时，旧 ACF 项目不依赖 Git worktree 配置。
 
+## AI 推荐读取顺序
+
+AI 不需要一次读取全部实现细节。推荐按任务逐步披露：
+
+1. 先运行 `acf status --json`，确认上下文、当前任务和 Workstream 状态；
+2. 只需要登记任务时查看 `acf workstream reserve --help`；
+3. 只有决定使用隔离环境时再查看 `acf worktree create --help`；
+4. 日常只读检查使用 `acf worktree verify|list|audit --help`；
+5. 临近同步、合并或关闭时，再读取本文对应章节和目标子命令 `--help`。
+
+## AI 调用决策
+
+| 当前需求 | 推荐动作 | 是否创建 Workstream | 是否创建 worktree |
+|---|---|---:|---:|
+| 只登记、规划、审计或等待后续决策 | `acf workstream reserve ... --apply --json` | 是 | 否 |
+| 已有 WS，任务长期、并行、多提交或需独立合并 | `acf worktree create --workstream WSNNN --apply --json` | 已存在 | 是 |
+| 已有 WS，但任务可直接在现有执行位置完成 | 不调用 `acf worktree create` | 已存在 | 否 |
+| 短期 bugfix / investigation / docs / maintenance | `acf worktree create --kind <kind> --slug <slug> --apply --json` | 否 | 是 |
+| 已有标准 worktree 需要纳入 ACF | `acf worktree attach ... --apply --json` | 可选 | 绑定已有 |
+| 状态不确定或怀疑错误仓库 | 先运行 `acf worktree audit --json` 和 `verify` | 不改变 | 不改变 |
+
+创建 Workstream 本身永远不是创建 worktree 的充分条件。AI 必须基于任务持续时间、并行性、提交隔离、测试与合并需求单独作出 worktree 决策。
+
 ## Workstream 编号预约
 
 `acf workstream reserve` 是 `workstream add` 之上的可选高层入口：

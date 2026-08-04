@@ -1,3 +1,4 @@
+CHANGELOG.md
 MANIFEST.in
 README.md
 acf.py

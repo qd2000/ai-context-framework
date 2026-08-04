@@ -1,3 +1,4 @@
+include CHANGELOG.md
 recursive-include template *
 include docs/Worktree_Lifecycle.md
 include scripts/worktree_release_smoke.py

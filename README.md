@@ -6,6 +6,10 @@
 
 `v0.0.3.54` 是当前推荐的真实项目正式使用稳定版本。该版本新增可选、供 AI 调用的 Workstream 编号预约与 Git worktree 全生命周期：`workstream reserve` 在 primary branch 上通过锁、跨 active/archive/Git/journal 编号扫描和精确 staged-file 校验预约唯一 WS，但不创建 branch/worktree；`worktree create|attach|verify|list|audit|sync|merge-plan|merge|close|resume` 提供标准命名、错误仓库门禁、幂等恢复、冻结 commit、冲突预演、no-ff 合并和安全关闭。原 `workstream add` 与不创建 worktree 的项目逻辑保持不变；所有 Git 写操作默认 plan-only，显式 `--apply` 后执行，禁止 stash/reset/clean/rebase/force/push 和自动解决冲突。`v0.0.3.53` 的 Workstream guard、旧项目升级审计与注意力路由能力继续保持兼容。
 
+- 版本变化：[CHANGELOG.md](CHANGELOG.md)
+- Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
+- 详细 CLI 参数：`acf --help`、`acf workstream reserve --help`、`acf worktree --help`
+
 WS003 以后，ACF 的 AI 入口采用 Workstream-first when active：当存在 Active / Blocked / ReadyToMerge / Merging Workstream 时，agent 应优先查看 Workstreams 索引和对应 context packet；`Task_Plan` 可以为空但项目仍有当前执行线。`reference/` 是项目内中间材料层，Knowledge 是有来源、证据和适用边界的高可信精炼层。若 `Current_Task` 状态为 Active 且明确关联一个 Workstream，`acf next` 优先聚焦该 Workstream；未明确关联时按 active-class 状态选择单个入口或 dashboard。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。

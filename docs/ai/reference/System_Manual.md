@@ -121,7 +121,7 @@ acf workstream reserve --title "任务" --slug task-slug --owner codex --apply -
 acf worktree create --workstream WS005 --apply --json
 ```
 
-非 WS 隔离任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach` 用于发现和绑定，`sync` 默认把冻结 primary commit merge 到任务分支，`merge-plan|merge` 使用无冲突预演和 `--no-ff`，`close` 只删除已合并且 clean 的 worktree/branch。所有写操作默认 plan-only，显式 `--apply` 后执行；journal、registry 和锁保存在 Git common-dir 的 `acf/` 子目录。命令禁止 stash、reset、clean、rebase、force、push、目录覆盖和自动解决冲突。产品级说明见仓库 [docs/Worktree_Lifecycle.md](../../../docs/Worktree_Lifecycle.md)。
+非 WS 隔离任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach` 用于发现和绑定，`sync` 默认把冻结 primary commit merge 到任务分支，`merge-plan|merge` 使用无冲突预演和 `--no-ff`，`close` 只删除已合并且 clean 的 worktree/branch。所有写操作默认 plan-only，显式 `--apply` 后执行；journal、registry 和锁保存在 Git common-dir 的 `acf/` 子目录。命令禁止 stash、reset、clean、rebase、force、push、目录覆盖和自动解决冲突。产品级教程与 AI 决策表见 [docs/Worktree_Lifecycle.md](../../../docs/Worktree_Lifecycle.md)，版本变化见 [CHANGELOG.md](../../../CHANGELOG.md)。
 
 ### Workstream guard 模式
 

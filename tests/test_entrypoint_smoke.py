@@ -38,6 +38,26 @@ class EntrypointSmokeTests(unittest.TestCase):
     def test_workstream_help_succeeds_from_acf_py(self):
         self.assert_help_success("workstream", "--help")
 
+    def test_workstream_reserve_help_succeeds_from_acf_py(self):
+        self.assert_help_success("workstream", "reserve", "--help")
+
+    def test_all_worktree_help_surfaces_succeed_from_acf_py(self):
+        self.assert_help_success("worktree", "--help")
+        for command in (
+            "create",
+            "attach",
+            "verify",
+            "list",
+            "audit",
+            "sync",
+            "merge-plan",
+            "merge",
+            "close",
+            "resume",
+        ):
+            with self.subTest(command=command):
+                self.assert_help_success("worktree", command, "--help")
+
     def test_package_cli_main_executes_help(self):
         stdout = StringIO()
         stderr = StringIO()
