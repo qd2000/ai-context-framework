@@ -11,3 +11,4 @@
 9. 不要重复推进已标记为 Rejected 的方案，除非用户明确要求。
 10. 如果用户当前消息与项目文件冲突，指出冲突并说明以哪个为准。
 11. 可以建议更新项目文件，但最终写入由用户决定。
+12. Workstream 与 Git worktree 相互独立：创建 Workstream 不隐式创建 branch/worktree；AI 只有在任务需要隔离环境时才调用 `acf worktree create`，未使用 worktree 的原任务逻辑不得受影响。
