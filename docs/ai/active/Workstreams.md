@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Active
+Inactive
 
-说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Active
 
 | ID    | 状态   | 标题                         | Owner   | 写入范围                                                                                                                                                                                                                                                                                                                                                                                                      | 依赖                  | 输出物                              | 详情                                                  |
 | ----- | ---- | -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------- | --------------------------------------------------- |
-| WS005 | ReadyToMerge | ACF Workstream与Git Worktree生命周期管理 | codex | owned: docs/ai/active/workstreams/WS005.md, shared: docs/ai/active/Workstreams.md, owned: ai_context_framework/**, owned: tests/**, shared: README.md, shared: docs/ai/**, shared: template/**, shared: pyproject.toml, shared: uv.lock, shared: MANIFEST.in, shared: docs/Worktree_Lifecycle.md, assigned: scripts/worktree_release_smoke.py, assigned: ai_context_framework.egg-info/**, shared: docs/Automation.md |  | 兼容的CLI、Git配置、状态机、operation journal、完整测试、文档和生产安装 | active/workstreams/WS005.md |
+| WS005 | Done | ACF Workstream与Git Worktree生命周期管理 | codex | owned: docs/ai/active/workstreams/WS005.md, shared: docs/ai/active/Workstreams.md, owned: ai_context_framework/**, owned: tests/**, shared: README.md, shared: docs/ai/**, shared: template/**, shared: pyproject.toml, shared: uv.lock, shared: MANIFEST.in, shared: docs/Worktree_Lifecycle.md, assigned: scripts/worktree_release_smoke.py, assigned: ai_context_framework.egg-info/**, shared: docs/Automation.md |  | 兼容的CLI、Git配置、状态机、operation journal、完整测试、文档和生产安装 | active/workstreams/WS005.md |
 
 ---
 
