@@ -128,7 +128,17 @@ def error_next_actions(error_code: str) -> list[str]:
     if error_code == "workstream_schema_failed":
         return ["Fix the Workstream detail front matter, then rerun the command."]
     if error_code == "workstream_duplicate_id":
-        return ["Choose an unused Workstream ID."]
+        return ["Choose an unused Workstream ID or rerun `acf workstream reserve` without --id."]
+    if error_code == "workstream_not_reserved_on_primary":
+        return ["Reserve and commit the Workstream on the configured primary branch before creating a worktree."]
+    if error_code == "reservation_requires_primary_checkout":
+        return ["Run the reservation command against the configured primary checkout."]
+    if error_code == "workstream_reservation_stage_mismatch":
+        return ["Review the Git index; reservation commits only the Workstream detail and index row."]
+    if error_code == "workstream_reservation_fields_required":
+        return ["Provide --title, --slug, and --owner, or use --resume-operation for an interrupted reservation."]
+    if error_code == "workstream_reservation_conflict":
+        return ["Inspect the reservation journal and existing detail/index content; ACF will not overwrite conflicting files."]
     if error_code == "workstream_invalid_transition":
         return ["Review the Workstream state machine and use the next valid state."]
     if error_code == "workstream_reason_required":
@@ -219,6 +229,67 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Review the existing doctor report, rerun with a different --today date, or use --force to replace it."]
     if error_code == "doctor_draft_exists":
         return ["Review the existing doctor writeback draft, rerun with a different --today date, or use --force to replace it."]
+    if error_code in {
+        "git_command_failed",
+        "git_repository_not_found",
+        "git_ref_not_found",
+        "git_project_config_invalid",
+        "primary_branch_missing",
+        "primary_checkout_missing",
+        "git_common_dir_mismatch",
+        "primary_branch_mismatch",
+        "primary_branch_advanced",
+        "primary_checkout_dirty",
+    }:
+        return [
+            "Review the configured primary checkout, branch, and Git common-dir.",
+            "Rerun the read-only worktree plan or audit after correcting the repository state.",
+        ]
+    if error_code in {
+        "worktree_slug_invalid",
+        "invalid_low_information_slug",
+        "worktree_kind_invalid",
+        "worktree_slug_required",
+        "worktree_target_required",
+        "worktree_name_mismatch",
+    }:
+        return ["Use the configured naming policy and provide a descriptive lowercase slug."]
+    if error_code in {
+        "branch_already_checked_out",
+        "worktree_branch_mismatch",
+        "worktree_branch_conflict",
+        "workstream_already_bound",
+        "primary_branch_not_allowed_for_linked_worktree",
+    }:
+        return ["Inspect `acf worktree list --json`; do not force, move, or reuse the conflicting branch/worktree automatically."]
+    if error_code in {
+        "target_path_exists_not_worktree",
+        "orphan_target_path",
+        "worktree_not_registered",
+        "detached_worktree_not_supported",
+        "worktree_verification_failed",
+        "worktree_registry_invalid",
+    }:
+        return ["Run `acf worktree verify` or `acf worktree audit`; preserve the existing path and repair explicitly."]
+    if error_code in {
+        "worktree_operation_locked",
+        "worktree_lock_invalid",
+        "operation_not_found",
+        "operation_journal_invalid",
+        "operation_resume_unsupported",
+    }:
+        return ["Inspect the ACF operation journal and active lock; do not delete locks without confirming the recorded process is inactive."]
+    if error_code in {
+        "worktree_dirty",
+        "branch_not_merged",
+        "workstream_not_ready_to_merge",
+        "merge_conflicts_detected",
+        "worktree_branch_advanced",
+        "worktree_pre_merge_check_failed",
+        "worktree_post_merge_check_failed",
+        "worktree_check_argv_invalid",
+    }:
+        return ["Review the reported branch, status, merge preview, and checks; ACF will not stash, reset, clean, rebase, or resolve conflicts automatically."]
     if error_code == "input_error":
         return [
             "Check command arguments and paths.",
@@ -269,6 +340,53 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_archive_blocked",
         "workstream_archive_target_exists",
         "workstream_archive_duplicate_index",
+        "workstream_not_reserved_on_primary",
+        "reservation_requires_primary_checkout",
+        "workstream_reservation_stage_mismatch",
+        "workstream_reservation_fields_required",
+        "workstream_reservation_conflict",
+    )
+    git_worktree_codes = (
+        "git_command_failed",
+        "git_repository_not_found",
+        "git_ref_not_found",
+        "git_project_config_invalid",
+        "primary_branch_missing",
+        "primary_checkout_missing",
+        "git_common_dir_mismatch",
+        "primary_branch_mismatch",
+        "primary_branch_advanced",
+        "primary_checkout_dirty",
+        "worktree_slug_invalid",
+        "invalid_low_information_slug",
+        "worktree_kind_invalid",
+        "worktree_slug_required",
+        "worktree_target_required",
+        "worktree_name_mismatch",
+        "branch_already_checked_out",
+        "worktree_branch_mismatch",
+        "worktree_branch_conflict",
+        "workstream_already_bound",
+        "primary_branch_not_allowed_for_linked_worktree",
+        "target_path_exists_not_worktree",
+        "orphan_target_path",
+        "worktree_not_registered",
+        "detached_worktree_not_supported",
+        "worktree_verification_failed",
+        "worktree_registry_invalid",
+        "worktree_operation_locked",
+        "worktree_lock_invalid",
+        "operation_not_found",
+        "operation_journal_invalid",
+        "operation_resume_unsupported",
+        "worktree_dirty",
+        "branch_not_merged",
+        "workstream_not_ready_to_merge",
+        "merge_conflicts_detected",
+        "worktree_branch_advanced",
+        "worktree_pre_merge_check_failed",
+        "worktree_post_merge_check_failed",
+        "worktree_check_argv_invalid",
     )
     task_stage_codes = (
         "task_stage_duplicate_id",
@@ -295,8 +413,8 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "doctor_report_exists",
         "doctor_draft_exists",
     )
-    for code in (*workstream_codes, *task_stage_codes, *generated_marker_codes, *feedback_codes, *doctor_codes):
-        if message.startswith(f"{code}:"):
+    for code in (*workstream_codes, *git_worktree_codes, *task_stage_codes, *generated_marker_codes, *feedback_codes, *doctor_codes):
+        if message == code or message.startswith(f"{code}:"):
             return code, EXIT_INPUT_ERROR
     if message.startswith("curation_draft_exists:"):
         return "curation_draft_exists", EXIT_SAFETY_REFUSED

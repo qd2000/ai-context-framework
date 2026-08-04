@@ -9,6 +9,7 @@ import re
 import inspect
 
 from ai_context_framework.commands import workstream as workstream_commands
+from ai_context_framework.commands import workstream_reserve as workstream_reserve_commands
 
 def archive_index_path(root: Path) -> Path:
     return root / "archive" / "Archive_Index.md"
@@ -583,6 +584,8 @@ def render_workstream_detail(
     goal: str = "待补充。",
     workstream_kind: str = "Task",
     attention: str | None = None,
+    merge_owner: str | None = None,
+    coordination: str | None = None,
 ) -> str:
     metadata: dict[str, str | list[str]] = {
         "id": workstream_id,
@@ -596,6 +599,10 @@ def render_workstream_detail(
     }
     if attention is not None:
         metadata["attention"] = attention
+    if merge_owner is not None:
+        metadata["merge_owner"] = merge_owner
+    if coordination is not None:
+        metadata["coordination"] = coordination
     body = f"""# {workstream_id} - {title}
 
 ## 边界说明
@@ -902,6 +909,17 @@ def workstream_show_command(args: argparse.Namespace) -> int:
 
 def workstream_add_command(args: argparse.Namespace) -> int:
     return workstream_commands.workstream_add_command(args, deps=workstream_deps())
+
+
+def workstream_reserve_command(args: argparse.Namespace) -> int:
+    deps = workstream_deps()
+    workstream_commands._bind(deps)
+    symbols = dict(globals())
+    symbols.update(vars(workstream_commands))
+    return workstream_reserve_commands.workstream_reserve_command(
+        args,
+        deps=workstream_reserve_commands.WorkstreamReserveDependencies(symbols=symbols),
+    )
 
 
 def workstream_set_command(args: argparse.Namespace) -> int:
