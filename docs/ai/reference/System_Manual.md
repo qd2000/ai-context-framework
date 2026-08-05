@@ -10,7 +10,7 @@
 2. [active/Feedback_Inbox.md](../active/Feedback_Inbox.md)：人工临时反馈、问题、需求和计划碎片。
 3. [active/Task_Plan.md](../active/Task_Plan.md)：当前大任务计划、子任务板和 `## 规划依据`。
 4. [active/Current_Task.md](../active/Current_Task.md)：当前具体任务，`## 输入材料` 必须列出当前任务所需 active 文件和相关 reference 规划依据。
-5. [active/Workstreams.md](../active/Workstreams.md)：可选并行目标线索引，仅在显式启用且存在 Active、Blocked、ReadyToMerge 或 Merging workstream 时按需读取；执行具体 Workstream 前先运行 `acf workstream context WSxxx`。
+5. [active/Workstreams.md](../active/Workstreams.md)：全局并行目标线摘要。默认只读索引行，不读取任何 Workstream 详情；只有显式选择后才运行 `acf status --workstream WSxxx` 和 `acf workstream context WSxxx`。
 6. `human/`：人类给 AI 的理解、规划、疑问、解释、随笔、复盘和汇报材料，默认不读取，只有显式整理 human 内容或追溯人工判断时按需读取。
 7. `rules/`：默认和按需规则。
 8. `reference/`：长期背景、架构、技术环境、决策和 Knowledge 索引。
@@ -61,7 +61,9 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 
 ## 常用维护命令
 
-- `uv run acf status --json`
+- `uv run acf status --json`：默认返回 `GlobalOnly`，只披露全局文件指针和 Workstream 摘要。
+- `uv run acf status --workstream WS001 --json`：显式选择一个 Workstream，只返回 pointer-only 入口。
+- `uv run acf next --workstream WS001 --json`：显式选择后的低风险下一入口。
 - `uv run acf upgrade docs/ai --plan --json`
 - `uv run acf upgrade docs/ai --dry-run --json`
 - 通用升级形式：`acf upgrade [target]`
@@ -231,7 +233,7 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 5. 不为 curation 默认读取 archive 或全部历史日志；writeback draft 和 curation draft 不进入默认读取路径。
 6. 能引用权威位置时，不复制完整表述。
 
-Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging Workstream 时，agent 入口优先使用 Workstreams 索引和 `acf workstream context WSxxx`。`reference/ 是中间材料层`，Knowledge 高可信但不默认全量读取；ReadyToMerge 不表示权威事实已经合并，只表示有可审查输入。若 `Current_Task` 状态为 Active 且明确关联一个 Workstream，`acf next` 优先聚焦该 Workstream；未明确关联时按 active-class 状态选择单个入口或 dashboard。
+Global-first progressive disclosure：没有明确选择时，无论存在多少 Active / Blocked / ReadyToMerge / Merging Workstream，`acf status|next` 都保持 `GlobalOnly`，只披露全局文件指针和索引摘要；attention 只用于 dashboard 管理。显式 `--workstream`、Active Current_Task 唯一绑定或 verified worktree 可以选择单一 WS，但状态结果仍只给 pointer-only 入口，必须再调用 `acf workstream context WSxxx` 才披露专属 detail/read_scope，并继续按需读取 reference/output。选择来源冲突或指向不存在、非活动 WS 时返回 `SelectionConflict` / `SelectionInvalid`，保持全局上下文，不自动改选。`reference/` 是中间材料层，Knowledge 高可信但不默认全量读取；ReadyToMerge 不表示权威事实已经合并，只表示有可审查输入。
 
 ## 会话结束回写
 

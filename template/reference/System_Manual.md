@@ -20,7 +20,7 @@
 - `active/Feedback_Inbox.md`：人工临时反馈、问题、需求和计划碎片的入口，允许不规范描述，但不直接作为已确认事实。
 - `active/Task_Plan.md`：当前大任务计划和轻量子任务板，记录子任务、规划依据、可选任务阶段、证据和下一步。
 - `active/Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源；`当前执行线` 只记录正在执行的 Workstream，不记录历史依赖。
-- Workstreams 索引：可选并行目标线索引，仅在显式启用 Workstream 层且存在 Active、Blocked、ReadyToMerge 或 Merging workstream 时按需读取。
+- Workstreams 索引：全局并行目标线摘要。默认只读索引行，不读取任何 Workstream 详情；只有显式选择后才进入单一 WS。
 
 使用规则：
 
@@ -28,7 +28,7 @@
 2. 有 Open 条目或需要整理人工反馈时读取 `active/Feedback_Inbox.md`。
 3. 默认读取 `active/Task_Plan.md`，但该文件必须保持轻量；如果 `## 规划依据` 列出 reference 设计、路线或差距文档，应按任务需要读取这些依据。
 4. 如果 `active/Current_Task.md` 状态为 Active，则读取它；`## 输入材料` 必须列出当前任务所需 active 文件和相关 reference 规划依据。
-5. 如果存在 Active、Blocked、ReadyToMerge 或 Merging workstream，或当前任务需要整理并行协作，则读取 Workstreams 索引，再运行 `acf workstream context WSxxx` 读取对应详情文件和边界。
+5. Workstream 层存在时只读取 Workstreams 摘要。未显式选择 WS 时到此停止；用户或执行合同明确指定后，先运行 `acf status --workstream WSxxx` 获取 pointer-only 入口，再运行 `acf workstream context WSxxx` 读取对应详情和边界。
 6. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
 7. `active/` 中的信息应保持短、准、当前有效。
 8. 不要把历史过程、旧方案、原始日志写入 `active/`。
@@ -301,7 +301,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 3. curation draft 不进入默认读取路径。
 4. 若只处理当前任务，不读取历史日志。
 
-Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging Workstream 时，agent 入口优先使用 Workstreams 索引和 `acf workstream context WSxxx`。`reference/ 是中间材料层`，Knowledge 高可信但不默认全量读取。
+Global-first progressive disclosure：没有明确选择时，无论存在多少 Active / Blocked / ReadyToMerge / Merging Workstream，`acf status|next` 都保持 `GlobalOnly`，只披露全局文件指针和索引摘要；attention 只用于 dashboard 管理。显式 `--workstream`、Active Current_Task 唯一绑定或 verified worktree 可以选择单一 WS，但状态结果仍只给 pointer-only 入口，必须再调用 `acf workstream context WSxxx` 才披露专属 detail/read_scope。选择来源冲突或指向不存在、非活动 WS 时分别返回 `SelectionConflict` / `SelectionInvalid`，保持全局并 fail-closed。`reference/` 是中间材料层，Knowledge 高可信但不默认全量读取。
 
 重要协作结束后，AI 不应默认重复打印完整回写建议清单。应先判断哪些内容可以确定落盘，优先使用 `acf plan`、`acf task`、`acf edit`、`acf new worklog`、`acf knowledge draft`、`acf archive` 或 `acf writeback draft` 写入对应文件或草案。
 
@@ -350,7 +350,9 @@ Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging 
 
 ### 15.2 常用命令
 
-- `acf status`：自动发现当前上下文，输出项目根、上下文目录、profile、当前任务状态和检查结果。
+- `acf status`：自动发现当前上下文，默认输出 `GlobalOnly`、全局文件指针、Workstream 摘要、项目根、profile 和检查结果。
+- `acf status --workstream WS001`：显式选择一个活动 Workstream，只返回 pointer-only 入口；随后调用 `acf workstream context WS001` 才读取专属内容。
+- `acf next --workstream WS001`：显式选择后的低风险下一入口；省略参数时保持 global-only。
 - `acf init <target>`：生成标准上下文模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --profile minimal`：生成简化模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
