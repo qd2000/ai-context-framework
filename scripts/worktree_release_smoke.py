@@ -80,7 +80,7 @@ def lifecycle(acf_prefix: Sequence[str], root: Path) -> dict[str, Any]:
     git(repo, "config", "user.email", "acf-release-smoke@example.invalid")
 
     context = repo / "docs" / "ai"
-    acf_json(acf_prefix, repo, "init", str(context), "--profile", "minimal")
+    acf_json(acf_prefix, repo, "init", str(context), "--profile", "standard")
     acf_json(acf_prefix, repo, "workstream", "init", str(context))
     git(repo, "add", "--all")
     git(repo, "commit", "-m", "initial context")
@@ -148,6 +148,18 @@ def lifecycle(acf_prefix: Sequence[str], root: Path) -> dict[str, Any]:
         "--status",
         "Active",
     )
+    worktree_status = acf_json(
+        acf_prefix,
+        target,
+        "status",
+        str(target_context),
+    )
+    if worktree_status.get("workstream_state") != "WorktreeSelected":
+        raise SmokeFailure(f"verified worktree was not selected: {worktree_status}")
+    if worktree_status.get("selected_workstream") != workstream_id:
+        raise SmokeFailure(f"unexpected selected workstream: {worktree_status}")
+    if worktree_status.get("disclosure_level") != "workstream_pointer":
+        raise SmokeFailure(f"worktree status was not pointer-only: {worktree_status}")
     acf_json(
         acf_prefix,
         target,
@@ -200,6 +212,24 @@ def lifecycle(acf_prefix: Sequence[str], root: Path) -> dict[str, Any]:
     if not (repo / "feature.txt").is_file():
         raise SmokeFailure("merged feature is missing from primary checkout")
 
+    global_status = acf_json(acf_prefix, repo, "status", str(context))
+    if global_status.get("workstream_state") != "GlobalOnly":
+        raise SmokeFailure(f"primary checkout did not remain global-only: {global_status}")
+    if global_status.get("selected_workstream") is not None:
+        raise SmokeFailure(f"primary checkout selected a Workstream implicitly: {global_status}")
+    explicit_status = acf_json(
+        acf_prefix,
+        repo,
+        "status",
+        str(context),
+        "--workstream",
+        workstream_id,
+    )
+    if explicit_status.get("workstream_state") != "Selected":
+        raise SmokeFailure(f"explicit selection failed: {explicit_status}")
+    if explicit_status.get("disclosure_level") != "workstream_pointer":
+        raise SmokeFailure(f"explicit selection was not pointer-only: {explicit_status}")
+
     closed = acf_json(
         acf_prefix,
         repo,
@@ -228,6 +258,9 @@ def lifecycle(acf_prefix: Sequence[str], root: Path) -> dict[str, Any]:
         "reservation_commit": reserved.get("reservation_commit"),
         "merge_commit": merged.get("merge_commit"),
         "worktree_closed": True,
+        "global_state": global_status.get("workstream_state"),
+        "worktree_state": worktree_status.get("workstream_state"),
+        "explicit_state": explicit_status.get("workstream_state"),
         "audit_findings": audit.get("findings", []),
     }
 

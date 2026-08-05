@@ -16,11 +16,12 @@ ACF 的 Workstream 和 Git worktree 是两项独立能力：
 
 AI 不需要一次读取全部实现细节。推荐按任务逐步披露：
 
-1. 先运行 `acf status --json`，确认上下文、当前任务和 Workstream 状态；
-2. 只需要登记任务时查看 `acf workstream reserve --help`；
-3. 只有决定使用隔离环境时再查看 `acf worktree create --help`；
-4. 日常只读检查使用 `acf worktree verify|list|audit --help`；
-5. 临近同步、合并或关闭时，再读取本文对应章节和目标子命令 `--help`。
+1. 先运行 `acf status --json`；未显式选择 Workstream 时保持 `GlobalOnly`，只读取全局文件指针和 Workstreams 摘要，不读取任何 WS detail/read_scope/reference/output；
+2. 用户、自动化合同或执行环境明确指定 WS 后，运行 `acf status --workstream WSNNN --json` 获取 pointer-only 入口，再调用 `acf workstream context WSNNN`；
+3. 只需要登记任务时查看 `acf workstream reserve --help`；
+4. 只有决定使用隔离环境时再查看 `acf worktree create --help`；
+5. 日常只读检查使用 `acf worktree verify|list|audit --help`；
+6. 临近同步、合并或关闭时，再读取本文对应章节和目标子命令 `--help`。
 
 ## AI 调用决策
 
@@ -34,6 +35,8 @@ AI 不需要一次读取全部实现细节。推荐按任务逐步披露：
 | 状态不确定或怀疑错误仓库 | 先运行 `acf worktree audit --json` 和 `verify` | 不改变 | 不改变 |
 
 创建 Workstream 本身永远不是创建 worktree 的充分条件。AI 必须基于任务持续时间、并行性、提交隔离、测试与合并需求单独作出 worktree 决策。
+
+`attention: Now/Next/Waiting/Retained` 只用于管理看板，不会自动选择 Workstream。主 checkout 未显式选择时保持全局；专属 worktree 只有在 registry、路径、分支和 Git common-dir 全部一致后才可作为 `WorktreeSelected` 来源。选择冲突或无效时保持全局并 fail-closed。
 
 ## Workstream 编号预约
 

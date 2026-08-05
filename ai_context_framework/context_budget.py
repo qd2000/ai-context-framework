@@ -75,6 +75,12 @@ def _append_file_warning(
 def _selected_workstream_id(routing: Mapping[str, object] | None) -> str | None:
     if not routing:
         return None
+    selected = routing.get('selected_workstream')
+    if selected:
+        return str(selected)
+    if routing.get('context_mode') == 'global':
+        return None
+    # Compatibility fallback for callers constructing an older routing payload.
     entry = routing.get('recommended_entry')
     if not isinstance(entry, Mapping):
         return None

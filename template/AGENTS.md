@@ -49,7 +49,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 3. `active/Feedback_Inbox.md`（仅当存在 Open 条目或需要整理人工反馈时）
 4. `active/Task_Plan.md`（读取后按 `## 规划依据` 追溯当前大任务需要对齐的 reference 规划文档）
 5. `active/Current_Task.md`（仅当该文件存在且任务状态为 Active 时）
-6. Workstreams 索引（仅当该可选文件存在，且存在 Active、Blocked、ReadyToMerge 或 Merging workstream，或需要整理并行协作时）
+6. Workstreams 索引（只读取全局摘要；未显式选择 Workstream 时，不继续读取任何详情文件）
 
 如果用户在当前消息中已给出明确任务，以用户当前消息为准，以上文件作为背景上下文。
 
@@ -59,7 +59,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 
 如果项目可用 `acf` 命令，维护上下文时优先考虑使用它完成确定性操作。
 
-- 开始维护前，可先运行 `acf status --json` 确认上下文位置和当前状态。
+- 开始维护前，先运行 `acf status --json` 确认上下文位置和当前状态。未显式选择 Workstream 时，期望 `context_mode=global`，并停留在全局上下文。
 - 新增或更新当前计划、规划依据、当前任务、资料索引、human 索引、Knowledge 草案、归档、worklog、ADR、section 或 table 时，优先考虑 `acf plan`（包括 `acf plan reference`）、`acf task`、`acf human`、`acf knowledge`、`acf archive`、`acf new`、`acf edit`、`acf writeback` 和 `acf check`。
 - 处理并行 Workstream 时，先运行 `acf workstream context WSxxx` 获取专属任务入口；需要扩展边界时使用 `acf workstream scope-add WSxxx --reason ...`；完成、ready、done 或切换状态前，优先运行 `acf workstream guard WSxxx --files <本次修改文件...> --json` 做文件集强验收；裸 `guard` / `--from-git` 只适合快速查看当前 git diff，旧式整工作区排他检查需显式使用 `--workspace --strict-workspace`；需要总览时运行 `acf workstream dashboard`。
 - 创建 Workstream 不隐式创建 Git worktree。需要先预约唯一编号时调用 `acf workstream reserve`；长期、并行或需独立合并的任务由 AI 再调用 `acf worktree create --workstream WSxxx --apply --json`。不需要隔离环境的 Workstream 继续在原执行位置推进；不得仅因 Workstream 存在就创建 worktree。
@@ -76,7 +76,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 | 需要理解项目长期背景 | `reference/Project_Brief.md` |
 | 需要整理人工反馈、问题、需求和计划碎片 | `active/Feedback_Inbox.md` |
 | 需要处理人工异步笔记、周记录、复盘或汇报材料 | `human/Human_Index.md` → `human/Human_Notes.md`、`human/weekly/` 或 `human/reports/` |
-| 需要处理多个并行目标线 | Workstreams 索引 → `acf workstream context WSxxx` → 对应 Workstream 详情文件 |
+| 需要处理多个并行目标线 | 先只读 Workstreams 摘要；用户或执行合同明确指定后，再运行 `acf status --workstream WSxxx` → `acf workstream context WSxxx` |
 | 需要追溯重要决策 | `reference/Decisions_Index.md` → `decisions/ADR-*.md` |
 | 涉及架构设计 | `reference/Architecture.md` |
 | 涉及技术实现、运行环境 | `reference/Tech_Context.md` |
@@ -123,12 +123,13 @@ Knowledge 是可复用经验层，不是当前事实源；human 是人工异步�
 
 ---
 
-## Workstream-first when active
+## Global-first 渐进式披露
 
-- Workstream-first 表示有 Active / Blocked / ReadyToMerge / Merging Workstream 时，当前执行入口优先从 Workstreams 索引和 `acf workstream context WSxxx` 进入。
-- `Task_Plan.md 为 Empty` 不表示项目没有任务；若存在 Active Workstream，应以 Workstream 详情作为该执行线的核心上下文。
-- `reference/ 是中间材料层`，可放规划、背景、分析和阶段性方案，但不自动等同当前事实。
-- `Knowledge 是高可信` 精炼层，必须有来源、证据和适用边界；按场景读取，不默认全量读取。
+- 新会话默认只读取全局上下文和 Workstreams 摘要。存在一个或多个 Active / Blocked / ReadyToMerge / Merging Workstream 都是正常状态，不构成默认选择，也不得因此读取任何 WS detail、read_scope、reference、output 或专属 worklog。
+- 只有用户或自动化合同显式指定、Active `Current_Task` 唯一绑定，或当前专属 worktree 经 registry/path/branch/common-dir 验证后，才选择一个 Workstream。`attention: Now/Next/Waiting/Retained` 只服务管理看板，不授权加载。
+- 选择发生后，`acf status|next --workstream WSxxx` 只披露 pointer-only 入口；随后必须显式运行 `acf workstream context WSxxx`，再按其 read_scope 渐进读取。不得一次性加载所有 Workstream 详情。
+- 显式来源冲突或指向不存在、非活动 Workstream 时，保持全局上下文并 fail-closed；不得自动改选其他 WS。
+- `reference/ 是中间材料层`，可放规划、背景、分析和阶段性方案，但不自动等同当前事实；Knowledge 是有来源、证据和适用边界的高可信精炼层，均按场景读取。
 
 ---
 

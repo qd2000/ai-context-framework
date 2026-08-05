@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ai_context_framework.constants import JSON_SCHEMA_VERSION
+from ai_context_framework.constants import EXIT_INPUT_ERROR, JSON_SCHEMA_VERSION
 from ai_context_framework.context_budget import context_budget_warnings
 from ai_context_framework.commands.status_check import workstream_entry_payload
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
@@ -21,20 +21,24 @@ def emit_query(args: argparse.Namespace, payload: dict[str, object]) -> int:
             if isinstance(warning, dict):
                 print("WARN: " + str(warning.get("message", warning)))
         print(payload.get("recommended_entry") or payload.get("command"))
-    return 0
+    return 0 if payload.get("ok", True) else EXIT_INPUT_ERROR
 
 
 def next_command(args: argparse.Namespace) -> int:
     location = resolve_status_location(args.path)
-    entry = workstream_entry_payload(location.context_root)
+    entry = workstream_entry_payload(
+        location.context_root,
+        explicit_workstream=getattr(args, "workstream", None),
+        invocation_path=location.project_root,
+    )
     context_warnings = context_budget_warnings(location.context_root, entry)
     payload = {
         "schema_version": JSON_SCHEMA_VERSION,
-        "ok": True,
+        "ok": bool(entry.get("selection_ok", True)),
         "command": "next",
         "context": str(location.context_root),
         "changed_files": [],
-        "error_code": None,
+        "error_code": entry.get("selection_error_code"),
         "warnings": [],
         "context_warnings": context_warnings,
         "next_actions": [],
