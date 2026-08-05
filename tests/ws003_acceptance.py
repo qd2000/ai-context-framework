@@ -128,35 +128,35 @@ class Ws003AcceptanceTests(unittest.TestCase):
         self.assert_cli_json_ok(["workstream", "set", workstream_id, str(target), "--status", "Active", "--json"])
         return workstream_id
 
-    def test_slice_a_information_architecture_docs_are_workstream_first(self):
+    def test_slice_a_information_architecture_docs_are_global_first(self):
         expected_terms_by_file = {
             "README.md": [
-                "Workstream-first when active",
-                "Task_Plan",
-                "Knowledge",
+                "global-first progressive disclosure",
+                "GlobalOnly",
+                "pointer-only",
             ],
             "docs/ai/AGENTS.md": [
-                "Workstream-first",
-                "Task_Plan.md 为 Empty",
-                "reference/ 是中间材料层",
-                "Knowledge 是高可信",
+                "Global-first 渐进式披露",
+                "未显式选择 Workstream",
+                "pointer-only",
+                "不得一次性加载所有 Workstream 详情",
             ],
             "template/AGENTS.md": [
-                "Workstream-first",
-                "Task_Plan.md 为 Empty",
-                "reference/ 是中间材料层",
-                "Knowledge 是高可信",
+                "Global-first 渐进式披露",
+                "未显式选择 Workstream",
+                "pointer-only",
+                "不得一次性加载所有 Workstream 详情",
             ],
             "docs/ai/reference/System_Manual.md": [
-                "Workstream-first when active",
-                "reference/ 是中间材料层",
-                "Knowledge 高可信",
+                "Global-first progressive disclosure",
+                "pointer-only",
+                "SelectionConflict",
                 "ReadyToMerge 不表示权威事实已经合并",
             ],
             "template/reference/System_Manual.md": [
-                "Workstream-first when active",
-                "reference/ 是中间材料层",
-                "Knowledge 高可信",
+                "Global-first progressive disclosure",
+                "pointer-only",
+                "SelectionConflict",
             ],
             "template/reference/Knowledge_Index.md": [
                 "高可信",
@@ -309,12 +309,12 @@ class Ws003AcceptanceTests(unittest.TestCase):
             self.assertIn("changed_files", status)
             self.assertEqual(status["changed_files"], [])
             self.assertIn("workstream_state", status)
-            self.assertEqual(status["workstream_state"], "ActiveClassPresent")
+            self.assertEqual(status["workstream_state"], "GlobalOnly")
+            self.assertEqual(status["context_mode"], "global")
+            self.assertIsNone(status["selected_workstream"])
             self.assertIn("recommended_entry", status)
-            self.assertEqual(status["recommended_entry"]["kind"], "workstream_context")
-            self.assertEqual(status["recommended_entry"]["workstream_id"], workstream_id)
-            self.assertIn("candidate_entries", status)
-            self.assertTrue(status["candidate_entries"])
+            self.assertEqual(status["recommended_entry"]["kind"], "global_context")
+            self.assertEqual(status["candidate_entries"], [])
 
             next_actions = self.assert_cli_json_ok(["workstream", "next-actions", workstream_id, str(target), "--json"])
             self.assertEqual(next_actions["changed_files"], [])
@@ -340,7 +340,9 @@ class Ws003AcceptanceTests(unittest.TestCase):
 
             global_next = self.assert_cli_json_ok(["next", str(target), "--json"])
             self.assertEqual(global_next["changed_files"], [])
-            self.assertEqual(global_next["recommended_entry"]["workstream_id"], workstream_id)
+            self.assertEqual(global_next["workstream_state"], "GlobalOnly")
+            self.assertEqual(global_next["recommended_entry"]["kind"], "global_context")
+            self.assertIsNone(global_next["selected_workstream"])
 
             draft_status = self.assert_cli_json_ok(["draft", "status", str(target), "--json"])
             self.assertEqual(draft_status["changed_files"], [])
@@ -360,12 +362,12 @@ class Ws003AcceptanceTests(unittest.TestCase):
             )
 
             payload = self.assert_cli_json_ok(["next", str(target), "--json"])
-            self.assertEqual(payload["workstream_state"], "Focused")
+            self.assertEqual(payload["workstream_state"], "CurrentTaskSelected")
             self.assertEqual(payload["current_task_workstreams"], ["WS101"])
             self.assertEqual(payload["recommended_entry"]["workstream_id"], "WS101")
             self.assertEqual(len(payload["candidate_entries"]), 1)
 
-    def test_attention_state_routes_next_entry(self):
+    def test_attention_state_does_not_route_next_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = self.init_standard_context(tmp)
             self.add_active_workstream(target, "WS101")
@@ -377,9 +379,11 @@ class Ws003AcceptanceTests(unittest.TestCase):
                 ["workstream", "set", "WS102", str(target), "--attention", "Next", "--json"]
             )
             payload = self.assert_cli_json_ok(["next", str(target), "--json"])
-            self.assertEqual(payload["workstream_state"], "AttentionNext")
-            self.assertEqual(payload["recommended_entry"]["workstream_id"], "WS102")
-            self.assertEqual(payload["recommended_entry"]["attention"], "Next")
+            self.assertEqual(payload["workstream_state"], "GlobalOnly")
+            self.assertEqual(payload["context_mode"], "global")
+            self.assertIsNone(payload["selected_workstream"])
+            self.assertEqual(payload["recommended_entry"]["kind"], "global_context")
+            self.assertEqual(payload["candidate_entries"], [])
             self.assertEqual(payload["attention_summary"]["Waiting"], 1)
             self.assertEqual(payload["attention_summary"]["Next"], 1)
 
@@ -407,7 +411,7 @@ class Ws003AcceptanceTests(unittest.TestCase):
             self.assertIn("## 所属 Workstream", text)
             self.assertIn("`WS101`", text)
             payload = self.assert_cli_json_ok(["next", str(target), "--json"])
-            self.assertEqual(payload["workstream_state"], "Focused")
+            self.assertEqual(payload["workstream_state"], "CurrentTaskSelected")
             self.assertEqual(payload["recommended_entry"]["workstream_id"], "WS101")
 
     def test_context_budget_warnings_are_non_blocking_and_route_scoped(self):
@@ -446,22 +450,37 @@ class Ws003AcceptanceTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            next_payload = self.assert_cli_json_ok(["next", str(target), "--json"])
+            global_payload = self.assert_cli_json_ok(["next", str(target), "--json"])
+            global_warning_kinds = {item["kind"] for item in global_payload["context_warnings"]}
+            self.assertEqual(global_payload["workstream_state"], "GlobalOnly")
+            self.assertIn("context", global_warning_kinds)
+            self.assertIn("current_task", global_warning_kinds)
+            self.assertNotIn("selected_workstream", global_warning_kinds)
+            self.assertNotIn("selected_activity_log", global_warning_kinds)
+
+            next_payload = self.assert_cli_json_ok(
+                ["next", str(target), "--workstream", "WS101", "--json"]
+            )
             warning_kinds = {item["kind"] for item in next_payload["context_warnings"]}
-            self.assertEqual(next_payload["workstream_state"], "AttentionNow")
+            self.assertEqual(next_payload["workstream_state"], "Selected")
             self.assertIn("context", warning_kinds)
             self.assertIn("current_task", warning_kinds)
             self.assertIn("selected_workstream", warning_kinds)
             self.assertIn("selected_activity_log", warning_kinds)
             self.assertFalse(any(item["path"].endswith("WS102.md") for item in next_payload["context_warnings"]))
 
-            status_payload = self.assert_cli_json_ok(["status", str(target), "--strict", "--json"])
+            status_payload = self.assert_cli_json_ok(
+                ["status", str(target), "--workstream", "WS101", "--strict", "--json"]
+            )
             self.assertTrue(status_payload["ok"])
             self.assertEqual(len(status_payload["context_warnings"]), len(next_payload["context_warnings"]))
 
             check_payload = self.assert_cli_json_ok(["check", str(target), "--strict", "--json"])
             self.assertTrue(check_payload["ok"])
-            self.assertEqual(len(check_payload["context_warnings"]), len(next_payload["context_warnings"]))
+            self.assertEqual(
+                {item["kind"] for item in check_payload["context_warnings"]},
+                global_warning_kinds,
+            )
 
     def test_inactive_current_task_link_does_not_focus_next_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -478,6 +497,7 @@ class Ws003AcceptanceTests(unittest.TestCase):
             )
 
             payload = self.assert_cli_json_ok(["next", str(target), "--json"])
-            self.assertEqual(payload["workstream_state"], "Ambiguous")
+            self.assertEqual(payload["workstream_state"], "GlobalOnly")
+            self.assertEqual(payload["context_mode"], "global")
             self.assertEqual(payload["current_task_workstreams"], [])
-            self.assertEqual(len(payload["candidate_entries"]), 2)
+            self.assertEqual(payload["candidate_entries"], [])

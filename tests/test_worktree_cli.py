@@ -985,6 +985,82 @@ class WorktreeCliTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         self.assertEqual(repeated["status"], "already_closed")
 
+    def test_verified_worktree_selects_only_its_bound_workstream(self):
+        _root, _repo, context = self.make_repo()
+        reserved = self.reserve(context, slug="routing-selection")
+        created = self.create_ws_worktree(context, reserved["id"])
+        target = Path(created["target"]["path"])
+        target_context = target / "docs" / "ai"
+        self.assertEqual(
+            self.run_cli(
+                [
+                    "workstream",
+                    "set",
+                    reserved["id"],
+                    str(target_context),
+                    "--status",
+                    "Active",
+                ],
+                cwd=target,
+            )[0],
+            0,
+        )
+
+        code, payload, stderr = self.json_cli(
+            ["status", str(target_context)], cwd=target
+        )
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(payload["workstream_state"], "WorktreeSelected")
+        self.assertEqual(payload["selected_workstream"], reserved["id"])
+        self.assertEqual(payload["selection_source"], "verified_worktree")
+        self.assertEqual(payload["disclosure_level"], "workstream_pointer")
+
+        self.assertEqual(
+            self.run_cli(
+                [
+                    "workstream",
+                    "add",
+                    str(target_context),
+                    "--id",
+                    "WS002",
+                    "--title",
+                    "Conflicting selection",
+                    "--owner",
+                    "codex",
+                    "--goal",
+                    "Exercise selection conflict.",
+                    "--output",
+                    "Conflict evidence.",
+                ],
+                cwd=target,
+            )[0],
+            0,
+        )
+        self.assertEqual(
+            self.run_cli(
+                [
+                    "workstream",
+                    "set",
+                    "WS002",
+                    str(target_context),
+                    "--status",
+                    "Active",
+                ],
+                cwd=target,
+            )[0],
+            0,
+        )
+        code, conflict, _stderr = self.json_cli(
+            ["status", str(target_context), "--workstream", "WS002"], cwd=target
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(conflict["workstream_state"], "SelectionConflict")
+        self.assertEqual(conflict["context_mode"], "global")
+        self.assertIsNone(conflict["selected_workstream"])
+        self.assertEqual(
+            set(conflict["selection_candidates"]), {reserved["id"], "WS002"}
+        )
+
     def test_invalid_project_config_is_isolated_to_worktree_commands(self):
         _root, repo, context = self.make_repo()
         config_dir = repo / ".acf"
