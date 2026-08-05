@@ -595,11 +595,23 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
     status_parser.add_argument("--profile", choices=("standard", "minimal"), default=None)
     status_parser.add_argument("--strict", action="store_true", help="treat placeholders as errors")
+    status_parser.add_argument(
+        "--workstream",
+        type=validate_workstream_id,
+        default=None,
+        help="explicitly select one Workstream context; omitted means global-only",
+    )
     add_json_argument(status_parser)
     status_parser.set_defaults(func=status_command)
 
     next_parser = subparsers.add_parser("next", help="show the next low-risk context entry")
     next_parser.add_argument("path", nargs="?", type=Path)
+    next_parser.add_argument(
+        "--workstream",
+        type=validate_workstream_id,
+        default=None,
+        help="explicitly select one Workstream context; omitted means global-only",
+    )
     add_json_argument(next_parser)
     next_parser.set_defaults(func=next_status_commands.next_command)
 
