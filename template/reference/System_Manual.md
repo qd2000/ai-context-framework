@@ -381,7 +381,7 @@ Global-first progressive disclosure：没有明确选择时，无论存在多少
 acf worktree create --workstream WS001 --apply --json
 ```
 
-非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach|sync|merge-plan|merge|close|resume` 提供发现、恢复、同步、无冲突 no-ff 合并和安全关闭；写操作默认 plan-only，`--apply` 后执行。项目可在 `.acf/project.toml` 配置 primary checkout/branch、worktree root 和命名模板；不配置或不调用 worktree 时，原上下文与 Workstream 命令不受影响。ACF 不自动 stash、reset、clean、rebase、force、push、覆盖目录或解决冲突。
+非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|resume` 提供发现、恢复、同步、临时候选合并、结果迁移和安全关闭。来源 worktree 必须 clean；正式 merge 总是在临时 integration worktree 中执行并运行 post-check，primary checkout 只进行碰撞保护后的 fast-forward promotion，因此可以保留无关 staged/unstaged/untracked 修改。短时锁、Git 状态和 HEAD 推进会有限等待或自动重规划；稳定冲突保留在 integration worktree，解决并提交后使用 operation ID resume。ignored/untracked 结果默认 unknown，必须明确分类并完成 handoff 后才能 promotion/close。写操作默认 plan-only，`--apply` 后执行；项目可在 `.acf/project.toml` 配置 primary checkout/branch、worktree root 和命名模板。ACF 不自动 stash、reset、clean、rebase、force、push、覆盖不一致内容或静默解决冲突。
 
 ### Workstream guard 模式
 

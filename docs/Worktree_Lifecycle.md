@@ -91,6 +91,9 @@ non_workstream_worktree_template = "{worktree_root}/{kind}-{slug}"
 
 sync_strategy = "merge"
 merge_strategy = "no-ff"
+primary_dirty_policy = "allow_non_overlapping" # 或 require_clean；两者均使用 integration 引擎
+artifact_cache_patterns = ["**/__pycache__/*.pyc"]
+artifact_discardable_patterns = ["output/tmp/**"]
 ```
 
 配置缺失时，ACF 从 Git common-dir 推导 primary checkout，优先选择 `main`/`master`，并使用 primary checkout 的同级 `<repo>_worktrees` 目录。配置错误只阻断 `worktree`/`reserve` Git 能力，不影响原有纯上下文命令。
@@ -183,41 +186,69 @@ acf worktree merge-plan --workstream WS081 --json
 acf worktree merge --workstream WS081 --apply --json
 ```
 
-第一版要求：
+来源 worktree 仍必须 clean，且 Workstream 必须处于 `ReadyToMerge` 或 `Merging`。primary checkout 不再要求完全 clean；ACF 会结构化区分 staged、unstaged、untracked、ignored、index lock 和 Git sequencer 状态，并计算候选写入集合与本地路径碰撞。
 
-- source worktree clean；
-- primary checkout clean；
-- Workstream 状态为 `ReadyToMerge` 或 `Merging`；
-- merge-tree 无冲突；
-- branch/path/registry 验证通过。
+每次正式合并都使用同一条执行主链：
 
-正式操作使用冻结 source commit 执行 `--no-ff` merge，不自动 push。可选检查使用 JSON argv 数组，不接受 shell 字符串：
+1. 冻结 source HEAD 和当前 primary HEAD；
+2. 创建短生命周期临时 integration worktree；
+3. 在 integration worktree 中执行真实 `--no-ff` merge；
+4. 在该干净候选环境运行 post-check；
+5. 对来源 worktree 的 ignored/untracked 结果执行 artifact handoff；
+6. 获取短时 primary promotion 锁，重新检查 primary 本地状态和路径碰撞；
+7. 使用 `git merge --ff-only <integration-tip>` 将已验证候选提升到 primary branch；
+8. 验证 primary 中无关的 staged/unstaged/untracked 内容未改变且未进入 merge commit；
+9. 清理临时 integration worktree。
+
+可选检查使用 JSON argv 数组，不接受 shell 字符串：
 
 ```powershell
 acf worktree merge `
   --workstream WS081 `
   --pre-check-json '["python","-m","unittest"]' `
   --post-check-json '["python","-m","unittest"]' `
+  --wait-timeout 600 `
+  --lock-wait-timeout 300 `
+  --max-replans 8 `
   --apply `
   --json
 ```
 
-pre-check 失败时不合并；post-check 失败时保留已经产生的 merge commit 并返回 `merged_checks_failed`，ACF 不自动 reset。
+pre-check 失败时 primary 不变；post-check 失败时保留 integration worktree 和候选 commit，primary 仍不变。修复并提交候选后使用 `acf worktree resume <operation-id> --apply --json` 继续。
+
+### Primary dirty 与自动恢复
+
+- 非重叠 staged/unstaged/untracked 修改允许保留；
+- 路径重叠但 index/worktree 内容、mode 和类型都与候选最终状态一致时，可以安全收敛；ACF 只对已证明一致的 untracked/ignored 路径使用可恢复 quarantine；
+- 内容不同、父子路径、rename/delete/type 或 Windows 大小写碰撞会进入有限等待；状态解除后自动继续，超时后返回可恢复暂停；
+- primary 或 source HEAD 推进时自动重建候选，默认最多 8 次；
+- promotion 锁被占用时有限退避等待；同主机 stale lock 只有在 PID 已死亡、heartbeat 过期且 operation 不在 `PROMOTING` 时才移入证据目录；
+- 稳定 Git 冲突只留在 integration worktree；解决并提交后 resume。若期间 primary 前进，ACF 将最新 primary 合入同一 integration 分支，保留人工冲突解决成果。
+
+### Ignored / untracked 结果迁移
+
+```powershell
+acf worktree artifact-plan `
+  --workstream WS081 `
+  --required 'output/result.ksc=C:\Artifacts\WS081\result.ksc' `
+  --apply `
+  --json
+
+acf worktree artifact-migrate --workstream WS081 --apply --json
+```
+
+分类包括 `required`、`retained_reference`、`reproducible_cache`、`discardable` 和 `unknown`。普通 ignored/untracked 文件默认是 `unknown`，不能静默删除；required 采用临时目标复制、SHA-256 校验和原子替换，支持幂等重试。所有需保留项验证完成后才允许 promotion 和 close。
 
 ## 关闭
 
 ```powershell
 acf worktree close --workstream WS081 --json
-acf worktree close --workstream WS081 --apply --json
+acf worktree close --workstream WS081 --wait-timeout 120 --apply --json
 ```
 
-关闭前必须证明 branch 已合入 primary、worktree clean。执行顺序：
+关闭前必须证明 branch 已合入 primary、来源 worktree clean，且 artifact handoff 已完成。执行顺序仍为 worktree remove、已合并分支安全删除和 registry 更新，但每一步进入同一 operation journal，并与 merge 共用来源 lifecycle 锁。Windows 文件占用会有限退避；部分成功后使用同一 operation ID resume。
 
-1. `git worktree remove`；
-2. `git branch -d`；
-3. 删除 local registry。
-
-不使用 `--force` 或 `branch -D`。目录或分支已被人工完成其中一步时，命令按当前事实恢复；重复关闭返回 `already_closed`。
+不使用 `--force` 或 `branch -D`。重复关闭返回 `already_closed`。
 
 ## Journal、registry 与锁
 

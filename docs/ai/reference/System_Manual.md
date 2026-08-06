@@ -123,7 +123,7 @@ acf workstream reserve --title "任务" --slug task-slug --owner codex --apply -
 acf worktree create --workstream WS005 --apply --json
 ```
 
-非 WS 隔离任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach` 用于发现和绑定，`sync` 默认把冻结 primary commit merge 到任务分支，`merge-plan|merge` 使用无冲突预演和 `--no-ff`，`close` 只删除已合并且 clean 的 worktree/branch。所有写操作默认 plan-only，显式 `--apply` 后执行；journal、registry 和锁保存在 Git common-dir 的 `acf/` 子目录。命令禁止 stash、reset、clean、rebase、force、push、目录覆盖和自动解决冲突。产品级教程与 AI 决策表见 [docs/Worktree_Lifecycle.md](../../../docs/Worktree_Lifecycle.md)，版本变化见 [CHANGELOG.md](../../../CHANGELOG.md)。
+非 WS 隔离任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach` 用于发现和绑定，`sync` 默认把冻结 primary commit merge 到任务分支。`merge-plan|merge` 统一使用临时 integration worktree 生成候选和执行 post-check，primary 只做碰撞保护后的 fast-forward promotion；无关 staged/unstaged/untracked 修改可以保留，短时锁、路径状态和 HEAD 推进会有限等待或自动重规划。稳定冲突保留 integration 现场并通过 operation ID resume；`artifact-plan|artifact-migrate` 管理 ignored/untracked 结果分类、复制/引用和摘要验证；`close` 只删除已合并、clean 且 handoff 完成的 worktree/branch，并支持文件占用退避与部分成功恢复。所有写操作默认 plan-only，显式 `--apply` 后执行；journal、registry、artifact manifest 和锁保存在 Git common-dir 的 `acf/` 子目录。命令禁止自动 stash、reset、clean、rebase、force、push、目录覆盖和静默解决冲突。产品级教程与 AI 决策表见 [docs/Worktree_Lifecycle.md](../../../docs/Worktree_Lifecycle.md)，版本变化见 [CHANGELOG.md](../../../CHANGELOG.md)。
 
 ### Workstream guard 模式
 
@@ -142,6 +142,10 @@ acf workstream guard WS001 --files src/foo.py docs/ai/active/workstreams/WS001.m
 | 禁止 shared 写入 | `acf workstream guard WS001 --files path --owned-only --json` | shared scope 也会失败，用于严格 ownership 验收。 |
 
 只有显式文件集模式可作为完成或切换状态的强验收证据；裸 guard 和 `--from-git` 适合发现当前工作区风险，不应在存在并行 dirty files 时替代 `--files`。
+
+### 其他上下文维护命令
+
+注意力治理规则：
 
 Task Stage 仍以 [active/Task_Plan.md](../active/Task_Plan.md) 的 `## 任务阶段` 表为事实源；`plan stage list|add|set|done` 只维护该表，不创建 task object 单文件，不自动修改 [active/Current_Task.md](../active/Current_Task.md)，也不自动联动 Workstream。`plan stage add` 要求阶段 ID 使用 `T001.1` 格式且归属于已存在父任务，`--workstream` 只接受已存在的 Workstream ID 或空值；`plan stage done` 要求 `--evidence`。
 

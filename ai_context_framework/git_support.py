@@ -85,6 +85,9 @@ class GitProjectConfig:
     non_workstream_worktree_template: str = "{worktree_root}/{kind}-{slug}"
     sync_strategy: str = "merge"
     merge_strategy: str = "no-ff"
+    primary_dirty_policy: str = "allow_non_overlapping"
+    artifact_cache_patterns: tuple[str, ...] = ()
+    artifact_discardable_patterns: tuple[str, ...] = ()
     config_path: Path | None = None
 
 
@@ -367,6 +370,16 @@ def _resolve_config_path(value: Any, *, base: Path, fallback: Path) -> Path:
     return canonical_path(candidate)
 
 
+def _string_tuple_config(value: Any, *, name: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item.strip() for item in value
+    ):
+        raise SystemExit(f"git_project_config_invalid: {name} must be an array of strings")
+    return tuple(item.strip().replace("\\", "/") for item in value)
+
+
 def _choose_primary_branch(primary_checkout: Path, configured: Any) -> str:
     if isinstance(configured, str) and configured.strip():
         branch = configured.strip()
@@ -415,6 +428,21 @@ def load_git_project_config(project_root: Path, repo_root: Path, common_dir: Pat
         raise SystemExit("git_project_config_invalid: only sync_strategy=merge is supported")
     if merge_strategy != "no-ff":
         raise SystemExit("git_project_config_invalid: only merge_strategy=no-ff is supported")
+    primary_dirty_policy = str(
+        raw.get("primary_dirty_policy") or "allow_non_overlapping"
+    ).strip()
+    if primary_dirty_policy not in {"allow_non_overlapping", "require_clean"}:
+        raise SystemExit(
+            "git_project_config_invalid: primary_dirty_policy must be allow_non_overlapping or require_clean"
+        )
+    artifact_cache_patterns = _string_tuple_config(
+        raw.get("artifact_cache_patterns"),
+        name="artifact_cache_patterns",
+    )
+    artifact_discardable_patterns = _string_tuple_config(
+        raw.get("artifact_discardable_patterns"),
+        name="artifact_discardable_patterns",
+    )
     return GitProjectConfig(
         primary_checkout=primary_checkout,
         primary_branch=primary_branch,
@@ -434,6 +462,9 @@ def load_git_project_config(project_root: Path, repo_root: Path, common_dir: Pat
         ),
         sync_strategy=sync_strategy,
         merge_strategy=merge_strategy,
+        primary_dirty_policy=primary_dirty_policy,
+        artifact_cache_patterns=artifact_cache_patterns,
+        artifact_discardable_patterns=artifact_discardable_patterns,
         config_path=config_path if config_path.is_file() else None,
     )
 

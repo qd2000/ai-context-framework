@@ -273,12 +273,42 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Run `acf worktree verify` or `acf worktree audit`; preserve the existing path and repair explicitly."]
     if error_code in {
         "worktree_operation_locked",
+        "worktree_operation_lock_timeout",
         "worktree_lock_invalid",
+        "worktree_lock_lost",
+        "worktree_lock_replaced",
         "operation_not_found",
         "operation_journal_invalid",
         "operation_resume_unsupported",
+        "merge_operation_target_mismatch",
     }:
-        return ["Inspect the ACF operation journal and active lock; do not delete locks without confirming the recorded process is inactive."]
+        return ["Inspect the ACF operation journal and active lock; retry or resume after the recorded operation becomes inactive. Do not delete a live lock manually."]
+    if error_code in {
+        "artifact_manifest_not_found",
+        "artifact_manifest_invalid",
+        "artifact_handoff_required",
+        "artifact_handoff_incomplete",
+        "artifact_source_missing",
+        "artifact_override_path_not_found",
+        "artifact_required_invalid",
+        "artifact_reference_invalid",
+    }:
+        return ["Run `acf worktree artifact-plan`, classify every unknown entry, verify destinations, then run `artifact-migrate --apply` before promotion or close."]
+    if error_code in {
+        "integration_worktree_missing",
+        "integration_worktree_create_failed",
+        "integration_slot_not_clean",
+        "integration_tip_missing_source_head",
+        "merge_candidate_tree_missing",
+        "primary_promotion_identity_mismatch",
+        "quarantine_restore_collision",
+    }:
+        return ["Inspect the merge operation journal and its temporary integration worktree. Preserve the conflict/candidate evidence and resume after correcting the reported identity or path issue."]
+    if error_code in {
+        "worktree_close_timeout",
+        "worktree_branch_delete_timeout",
+    }:
+        return ["Close applications holding the worktree or Git refs, then resume the same close operation. ACF will not force-remove a dirty worktree or force-delete a branch."]
     if error_code in {
         "worktree_dirty",
         "branch_not_merged",
@@ -375,10 +405,31 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "worktree_verification_failed",
         "worktree_registry_invalid",
         "worktree_operation_locked",
+        "worktree_operation_lock_timeout",
         "worktree_lock_invalid",
+        "worktree_lock_lost",
+        "worktree_lock_replaced",
         "operation_not_found",
         "operation_journal_invalid",
         "operation_resume_unsupported",
+        "merge_operation_target_mismatch",
+        "artifact_manifest_not_found",
+        "artifact_manifest_invalid",
+        "artifact_handoff_required",
+        "artifact_handoff_incomplete",
+        "artifact_source_missing",
+        "artifact_override_path_not_found",
+        "artifact_required_invalid",
+        "artifact_reference_invalid",
+        "integration_worktree_missing",
+        "integration_worktree_create_failed",
+        "integration_slot_not_clean",
+        "integration_tip_missing_source_head",
+        "merge_candidate_tree_missing",
+        "primary_promotion_identity_mismatch",
+        "quarantine_restore_collision",
+        "worktree_close_timeout",
+        "worktree_branch_delete_timeout",
         "worktree_dirty",
         "branch_not_merged",
         "workstream_not_ready_to_merge",

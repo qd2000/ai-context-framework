@@ -526,7 +526,7 @@ class WorktreeCliTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(payload["error_code"], "worktree_dirty")
 
-    def test_merge_requires_ready_workstream_and_clean_primary(self):
+    def test_merge_requires_ready_workstream_and_allows_non_overlapping_dirty_primary(self):
         _root, repo, context = self.make_repo()
         reserved = self.reserve(context, slug="merge-gate")
         created = self.create_ws_worktree(context, reserved["id"])
@@ -541,11 +541,14 @@ class WorktreeCliTests(unittest.TestCase):
         self.assertEqual(payload["error_code"], "workstream_not_ready_to_merge")
         self.mark_ready_in_worktree(target, reserved["id"])
         (repo / "dirty.txt").write_text("dirty", encoding="utf-8")
-        code, payload, _stderr = self.json_cli(
+        code, payload, stderr = self.json_cli(
             ["worktree", "merge-plan", str(context), "--workstream", reserved["id"]]
         )
-        self.assertNotEqual(code, 0)
-        self.assertEqual(payload["error_code"], "primary_checkout_dirty")
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(payload["status"], "ready_to_merge")
+        self.assertTrue(payload["merge_allowed"])
+        self.assertEqual(payload["collisions"]["divergent_overlap_paths"], [])
+        self.assertIn("dirty.txt", payload["primary_snapshot"]["untracked_paths"])
 
     def test_merge_no_ff_checks_and_close_lifecycle(self):
         _root, repo, context = self.make_repo()
@@ -873,11 +876,12 @@ class WorktreeCliTests(unittest.TestCase):
         git(repo, "add", "shared.txt")
         git(repo, "commit", "-m", "primary shared")
         main_before = git(repo, "rev-parse", "HEAD").stdout.strip()
-        code, payload, _stderr = self.json_cli(
+        code, payload, stderr = self.json_cli(
             ["worktree", "merge-plan", str(context), "--workstream", reserved["id"]]
         )
-        self.assertNotEqual(code, 0)
-        self.assertEqual(payload["error_code"], "merge_conflicts_detected")
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(payload["status"], "conflict_resolution_required")
+        self.assertTrue(payload["collisions"]["branch_conflict"])
         self.assertEqual(git(repo, "rev-parse", "HEAD").stdout.strip(), main_before)
         self.assertFalse((repo / ".git" / "MERGE_HEAD").exists())
 
@@ -908,7 +912,7 @@ class WorktreeCliTests(unittest.TestCase):
         self.assertEqual(payload["error_code"], "worktree_pre_merge_check_failed")
         self.assertEqual(git(repo, "rev-parse", "HEAD").stdout.strip(), before)
 
-    def test_post_merge_check_failure_retains_merge_commit(self):
+    def test_post_merge_check_failure_retains_candidate_but_not_primary_merge(self):
         _root, repo, context = self.make_repo()
         reserved = self.reserve(context, slug="postcheck-gate")
         created = self.create_ws_worktree(context, reserved["id"])
@@ -933,9 +937,11 @@ class WorktreeCliTests(unittest.TestCase):
         )
         self.assertNotEqual(code, 0)
         self.assertEqual(payload["error_code"], "worktree_post_merge_check_failed")
-        self.assertEqual(payload["status"], "merged_checks_failed")
-        self.assertNotEqual(git(repo, "rev-parse", "HEAD").stdout.strip(), before)
-        self.assertEqual(len(git(repo, "show", "-s", "--format=%P", "HEAD").stdout.split()), 2)
+        self.assertEqual(payload["status"], "candidate_checks_failed")
+        self.assertEqual(git(repo, "rev-parse", "HEAD").stdout.strip(), before)
+        integration = Path(payload["integration_path"])
+        self.assertTrue(integration.is_dir())
+        self.assertEqual(len(git(integration, "show", "-s", "--format=%P", "HEAD").stdout.split()), 2)
 
     def test_close_recovers_when_worktree_was_manually_removed_and_is_idempotent(self):
         _root, repo, context = self.make_repo()
@@ -1101,7 +1107,10 @@ class WorktreeCliTests(unittest.TestCase):
             f'primary_checkout = "{repo.as_posix()}"\n'
             'primary_branch = "main"\n'
             f'worktree_root = "{custom_root.as_posix()}"\n'
-            'branch_prefix = "agent"\n',
+            'branch_prefix = "agent"\n'
+            'primary_dirty_policy = "require_clean"\n'
+            'artifact_cache_patterns = ["**/__pycache__/*.pyc"]\n'
+            'artifact_discardable_patterns = ["output/tmp/**"]\n',
             encoding="utf-8",
         )
         git(repo, "add", ".acf/project.toml")
@@ -1110,6 +1119,10 @@ class WorktreeCliTests(unittest.TestCase):
         created = self.create_ws_worktree(context, reserved["id"])
         self.assertEqual(created["target"]["branch"], "agent/ws001-configured-task")
         self.assertTrue(Path(created["target"]["path"]).is_relative_to(custom_root))
+        project = discover_git_project(context)
+        self.assertEqual(project.config.primary_dirty_policy, "require_clean")
+        self.assertEqual(project.config.artifact_cache_patterns, ("**/__pycache__/*.pyc",))
+        self.assertEqual(project.config.artifact_discardable_patterns, ("output/tmp/**",))
 
     def test_toml_subset_fallback_shape(self):
         root = tempfile.TemporaryDirectory()

@@ -12,11 +12,28 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from ai_context_framework.front_matter import parse_front_matter
+from ai_context_framework.worktree_artifacts import build_artifact_plan, load_artifact_plan
+from ai_context_framework.worktree_collision import (
+    analyze_primary_collisions,
+    build_candidate_preview,
+)
+from ai_context_framework.worktree_merge_contracts import (
+    DEFAULT_MERGE_RETRY_POLICY,
+    MergeRetryPolicy,
+    artifact_handoff_ready_for_promotion,
+)
+from ai_context_framework.worktree_status import capture_git_worktree_snapshot
+from ai_context_framework.worktree_retry import (
+    acquire_lock_with_wait,
+    release_owned_lock,
+    retry_delay,
+)
 from ai_context_framework.git_support import (
     GitCommandError,
     GitProject,
@@ -764,8 +781,6 @@ def plan_merge(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
         raise SystemExit(
             f"primary_branch_mismatch: expected {project.config.primary_branch}"
         )
-    if not is_clean(project.config.primary_checkout):
-        raise SystemExit(f"primary_checkout_dirty: {project.config.primary_checkout}")
     status = _workstream_status_in_target(target)
     if status is not None and status not in {"ReadyToMerge", "Merging"}:
         raise SystemExit(
@@ -773,6 +788,21 @@ def plan_merge(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
         )
     source_head = rev_parse(project.repo_root, target.branch)
     primary_head = rev_parse(project.repo_root, target.base_branch)
+    primary_snapshot = capture_git_worktree_snapshot(
+        project.config.primary_checkout,
+        include_ignored=False,
+    )
+    if (
+        project.config.primary_dirty_policy == "require_clean"
+        and primary_snapshot["entries"]
+    ):
+        raise SystemExit(f"primary_checkout_dirty: {project.config.primary_checkout}")
+    if primary_snapshot["sequencer"]["active"]:
+        recommended_action = "wait_for_primary_git_operation"
+    elif primary_snapshot["index_lock"]:
+        recommended_action = "wait_for_primary_index_lock"
+    else:
+        recommended_action = "build_integration_candidate"
     if is_ancestor(project.repo_root, source_head, primary_head):
         return {
             "status": "already_merged",
@@ -781,19 +811,39 @@ def plan_merge(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
             "primary_head": primary_head,
             "workstream_status": status,
             "target": target_payload(target),
+            "primary_snapshot": primary_snapshot,
+            "candidate": None,
+            "collisions": None,
+            "recommended_action": "close_source_when_ready",
             "merge_preview": {"ok": True, "mode": "ancestor", "tree": primary_head},
         }
-    preview = merge_tree(project.repo_root, target.base_branch, target.branch)
-    if not preview["ok"]:
-        raise SystemExit("merge_conflicts_detected: worktree branch into primary")
+    candidate = build_candidate_preview(
+        project.repo_root,
+        primary_head=primary_head,
+        source_head=source_head,
+    )
+    collisions = analyze_primary_collisions(
+        project.config.primary_checkout,
+        snapshot=primary_snapshot,
+        candidate=candidate,
+    )
+    branch_conflict = bool(collisions["branch_conflict"])
+    if branch_conflict:
+        recommended_action = "create_integration_worktree_for_conflict_resolution"
+    elif collisions["divergent_overlap_paths"]:
+        recommended_action = "wait_or_resolve_primary_paths"
     return {
-        "status": "ready_to_merge",
+        "status": "conflict_resolution_required" if branch_conflict else "ready_to_merge",
         "merge_allowed": True,
         "source_head": source_head,
         "primary_head": primary_head,
         "workstream_status": status,
         "target": target_payload(target),
-        "merge_preview": preview,
+        "primary_snapshot": primary_snapshot,
+        "candidate": candidate,
+        "collisions": collisions,
+        "recommended_action": recommended_action,
+        "merge_preview": candidate["merge_preview"],
     }
 
 
@@ -833,87 +883,24 @@ def apply_merge(
     message: str | None,
     pre_checks: Sequence[str],
     post_checks: Sequence[str],
+    retry_policy: MergeRetryPolicy = DEFAULT_MERGE_RETRY_POLICY,
+    artifact_overrides: Mapping[str, Mapping[str, Any]] | None = None,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
-    plan = plan_merge(project, target)
-    if plan["status"] == "already_merged":
-        return plan
-    operation = create_operation(
-        project.common_dir,
-        command="worktree.merge",
-        target=target,
-        extra={"plan": plan},
+    from ai_context_framework.worktree_resilient_merge import execute_resilient_merge
+
+    return execute_resilient_merge(
+        project,
+        target,
+        plan_factory=lambda: plan_merge(project, target),
+        check_runner=run_check_argv,
+        message=message,
+        pre_checks=pre_checks,
+        post_checks=post_checks,
+        artifact_overrides=artifact_overrides,
+        retry_policy=retry_policy,
+        operation_id=operation_id,
     )
-    lock = acquire_operation_lock(
-        project.common_dir, f"{target.key}-merge", str(operation["operation_id"])
-    )
-    primary_lock = None
-    try:
-        primary_lock = acquire_operation_lock(
-            project.common_dir, "primary-merge", str(operation["operation_id"])
-        )
-        pre_results = [run_check_argv(target.path, value) for value in pre_checks]
-        if any(not row["ok"] for row in pre_results):
-            raise SystemExit("worktree_pre_merge_check_failed")
-        fresh = plan_merge(project, target)
-        if fresh["source_head"] != plan["source_head"]:
-            raise SystemExit("worktree_branch_advanced: rerun merge plan")
-        if fresh["primary_head"] != plan["primary_head"]:
-            raise SystemExit("primary_branch_advanced: rerun merge plan")
-        merge_message = message or (
-            f"合并{target.workstream_id}阶段成果"
-            if target.workstream_id
-            else f"合并{target.kind or 'worktree'} {target.slug or target.branch}阶段成果"
-        )
-        merge_result = run_git(
-            project.config.primary_checkout,
-            ("merge", "--no-ff", str(fresh["source_head"]), "-m", merge_message),
-        )
-        merge_commit = rev_parse(project.repo_root, project.config.primary_branch)
-        post_results = [
-            run_check_argv(project.config.primary_checkout, value) for value in post_checks
-        ]
-        checks_ok = all(row["ok"] for row in post_results)
-        registry = read_registry(project.common_dir, target.key)
-        if registry:
-            registry = dict(registry)
-            registry.update(
-                {
-                    "state": "merged" if checks_ok else "merged_checks_failed",
-                    "merge_commit": merge_commit,
-                }
-            )
-            write_registry(project.common_dir, target.key, registry)
-        update_operation(
-            project.common_dir,
-            operation,
-            status="completed" if checks_ok else "merged_checks_failed",
-            resume_allowed=not checks_ok,
-            merge_commit=merge_commit,
-            merge_stdout=merge_result.stdout,
-            pre_checks=pre_results,
-            post_checks=post_results,
-        )
-        return {
-            **fresh,
-            "status": "merged" if checks_ok else "merged_checks_failed",
-            "merge_commit": merge_commit,
-            "operation_id": operation["operation_id"],
-            "pre_checks": pre_results,
-            "post_checks": post_results,
-        }
-    except BaseException as exc:
-        update_operation(
-            project.common_dir,
-            operation,
-            status="failed",
-            resume_allowed=True,
-            error=f"{type(exc).__name__}: {exc}",
-        )
-        raise
-    finally:
-        if primary_lock is not None:
-            release_operation_lock(primary_lock)
-        release_operation_lock(lock)
 
 
 def plan_close(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
@@ -927,8 +914,24 @@ def plan_close(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
         project.repo_root, target.branch, project.config.primary_branch
     ):
         raise SystemExit(f"branch_not_merged: {target.branch}")
+    artifact_payload = load_artifact_plan(project.common_dir, target.key)
+    if record and artifact_payload is None:
+        artifact_payload = build_artifact_plan(
+            target_key=target.key,
+            source_head=rev_parse(project.repo_root, target.branch),
+            source_path=target.path,
+            cache_patterns=project.config.artifact_cache_patterns,
+            discardable_patterns=project.config.artifact_discardable_patterns,
+        )
+    artifact_ready = (
+        True
+        if artifact_payload is None
+        else artifact_handoff_ready_for_promotion(artifact_payload)
+    )
     if record is None and not branch_present and not path_exists:
         status = "already_closed"
+    elif not artifact_ready:
+        status = "artifact_handoff_required"
     else:
         status = "ready_to_close"
     return {
@@ -937,47 +940,107 @@ def plan_close(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
         "worktree_registered": record is not None,
         "branch_exists": branch_present,
         "path_exists": path_exists,
+        "artifact_handoff_ready": artifact_ready,
+        "artifact_handoff": artifact_payload,
     }
 
 
-def apply_close(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
+def apply_close(
+    project: GitProject,
+    target: WorktreeTarget,
+    *,
+    wait_timeout_seconds: int = 120,
+    operation_id: str | None = None,
+) -> dict[str, Any]:
     plan = plan_close(project, target)
     if plan["status"] == "already_closed":
         delete_registry(project.common_dir, target.key)
         return plan
-    operation = create_operation(
-        project.common_dir,
-        command="worktree.close",
-        target=target,
-        extra={"plan": plan},
+    if plan["status"] == "artifact_handoff_required":
+        raise SystemExit(f"artifact_handoff_required: {target.key}")
+    if operation_id:
+        try:
+            operation = load_operation(project.common_dir, operation_id)
+        except SystemExit:
+            operation = create_operation(
+                project.common_dir,
+                command="worktree.close",
+                target=target,
+                extra={"plan": plan, "wait_timeout_seconds": wait_timeout_seconds},
+                operation_id=operation_id,
+            )
+        else:
+            if operation.get("command") != "worktree.close":
+                raise SystemExit(f"operation_resume_unsupported: {operation.get('command')}")
+            operation["plan"] = plan
+            operation["wait_timeout_seconds"] = wait_timeout_seconds
+            operation["resume_allowed"] = True
+            update_operation(
+                project.common_dir,
+                operation,
+                status="closing",
+                error=None,
+            )
+    else:
+        operation = create_operation(
+            project.common_dir,
+            command="worktree.close",
+            target=target,
+            extra={"plan": plan, "wait_timeout_seconds": wait_timeout_seconds},
+        )
+    policy = MergeRetryPolicy(
+        lock_wait_timeout_seconds=max(0, wait_timeout_seconds),
+        state_wait_timeout_seconds=max(0, wait_timeout_seconds),
+        initial_delay_seconds=1.0,
+        max_delay_seconds=30.0,
+        jitter_ratio=0.10,
     )
-    lock = acquire_operation_lock(
-        project.common_dir, f"{target.key}-worktree", str(operation["operation_id"])
-    )
+    lease = None
     try:
+        lease, waits = acquire_lock_with_wait(
+            project.common_dir,
+            key=f"{target.key}-lifecycle",
+            operation_id=str(operation["operation_id"]),
+            command="worktree.close",
+            target_key=target.key,
+            policy=policy,
+            timeout_seconds=wait_timeout_seconds,
+        )
+        update_operation(
+            project.common_dir,
+            operation,
+            lock_waits=waits,
+            status="closing",
+        )
         fresh = plan_close(project, target)
-        record = record_for_path(list_worktrees(project.repo_root), target.path)
-        if record:
-            run_git(
-                project.repo_root,
-                ("worktree", "remove", str(target.path)),
-            )
-            update_operation_step(
-                project.common_dir,
-                operation,
-                "worktree_removed",
-                "completed",
-            )
-        elif target.path.exists():
-            raise SystemExit(f"orphan_target_path: {target.path}")
-        if branch_exists(project.repo_root, target.branch):
-            run_git(project.repo_root, ("branch", "-d", target.branch))
-            update_operation_step(
-                project.common_dir,
-                operation,
-                "branch_deleted",
-                "completed",
-            )
+        if fresh["status"] == "artifact_handoff_required":
+            raise SystemExit(f"artifact_handoff_required: {target.key}")
+        worktree_result = _close_remove_worktree_with_retry(
+            project,
+            target,
+            timeout_seconds=wait_timeout_seconds,
+            policy=policy,
+        )
+        update_operation_step(
+            project.common_dir,
+            operation,
+            "worktree_removed",
+            "completed" if worktree_result["removed"] else "not_present",
+            **worktree_result,
+        )
+        branch_result = _close_delete_branch_with_retry(
+            project,
+            target,
+            timeout_seconds=wait_timeout_seconds,
+            policy=policy,
+        )
+        update_operation_step(
+            project.common_dir,
+            operation,
+            "branch_deleted",
+            "completed" if branch_result["removed"] else "not_present",
+            **branch_result,
+        )
         delete_registry(project.common_dir, target.key)
         update_operation(
             project.common_dir,
@@ -989,6 +1052,8 @@ def apply_close(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
             **fresh,
             "status": "closed",
             "operation_id": operation["operation_id"],
+            "worktree_cleanup": worktree_result,
+            "branch_cleanup": branch_result,
         }
     except BaseException as exc:
         update_operation(
@@ -1000,7 +1065,79 @@ def apply_close(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
         )
         raise
     finally:
-        release_operation_lock(lock)
+        if lease is not None:
+            release_owned_lock(lease)
+
+
+def _close_remove_worktree_with_retry(
+    project: GitProject,
+    target: WorktreeTarget,
+    *,
+    timeout_seconds: int,
+    policy: MergeRetryPolicy,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    attempt = 0
+    errors: list[str] = []
+    while True:
+        record = record_for_path(list_worktrees(project.repo_root), target.path)
+        if record is None:
+            if target.path.exists():
+                raise SystemExit(f"orphan_target_path: {target.path}")
+            return {"removed": False, "attempts": attempt, "errors": errors}
+        if not is_clean(record.path):
+            raise SystemExit(f"worktree_dirty: {record.path}")
+        result = run_git(
+            project.repo_root,
+            ("worktree", "remove", str(target.path)),
+            check=False,
+        )
+        if result.returncode == 0:
+            return {"removed": True, "attempts": attempt + 1, "errors": errors}
+        errors.append(result.stderr.strip() or result.stdout.strip())
+        elapsed = time.monotonic() - started
+        if elapsed >= timeout_seconds:
+            raise SystemExit(f"worktree_close_timeout: {target.path}")
+        delay = min(
+            retry_delay(policy, attempt, seed=f"close:{target.key}"),
+            timeout_seconds - elapsed,
+        )
+        attempt += 1
+        time.sleep(delay)
+
+
+def _close_delete_branch_with_retry(
+    project: GitProject,
+    target: WorktreeTarget,
+    *,
+    timeout_seconds: int,
+    policy: MergeRetryPolicy,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    attempt = 0
+    errors: list[str] = []
+    while True:
+        if not branch_exists(project.repo_root, target.branch):
+            return {"removed": False, "attempts": attempt, "errors": errors}
+        if not is_ancestor(project.repo_root, target.branch, target.base_branch):
+            raise SystemExit(f"branch_not_merged: {target.branch}")
+        result = run_git(
+            project.repo_root,
+            ("branch", "-d", target.branch),
+            check=False,
+        )
+        if result.returncode == 0:
+            return {"removed": True, "attempts": attempt + 1, "errors": errors}
+        errors.append(result.stderr.strip() or result.stdout.strip())
+        elapsed = time.monotonic() - started
+        if elapsed >= timeout_seconds:
+            raise SystemExit(f"worktree_branch_delete_timeout: {target.branch}")
+        delay = min(
+            retry_delay(policy, attempt, seed=f"close-branch:{target.key}"),
+            timeout_seconds - elapsed,
+        )
+        attempt += 1
+        time.sleep(delay)
 
 
 def resume_operation(project: GitProject, operation_id: str) -> dict[str, Any]:
@@ -1039,5 +1176,20 @@ def resume_operation(project: GitProject, operation_id: str) -> dict[str, Any]:
     if command == "worktree.create":
         return apply_create(project, target)
     if command == "worktree.close":
-        return apply_close(project, target)
+        return apply_close(
+            project,
+            target,
+            wait_timeout_seconds=int(operation.get("wait_timeout_seconds") or 120),
+            operation_id=operation_id,
+        )
+    if command == "worktree.merge" and operation.get("schema_version") == "acf.git_operation.v2":
+        from ai_context_framework.worktree_resilient_merge import resume_resilient_merge
+
+        return resume_resilient_merge(
+            project,
+            operation_id,
+            target=target,
+            plan_factory=lambda: plan_merge(project, target),
+            check_runner=run_check_argv,
+        )
     raise SystemExit(f"operation_resume_unsupported: {command}")

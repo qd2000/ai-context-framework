@@ -2,6 +2,29 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.56 — 2026-08-06
+
+### 新增
+
+- `acf worktree merge` 统一改为临时 integration worktree 执行：真实 no-ff merge、冲突解决和 post-check 不再发生在 primary checkout；primary 只执行候选验证后的 fast-forward promotion。
+- primary checkout 允许保留与候选无碰撞的 staged、unstaged 和 untracked 修改；merge-plan 输出结构化工作区快照、候选写入集合、相同重叠和分歧碰撞。
+- 新增有限等待、指数退避、lock heartbeat、stale-lock 安全隔离、primary/source HEAD 自动重规划和 operation v2 resume。
+- 新增 `acf worktree artifact-plan|artifact-migrate`，对 ignored/untracked 结果执行显式分类、复制或稳定引用和 SHA-256 验证；普通路径默认 `unknown`，不能静默删除。
+- 冲突、post-check 失败和 artifact 未完成时保留 integration worktree；修复或分类后使用原 operation ID 继续。
+- close 与 merge 共用来源 lifecycle 锁，支持 Windows 文件占用退避、部分成功 journal 和幂等恢复。
+
+### 配置与安全
+
+- 新增 `primary_dirty_policy = "allow_non_overlapping"|"require_clean"`；两种策略都使用同一 integration 引擎，不恢复旧的 primary direct merge。
+- 新增 `artifact_cache_patterns` 和 `artifact_discardable_patterns`；只有项目配置或本次 CLI 明确声明的路径才自动放行。
+- 相同 untracked/ignored 重叠只在内容、mode 和类型全部与候选一致时使用可恢复 quarantine；promotion 失败会原子恢复，成功后才删除冗余副本。
+- 继续禁止自动 stash、reset、clean、rebase、force、push 和静默冲突选择。
+
+### 验证
+
+- 新增临时真实 Git 仓库场景，覆盖无关 staged/unstaged 保留、相同/不同重叠、ignored 碰撞、短时路径竞争、锁等待、HEAD 推进重规划、冲突解决、post-check 修复、artifact 迁移、close 重试和部分恢复。
+- 完整测试、模板/strict check、构建制品、隔离安装和真实 dogfooding 升级记录见 2026-08-06 worklog。
+
 ## v0.0.3.55 — 2026-08-04
 
 ### 变更

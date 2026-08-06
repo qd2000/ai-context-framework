@@ -20,7 +20,13 @@ ai_context_framework/runtime.py
 ai_context_framework/tables.py
 ai_context_framework/templates.py
 ai_context_framework/version.py
+ai_context_framework/worktree_artifacts.py
+ai_context_framework/worktree_collision.py
+ai_context_framework/worktree_merge_contracts.py
+ai_context_framework/worktree_resilient_merge.py
+ai_context_framework/worktree_retry.py
 ai_context_framework/worktree_service.py
+ai_context_framework/worktree_status.py
 ai_context_framework.egg-info/PKG-INFO
 ai_context_framework.egg-info/SOURCES.txt
 ai_context_framework.egg-info/dependency_links.txt
@@ -109,4 +115,11 @@ tests/test_log_inventory.py
 tests/test_package_skeleton.py
 tests/test_upgrade_audit.py
 tests/test_upgrade_matrix.py
+tests/test_worktree_artifacts.py
 tests/test_worktree_cli.py
+tests/test_worktree_collision.py
+tests/test_worktree_merge_contracts.py
+tests/test_worktree_resilient_merge.py
+tests/test_worktree_retry.py
+tests/test_worktree_status.py
+tests/worktree_scenarios.py

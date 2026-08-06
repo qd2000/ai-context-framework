@@ -12,6 +12,14 @@ from ai_context_framework.git_support import (
     target_payload,
 )
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
+from ai_context_framework.worktree_artifacts import (
+    build_artifact_plan,
+    load_artifact_plan,
+    migrate_artifacts,
+    parse_artifact_overrides,
+    write_artifact_plan,
+)
+from ai_context_framework.worktree_merge_contracts import MergeRetryPolicy
 from ai_context_framework.worktree_service import (
     apply_close,
     apply_create,
@@ -238,17 +246,44 @@ def worktree_merge_command(args: argparse.Namespace) -> int:
                 "ok": True,
                 "next_actions": []
                 if plan["status"] == "already_merged"
-                else ["Review the merge plan and rerun with --apply."],
+                else ["Review the integration-worktree merge plan and rerun with --apply."],
             },
         )
+    policy = MergeRetryPolicy(
+        max_replans=args.max_replans,
+        conflict_replans=args.conflict_replans,
+        lock_wait_timeout_seconds=args.lock_wait_timeout,
+        state_wait_timeout_seconds=args.wait_timeout,
+        initial_delay_seconds=args.initial_delay,
+        max_delay_seconds=args.max_delay,
+        jitter_ratio=args.jitter_ratio,
+    )
+    overrides = parse_artifact_overrides(
+        required=args.artifact_required or [],
+        references=args.artifact_reference or [],
+        caches=args.artifact_cache or [],
+        discardable=args.artifact_discardable or [],
+    )
     result = apply_merge(
         project,
         target,
         message=args.message,
         pre_checks=args.pre_check_json or [],
         post_checks=args.post_check_json or [],
+        retry_policy=policy,
+        artifact_overrides=overrides,
+        operation_id=args.operation_id,
     )
-    exit_code = 0 if result["status"] != "merged_checks_failed" else 1
+    success_statuses = {"merged", "already_merged"}
+    exit_code = 0 if result["status"] in success_statuses else 1
+    error_by_status = {
+        "pre_check_failed": "worktree_pre_merge_check_failed",
+        "candidate_checks_failed": "worktree_post_merge_check_failed",
+        "conflict_resolution_required": "merge_conflicts_detected",
+        "artifact_handoff_required": "artifact_handoff_required",
+        "paused_retryable": "worktree_merge_paused_retryable",
+        "merged_post_verify_failed": "worktree_post_merge_verify_failed",
+    }
     return _emit(
         args,
         "worktree merge",
@@ -256,10 +291,86 @@ def worktree_merge_command(args: argparse.Namespace) -> int:
             **result,
             "applied": True,
             "ok": exit_code == 0,
-            "error_code": None if exit_code == 0 else "worktree_post_merge_check_failed",
+            "error_code": None if exit_code == 0 else error_by_status.get(result["status"], "worktree_merge_incomplete"),
             "next_actions": []
             if exit_code == 0
-            else ["Inspect failed post-merge checks and repair main; ACF does not reset the merge commit."],
+            else [str(result.get("next_action") or "Inspect the operation journal and resume safely.")],
+        },
+        exit_code=exit_code,
+    )
+
+
+def worktree_artifact_plan_command(args: argparse.Namespace) -> int:
+    project = _project(args)
+    target = _existing_target(args, project)
+    from ai_context_framework.git_support import rev_parse
+
+    payload = build_artifact_plan(
+        target_key=target.key,
+        source_head=rev_parse(project.repo_root, target.branch),
+        source_path=target.path,
+        overrides=parse_artifact_overrides(
+            required=args.required or [],
+            references=args.reference or [],
+            caches=args.cache or [],
+            discardable=args.discardable or [],
+        ),
+        cache_patterns=project.config.artifact_cache_patterns,
+        discardable_patterns=project.config.artifact_discardable_patterns,
+    )
+    manifest_path = None
+    if args.apply:
+        manifest_path = str(write_artifact_plan(project.common_dir, payload))
+    return _emit(
+        args,
+        "worktree artifact-plan",
+        {
+            "status": payload["status"],
+            "applied": bool(args.apply),
+            "target": target_payload(target),
+            "manifest_path": manifest_path,
+            "manifest": payload,
+            "ok": True,
+            "next_actions": []
+            if payload["status"] == "verified"
+            else ["Classify unknown entries and rerun artifact-plan --apply or artifact-migrate."],
+        },
+    )
+
+
+def worktree_artifact_migrate_command(args: argparse.Namespace) -> int:
+    project = _project(args)
+    target = _existing_target(args, project)
+    payload = load_artifact_plan(project.common_dir, target.key)
+    if payload is None:
+        raise SystemExit(f"artifact_manifest_not_found: {target.key}")
+    if not args.apply:
+        return _emit(
+            args,
+            "worktree artifact-migrate",
+            {
+                "status": "migration_planned",
+                "applied": False,
+                "target": target_payload(target),
+                "manifest": payload,
+                "ok": True,
+                "next_actions": ["Review the manifest and rerun with --apply."],
+            },
+        )
+    result = migrate_artifacts(project.common_dir, payload, source_path=target.path)
+    exit_code = 0 if result["promotion_ready"] else 1
+    return _emit(
+        args,
+        "worktree artifact-migrate",
+        {
+            **result,
+            "applied": True,
+            "target": target_payload(target),
+            "ok": exit_code == 0,
+            "error_code": None if exit_code == 0 else "artifact_handoff_incomplete",
+            "next_actions": []
+            if exit_code == 0
+            else ["Classify unknown entries or repair failed destinations, then retry."],
         },
         exit_code=exit_code,
     )
@@ -279,10 +390,17 @@ def worktree_close_command(args: argparse.Namespace) -> int:
                 "ok": True,
                 "next_actions": []
                 if plan["status"] == "already_closed"
+                else ["Complete artifact handoff first."]
+                if plan["status"] == "artifact_handoff_required"
                 else ["Review the close plan and rerun with --apply."],
             },
         )
-    result = apply_close(project, target)
+    result = apply_close(
+        project,
+        target,
+        wait_timeout_seconds=args.wait_timeout,
+        operation_id=args.operation_id,
+    )
     return _emit(
         args,
         "worktree close",
