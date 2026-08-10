@@ -2,7 +2,7 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
-## Unreleased
+## v0.0.3.58 — 2026-08-10
 
 ### 发布与安装
 

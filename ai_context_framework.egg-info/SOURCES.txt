@@ -70,6 +70,11 @@ ai_context_framework/validators/__init__.py
 ai_context_framework/validators/checks.py
 ai_context_framework/validators/template_checks.py
 docs/Worktree_Lifecycle.md
+scripts/install_acf.ps1
+scripts/install_acf.sh
+scripts/release_check.py
+scripts/update_acf.ps1
+scripts/update_acf.sh
 scripts/worktree_release_smoke.py
 template/AGENTS.md
 template/active/Context.md

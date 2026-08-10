@@ -1,0 +1,39 @@
+name: Publish release to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build, verify, and publish
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ai-context-framework
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.11.26"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install project
+        run: uv sync --locked
+
+      - name: Run release gates and package smoke
+        run: uv run python scripts/release_check.py --mode full --output-dir dist
+
+      - name: Publish distributions
+        run: uv publish

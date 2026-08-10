@@ -11,15 +11,20 @@ SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
 def find_template_dir() -> Path:
     source_template = SOURCE_ROOT / "template"
-    if source_template.is_dir():
-        return source_template
-
     installed_template = (
         Path(sysconfig.get_path("data"))
         / "share"
         / "ai-context-framework"
         / "template"
     )
+
+    # Some installers leave a partial ``site-packages/template`` directory
+    # while installing data-files under the interpreter's data prefix. Only
+    # treat the source path as authoritative when its root marker is present;
+    # otherwise prefer the complete installed data-files location.
+    if (source_template / "AGENTS.md").is_file():
+        return source_template
+
     if installed_template.is_dir():
         return installed_template
 
