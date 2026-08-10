@@ -2,6 +2,19 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.57 — 2026-08-10
+
+### 修复
+
+- `acf workstream reserve --apply` 不再因为 primary checkout 存在其他 agent 的无关 staged、unstaged 或 untracked 修改而失败。
+- 预约提交改为只提交 reservation detail/index；只有预约路径本身或父子路径发生冲突时才 fail-closed，并保留其他本地修改。
+- 补充预约路径冲突、并行 dirty 状态保留和冲突修复后恢复测试及对应 JSON error contract。
+
+### 验证
+
+- 通过 template/strict check、编译检查、diff check 和分片 unittest；分片覆盖 423 项测试。
+- 完整 `uv run python -m unittest` 在工具 10 分钟窗口内超时，但各测试分片均通过，未将聚合超时计作通过。
+
 ## v0.0.3.56 — 2026-08-06
 
 ### 新增

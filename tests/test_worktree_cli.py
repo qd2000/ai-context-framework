@@ -306,10 +306,10 @@ class WorktreeCliTests(unittest.TestCase):
         self.assertIn(f"merge_owner: {payload['id']}", text)
         self.assertIn("coordination: serial", text)
 
-    def test_reserve_dirty_primary_is_refused_without_staging(self):
+    def test_reserve_allows_unrelated_dirty_primary(self):
         _root, repo, context = self.make_repo()
         (repo / "dirty.txt").write_text("dirty", encoding="utf-8")
-        code, payload, _stderr = self.json_cli(
+        code, payload, stderr = self.json_cli(
             [
                 "workstream",
                 "reserve",
@@ -323,9 +323,120 @@ class WorktreeCliTests(unittest.TestCase):
                 "--apply",
             ]
         )
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(payload["status"], "reserved")
+        self.assertIn("?? dirty.txt", git(repo, "status", "--porcelain").stdout)
+        changed = git(repo, "show", "--format=", "--name-only", "HEAD").stdout.splitlines()
+        self.assertEqual(
+            sorted(line for line in changed if line),
+            [
+                "docs/ai/active/Workstreams.md",
+                "docs/ai/active/workstreams/WS001.md",
+            ],
+        )
+
+    def test_reserve_preserves_unrelated_staged_and_unstaged_primary_changes(self):
+        _root, repo, context = self.make_repo()
+        tracked = repo / "tracked.txt"
+        tracked.write_text("base\n", encoding="utf-8")
+        git(repo, "add", "tracked.txt")
+        git(repo, "commit", "-m", "tracked baseline")
+        tracked.write_text("changed\n", encoding="utf-8")
+        staged = repo / "staged.txt"
+        staged.write_text("staged\n", encoding="utf-8")
+        git(repo, "add", "staged.txt")
+
+        code, payload, stderr = self.json_cli(
+            [
+                "workstream",
+                "reserve",
+                str(context),
+                "--title",
+                "Dirty staged",
+                "--slug",
+                "dirty-staged-task",
+                "--owner",
+                "codex",
+                "--apply",
+            ]
+        )
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(payload["status"], "reserved")
+        self.assertEqual(
+            git(repo, "diff", "--cached", "--name-only").stdout.strip(),
+            "staged.txt",
+        )
+        self.assertEqual(git(repo, "diff", "--name-only").stdout.strip(), "tracked.txt")
+        self.assertEqual(tracked.read_text(encoding="utf-8"), "changed\n")
+        self.assertEqual(staged.read_text(encoding="utf-8"), "staged\n")
+        changed = git(repo, "show", "--format=", "--name-only", "HEAD").stdout.splitlines()
+        self.assertEqual(
+            sorted(line for line in changed if line),
+            [
+                "docs/ai/active/Workstreams.md",
+                "docs/ai/active/workstreams/WS001.md",
+            ],
+        )
+
+    def test_reserve_rejects_dirty_reservation_path(self):
+        _root, repo, context = self.make_repo()
+        index = context / "active" / "Workstreams.md"
+        index.write_text(index.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        code, payload, _stderr = self.json_cli(
+            [
+                "workstream",
+                "reserve",
+                str(context),
+                "--title",
+                "Index collision",
+                "--slug",
+                "index-collision",
+                "--owner",
+                "codex",
+                "--apply",
+            ]
+        )
         self.assertNotEqual(code, 0)
-        self.assertEqual(payload["error_code"], "primary_checkout_dirty")
-        self.assertFalse(git(repo, "diff", "--cached", "--name-only").stdout.strip())
+        self.assertEqual(payload["error_code"], "primary_reservation_path_conflict")
+        self.assertFalse((context / "active" / "workstreams" / "WS001.md").exists())
+        self.assertIn("Workstreams.md", payload["message"])
+
+    def test_reserve_path_conflict_can_resume_after_path_is_cleaned(self):
+        _root, repo, context = self.make_repo()
+        index = context / "active" / "Workstreams.md"
+        index.write_text(index.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        code, payload, _stderr = self.json_cli(
+            [
+                "workstream",
+                "reserve",
+                str(context),
+                "--title",
+                "Resume collision",
+                "--slug",
+                "resume-collision",
+                "--owner",
+                "codex",
+                "--apply",
+            ]
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(payload["error_code"], "primary_reservation_path_conflict")
+        operation_path = sorted((repo / ".git" / "acf" / "operations").glob("*.json"))[0]
+        operation = json.loads(operation_path.read_text(encoding="utf-8"))
+        git(repo, "restore", "--", "docs/ai/active/Workstreams.md")
+
+        code, resumed, stderr = self.json_cli(
+            [
+                "workstream",
+                "reserve",
+                str(context),
+                "--resume-operation",
+                operation["operation_id"],
+                "--apply",
+            ]
+        )
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(resumed["status"], "reserved")
 
     def test_reserve_uses_next_id_across_archive_and_branch_refs(self):
         _root, repo, context = self.make_repo()

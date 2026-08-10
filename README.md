@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.56` 是当前推荐的真实项目正式使用稳定版本。该版本保留 `v0.0.3.55` 的 GlobalOnly / pointer-only 上下文路由，并重构 Git worktree 合并链：每次 merge 都在临时 integration worktree 中生成、解决冲突和验证候选，primary checkout 只执行 collision-aware fast-forward promotion；无关 staged/unstaged/untracked 修改可以保留，短时锁、路径状态和 HEAD 推进会有限等待或自动重规划。新增 ignored/untracked artifact handoff、operation v2 resume 和 close 部分恢复；原 Workstream、reserve、create、sync 及未使用 worktree 的项目行为保持兼容。
+`v0.0.3.57` 是当前推荐的真实项目正式使用稳定版本。该版本保留 `v0.0.3.56` 的 GlobalOnly / pointer-only 上下文路由和临时 integration worktree 合并链，并修复 Workstream 预约的 dirty-primary 门禁：无关 staged/unstaged/untracked 修改可以保留，预约提交只包含 reservation detail/index；只有预约路径本身或父子路径冲突才会阻塞。原 Workstream、reserve、create、sync 及未使用 worktree 的项目行为保持兼容。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
@@ -335,6 +335,8 @@ acf worktree verify --workstream WS005 --json
 ```
 
 第一条命令只预约并提交 WS 编号；第二条只有在 AI 判断需要隔离环境时才调用。未配置或未调用 `acf worktree` 的项目继续使用原有 Workstream 和上下文逻辑。
+
+`reserve --apply` 不要求 primary checkout 完全 clean：与 reservation detail/index 无关的 staged、unstaged、untracked 修改会被保留；reservation 路径自身或父子路径发生冲突时才会 fail-closed。
 
 ### Workstream guard 模式
 

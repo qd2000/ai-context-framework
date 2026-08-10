@@ -60,6 +60,8 @@ acf workstream reserve `
 5. 精确暂存 detail/index；
 6. 创建 `文档：登记WSNNN任务占位` 提交。
 
+预约不要求 primary checkout 完全 clean。与 reservation detail、`active/Workstreams.md` 或其父子路径无关的 staged、unstaged、untracked 修改会被保留，预约提交只包含 detail/index 两个目标文件；如果这两个目标路径已有其他修改，ACF 会 fail-closed 并要求先处理路径冲突。
+
 它不会创建分支或 worktree。取消、归档、失败 journal 中已经出现的编号都不自动复用。
 
 默认命令只输出计划；`--apply` 才写入和提交。预约被 Git hook 或其他可恢复错误中断时：

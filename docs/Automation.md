@@ -30,7 +30,7 @@
 - `edit section get|replace|append`：读取、替换或追加上下文根目录内 Markdown 文件的指定 section body。
 - `edit table upsert`：按 key column 更新或追加上下文根目录内 Markdown 表格行。
 - `doctor`：面向人和 AI 的健康诊断入口，复用 `check` 并报告跨文件生命周期漂移、终态 Workstream authority scope 残留、generated index 漂移、attention hygiene 和本地数据副本证据信号；`--fix safe` 只执行确定性低风险修复，`--report` 和 `--draft-semantic` 生成可审阅产物，`--projects` 支持多项目只读诊断。
-- `workstream reserve`：在 primary branch 上通过预约锁、跨 active/archive/Git/journal 编号扫描和精确 staged-file 校验，创建唯一 WS 占位提交；它不创建 branch/worktree，原 `workstream add` 不加载 Git 生命周期。
+- `workstream reserve`：在 primary branch 上通过预约锁、跨 active/archive/Git/journal 编号扫描和 reservation-path 冲突校验，创建唯一 WS 占位提交；使用 Git 的路径限定提交保留其他 agent 的 staged/unstaged/untracked 修改，只阻断 detail/index 自身或其父子路径发生碰撞；它不创建 branch/worktree，原 `workstream add` 不加载 Git 生命周期。
 - `worktree create|attach|verify|list|audit|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|resume`：供 AI 选择调用的可选 Git 生命周期。merge 固定使用临时 integration worktree，primary 只做 collision-aware fast-forward promotion；operation journal 记录候选、检查、artifact、等待、重规划、冲突现场和 promotion。短时锁、路径状态和 HEAD 推进有限重试；冲突或检查失败保留 integration worktree供 resume；ignored/untracked 结果通过 handoff manifest 分类和摘要验证；close 与 merge 共用 lifecycle 锁并支持文件占用退避和部分成功恢复。
 - 使用状态日志：`log enable|disable|status|tail|summarize|projects|prune` 管理默认开启的用户级全局 usage event log，按项目子目录记录命令结果元数据；`log projects --scan-root <path> --json` 支撑跨项目 dogfooding 和旧项目升级盘点。
 - CLI 渐进式披露入口：`acf status|next` 未显式选择 Workstream 时返回 `GlobalOnly`，只给全局文件指针和 Workstream 摘要；attention 不参与路由。显式 `--workstream`、Active Current_Task 唯一绑定或 verified worktree 只返回 pointer-only 入口，随后再调用 `acf workstream context WSNNN` 才披露专属内容。冲突或无效选择保持全局并以结构化错误 fail-closed。模板和 minimal init 产物只提示这些入口、`acf --help` 和系统手册发现路径，不在默认入口列完整命令手册。

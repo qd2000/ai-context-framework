@@ -117,7 +117,7 @@ Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部
 acf workstream reserve --title "任务" --slug task-slug --owner codex --apply --json
 ```
 
-`reserve` 扫描 active/archive/index、Git refs、worktree registry 和 operation journal，在预约锁内重查编号，只提交 Workstream detail 与索引。创建 worktree 是后续可选动作：
+`reserve` 扫描 active/archive/index、Git refs、worktree registry 和 operation journal，在预约锁内重查编号，只提交 Workstream detail 与索引。primary checkout 可以保留与这两个 reservation 路径无关的 staged/unstaged/untracked 修改；若 reservation detail/index 自身或父子路径已被修改，命令会 fail-closed。创建 worktree 是后续可选动作：
 
 ```powershell
 acf worktree create --workstream WS005 --apply --json

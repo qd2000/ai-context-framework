@@ -139,6 +139,10 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Provide --title, --slug, and --owner, or use --resume-operation for an interrupted reservation."]
     if error_code == "workstream_reservation_conflict":
         return ["Inspect the reservation journal and existing detail/index content; ACF will not overwrite conflicting files."]
+    if error_code == "primary_reservation_path_conflict":
+        return ["Keep the reservation detail and Workstreams index paths unchanged, then rerun the reservation; unrelated dirty files are allowed."]
+    if error_code == "primary_local_state_changed_during_reservation":
+        return ["Inspect the primary checkout changes and rerun the reservation only after the protected local state is stable; do not reset or clean another agent's work."]
     if error_code == "workstream_invalid_transition":
         return ["Review the Workstream state machine and use the next valid state."]
     if error_code == "workstream_reason_required":
@@ -240,6 +244,8 @@ def error_next_actions(error_code: str) -> list[str]:
         "primary_branch_mismatch",
         "primary_branch_advanced",
         "primary_checkout_dirty",
+        "primary_reservation_path_conflict",
+        "primary_local_state_changed_during_reservation",
     }:
         return [
             "Review the configured primary checkout, branch, and Git common-dir.",
@@ -387,6 +393,8 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "primary_branch_mismatch",
         "primary_branch_advanced",
         "primary_checkout_dirty",
+        "primary_reservation_path_conflict",
+        "primary_local_state_changed_during_reservation",
         "worktree_slug_invalid",
         "invalid_low_information_slug",
         "worktree_kind_invalid",
