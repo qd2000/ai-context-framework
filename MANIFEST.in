@@ -1,1 +1,9 @@
+include CHANGELOG.md
 recursive-include template *
+include docs/Worktree_Lifecycle.md
+include scripts/worktree_release_smoke.py
+include scripts/release_check.py
+include scripts/install_acf.ps1
+include scripts/update_acf.ps1
+include scripts/install_acf.sh
+include scripts/update_acf.sh

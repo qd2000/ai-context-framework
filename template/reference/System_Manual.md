@@ -20,7 +20,7 @@
 - `active/Feedback_Inbox.md`：人工临时反馈、问题、需求和计划碎片的入口，允许不规范描述，但不直接作为已确认事实。
 - `active/Task_Plan.md`：当前大任务计划和轻量子任务板，记录子任务、规划依据、可选任务阶段、证据和下一步。
 - `active/Current_Task.md`：当前具体任务说明，仅在任务状态为 Active 时作为当前任务事实源；`当前执行线` 只记录正在执行的 Workstream，不记录历史依赖。
-- Workstreams 索引：可选并行目标线索引，仅在显式启用 Workstream 层且存在 Active、Blocked、ReadyToMerge 或 Merging workstream 时按需读取。
+- Workstreams 索引：全局并行目标线摘要。默认只读索引行，不读取任何 Workstream 详情；只有显式选择后才进入单一 WS。
 
 使用规则：
 
@@ -28,7 +28,7 @@
 2. 有 Open 条目或需要整理人工反馈时读取 `active/Feedback_Inbox.md`。
 3. 默认读取 `active/Task_Plan.md`，但该文件必须保持轻量；如果 `## 规划依据` 列出 reference 设计、路线或差距文档，应按任务需要读取这些依据。
 4. 如果 `active/Current_Task.md` 状态为 Active，则读取它；`## 输入材料` 必须列出当前任务所需 active 文件和相关 reference 规划依据。
-5. 如果存在 Active、Blocked、ReadyToMerge 或 Merging workstream，或当前任务需要整理并行协作，则读取 Workstreams 索引，再运行 `acf workstream context WSxxx` 读取对应详情文件和边界。
+5. Workstream 层存在时只读取 Workstreams 摘要。未显式选择 WS 时到此停止；用户或执行合同明确指定后，先运行 `acf status --workstream WSxxx` 获取 pointer-only 入口，再运行 `acf workstream context WSxxx` 读取对应详情和边界。
 6. 如果用户当前消息提出了新的任务，并且与 `active/Current_Task.md` 冲突，以用户当前消息为准。
 7. `active/` 中的信息应保持短、准、当前有效。
 8. 不要把历史过程、旧方案、原始日志写入 `active/`。
@@ -301,7 +301,7 @@ AI 可以提出项目文件更新建议，但不要擅自把内容写入长期�
 3. curation draft 不进入默认读取路径。
 4. 若只处理当前任务，不读取历史日志。
 
-Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging Workstream 时，agent 入口优先使用 Workstreams 索引和 `acf workstream context WSxxx`。`reference/ 是中间材料层`，Knowledge 高可信但不默认全量读取。
+Global-first progressive disclosure：没有明确选择时，无论存在多少 Active / Blocked / ReadyToMerge / Merging Workstream，`acf status|next` 都保持 `GlobalOnly`，只披露全局文件指针和索引摘要；attention 只用于 dashboard 管理。显式 `--workstream`、Active Current_Task 唯一绑定或 verified worktree 可以选择单一 WS，但状态结果仍只给 pointer-only 入口，必须再调用 `acf workstream context WSxxx` 才披露专属 detail/read_scope。选择来源冲突或指向不存在、非活动 WS 时分别返回 `SelectionConflict` / `SelectionInvalid`，保持全局并 fail-closed。`reference/` 是中间材料层，Knowledge 高可信但不默认全量读取。
 
 重要协作结束后，AI 不应默认重复打印完整回写建议清单。应先判断哪些内容可以确定落盘，优先使用 `acf plan`、`acf task`、`acf edit`、`acf new worklog`、`acf knowledge draft`、`acf archive` 或 `acf writeback draft` 写入对应文件或草案。
 
@@ -331,12 +331,12 @@ Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging 
 
 常见安装方式：
 
-- 稳定安装当前源码快照（在仓库根目录执行）：`uv tool install .`
+- 正式发布版本安装：`uv tool install ai-context-framework`
+- 正式发布版本更新：`uv tool upgrade ai-context-framework`
+- 安装或更新后刷新 shell PATH：`uv tool update-shell`
+- 仓库维护者安装当前源码快照：`uv tool install .`
 - 调试 CLI 改动或安装链路时使用 editable 安装：`uv tool install -e .`
-- 安装后更新 shell PATH：`uv tool update-shell`
-- 已安装旧快照时覆盖重装（在仓库根目录执行）：`uv tool install --reinstall .`
-- 发布后按包名安装：`uv tool install ai-context-framework`
-- 从 Git 地址安装：`uv tool install git+<repo-url>`
+- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1` 或 `sh scripts/install_acf.sh`。
 
 验证命令：
 
@@ -346,11 +346,13 @@ Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging 
 - 通用：`acf --help`
 - 查看版本：`acf --version`
 
-请注意：能在任意目录运行 `acf`，不等于任意目录都有 AI 上下文。`acf status --json` 只有在当前目录位于某个包含 `docs/ai`、`docs-acf/ai` 或上下文根目录的项目中时才会成功。否则应先进入项目目录、显式传入上下文路径，或运行 `acf init docs/ai` 初始化。
+请注意：能在任意目录运行 `acf`，不等于任意目录都有 AI 上下文。`acf status --json` 只有在当前目录位于某个包含 `docs/ai`、`docs-acf/ai` 或上下文根目录的项目中时才会成功。否则应先进入项目目录、显式传入上下文路径，或运行 `acf init docs/ai` 初始化。正式用户应从 PyPI 安装；Git URL 只适合临时测试，避免失去发布源升级能力。
 
 ### 15.2 常用命令
 
-- `acf status`：自动发现当前上下文，输出项目根、上下文目录、profile、当前任务状态和检查结果。
+- `acf status`：自动发现当前上下文，默认输出 `GlobalOnly`、全局文件指针、Workstream 摘要、项目根、profile 和检查结果。
+- `acf status --workstream WS001`：显式选择一个活动 Workstream，只返回 pointer-only 入口；随后调用 `acf workstream context WS001` 才读取专属内容。
+- `acf next --workstream WS001`：显式选择后的低风险下一入口；省略参数时保持 global-only。
 - `acf init <target>`：生成标准上下文模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --profile minimal`：生成简化模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
@@ -369,7 +371,19 @@ Workstream-first when active：存在 Active / Blocked / ReadyToMerge / Merging 
 - `acf audit context [target]`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告长 active section、陈旧当前任务 / Workstream 阶段和 ReadyToMerge 待合并或 Done 缺合并结果候选；支持 `--json`。
 - `acf curate draft [target]`：复用 `review stale` 的 stale candidates 生成 curation-drafts 目录下的日期命名注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days`、`--today` 和 `--name`。
 - `acf doctor [target]`：跨文件诊断上下文状态漂移、generated index 漂移、Workstream 生命周期、数据证据和注意力治理信号；默认只读，`--fix safe` 只应用确定性机械修复，`--fix evidence` 只规划 evidence 修复且不改写语义权威文件，`--report` 生成 doctor report，`--draft-semantic` 生成可审阅语义回写草案；支持 `--json`、`--strict`、`--check-after`、`--today`、`--projects`、`--dry-run` 和 `--force`。
-- `acf workstream init|status|list|dashboard|archive-candidates|archive-draft|sync|add [target]` / `acf workstream archive WS001 [target] --reason "..."` / `acf workstream show|context|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note WS001 [target]` / `acf workstream stage add|list|done WS001 [target]` / `acf workstream focus WS001 WS001.1 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`context` 输出 AI 专属任务入口，`guard` 检查变更文件是否符合当前 Workstream 写入边界，完成或切换状态前优先用 `--files` 显式传入本次修改文件做强验收；`scope-add` 以工具化方式扩展 scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并目标；Workstream 类型为 Task / Merge / Maintenance，Task 不直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive` 只在显式指定单个终态 Workstream 和 `--reason` 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 Workstream 详情 front matter 更新 Workstreams 索引，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，ReadyToMerge 表示任务产物完成，`ready` 需要人工确认参数 `--human-approved`，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
+- `acf workstream init|status|list|dashboard|archive-candidates|archive-draft|sync|add|reserve [target]` / `acf workstream archive WS001 [target] --reason "..."` / `acf workstream show|context|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note WS001 [target]` / `acf workstream stage add|list|done WS001 [target]` / `acf workstream focus WS001 WS001.1 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`reserve` 只在 primary branch 预约并提交唯一编号，不创建 branch/worktree；原 `add` 行为不变；`context` 输出 AI 专属任务入口，`guard` 检查变更文件是否符合当前 Workstream 写入边界，完成或切换状态前优先用 `--files` 显式传入本次修改文件做强验收；`scope-add` 以工具化方式扩展 scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并目标；Workstream 类型为 Task / Merge / Maintenance，Task 不直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive` 只在显式指定单个终态 Workstream 和 `--reason` 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 Workstream 详情 front matter 更新 Workstreams 索引，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，ReadyToMerge 表示任务产物完成，`ready` 需要人工确认参数 `--human-approved`，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
+
+`reserve` 不要求 primary checkout 完全 clean；与 reservation detail/index 无关的 staged、unstaged、untracked 修改会被保留，reservation 路径自身或父子路径发生冲突时 fail-closed。
+
+### 可选 Git Worktree 生命周期
+
+创建 Workstream 不会隐式创建 worktree。任务需要长期、并行或独立合并环境时，AI 可单独调用：
+
+```powershell
+acf worktree create --workstream WS001 --apply --json
+```
+
+非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|resume` 提供发现、恢复、同步、临时候选合并、结果迁移和安全关闭。来源 worktree 必须 clean；正式 merge 总是在临时 integration worktree 中执行并运行 post-check，primary checkout 只进行碰撞保护后的 fast-forward promotion，因此可以保留无关 staged/unstaged/untracked 修改。短时锁、Git 状态和 HEAD 推进会有限等待或自动重规划；稳定冲突保留在 integration worktree，解决并提交后使用 operation ID resume。ignored/untracked 结果默认 unknown，必须明确分类并完成 handoff 后才能 promotion/close。写操作默认 plan-only，`--apply` 后执行；项目可在 `.acf/project.toml` 配置 primary checkout/branch、worktree root 和命名模板。ACF 不自动 stash、reset、clean、rebase、force、push、覆盖不一致内容或静默解决冲突。
 
 ### Workstream guard 模式
 

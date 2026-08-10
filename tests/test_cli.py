@@ -2997,6 +2997,53 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "reference" / "Context_Curation_Prompt.md").exists())
             self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
 
+    def test_upgrade_adds_resilient_worktree_merge_rules_idempotently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target)])
+            agents = target / "AGENTS.md"
+            manual = target / "reference" / "System_Manual.md"
+
+            resilient_rule = (
+                "- `acf worktree merge` 必须在 ACF 管理的临时 integration worktree 中完成真实 merge 和 post-check，"
+                "primary checkout 只执行碰撞保护后的 fast-forward promotion。来源 worktree 必须 clean；primary 可保留无关 "
+                "staged/unstaged/untracked 修改。发生冲突、检查失败或短时并发竞争时，优先使用 operation ID 等待、重规划或 "
+                "resume，不得在 primary 中直接制造冲突，也不得自动 stash、reset、clean、rebase 或 force。关闭前必须完成 "
+                "ignored/untracked artifact handoff。"
+            )
+            agents_text = agents.read_text(encoding="utf-8")
+            agents.write_text(agents_text.replace(resilient_rule + "\n", ""), encoding="utf-8")
+
+            new_manual_line = (
+                "非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。"
+                "`worktree list|audit|verify|attach|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|resume` 提供发现、恢复、同步、临时候选合并、结果迁移和安全关闭。"
+            )
+            old_manual_line = (
+                "非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。"
+                "`worktree list|audit|verify|attach|sync|merge-plan|merge|close|resume` 提供发现、恢复、同步、无冲突 no-ff 合并和安全关闭；"
+            )
+            manual_text = manual.read_text(encoding="utf-8")
+            self.assertIn(new_manual_line, manual_text)
+            start = manual_text.index(new_manual_line)
+            end = manual_text.index("\n", start)
+            manual.write_text(
+                manual_text[:start]
+                + old_manual_line
+                + "写操作默认 plan-only，`--apply` 后执行。项目可在 `.acf/project.toml` 配置 primary checkout/branch、worktree root 和命名模板；不配置或不调用 worktree 时，原上下文与 Workstream 命令不受影响。ACF 不自动 stash、reset、clean、rebase、force、push、覆盖目录或解决冲突。"
+                + manual_text[end:],
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
+            self.assertIn(resilient_rule, agents.read_text(encoding="utf-8"))
+            self.assertIn(new_manual_line, manual.read_text(encoding="utf-8"))
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["upgrade", str(target), "--dry-run", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["changed_files"], [])
+
     def test_upgrade_refreshes_existing_stale_template_sections(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

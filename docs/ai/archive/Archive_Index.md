@@ -50,6 +50,8 @@
 | 2026-06-01 | workstream | WS002 | active/workstreams/WS002.md | `archive/workstreams/WS002.md` | Done | WS002 已完成并以 no_merge_required 在本地 master 处置；归档以移出默认 active 上下文。 |
 | 2026-06-09 | workstream | WS003 | active/workstreams/WS003.md | `archive/workstreams/WS003.md` | Done | WS003 implemented, validated, and released as v0.0.3.50. |
 | 2026-06-09 | workstream | WS004 | active/workstreams/WS004.md | `archive/workstreams/WS004.md` | Done | WS004 已完成并在 master 提交；无需继续占用 active Workstream 层。 |
+| 2026-08-04 | workstream | WS005 | active/workstreams/WS005.md | `archive/workstreams/WS005.md` | Done | WS005已合入master，生产acf v0.0.3.54完整生命周期smoke通过，关联worktree与分支已安全关闭。 |
+| 2026-08-05 | workstream | WS006 | active/workstreams/WS006.md | `archive/workstreams/WS006.md` | Done | ACF v0.0.3.55 global-first progressive disclosure released to production and validated in FCC. |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |

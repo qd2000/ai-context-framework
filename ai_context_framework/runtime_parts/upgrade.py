@@ -464,6 +464,20 @@ def upgraded_agents_text(text: str, include_human: bool = False) -> str:
         for heading in ("## 目录结构", "## 按需读取指引", "## 事实源优先级", "## 目标信息来源"):
             if section_exists(text, heading):
                 text = replace_section_from_template(text, "AGENTS.md", heading)
+    resilient_merge_rule = (
+        "- `acf worktree merge` 必须在 ACF 管理的临时 integration worktree 中完成真实 merge 和 post-check，"
+        "primary checkout 只执行碰撞保护后的 fast-forward promotion。来源 worktree 必须 clean；primary 可保留无关 "
+        "staged/unstaged/untracked 修改。发生冲突、检查失败或短时并发竞争时，优先使用 operation ID 等待、重规划或 "
+        "resume，不得在 primary 中直接制造冲突，也不得自动 stash、reset、clean、rebase 或 force。关闭前必须完成 "
+        "ignored/untracked artifact handoff。"
+    )
+    if resilient_merge_rule not in text:
+        worktree_rule = (
+            "- 创建 Workstream 不隐式创建 Git worktree。需要先预约唯一编号时调用 `acf workstream reserve`；长期、并行或需独立合并的任务由 AI 再调用 "
+            "`acf worktree create --workstream WSxxx --apply --json`。不需要隔离环境的 Workstream 继续在原执行位置推进；不得仅因 Workstream 存在就创建 worktree。"
+        )
+        if worktree_rule in text:
+            text = text.replace(worktree_rule, worktree_rule + "\n" + resilient_merge_rule)
     text = add_context_curation_prompt_entry(text)
     if "active/Task_Plan.md" not in text and not has_upgrade_notes_marker(text):
         text = append_upgrade_notes_if_needed(text, "agents")
@@ -493,6 +507,10 @@ def upgraded_project_rules_text(text: str) -> str:
 
 def upgraded_system_manual_text(text: str) -> str:
     text = migrate_legacy_acf_markers(text)
+    text = text.replace(
+        "非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach|sync|merge-plan|merge|close|resume` 提供发现、恢复、同步、无冲突 no-ff 合并和安全关闭；写操作默认 plan-only，`--apply` 后执行。项目可在 `.acf/project.toml` 配置 primary checkout/branch、worktree root 和命名模板；不配置或不调用 worktree 时，原上下文与 Workstream 命令不受影响。ACF 不自动 stash、reset、clean、rebase、force、push、覆盖目录或解决冲突。",
+        "非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|resume` 提供发现、恢复、同步、临时候选合并、结果迁移和安全关闭。来源 worktree 必须 clean；正式 merge 总是在临时 integration worktree 中执行并运行 post-check，primary checkout 只进行碰撞保护后的 fast-forward promotion，因此可以保留无关 staged/unstaged/untracked 修改。短时锁、Git 状态和 HEAD 推进会有限等待或自动重规划；稳定冲突保留在 integration worktree，解决并提交后使用 operation ID resume。ignored/untracked 结果默认 unknown，必须明确分类并完成 handoff 后才能 promotion/close。写操作默认 plan-only，`--apply` 后执行；项目可在 `.acf/project.toml` 配置 primary checkout/branch、worktree root 和命名模板。ACF 不自动 stash、reset、clean、rebase、force、push、覆盖不一致内容或静默解决冲突。",
+    )
     text = text.replace(
         "每次重要协作结束后，AI 应输出标准化的回写建议（格式见 AGENTS.md）。\n\n最终是否写入，由用户决定。",
         "重要协作结束后，AI 不应默认重复打印完整回写建议清单。应先判断哪些内容可以确定落盘，优先使用 `acf plan`、`acf task`、`acf edit`、`acf new worklog`、`acf knowledge draft`、`acf archive` 或 `acf writeback draft` 写入对应文件或草案。\n\n最终回复只报告实际修改的文件、生成的草案、执行的检查和仍需人工判断的风险。没有变化的类别不需要输出“无需更新”。",

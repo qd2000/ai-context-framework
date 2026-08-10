@@ -25,6 +25,8 @@ def write_command_context_root(args: argparse.Namespace) -> Path | None:
             if getattr(args, "workstream_stage_command", None) in {"add", "done"}:
                 return require_context_root(getattr(args, "path", None))
             return None
+        if getattr(args, "workstream_command", None) == "reserve":
+            return require_context_root(getattr(args, "path", None)) if getattr(args, "apply", False) else None
         if getattr(args, "workstream_command", None) in {
             "init",
             "add",

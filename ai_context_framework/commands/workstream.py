@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from ai_context_framework.models import WorkstreamArchiveAssessment, WorkstreamDetail, WorkstreamEntry
+from ai_context_framework.commands.status_check import workstream_entry_payload as attention_entry_payload
 
 
 @dataclass(frozen=True)
@@ -649,6 +650,7 @@ def workstream_add_command(args: argparse.Namespace, *, deps: WorkstreamDependen
                 output,
                 goal,
                 workstream_kind,
+                args.attention,
             ),
             encoding="utf-8",
         )
@@ -662,7 +664,7 @@ def workstream_add_command(args: argparse.Namespace, *, deps: WorkstreamDependen
         f"{action} Workstream {args.id}",
         changed,
         check_result,
-        extra_payload={"id": args.id, "type": workstream_kind, "status": "Open", "detail": str(detail_path)},
+        extra_payload={"id": args.id, "type": workstream_kind, "status": "Open", "attention": args.attention, "detail": str(detail_path)},
     )
 
 
@@ -671,23 +673,28 @@ def workstream_set_command(args: argparse.Namespace, *, deps: WorkstreamDependen
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     goal = args.goal.strip() if args.goal is not None else None
-    if args.status is None and goal is None:
-        raise SystemExit("workstream_update_required: set requires --status or --goal")
+    if args.status is None and goal is None and args.attention is None:
+        raise SystemExit("workstream_update_required: set requires --status, --goal, or --attention")
     if goal == "":
         raise SystemExit("workstream_update_required: --goal cannot be empty")
     if args.status in {"ReadyToMerge", "Done"}:
         raise SystemExit(f"workstream_invalid_transition: use workstream {'ready' if args.status == 'ReadyToMerge' else 'done'} for {args.status}")
     if args.status is not None:
         section_updates = {"## 目标": goal} if goal is not None else None
-        changed = update_workstream_status(root, args.id, args.status, section_updates, dry_run)
+        metadata_updates = {"attention": args.attention} if args.attention is not None else None
+        changed = update_workstream_status(
+            root, args.id, args.status, section_updates, dry_run, metadata_updates=metadata_updates
+        )
         status = args.status
     else:
         detail = read_workstream_detail(root, args.id)
-        updated_text = format_front_matter(
-            detail.metadata,
-            replace_or_append_section(detail.body, "## 目标", goal or ""),
-            WORKSTREAM_METADATA_FIELDS,
-        )
+        metadata = dict(detail.metadata)
+        body = detail.body
+        if goal is not None:
+            body = replace_or_append_section(body, "## 目标", goal)
+        if args.attention is not None:
+            metadata["attention"] = args.attention
+        updated_text = format_front_matter(metadata, body, WORKSTREAM_METADATA_FIELDS)
         changed = [detail.path]
         if not dry_run:
             detail.path.write_text(updated_text, encoding="utf-8")
@@ -701,7 +708,7 @@ def workstream_set_command(args: argparse.Namespace, *, deps: WorkstreamDependen
         f"{action} Workstream {args.id} {message_target}",
         changed,
         check_result,
-        extra_payload={"id": args.id, "status": status, "goal": goal},
+        extra_payload={"id": args.id, "status": status, "goal": goal, "attention": args.attention},
     )
 
 
@@ -1546,6 +1553,7 @@ def workstream_dashboard_command(args: argparse.Namespace, *, deps: WorkstreamDe
             authority_pending.append({"id": detail.workstream_id, "status": status, "targets": merge_targets})
 
     by_status = workstream_counts(entries)
+    routing = attention_entry_payload(root)
     payload: dict[str, object] = {
         "schema_version": JSON_SCHEMA_VERSION,
         "command": "workstream dashboard",
@@ -1557,6 +1565,13 @@ def workstream_dashboard_command(args: argparse.Namespace, *, deps: WorkstreamDe
         "stale": stale,
         "missing_evidence": missing_evidence,
         "authority_writes_pending": authority_pending,
+        "workstream_state": routing["workstream_state"],
+        "current_task_workstreams": routing["current_task_workstreams"],
+        "unresolved_current_task_workstreams": routing["unresolved_current_task_workstreams"],
+        "attention_summary": routing["attention_summary"],
+        "attention_candidates": routing["attention_candidates"],
+        "recommended_entry": routing["recommended_entry"],
+        "candidate_entries": routing["candidate_entries"],
         "next_actions": [
             "Resolve conflicts before starting parallel work." if errors else "No write-scope conflicts detected.",
             "Use `acf workstream context <ID>` before executing a specific Workstream.",

@@ -113,6 +113,17 @@ def new_task_command(args: argparse.Namespace, *, deps: NewContextDependencies) 
     constraints = deps.normalize_items(args.constraint, ("遵守当前项目规则。", "不引入无关依赖。"))
     non_goals = deps.normalize_items(args.non_goal, ("无。",))
     questions = deps.normalize_items(args.question, ("无。",))
+    workstreams: list[str] = []
+    for value in getattr(args, "workstream", None) or []:
+        workstream_id = value.strip().upper()
+        if not workstream_id:
+            continue
+        if not re.fullmatch(r"WS\d{3}", workstream_id):
+            raise SystemExit(f"workstream_invalid_id: {workstream_id}")
+        if not (root / "active" / "workstreams" / f"{workstream_id}.md").exists():
+            raise SystemExit(f"workstream_not_found: {workstream_id}")
+        if workstream_id not in workstreams:
+            workstreams.append(workstream_id)
 
     if not dry_run:
         task_path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,6 +142,7 @@ def new_task_command(args: argparse.Namespace, *, deps: NewContextDependencies) 
                 constraints,
                 non_goals,
                 questions,
+                workstreams,
             ),
             encoding="utf-8",
         )

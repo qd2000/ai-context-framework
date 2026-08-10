@@ -309,6 +309,7 @@ def build_task_start_fields(
     row: dict[str, str],
     rows: Sequence[dict[str, str]],
     forced_with_blocked_dependencies: bool,
+    workstreams: Sequence[str] = (),
 ) -> dict[str, object]:
     task_id = row.get("ID", "无。")
     title = meaningful_task_cell(row.get("子任务"), task_id)
@@ -347,6 +348,7 @@ def build_task_start_fields(
         "task_id": task_id,
         "generated_title": title,
         "blocked_dependencies": blocked,
+        "workstreams": list(workstreams),
         "warnings": [f"blocked dependencies: {', '.join(blocked)}"] if blocked else [],
         "content": render_current_task(
             "Active",

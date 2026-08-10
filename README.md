@@ -4,9 +4,13 @@
 
 ## 当前推荐版本
 
-`v0.0.3.52` 是当前推荐的真实项目正式使用稳定版本。该版本在 `v0.0.3.51` 稳定基线上纳入 Workstream guard 文档契约和旧项目迁移修复：README、模板入口、System Manual、dogfooding 入口、Workstream 生成文案和 CLI next_actions 都明确推荐完成 / ready / done / 状态切换前使用 `workstream guard --files ... --json` 做文件集强验收；裸 `guard` / `--from-git` 只用于快速查看 git diff，旧式整工作区排他检查需显式使用 `--workspace --strict-workspace`。`upgrade` 会为旧 `System_Manual.md` 补齐 guard 模式说明；高度自定义手册仍通过 `ACF:UPGRADE:NOTES` marker 非破坏式提示。WS004 旧项目升级审计能力仍保持稳定：`upgrade --plan --json` 可只读生成升级计划，`log projects --scan-root <path> --json` 可从全局 usage log 盘点真实项目。
+`v0.0.3.57` 是当前推荐的真实项目正式使用稳定版本。该版本保留 `v0.0.3.56` 的 GlobalOnly / pointer-only 上下文路由和临时 integration worktree 合并链，并修复 Workstream 预约的 dirty-primary 门禁：无关 staged/unstaged/untracked 修改可以保留，预约提交只包含 reservation detail/index；只有预约路径本身或父子路径冲突才会阻塞。原 Workstream、reserve、create、sync 及未使用 worktree 的项目行为保持兼容。
 
-WS003 以后，ACF 的 AI 入口采用 Workstream-first when active：当存在 Active / Blocked / ReadyToMerge / Merging Workstream 时，agent 应优先查看 Workstreams 索引和对应 context packet；`Task_Plan` 可以为空但项目仍有当前执行线。`reference/` 是项目内中间材料层，Knowledge 是有来源、证据和适用边界的高可信精炼层。
+- 版本变化：[CHANGELOG.md](CHANGELOG.md)
+- Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
+- 详细 CLI 参数：`acf --help`、`acf workstream reserve --help`、`acf worktree --help`
+
+ACF 的默认 AI 入口采用 global-first progressive disclosure：无论项目有一个还是多个 Active / Blocked / ReadyToMerge / Merging Workstream，只要没有明确选择，agent 都只读取全局上下文和 Workstreams 摘要，不读取任何 WS detail、read_scope、reference、output 或专属 worklog。显式选择后，`acf status|next --workstream WSNNN` 仍只返回 pointer-only 入口；随后调用 `acf workstream context WSNNN` 才披露专属上下文和边界。`reference/` 是项目内中间材料层，Knowledge 是有来源、证据和适用边界的高可信精炼层，均按需读取。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 
@@ -137,24 +141,38 @@ ACF 不追求保存更多上下文，而是维护一个低噪声、高权威、�
 
 `acf` 已经通过 `pyproject.toml` 暴露为标准 console script。Windows 和 WSL/Linux 是两套独立环境：在哪个环境里运行 `acf`，就需要在哪个环境里安装一次。
 
-- 稳定安装当前源码快照（在仓库根目录执行）：`uv tool install .`
+- 正式用户安装发布版本：`uv tool install ai-context-framework`
+- 已安装发布版本后一键更新：`uv tool upgrade ai-context-framework`
+- 安装或更新后刷新 shell PATH：`uv tool update-shell`
+- 仓库维护者安装当前源码快照：`uv tool install .`
 - 开发安装（仅调试 CLI 修改时使用）：`uv tool install -e .`
-- 已安装旧版本时覆盖当前源码快照（在仓库根目录执行）：`uv tool install --reinstall .`
 
 #### Windows PowerShell
 
-稳定安装（推荐）：
+正式发布版本安装（推荐）：
 
-```bash
-cd C:\path\to\ai-context-framework
-uv tool install .
+```powershell
+uv tool install ai-context-framework
 uv tool update-shell
+```
+
+正式发布版本更新：
+
+```powershell
+uv tool upgrade ai-context-framework
+uv tool update-shell
+```
+
+如果已经取得本仓库源码，也可以使用一键脚本：
+
+```powershell
+pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1
+pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1
 ```
 
 开发安装（仅仓库维护或调试安装链路时使用）：
 
-```bash
-cd C:\path\to\ai-context-framework
+```powershell
 uv tool install -e .
 uv tool update-shell
 ```
@@ -172,20 +190,30 @@ Windows CMD 可用 `where.exe acf` 查看命令位置。
 
 #### WSL / Linux / macOS
 
-在 WSL 中访问 Windows 盘上的仓库时，请先换成当前机器对应的 `/mnt/<drive>/...` 路径。
-
-稳定安装（推荐）：
+正式发布版本安装（推荐）：
 
 ```bash
-cd /path/to/ai-context-framework
-uv tool install .
+uv tool install ai-context-framework
 uv tool update-shell
+```
+
+正式发布版本更新：
+
+```bash
+uv tool upgrade ai-context-framework
+uv tool update-shell
+```
+
+如果已经取得本仓库源码，也可以使用一键脚本：
+
+```bash
+sh scripts/install_acf.sh
+sh scripts/update_acf.sh
 ```
 
 开发安装（仅仓库维护或调试安装链路时使用）：
 
 ```bash
-cd /path/to/ai-context-framework
 uv tool install -e .
 uv tool update-shell
 ```
@@ -201,7 +229,7 @@ acf status --json
 
 如果 WSL 项目目录位于 `/mnt/*` 挂载盘，`uv` 可能提示 hardlink 失败并降级为 copy；这是跨文件系统性能提示，不影响安装。需要消除提示时可设置 `export UV_LINK_MODE=copy`。
 
-如果需要把 CLI 装进当前 Python 环境而不是 `uv tool` 工具目录，也可以使用 `python -m pip install .`。后续发布后，用户可通过包名或 Git URL 安装，例如 `uv tool install ai-context-framework` 或 `uv tool install git+<repo-url>`。
+如果需要把 CLI 装进当前 Python 环境而不是 `uv tool` 工具目录，也可以使用 `python -m pip install .`。Git URL 只适合临时测试；正式用户应从 PyPI 安装，以便 `uv tool upgrade ai-context-framework` 能从发布源获取新版本。
 
 “任意目录可运行 `acf`”表示命令已进入 PATH；是否能自动找到上下文，取决于当前目录是否位于包含 `docs/ai`、`docs-acf/ai` 或上下文根目录的项目中。
 
@@ -318,7 +346,21 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `audit context`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告 `active_section_too_long`、`stale_current_task_or_workstream_stage` 和 `terminal_conclusion_not_merged`（ReadyToMerge 待合并或 Done 缺合并结果）。JSON 输出包含 `candidates`、`summary.total`、`summary.by_kind`、`summary.by_path`、`summary.by_severity` 和 `next_actions`。
 - `doctor`：面向人和 AI 的上下文健康诊断入口，默认只读并复用 `check` 结果，同时报告 Task_Plan / Current_Task 生命周期漂移、终态 Workstream authority scope 残留、Workstreams / Archive generated index 漂移、Workstream 协议漏 `Merging`、Decisions_Index 摘要截断、Sources_Index 本地文件缺失、active 过厚、根目录探针输出和本地数据副本 hash / missing evidence；支持 `--json`、只读 `--projects`、单项目 `--fix safe|evidence`、`--report`、`--draft-semantic`、`--force`、`--dry-run` 和 `--check-after`。`--fix safe` 只做确定性低风险修复，例如清空无下一任务的 Done 焦点、修正 Current_Task 中明确回写目标行且无额外任务引用的目标 ID、移除终态 Workstream authority `assigned:` scope、同步 Workstreams / Archive generated index 和补齐 Workstream 协议 `Merging`；语义项只进入 report 或 writeback draft，数据 hash 证据只读取项目根内的相对路径。
 - `curate draft`：复用 `review stale` 的 stale candidates 生成 `worklog/curation-drafts/YYYY-MM-DD.md` 注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days` 和 `--name`。
-- `workstream init|status|list|dashboard|archive-candidates|archive-draft|archive|sync|show|context|add|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note|focus` 和 `workstream stage add|list|done`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`context WS001` 输出 AI 专属任务入口，`guard` 检查变更文件是否符合当前 Workstream 写入边界，完成或切换状态前优先用 `--files` 显式传入本次修改文件做强验收；`scope-add` 以工具化方式扩展 read/write scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并 authority 目标；Workstream 类型为 Task / Merge / Maintenance，Task 不能直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive WS001 --reason "..."` 只在显式指定单个终态 Workstream 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 `active/workstreams/*.md` front matter 更新 `active/Workstreams.md`，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，ReadyToMerge 表示任务产物完成，`ready` 需要人工确认参数 `--human-approved`，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
+- `workstream init|status|list|dashboard|archive-candidates|archive-draft|archive|sync|show|context|add|reserve|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note|focus` 和 `workstream stage add|list|done`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`reserve` 是可选的 Git-aware 编号预约入口，只在 primary branch 创建并提交 detail/index，不创建 branch/worktree；原 `add` 行为保持不变；`context WS001` 输出 AI 专属任务入口，`guard` 检查变更文件是否符合当前 Workstream 写入边界，完成或切换状态前优先用 `--files` 显式传入本次修改文件做强验收；`scope-add` 以工具化方式扩展 read/write scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并 authority 目标；Workstream 类型为 Task / Merge / Maintenance，Task 不能直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive WS001 --reason "..."` 只在显式指定单个终态 Workstream 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 `active/workstreams/*.md` front matter 更新 `active/Workstreams.md`，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，ReadyToMerge 表示任务产物完成，`ready` 需要人工确认参数 `--human-approved`，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
+
+- `worktree create|attach|verify|list|audit|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|resume`：供 AI 按任务需要调用的可选 Git 生命周期能力。创建 Workstream 不会隐式创建 worktree；`create` 同时支持正式 WS 与 `bugfix/docs/experiment/investigation/maintenance/refactor/release` 非 WS 任务。每次 `merge` 都在临时 integration worktree 中产生和验证候选，primary checkout 只执行路径碰撞保护后的 fast-forward promotion，因此可以保留无关 staged/unstaged/untracked 修改；短时锁、index、路径碰撞和 HEAD 推进会有限等待或自动重规划，稳定冲突留在 integration worktree 并可用 operation ID 恢复。ignored/untracked 结果必须通过 artifact handoff 分类和摘要验证后才能 promotion/close。所有写操作默认只输出计划，显式 `--apply` 后才执行；实现继续禁止自动 stash、reset、clean、rebase、force、push 和静默解决冲突。完整说明见 [docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)。
+
+### Workstream 编号预约与可选 Worktree
+
+```powershell
+acf workstream reserve --title "任务" --slug task-slug --owner codex --apply --json
+acf worktree create --workstream WS005 --apply --json
+acf worktree verify --workstream WS005 --json
+```
+
+第一条命令只预约并提交 WS 编号；第二条只有在 AI 判断需要隔离环境时才调用。未配置或未调用 `acf worktree` 的项目继续使用原有 Workstream 和上下文逻辑。
+
+`reserve --apply` 不要求 primary checkout 完全 clean：与 reservation detail/index 无关的 staged、unstaged、untracked 修改会被保留；reservation 路径自身或父子路径发生冲突时才会 fail-closed。
 
 ### Workstream guard 模式
 
@@ -428,6 +470,18 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 ```
 
 该脚本只使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code` 和 Workstream 最小 happy path。它不做真实项目批量评测、漂移样本诊断或复杂 upgrade 审查。
+
+发布前完整验收（包含 wheel/sdist 构建、隔离安装和 console script smoke）：
+
+```bash
+uv run python scripts/release_check.py --mode full
+```
+
+只验证发布制品安装链路：
+
+```bash
+uv run python scripts/release_check.py --mode package
+```
 
 修改 `template/`、默认上下文结构、打包清单或 `acf upgrade` 行为时，还必须评估旧版本上下文升级兼容性：新增结构同步到 init 文件清单、upgrade 补齐清单和 data-files，并用 init/upgrade 测试覆盖旧项目可非破坏式升级。快速升级兼容矩阵随单元测试运行；发布前可运行完整矩阵：
 

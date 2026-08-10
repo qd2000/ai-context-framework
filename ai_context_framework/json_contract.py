@@ -128,7 +128,21 @@ def error_next_actions(error_code: str) -> list[str]:
     if error_code == "workstream_schema_failed":
         return ["Fix the Workstream detail front matter, then rerun the command."]
     if error_code == "workstream_duplicate_id":
-        return ["Choose an unused Workstream ID."]
+        return ["Choose an unused Workstream ID or rerun `acf workstream reserve` without --id."]
+    if error_code == "workstream_not_reserved_on_primary":
+        return ["Reserve and commit the Workstream on the configured primary branch before creating a worktree."]
+    if error_code == "reservation_requires_primary_checkout":
+        return ["Run the reservation command against the configured primary checkout."]
+    if error_code == "workstream_reservation_stage_mismatch":
+        return ["Review the Git index; reservation commits only the Workstream detail and index row."]
+    if error_code == "workstream_reservation_fields_required":
+        return ["Provide --title, --slug, and --owner, or use --resume-operation for an interrupted reservation."]
+    if error_code == "workstream_reservation_conflict":
+        return ["Inspect the reservation journal and existing detail/index content; ACF will not overwrite conflicting files."]
+    if error_code == "primary_reservation_path_conflict":
+        return ["Keep the reservation detail and Workstreams index paths unchanged, then rerun the reservation; unrelated dirty files are allowed."]
+    if error_code == "primary_local_state_changed_during_reservation":
+        return ["Inspect the primary checkout changes and rerun the reservation only after the protected local state is stable; do not reset or clean another agent's work."]
     if error_code == "workstream_invalid_transition":
         return ["Review the Workstream state machine and use the next valid state."]
     if error_code == "workstream_reason_required":
@@ -219,6 +233,99 @@ def error_next_actions(error_code: str) -> list[str]:
         return ["Review the existing doctor report, rerun with a different --today date, or use --force to replace it."]
     if error_code == "doctor_draft_exists":
         return ["Review the existing doctor writeback draft, rerun with a different --today date, or use --force to replace it."]
+    if error_code in {
+        "git_command_failed",
+        "git_repository_not_found",
+        "git_ref_not_found",
+        "git_project_config_invalid",
+        "primary_branch_missing",
+        "primary_checkout_missing",
+        "git_common_dir_mismatch",
+        "primary_branch_mismatch",
+        "primary_branch_advanced",
+        "primary_checkout_dirty",
+        "primary_reservation_path_conflict",
+        "primary_local_state_changed_during_reservation",
+    }:
+        return [
+            "Review the configured primary checkout, branch, and Git common-dir.",
+            "Rerun the read-only worktree plan or audit after correcting the repository state.",
+        ]
+    if error_code in {
+        "worktree_slug_invalid",
+        "invalid_low_information_slug",
+        "worktree_kind_invalid",
+        "worktree_slug_required",
+        "worktree_target_required",
+        "worktree_name_mismatch",
+    }:
+        return ["Use the configured naming policy and provide a descriptive lowercase slug."]
+    if error_code in {
+        "branch_already_checked_out",
+        "worktree_branch_mismatch",
+        "worktree_branch_conflict",
+        "workstream_already_bound",
+        "primary_branch_not_allowed_for_linked_worktree",
+    }:
+        return ["Inspect `acf worktree list --json`; do not force, move, or reuse the conflicting branch/worktree automatically."]
+    if error_code in {
+        "target_path_exists_not_worktree",
+        "orphan_target_path",
+        "worktree_not_registered",
+        "detached_worktree_not_supported",
+        "worktree_verification_failed",
+        "worktree_registry_invalid",
+    }:
+        return ["Run `acf worktree verify` or `acf worktree audit`; preserve the existing path and repair explicitly."]
+    if error_code in {
+        "worktree_operation_locked",
+        "worktree_operation_lock_timeout",
+        "worktree_lock_invalid",
+        "worktree_lock_lost",
+        "worktree_lock_replaced",
+        "operation_not_found",
+        "operation_journal_invalid",
+        "operation_resume_unsupported",
+        "merge_operation_target_mismatch",
+    }:
+        return ["Inspect the ACF operation journal and active lock; retry or resume after the recorded operation becomes inactive. Do not delete a live lock manually."]
+    if error_code in {
+        "artifact_manifest_not_found",
+        "artifact_manifest_invalid",
+        "artifact_handoff_required",
+        "artifact_handoff_incomplete",
+        "artifact_source_missing",
+        "artifact_override_path_not_found",
+        "artifact_required_invalid",
+        "artifact_reference_invalid",
+    }:
+        return ["Run `acf worktree artifact-plan`, classify every unknown entry, verify destinations, then run `artifact-migrate --apply` before promotion or close."]
+    if error_code in {
+        "integration_worktree_missing",
+        "integration_worktree_create_failed",
+        "integration_slot_not_clean",
+        "integration_tip_missing_source_head",
+        "merge_candidate_tree_missing",
+        "primary_promotion_identity_mismatch",
+        "quarantine_restore_collision",
+    }:
+        return ["Inspect the merge operation journal and its temporary integration worktree. Preserve the conflict/candidate evidence and resume after correcting the reported identity or path issue."]
+    if error_code in {
+        "worktree_close_timeout",
+        "worktree_branch_delete_timeout",
+    }:
+        return ["Close applications holding the worktree or Git refs, then resume the same close operation. ACF will not force-remove a dirty worktree or force-delete a branch."]
+    if error_code in {
+        "worktree_dirty",
+        "branch_not_merged",
+        "workstream_not_ready_to_merge",
+        "merge_conflicts_detected",
+        "worktree_branch_advanced",
+        "worktree_pre_merge_check_failed",
+        "worktree_post_merge_check_failed",
+        "worktree_check_argv_invalid",
+    }:
+        return ["Review the reported branch, status, merge preview, and checks; ACF will not stash, reset, clean, rebase, or resolve conflicts automatically."]
     if error_code == "input_error":
         return [
             "Check command arguments and paths.",
@@ -269,6 +376,76 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_archive_blocked",
         "workstream_archive_target_exists",
         "workstream_archive_duplicate_index",
+        "workstream_not_reserved_on_primary",
+        "reservation_requires_primary_checkout",
+        "workstream_reservation_stage_mismatch",
+        "workstream_reservation_fields_required",
+        "workstream_reservation_conflict",
+    )
+    git_worktree_codes = (
+        "git_command_failed",
+        "git_repository_not_found",
+        "git_ref_not_found",
+        "git_project_config_invalid",
+        "primary_branch_missing",
+        "primary_checkout_missing",
+        "git_common_dir_mismatch",
+        "primary_branch_mismatch",
+        "primary_branch_advanced",
+        "primary_checkout_dirty",
+        "primary_reservation_path_conflict",
+        "primary_local_state_changed_during_reservation",
+        "worktree_slug_invalid",
+        "invalid_low_information_slug",
+        "worktree_kind_invalid",
+        "worktree_slug_required",
+        "worktree_target_required",
+        "worktree_name_mismatch",
+        "branch_already_checked_out",
+        "worktree_branch_mismatch",
+        "worktree_branch_conflict",
+        "workstream_already_bound",
+        "primary_branch_not_allowed_for_linked_worktree",
+        "target_path_exists_not_worktree",
+        "orphan_target_path",
+        "worktree_not_registered",
+        "detached_worktree_not_supported",
+        "worktree_verification_failed",
+        "worktree_registry_invalid",
+        "worktree_operation_locked",
+        "worktree_operation_lock_timeout",
+        "worktree_lock_invalid",
+        "worktree_lock_lost",
+        "worktree_lock_replaced",
+        "operation_not_found",
+        "operation_journal_invalid",
+        "operation_resume_unsupported",
+        "merge_operation_target_mismatch",
+        "artifact_manifest_not_found",
+        "artifact_manifest_invalid",
+        "artifact_handoff_required",
+        "artifact_handoff_incomplete",
+        "artifact_source_missing",
+        "artifact_override_path_not_found",
+        "artifact_required_invalid",
+        "artifact_reference_invalid",
+        "integration_worktree_missing",
+        "integration_worktree_create_failed",
+        "integration_slot_not_clean",
+        "integration_tip_missing_source_head",
+        "merge_candidate_tree_missing",
+        "primary_promotion_identity_mismatch",
+        "quarantine_restore_collision",
+        "worktree_close_timeout",
+        "worktree_branch_delete_timeout",
+        "worktree_dirty",
+        "branch_not_merged",
+        "workstream_not_ready_to_merge",
+        "merge_conflicts_detected",
+        "worktree_branch_advanced",
+        "worktree_pre_merge_check_failed",
+        "worktree_post_merge_check_failed",
+        "worktree_check_argv_invalid",
     )
     task_stage_codes = (
         "task_stage_duplicate_id",
@@ -295,8 +472,8 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "doctor_report_exists",
         "doctor_draft_exists",
     )
-    for code in (*workstream_codes, *task_stage_codes, *generated_marker_codes, *feedback_codes, *doctor_codes):
-        if message.startswith(f"{code}:"):
+    for code in (*workstream_codes, *git_worktree_codes, *task_stage_codes, *generated_marker_codes, *feedback_codes, *doctor_codes):
+        if message == code or message.startswith(f"{code}:"):
             return code, EXIT_INPUT_ERROR
     if message.startswith("curation_draft_exists:"):
         return "curation_draft_exists", EXIT_SAFETY_REFUSED
