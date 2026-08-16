@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.58
+Version: 0.0.3.59
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,11 +11,11 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.57` 是当前推荐的真实项目正式使用稳定版本。该版本保留 `v0.0.3.56` 的 GlobalOnly / pointer-only 上下文路由和临时 integration worktree 合并链，并修复 Workstream 预约的 dirty-primary 门禁：无关 staged/unstaged/untracked 修改可以保留，预约提交只包含 reservation detail/index；只有预约路径本身或父子路径冲突才会阻塞。原 Workstream、reserve、create、sync 及未使用 worktree 的项目行为保持兼容。
+`v0.0.3.59` 是当前推荐版本。在 `v0.0.3.58` 发布/安装闭环基础上新增模型无关的 `acf continuation`：外部 Scheduled Task、其他 scheduler 或人工多轮任务可直接对既有 clean worktree 使用用户级 bounded state、单写者 lease、pause/resume 和 fail-closed recovery，不需要为了续跑控制重建 worktree，也不会把运行态写入项目 Git。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
-- 详细 CLI 参数：`acf --help`、`acf workstream reserve --help`、`acf worktree --help`
+- 详细 CLI 参数：`acf --help`、`acf workstream reserve --help`、`acf worktree --help`、`acf continuation --help`
 
 ACF 的默认 AI 入口采用 global-first progressive disclosure：无论项目有一个还是多个 Active / Blocked / ReadyToMerge / Merging Workstream，只要没有明确选择，agent 都只读取全局上下文和 Workstreams 摘要，不读取任何 WS detail、read_scope、reference、output 或专属 worklog。显式选择后，`acf status|next --workstream WSNNN` 仍只返回 pointer-only 入口；随后调用 `acf workstream context WSNNN` 才披露专属上下文和边界。`reference/` 是项目内中间材料层，Knowledge 是有来源、证据和适用边界的高可信精炼层，均按需读取。
 
@@ -356,6 +356,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `workstream init|status|list|dashboard|archive-candidates|archive-draft|archive|sync|show|context|add|reserve|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note|focus` 和 `workstream stage add|list|done`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`reserve` 是可选的 Git-aware 编号预约入口，只在 primary branch 创建并提交 detail/index，不创建 branch/worktree；原 `add` 行为保持不变；`context WS001` 输出 AI 专属任务入口，`guard` 检查变更文件是否符合当前 Workstream 写入边界，完成或切换状态前优先用 `--files` 显式传入本次修改文件做强验收；`scope-add` 以工具化方式扩展 read/write scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并 authority 目标；Workstream 类型为 Task / Merge / Maintenance，Task 不能直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive WS001 --reason "..."` 只在显式指定单个终态 Workstream 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 `active/workstreams/*.md` front matter 更新 `active/Workstreams.md`，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，ReadyToMerge 表示任务产物完成，`ready` 需要人工确认参数 `--human-approved`，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
 
 - `worktree create|attach|verify|list|audit|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|resume`：供 AI 按任务需要调用的可选 Git 生命周期能力。创建 Workstream 不会隐式创建 worktree；`create` 同时支持正式 WS 与 `bugfix/docs/experiment/investigation/maintenance/refactor/release` 非 WS 任务。每次 `merge` 都在临时 integration worktree 中产生和验证候选，primary checkout 只执行路径碰撞保护后的 fast-forward promotion，因此可以保留无关 staged/unstaged/untracked 修改；短时锁、index、路径碰撞和 HEAD 推进会有限等待或自动重规划，稳定冲突留在 integration worktree 并可用 operation ID 恢复。ignored/untracked 结果必须通过 artifact handoff 分类和摘要验证后才能 promotion/close。所有写操作默认只输出计划，显式 `--apply` 后才执行；实现继续禁止自动 stash、reset、clean、rebase、force、push 和静默解决冲突。完整说明见 [docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)。
+- `continuation init|doctor|claim|renew|checkpoint|release|pause|resume|prompt`：为外部 AI scheduler 或人工长任务提供有界续跑控制。状态保存在用户级 `~/.acf`，不会因为 lease/checkpoint 更新把目标 worktree 变 dirty；可选绑定 `--workstream WSNNN` 时复用 ACF 的 registry/path/branch/common-dir 验证。该命令不创建 Scheduled Task、不读取聊天历史、不充当常驻 agent runtime；现有 clean worktree 可以直接初始化，无需重建。详细设计见 [Continuation Control](docs/ai/reference/Continuation_Control_Design.md)。
 
 ### Workstream 编号预约与可选 Worktree
 

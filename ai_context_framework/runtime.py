@@ -48,6 +48,7 @@ from ai_context_framework.commands import doctor as doctor_commands
 from ai_context_framework.commands import plan_task as plan_task_commands
 from ai_context_framework.commands import workstream as workstream_commands
 from ai_context_framework.commands import worktree as worktree_commands
+from ai_context_framework.commands import continuation as continuation_commands
 from ai_context_framework.commands.log import (
     build_usage_event,
     check_counts,
@@ -1177,6 +1178,151 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_resume_parser.add_argument("--apply", action="store_true")
     add_json_argument(worktree_resume_parser)
     worktree_resume_parser.set_defaults(func=worktree_commands.worktree_resume_command)
+
+    continuation_parser = subparsers.add_parser(
+        "continuation",
+        help="manage bounded local continuation state for external AI schedulers",
+    )
+    continuation_subparsers = continuation_parser.add_subparsers(
+        dest="continuation_command",
+        required=True,
+    )
+
+    continuation_init_parser = continuation_subparsers.add_parser(
+        "init",
+        help="initialize bounded continuation state for one clean Git worktree",
+    )
+    continuation_init_parser.add_argument("path", nargs="?", type=Path)
+    continuation_init_parser.add_argument("--task-id", default=None)
+    continuation_init_parser.add_argument("--workstream", type=validate_workstream_id, default=None)
+    continuation_init_parser.add_argument("--title", required=True)
+    continuation_init_parser.add_argument("--objective", required=True)
+    continuation_init_parser.add_argument("--stage", default="bootstrap")
+    continuation_init_parser.add_argument("--next-action", default=None)
+    continuation_init_parser.add_argument("--plan-ref", action="append", default=None)
+    continuation_init_parser.add_argument("--expected-branch", default=None)
+    continuation_init_parser.add_argument(
+        "--interval-minutes",
+        type=int,
+        default=continuation_commands.DEFAULT_INTERVAL_MINUTES,
+    )
+    continuation_init_parser.add_argument(
+        "--lease-ttl-minutes",
+        type=int,
+        default=continuation_commands.DEFAULT_LEASE_TTL_MINUTES,
+    )
+    continuation_init_parser.add_argument(
+        "--renew-interval-minutes",
+        type=int,
+        default=continuation_commands.DEFAULT_RENEW_INTERVAL_MINUTES,
+    )
+    continuation_init_parser.add_argument("--force", action="store_true")
+    add_json_argument(continuation_init_parser)
+    continuation_init_parser.set_defaults(func=continuation_commands.continuation_init_command)
+
+    continuation_doctor_parser = continuation_subparsers.add_parser(
+        "doctor",
+        help="verify Git/worktree identity and report whether a new round may claim",
+    )
+    continuation_doctor_parser.add_argument("path", nargs="?", type=Path)
+    continuation_doctor_parser.add_argument("--task-id", default=None)
+    add_json_argument(continuation_doctor_parser)
+    continuation_doctor_parser.set_defaults(func=continuation_commands.continuation_doctor_command)
+
+    continuation_claim_parser = continuation_subparsers.add_parser(
+        "claim",
+        help="claim one bounded continuation round",
+    )
+    continuation_claim_parser.add_argument("path", nargs="?", type=Path)
+    continuation_claim_parser.add_argument("--task-id", default=None)
+    continuation_claim_parser.add_argument("--runner-id", required=True)
+    continuation_claim_parser.add_argument("--ttl-minutes", type=int, default=None)
+    add_json_argument(continuation_claim_parser)
+    continuation_claim_parser.set_defaults(func=continuation_commands.continuation_claim_command)
+
+    continuation_renew_parser = continuation_subparsers.add_parser(
+        "renew",
+        help="extend an active lease before it expires",
+    )
+    continuation_renew_parser.add_argument("path", nargs="?", type=Path)
+    continuation_renew_parser.add_argument("--task-id", default=None)
+    continuation_renew_parser.add_argument("--lease-id", required=True)
+    continuation_renew_parser.add_argument("--ttl-minutes", type=int, default=None)
+    add_json_argument(continuation_renew_parser)
+    continuation_renew_parser.set_defaults(func=continuation_commands.continuation_renew_command)
+
+    continuation_checkpoint_parser = continuation_subparsers.add_parser(
+        "checkpoint",
+        help="update compact continuation state while holding the active lease",
+    )
+    continuation_checkpoint_parser.add_argument("path", nargs="?", type=Path)
+    continuation_checkpoint_parser.add_argument("--task-id", default=None)
+    continuation_checkpoint_parser.add_argument("--lease-id", required=True)
+    continuation_checkpoint_parser.add_argument(
+        "--status",
+        choices=tuple(sorted(continuation_commands.STATE_STATUSES)),
+        default=None,
+    )
+    continuation_checkpoint_parser.add_argument("--stage", default=None)
+    continuation_checkpoint_parser.add_argument("--next-action", default=None)
+    continuation_checkpoint_parser.add_argument("--completed", action="append", default=None)
+    continuation_checkpoint_parser.add_argument("--constraint", action="append", default=None)
+    continuation_checkpoint_parser.add_argument("--evidence-ref", action="append", default=None)
+    continuation_checkpoint_parser.add_argument("--open-question", action="append", default=None)
+    continuation_checkpoint_parser.add_argument("--plan-ref", action="append", default=None)
+    continuation_checkpoint_parser.add_argument("--verification", action="append", default=None)
+    add_json_argument(continuation_checkpoint_parser)
+    continuation_checkpoint_parser.set_defaults(
+        func=continuation_commands.continuation_checkpoint_command
+    )
+
+    continuation_release_parser = continuation_subparsers.add_parser(
+        "release",
+        help="finish a round, record a receipt, and release the active lease",
+    )
+    continuation_release_parser.add_argument("path", nargs="?", type=Path)
+    continuation_release_parser.add_argument("--task-id", default=None)
+    continuation_release_parser.add_argument("--lease-id", required=True)
+    continuation_release_parser.add_argument(
+        "--final-status",
+        choices=tuple(sorted(continuation_commands.STATE_STATUSES - {"running"})),
+        default="ready",
+    )
+    continuation_release_parser.add_argument("--stage", default=None)
+    continuation_release_parser.add_argument("--next-action", default=None)
+    continuation_release_parser.add_argument("--verification", action="append", default=None)
+    add_json_argument(continuation_release_parser)
+    continuation_release_parser.set_defaults(func=continuation_commands.continuation_release_command)
+
+    continuation_pause_parser = continuation_subparsers.add_parser(
+        "pause",
+        help="request a deterministic stop without killing an active external agent",
+    )
+    continuation_pause_parser.add_argument("path", nargs="?", type=Path)
+    continuation_pause_parser.add_argument("--task-id", default=None)
+    continuation_pause_parser.add_argument("--reason", required=True)
+    continuation_pause_parser.add_argument("--requested-by", default="user")
+    add_json_argument(continuation_pause_parser)
+    continuation_pause_parser.set_defaults(func=continuation_commands.continuation_pause_command)
+
+    continuation_resume_parser = continuation_subparsers.add_parser(
+        "resume",
+        help="resume a paused continuation after the active lease has ended",
+    )
+    continuation_resume_parser.add_argument("path", nargs="?", type=Path)
+    continuation_resume_parser.add_argument("--task-id", default=None)
+    continuation_resume_parser.add_argument("--next-action", required=True)
+    add_json_argument(continuation_resume_parser)
+    continuation_resume_parser.set_defaults(func=continuation_commands.continuation_resume_command)
+
+    continuation_prompt_parser = continuation_subparsers.add_parser(
+        "prompt",
+        help="render a model-agnostic continuation protocol for an external agent",
+    )
+    continuation_prompt_parser.add_argument("path", nargs="?", type=Path)
+    continuation_prompt_parser.add_argument("--task-id", default=None)
+    add_json_argument(continuation_prompt_parser)
+    continuation_prompt_parser.set_defaults(func=continuation_commands.continuation_prompt_command)
 
     plan_parser = subparsers.add_parser("plan", help="manage active/Task_Plan.md")
     plan_subparsers = plan_parser.add_subparsers(dest="plan_command", required=True)

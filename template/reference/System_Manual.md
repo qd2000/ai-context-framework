@@ -385,6 +385,18 @@ acf worktree create --workstream WS001 --apply --json
 
 非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。`worktree list|audit|verify|attach|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|resume` 提供发现、恢复、同步、临时候选合并、结果迁移和安全关闭。来源 worktree 必须 clean；正式 merge 总是在临时 integration worktree 中执行并运行 post-check，primary checkout 只进行碰撞保护后的 fast-forward promotion，因此可以保留无关 staged/unstaged/untracked 修改。短时锁、Git 状态和 HEAD 推进会有限等待或自动重规划；稳定冲突保留在 integration worktree，解决并提交后使用 operation ID resume。ignored/untracked 结果默认 unknown，必须明确分类并完成 handoff 后才能 promotion/close。写操作默认 plan-only，`--apply` 后执行；项目可在 `.acf/project.toml` 配置 primary checkout/branch、worktree root 和命名模板。ACF 不自动 stash、reset、clean、rebase、force、push、覆盖不一致内容或静默解决冲突。
 
+### 外部 AI 续跑控制
+
+需要被外部 Scheduled Task、其他 scheduler 或人工多轮 agent 持续推进时，可使用安装态 ACF 的 `continuation` 命令组：
+
+```powershell
+acf continuation init <worktree> --task-id WS001 --workstream WS001 --title "WS001" --objective "目标" --json
+acf continuation doctor <worktree> --task-id WS001 --json
+acf continuation claim <worktree> --task-id WS001 --runner-id scheduled-agent --json
+```
+
+同一轮可继续使用 `renew`、`checkpoint`、`release`；人工控制使用 `pause` / `resume`。运行态保存在用户级 `~/.acf`，不会写入项目 Git。该能力只提供 deterministic lease/state/recovery，不创建定时任务、不读取聊天 transcript，也不替代项目自己的计划、Git checkpoint 或 evidence。
+
 ### Workstream guard 模式
 
 `acf workstream guard` 检查的是“变更文件是否符合当前 Workstream 的写入范围”，不是默认独占整个工作区。多个 agent 或多个 Workstream 在同一仓库并行时，完成、ready、done 或切换状态前，优先显式传入本次要验收的文件集：

@@ -2,6 +2,20 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.59 — 2026-08-16
+
+### 新增
+
+- 新增 `acf continuation init|doctor|claim|renew|checkpoint|release|pause|resume|prompt`，为外部 Scheduled Task、其他 AI scheduler 和人工多轮任务提供模型无关的 bounded continuation 控制面。
+- continuation 运行态保存在用户级 `~/.acf/projects/.../continuation/`，不会因为 lease、pause 或 compact state 更新污染目标 Git worktree；现有 clean worktree 可直接初始化，不需要重建。
+- 可选 `--workstream WSNNN` 会复用 ACF worktree registry/path/branch/common-dir 验证；无 Workstream 项目仍可使用独立 `--task-id`。
+- 增加单写者 lease、续期、expired recovery、人工 pause/resume、dirty release → reconciling 和 compact state 原始历史字段拒绝。
+
+### 边界
+
+- ACF continuation 不创建 Scheduled Task、不读取聊天历史、不运行常驻 agent、不保存 transcript，也不替代 Task Plan、Workstream、Git/scientific checkpoint 或 evidence。
+- 外部调度周期可以固定；本地 lease 只承担并发与恢复安全门，不动态修改 scheduler 时间。
+
 ## v0.0.3.58 — 2026-08-10
 
 ### 发布与安装
