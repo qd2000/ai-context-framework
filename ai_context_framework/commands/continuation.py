@@ -254,11 +254,29 @@ def _task_parent(root: Path) -> Path:
 
 def _task_dir(root: Path, task_id: str | None) -> Path:
     parent = _task_parent(root)
-    if task_id:
-        return parent / _safe_key(task_id)
     candidates = sorted(
         path for path in parent.iterdir() if path.is_dir() and (path / "control.json").is_file()
     ) if parent.is_dir() else []
+    if task_id:
+        directory = parent / _safe_key(task_id)
+        if (directory / "control.json").is_file():
+            return directory
+        if candidates:
+            raise ContinuationError(
+                f"continuation task is not configured: {task_id}",
+                code="continuation_task_not_found",
+                details={
+                    "requested_task_id": task_id,
+                    "available_tasks": [path.name for path in candidates],
+                },
+                next_actions=["Use one of the available task ids or omit --task-id when only one task exists."],
+            )
+        raise ContinuationError(
+            "no continuation task is configured for this worktree",
+            code="continuation_not_initialized",
+            details={"requested_task_id": task_id},
+            next_actions=["Run `acf continuation init ...` first."],
+        )
     if not candidates:
         raise ContinuationError(
             "no continuation task is configured for this worktree",
@@ -1591,7 +1609,9 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 )
                 outcome = "released_to_reconciling"
             else:
-                final_status = args.final_status or "ready"
+                final_status = args.final_status
+                if final_status is None:
+                    final_status = "ready" if state["status"] == "running" else state["status"]
                 if final_status not in STATE_STATUSES - {"running"}:
                     raise ContinuationError("invalid final status", code="state_invalid")
                 state["status"] = final_status
@@ -1766,13 +1786,23 @@ def continuation_issue_command(args: argparse.Namespace) -> int:
             raise ContinuationError("unsupported issue severity", code="issue_invalid")
         text = _validate_text(args.text, field="text")
         related_command = str(args.related_command or "").strip()
-        normalized_text = " ".join(text.lower().split())
-        fingerprint_seed = "|".join((category, related_command.lower(), normalized_text))
-        fingerprint = hashlib.sha256(fingerprint_seed.encode("utf-8")).hexdigest()[:20]
+        resolve_fingerprint = str(args.resolve_fingerprint or "").strip().lower()
+        if resolve_fingerprint:
+            if not re.fullmatch(r"[0-9a-f]{20}", resolve_fingerprint):
+                raise ContinuationError("issue fingerprint must be 20 lowercase hex characters", code="issue_invalid")
+            fingerprint = resolve_fingerprint
+            event_kind = "continuation_issue_resolution"
+            command_status = "issue_resolved"
+        else:
+            normalized_text = " ".join(text.lower().split())
+            fingerprint_seed = "|".join((category, related_command.lower(), normalized_text))
+            fingerprint = hashlib.sha256(fingerprint_seed.encode("utf-8")).hexdigest()[:20]
+            event_kind = "continuation_issue"
+            command_status = "issue_recorded"
         event: dict[str, object] = {
             "schema_version": 1,
             "timestamp": utc_now_iso(),
-            "event_kind": "continuation_issue",
+            "event_kind": event_kind,
             "command": "continuation issue",
             "project_root": str(root),
             "workspace_root": str(root),
@@ -1793,7 +1823,7 @@ def continuation_issue_command(args: argparse.Namespace) -> int:
         }
         append_usage_event(root, event)
         return {
-            "status": "issue_recorded",
+            "status": command_status,
             "task_id": control["task_id"],
             "fingerprint": fingerprint,
             "log_path": str(usage_log_path(root)),

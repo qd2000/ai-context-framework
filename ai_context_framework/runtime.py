@@ -776,6 +776,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     log_issues_parser.add_argument("path", nargs="?", type=Path)
     log_issues_parser.add_argument("--all-projects", action="store_true")
+    log_issues_parser.add_argument("--open-only", action="store_true")
     log_issues_parser.add_argument("--limit", type=int, default=100)
     add_json_argument(log_issues_parser)
     log_issues_parser.set_defaults(func=log_issues_command)
@@ -1334,7 +1335,7 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_release_parser.add_argument(
         "--final-status",
         choices=tuple(sorted(continuation_commands.STATE_STATUSES - {"running"})),
-        default="ready",
+        default=None,
     )
     continuation_release_parser.add_argument("--stage", default=None)
     continuation_release_parser.add_argument("--next-action", default=None)
@@ -1385,6 +1386,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="medium",
     )
     continuation_issue_parser.add_argument("--text", required=True)
+    continuation_issue_parser.add_argument(
+        "--resolve-fingerprint",
+        default=None,
+        help="append a resolution event for an existing aggregated issue fingerprint",
+    )
     continuation_issue_parser.add_argument("--evidence-ref", action="append", default=None)
     continuation_issue_parser.add_argument("--related-command", default=None)
     continuation_issue_parser.add_argument("--runner-id", default="agent")

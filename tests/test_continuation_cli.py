@@ -118,6 +118,17 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertTrue(any(event.get("command") == "continuation init" for event in events))
         self.assertTrue(any(event.get("command") == "continuation doctor" for event in events))
 
+    def test_wrong_task_id_reports_available_continuation_tasks(self) -> None:
+        self.init_task()
+        code, payload, _ = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS999"]
+        )
+        self.assertEqual(2, code)
+        self.assertEqual("continuation_task_not_found", payload["error_code"])
+        self.assertEqual("WS999", payload["details"]["requested_task_id"])
+        self.assertEqual(["WS900"], payload["details"]["available_tasks"])
+        self.assertTrue(payload["next_actions"])
+
     def test_issue_events_are_structured_and_aggregated_across_projects(self) -> None:
         self.init_task()
         for evidence in ("git:abc", "git:def"):
@@ -153,10 +164,68 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(2, issues["occurrence_count"])
         row = issues["issues"][0]
         self.assertEqual(2, row["count"])
+        self.assertEqual("open", row["status"])
         self.assertEqual("high", row["severity"])
         self.assertEqual("recovery", row["category"])
         self.assertEqual(["WS900"], row["tasks"])
         self.assertEqual(["git:abc", "git:def"], row["evidence_refs"])
+
+        code, resolved, stderr = self.run_json(
+            [
+                "continuation",
+                "issue",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--text",
+                "Fixed by the validated recovery protocol.",
+                "--resolve-fingerprint",
+                str(row["fingerprint"]),
+                "--evidence-ref",
+                "git:fix",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{resolved}")
+        self.assertEqual("issue_resolved", resolved["status"])
+
+        code, issues, stderr = self.run_json(["log", "issues", "--all-projects", "--limit", "20"])
+        self.assertEqual(0, code, f"{stderr}\n{issues}")
+        row = issues["issues"][0]
+        self.assertEqual("resolved", row["status"])
+        self.assertEqual("Fixed by the validated recovery protocol.", row["resolution_text"])
+        self.assertEqual(["git:fix"], row["resolution_evidence_refs"])
+        code, open_only, stderr = self.run_json(
+            ["log", "issues", "--all-projects", "--open-only", "--limit", "20"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{open_only}")
+        self.assertEqual(0, open_only["issue_count"])
+
+        code, reopened, stderr = self.run_json(
+            [
+                "continuation",
+                "issue",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--category",
+                "recovery",
+                "--severity",
+                "high",
+                "--text",
+                "Expired round recovery needs explicit operator evidence.",
+                "--evidence-ref",
+                "git:ghi",
+                "--related-command",
+                "continuation claim",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reopened}")
+        code, issues, stderr = self.run_json(["log", "issues", "--all-projects", "--limit", "20"])
+        self.assertEqual(0, code, f"{stderr}\n{issues}")
+        row = issues["issues"][0]
+        self.assertEqual("open", row["status"])
+        self.assertEqual(3, row["count"])
+        self.assertTrue(row["reopened_at"])
 
         code, prompt, stderr = self.run_json(
             ["continuation", "prompt", str(self.root), "--task-id", "WS900"]
@@ -393,7 +462,6 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(3, code)
         self.assertEqual("fence_generation_mismatch", wrong_generation["error_code"])
 
-    @unittest.expectedFailure
     def test_clean_release_preserves_checkpointed_waiting_external_status(self) -> None:
         """WS079 regression: release must not silently convert an external wait to ready."""
         self.init_task()

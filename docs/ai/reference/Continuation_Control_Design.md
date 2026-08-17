@@ -94,11 +94,13 @@ acf continuation issue
 
 `release` 的收口规则：
 
-- clean → 写 last-run receipt，进入指定 final status，删除 lease；
+- clean → 写 last-run receipt；显式 `--final-status` 时进入指定状态；未显式指定时，只把仍为 `running` 的 state 转为 `ready`，已经 checkpoint 的 `waiting_external`、`blocked_human`、`done` 等非 running 状态保持不变；删除 lease；
 - dirty → 进入 `reconciling`，删除 lease但禁止下一轮自动 claim；
 - active round 期间收到 pause → release 后进入 `paused`。
 
-`issue` 用于记录**可复用的 ACF / continuation / 自动化工作流缺口**，不是业务任务自己的科学失败日志。事件写入用户级 ACF usage log，包含 task/workstream/stage、分类、严重度、简短描述、证据引用和稳定 fingerprint；相同 fingerprint 的多次出现保留为 occurrence，查询时自动聚合计数。
+`issue` 用于记录**可复用的 ACF / continuation / 自动化工作流缺口**，不是业务任务自己的科学失败日志。事件写入用户级 ACF usage log，包含 task/workstream/stage、分类、严重度、简短描述、证据引用和稳定 fingerprint；相同 fingerprint 的多次出现保留为 occurrence，查询时自动聚合计数。修复确认后可用 `acf continuation issue ... --resolve-fingerprint <fingerprint> --text <resolution>` 追加 resolution event，不篡改历史 occurrence；`acf log issues --open-only` 只显示 open 项。同 fingerprint 后续再次出现时自动 reopen。
+
+显式 `--task-id` 指向不存在的 continuation task 时，CLI 返回 `continuation_task_not_found`，并在 `details.available_tasks` 给出当前 worktree 已配置的 task id，避免 AI 把 task-id 拼写错误误判为 control 文件损坏。
 
 标准 `acf continuation prompt` 会要求外部 agent：只有发现具体、可复用、证据支持的产品或工作流问题时才调用 `acf continuation issue`；active lease no-op、正常等待、业务模型未收敛等预期状态不得当作产品 issue。
 
@@ -115,10 +117,11 @@ ACF 使用两层用户级日志，不要求用户把多个聊天的问题重新�
 acf log summarize <project> --errors-only --json
 acf log issues <project> --json
 acf log issues --all-projects --json
+acf log issues --all-projects --open-only --json
 acf log projects --json
 ```
 
-`log issues --all-projects` 按 fingerprint 聚合不同 worktree / 任务中的相同问题，输出 occurrence count、首次/最近出现时间、最高严重度、tasks/projects、相关命令和 evidence refs。多任务并行运行产生的经验可以直接作为下一轮 ACF 改进的输入。
+`log issues --all-projects` 按 fingerprint 聚合不同 worktree / 任务中的相同问题，输出 occurrence count、首次/最近出现时间、最高严重度、tasks/projects、相关命令、evidence refs 与 `open|resolved` lifecycle。多任务并行运行产生的经验可以直接作为下一轮 ACF 改进的输入。
 
 ## 固定小时调度与租约
 
