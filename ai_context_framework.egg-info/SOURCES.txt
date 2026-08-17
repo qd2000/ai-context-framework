@@ -9,6 +9,7 @@ ai_context_framework/constants.py
 ai_context_framework/context_budget.py
 ai_context_framework/continuation_recovery.py
 ai_context_framework/continuation_rounds.py
+ai_context_framework/continuation_workspace.py
 ai_context_framework/front_matter.py
 ai_context_framework/git_support.py
 ai_context_framework/json_contract.py
@@ -37,6 +38,7 @@ ai_context_framework.egg-info/top_level.txt
 ai_context_framework/commands/__init__.py
 ai_context_framework/commands/archive.py
 ai_context_framework/commands/continuation.py
+ai_context_framework/commands/continuation_workspace.py
 ai_context_framework/commands/decisions.py
 ai_context_framework/commands/doctor.py
 ai_context_framework/commands/edit_link.py

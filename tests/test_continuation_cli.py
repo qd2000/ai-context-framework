@@ -11,6 +11,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import acf
+from ai_context_framework import continuation_workspace
 from ai_context_framework.commands import continuation
 from ai_context_framework.observability import usage_log_path
 
@@ -532,6 +533,22 @@ class ContinuationCliTests(unittest.TestCase):
         )
         self.assertEqual(0, code, claim)
         lease_id = str(claim["lease"]["lease_id"])
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--path",
+                "dirty.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
         (self.root / "dirty.txt").write_text("dirty\n", encoding="utf-8")
 
         code, release, _ = self.run_json(
@@ -550,7 +567,6 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("released_to_reconciling", release["status"])
         self.assertEqual("reconciling", release["state"]["status"])
 
-    @unittest.expectedFailure
     def test_ws008_preexisting_unrelated_dirty_is_baseline_not_global_blocker(self) -> None:
         """WS008 target: pre-claim external dirty is preserved as baseline metadata."""
         (self.root / "manual-note.txt").write_text("manual external change\n", encoding="utf-8")
@@ -573,7 +589,6 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("initialized", payload["status"])
         self.assertEqual(["manual-note.txt"], payload["workspace"]["baseline_external_paths"])
 
-    @unittest.expectedFailure
     def test_ws008_unrelated_post_claim_dirty_does_not_create_false_parallel_block(self) -> None:
         """WS008 target: disjoint external dirty is observable but not a worktree-wide stop."""
         self.init_task("WS908")
@@ -616,6 +631,22 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--path",
+                "runner-owned.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
         (self.root / "runner-owned.txt").write_text("recover me\n", encoding="utf-8")
 
         state_dir = Path(str(init["state_dir"]))
@@ -676,6 +707,124 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, f"{stderr}\n{doctor}")
         self.assertEqual("stale", doctor["lease"]["liveness"])
         self.assertEqual(1500, doctor["lease"]["stale_after_seconds"])
+
+    def test_ws008_write_intent_rejects_protected_external_dirty_overlap(self) -> None:
+        (self.root / "manual-note.txt").write_text("manual external change\n", encoding="utf-8")
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "ws008-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, intent, _ = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--path",
+                "manual-note.txt",
+            ]
+        )
+        self.assertEqual(2, code)
+        self.assertEqual("workspace_intent_conflict", intent["error_code"])
+
+    def test_ws008_release_preserves_unrelated_external_dirty_without_reconciling(self) -> None:
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "ws008-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        (self.root / "external-note.txt").write_text("manual\n", encoding="utf-8")
+        code, release, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{release}")
+        self.assertEqual("released", release["status"])
+        self.assertEqual("ready", release["state"]["status"])
+        self.assertEqual(["external-note.txt"], release["workspace"]["unexpected_nonoverlap_paths"])
+        self.assertTrue((self.root / "external-note.txt").exists())
+
+    def test_ws008_preexisting_external_dirty_may_change_without_false_conflict(self) -> None:
+        (self.root / "manual-note.txt").write_text("manual v1\n", encoding="utf-8")
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "ws008-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        (self.root / "manual-note.txt").write_text("manual v2\n", encoding="utf-8")
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertNotIn("workspace_conflict", doctor["blocked_reasons"])
+        self.assertNotIn("worktree_dirty", doctor["blocked_reasons"])
+        self.assertEqual(["manual-note.txt"], doctor["workspace"]["baseline_external_paths"])
+
+    def test_ws008_workspace_intent_scope_filter_is_path_specific(self) -> None:
+        manifest = continuation_workspace.new_manifest(
+            task_id="WS908",
+            snapshot={"head": "a" * 40, "entries": []},
+            now=continuation._iso(),
+        )
+        manifest = continuation_workspace.add_intents(
+            manifest,
+            task_id="WS908",
+            paths=["src/allowed.py"],
+            allowed_scopes=["src/**"],
+            candidate_paths={"src/allowed.py": ["src/allowed.py"]},
+            snapshot={"head": "a" * 40, "entries": []},
+            now=continuation._iso(),
+        )
+        self.assertEqual(["src/allowed.py"], manifest["write_intents"])
+        with self.assertRaises(continuation_workspace.ContinuationWorkspaceError) as raised:
+            continuation_workspace.add_intents(
+                manifest,
+                task_id="WS908",
+                paths=["docs/outside.md"],
+                allowed_scopes=["src/**"],
+                candidate_paths={"docs/outside.md": ["docs/outside.md"]},
+                snapshot={"head": "a" * 40, "entries": []},
+                now=continuation._iso(),
+            )
+        self.assertEqual("workspace_intent_out_of_scope", raised.exception.code)
 
     def test_pause_during_active_round_blocks_renew_and_release_finishes_paused(self) -> None:
         self.init_task()
@@ -1895,6 +2044,9 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertIn("acf continuation assert-owner", prompt)
         self.assertIn("heartbeat", prompt)
         self.assertIn("acf continuation progress", prompt)
+        self.assertIn("acf continuation workspace status", prompt)
+        self.assertIn("acf continuation workspace intent", prompt)
+        self.assertIn("acf continuation workspace refresh", prompt)
         self.assertIn("acf continuation effect prepare", prompt)
         self.assertIn("acf continuation effect update", prompt)
         self.assertIn("acf continuation effect list", prompt)

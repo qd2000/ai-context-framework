@@ -135,6 +135,11 @@ acf continuation doctor C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 
 acf continuation claim C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --runner-id scheduled-agent --json
 # 保存 claim 返回的 lease_id、generation、fence_token；不要把 fence_token 写入项目文件或普通日志
 acf continuation assert-owner C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
+acf continuation workspace status C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --json
+# 修改项目文件前声明 concrete intent；绑定 Workstream 时必须命中其直接 write_scope
+acf continuation workspace intent C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --path src/example.py --json
+# 写入后/收口前刷新 bounded path/status/digest ownership metadata
+acf continuation workspace refresh C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
 acf continuation heartbeat C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
 acf continuation progress C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --phase executing --milestone gate-started --json
 acf continuation effect prepare C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --key campaign:wave-01 --kind external-job --json
@@ -152,7 +157,7 @@ acf continuation issue C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 -
 acf log issues --all-projects --open-only --json
 ```
 
-新 claim 或 recover 的同一 round 使用返回的 `lease_id + generation + fence_token` 调用 owner-protected 写命令。`progress` 只记录 generic phase/milestone/evidence；外部/non-idempotent work 必须先 `effect prepare`，再根据 authority observation 用 `effect update` 推进，不能把 raw stdout/tool output/transcript 写入 journal。`heartbeat` 只刷新 liveness，不延长 TTL；`renew` 才延长 TTL。`reconcile` 默认只读；fresh active owner 永远不可 takeover，stale/legacy active 需要明确 owner-ended evidence，advanced HEAD 必须精确接受当前 HEAD，unresolved effect 仍然 blocked。`recover` 只消费 recorded eligible receipt，并在 generation+1 前再次检查 observation 未发生任何漂移。clean release 未给 `--final-status` 时会保留已经 checkpoint 的非 running state；wrong task-id 会列出当前 available tasks；issue resolution 使用追加事件而不是改写历史。旧 v0.0.3.61 task 可直接使用该路径原位恢复，不要求 force re-init。人工中止使用 `pause`，确认后使用 `resume`。状态保存在用户级 `~/.acf/projects/.../continuation/`，不修改项目工作树。完整设计见 [Continuation_Control_Design.md](Continuation_Control_Design.md)。
+新 claim 或 recover 的同一 round 使用返回的 `lease_id + generation + fence_token` 调用 owner-protected 写命令。`progress` 只记录 generic phase/milestone/evidence；外部/non-idempotent work 必须先 `effect prepare`，再根据 authority observation 用 `effect update` 推进，不能把 raw stdout/tool output/transcript 写入 journal。workspace ownership 只记录 bounded path/status/digest：`init` 可在已有 dirty 的 worktree 上建立受保护 baseline；`workspace intent` 在实际写入前声明 concrete path，`workspace refresh` 区分 runner-owned、非重叠 external dirty 和真实冲突。非重叠 external dirty 不会被清理、提交或仅因 `clean=false` 阻塞 active owner；但 runner-owned/conflicting dirty 在 release 时仍进入 reconciling。`heartbeat` 只刷新 liveness，不延长 TTL；`renew` 才延长 TTL。`reconcile` 默认只读；WS008.2 仍保留 interrupted dirty-owner recovery 的旧 fail-closed 边界，后续 ownership-transfer 阶段才允许可证明 WIP 继承。fresh active owner 永远不可 takeover，advanced HEAD 必须精确接受当前 HEAD，unresolved effect 仍然 blocked。wrong task-id 会列出当前 available tasks。人工中止使用 `pause`，确认后使用 `resume`。状态保存在用户级 `~/.acf/projects/.../continuation/`，不会自动修改项目文件。完整设计见 [Continuation_Control_Design.md](Continuation_Control_Design.md)。
 
 ### Workstream guard 模式
 

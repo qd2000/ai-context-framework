@@ -18,7 +18,7 @@
 
 该能力跨项目复用，并直接依赖 ACF 已有的项目发现、Workstream/worktree 身份验证和用户级 `~/.acf` 状态根。若把它放在单个业务仓库中，会导致每个项目复制控制器，或要求业务 worktree 为了获得控制工具同步业务主线。
 
-放入 ACF 后，任意已经存在的 clean worktree 都可以直接执行 `acf continuation init`，不需要重建 worktree，也不需要为了控制工具合并该任务分支。
+放入 ACF 后，任意已经存在的 worktree 都可以直接执行 `acf continuation init`，不需要重建 worktree，也不需要为了控制工具合并该任务分支。已有 dirty 不再等价于冲突：初始化会把当时的 Git dirty 记录为受保护的 `baseline_external` workspace baseline；ACF 不会自动清理或提交这些外部修改。
 
 ## 状态位置
 
@@ -34,6 +34,7 @@ Continuation 运行态不写入项目仓库，默认位于：
             ├─ control.json
             ├─ state.json
             ├─ lease.json
+            ├─ workspace.json
             ├─ pause.json
             └─ last_run.json
 ```
@@ -52,6 +53,9 @@ acf continuation progress
 acf continuation effect prepare
 acf continuation effect update
 acf continuation effect list
+acf continuation workspace status
+acf continuation workspace intent
+acf continuation workspace refresh
 acf continuation reconcile
 acf continuation recover
 acf continuation renew
@@ -63,7 +67,7 @@ acf continuation prompt
 acf continuation issue
 ```
 
-`init` 从 clean Git checkpoint 建立控制状态。可选 `--workstream WSNNN` 时，同时验证 ACF registry、path、branch 和 Git common-dir；没有 Workstream 的普通项目也可只用 `--task-id`。
+`init` 从当前 Git HEAD 建立控制状态并捕获 bounded workspace baseline。初始化前已经存在的 tracked/untracked dirty 会作为 `baseline_external` 记录路径、Git status 和 digest；这些修改保持原样，不进入 continuation 自己的提交。可选 `--workstream WSNNN` 时，同时验证 ACF registry、path、branch 和 Git common-dir；没有 Workstream 的普通项目也可只用 `--task-id`。
 
 `doctor` 只读核对 Git top-level、branch、dirty 状态、可选 Workstream identity、pause、lease 和 compact state，并返回 `can_claim`。带 heartbeat 的 active lease 会按配置的 renew interval 区分 `fresh` 与 `stale`；stale 同时暴露 `orphan_candidate=true`，但仍然 `can_claim=false`，因为“没有新鲜 heartbeat”只能证明需要 reconciliation，不能证明接管安全。旧版没有 heartbeat/generation 的 active lease 返回 `legacy_unknown` 并继续保守阻塞。
 
@@ -74,6 +78,15 @@ acf continuation issue
 `heartbeat` 只刷新 `last_heartbeat_at`，用于证明 runner liveness，不延长 `expires_at`。`renew` 在校验 owner 后同时刷新 heartbeat/renew 时间并延长同一 lease TTL，不改变外部调度周期。stale heartbeat 本身永远不授权接管。
 
 `progress` 把当前 fenced round 的执行状态记录在用户级 `rounds.json`。核心 phase 只使用 runtime-neutral 的 `claimed / executing / waiting_external / finalizing / reconciling / released`，并允许 bounded milestone/evidence refs；不保存 runtime-specific phase、raw output 或 transcript。round journal 只保留有限条目，超过上限时只允许裁掉已经 `released` 的旧 round，不能为了腾空间丢掉未收口现场。
+
+Workspace ownership 保存在用户级 `workspace.json`，只记录 bounded path/status/content digest metadata，不保存完整文件内容或完整 diff。新 fenced generation claim 时会冻结当时的 `baseline_external`；active owner 在修改项目文件前用 `workspace intent --path <concrete-path>` 声明有限 write intent，绑定 Workstream 时 intent 必须命中该 Workstream 的直接 write scope。`workspace refresh` 重新观察 Git 并区分：
+
+- `baseline_external`：claim 前已存在的受保护外部 dirty；只要不与本轮 write intent 重叠，外部 owner 后续继续修改该路径时 refresh 只更新观测 digest，不制造假并发冲突；
+- `runner_owned`：位于已声明 write intent 下的本轮 dirty；
+- `unexpected_nonoverlap`：claim 后出现、但与 baseline/write intent 不重叠的外部 dirty；
+- `conflict`：write intent 与受保护 baseline/external dirty 同路径或父子路径碰撞、路径所有权无法解释，或其他 ownership evidence 出现歧义等真实冲突；单纯的非重叠外部继续编辑不是冲突。
+
+`doctor` 对 active fenced round 不再因为整个 worktree `clean=false` 就附加 `worktree_dirty`；只要 workspace manifest 可验证且没有真实冲突，非重叠 dirty 作为可观察状态保留。没有 workspace manifest 的旧 continuation 仍保持原来的 dirty fail-closed；clean legacy task 在下一次 claim 时可惰性建立 manifest。
 
 外部/non-idempotent work 使用 write-ahead effect contract。`effect prepare --key <logical-key> --kind <generic-kind>` 在动作之前写入 deterministic effect id；同一 task + logical key + kind 得到稳定 identity。只有返回 `created=true` 的首次 prepare 才允许执行外部动作；`created=false` 表示 effect 已经存在，必须复用、查询外部 authority 或进入 reconciliation，不能再次 submit。`effect update` 只记录 generic `prepared / active / completed / failed / unknown` status、可选 external id、milestone 与 evidence refs；terminal status 不允许重新回到 active。effect journal 有固定记录/字节上限，schema 不接受 raw output/transcript 字段。
 
@@ -94,8 +107,9 @@ acf continuation issue
 
 `release` 的收口规则：
 
-- clean → 写 last-run receipt；显式 `--final-status` 时进入指定状态；未显式指定时，只把仍为 `running` 的 state 转为 `ready`，已经 checkpoint 的 `waiting_external`、`blocked_human`、`done` 等非 running 状态保持不变；删除 lease；
-- dirty → 进入 `reconciling`，删除 lease但禁止下一轮自动 claim；
+- 没有 `runner_owned` / workspace conflict → 写 last-run receipt；允许 `baseline_external` 与 `unexpected_nonoverlap` 原样继续存在；显式 `--final-status` 时进入指定状态，未显式指定时只把仍为 `running` 的 state 转为 `ready`；删除 lease；
+- 存在未 checkpoint 的 `runner_owned` 或 workspace conflict → 进入 `reconciling`，删除 lease但禁止下一轮自动 claim；
+- 没有 workspace manifest 的 legacy task 若 Git dirty → 继续按旧规则 fail-closed 到 `reconciling`；
 - active round 期间收到 pause → release 后进入 `paused`。
 
 `issue` 用于记录**可复用的 ACF / continuation / 自动化工作流缺口**，不是业务任务自己的科学失败日志。事件写入用户级 ACF usage log，包含 task/workstream/stage、分类、严重度、简短描述、证据引用和稳定 fingerprint；相同 fingerprint 的多次出现保留为 occurrence，查询时自动聚合计数。修复确认后可用 `acf continuation issue ... --resolve-fingerprint <fingerprint> --text <resolution>` 追加 resolution event，不篡改历史 occurrence；`acf log issues --open-only` 只显示 open 项。同 fingerprint 后续再次出现时自动 reopen。
@@ -135,7 +149,7 @@ doctor
     ├─ active + stale heartbeat → orphan candidate → reconcile；未证明 owner ended 则 stop
     ├─ active + legacy-unknown → reconcile；必须显式 owner-ended evidence
     ├─ expired running + effect records → effect_reconciliation_required → reconcile
-    ├─ paused/dirty/reconciling → no-op
+    ├─ paused/reconciling/真实 workspace conflict → no-op
     └─ can_claim=true → claim → 单轮执行
 ```
 
@@ -160,13 +174,15 @@ Continuation 状态不是 transcript cache，而是低噪声恢复索引。
 
 ## 安全边界
 
-- `init` 要求 clean worktree；
+- `init` 捕获已有 dirty 为受保护 baseline，不要求为了 continuation 人工清空整个 worktree；
 - 不自动 stash/reset/clean/rebase/force/push；
+- `workspace intent` 只接受具体路径；绑定 Workstream 时必须落在直接 write scope 内；与 baseline/external dirty 同路径或父子路径碰撞时拒绝 intent；
+- active round 的非重叠 external dirty 可以共存，但不会被 continuation 自动提交；runner-owned dirty 未 checkpoint 时 release 仍 fail-closed；
 - active lease 不可被第二个 claimant 覆盖；
 - fenced round 的 owner credential 只返回给 claimant，持久态只保存 hash；
 - generation 前进后，旧 owner 的 heartbeat/renew/checkpoint/release 必须失败；
 - stale/orphan candidate 只触发 reconciliation 信号，不允许自动 steal；
-- reconcile receipt 只在当前 observation 未漂移时有效；fresh owner、dirty Git、未接受 HEAD advance 或 unresolved effects 均不可 recover；
+- reconcile receipt 只在当前 observation 未漂移时有效；WS008.2 仍保持“dirty interrupted owner 不可 recover”的 v0.0.3.62 边界，后续 WS008.3 才会把可证明的 runner-owned WIP 纳入 formal recovery；fresh owner、未接受 HEAD advance 或 unresolved effects 仍不可 recover；
 - pause 不强杀外部进程，只阻止 renew，并在 release 收口；
 - malformed lease/state fail-closed；
 - Workstream 绑定可选，绑定后必须通过 registry/path/branch/common-dir 验证；

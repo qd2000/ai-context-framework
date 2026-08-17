@@ -1202,7 +1202,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     continuation_init_parser = continuation_subparsers.add_parser(
         "init",
-        help="initialize bounded continuation state for one clean Git worktree",
+        help="initialize bounded continuation state and capture the current Git workspace baseline",
     )
     continuation_init_parser.add_argument("path", nargs="?", type=Path)
     continuation_init_parser.add_argument("--task-id", default=None)
@@ -1279,6 +1279,10 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_heartbeat_parser.set_defaults(func=continuation_commands.continuation_heartbeat_command)
 
     continuation_commands.register_round_effect_parsers(
+        continuation_subparsers,
+        add_json_argument,
+    )
+    continuation_commands.register_workspace_parsers(
         continuation_subparsers,
         add_json_argument,
     )
