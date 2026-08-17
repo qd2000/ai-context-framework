@@ -550,6 +550,133 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("released_to_reconciling", release["status"])
         self.assertEqual("reconciling", release["state"]["status"])
 
+    @unittest.expectedFailure
+    def test_ws008_preexisting_unrelated_dirty_is_baseline_not_global_blocker(self) -> None:
+        """WS008 target: pre-claim external dirty is preserved as baseline metadata."""
+        (self.root / "manual-note.txt").write_text("manual external change\n", encoding="utf-8")
+        code, payload, stderr = self.run_json(
+            [
+                "continuation",
+                "init",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--title",
+                "Dirty baseline test",
+                "--objective",
+                "Preserve non-overlapping external dirty state.",
+                "--next-action",
+                "Modify only task-owned paths.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{payload}")
+        self.assertEqual("initialized", payload["status"])
+        self.assertEqual(["manual-note.txt"], payload["workspace"]["baseline_external_paths"])
+
+    @unittest.expectedFailure
+    def test_ws008_unrelated_post_claim_dirty_does_not_create_false_parallel_block(self) -> None:
+        """WS008 target: disjoint external dirty is observable but not a worktree-wide stop."""
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "ws008-test-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        (self.root / "unrelated-user-note.txt").write_text("external\n", encoding="utf-8")
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertNotIn("worktree_dirty", doctor["blocked_reasons"])
+        self.assertEqual(
+            ["unrelated-user-note.txt"],
+            doctor["workspace"]["unexpected_nonoverlap_paths"],
+        )
+
+    @unittest.expectedFailure
+    def test_ws008_stale_owner_reconcile_can_preserve_attributable_dirty_wip(self) -> None:
+        """WS008 target: dirty orphan WIP is not rejected solely because Git is dirty."""
+        init = self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "ws008-old-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        (self.root / "runner-owned.txt").write_text("recover me\n", encoding="utf-8")
+
+        state_dir = Path(str(init["state_dir"]))
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        stale = continuation._now() - timedelta(minutes=31)
+        lease["last_heartbeat_at"] = continuation._iso(stale)
+        lease_path.write_text(json.dumps(lease, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--owner-ended",
+                "--evidence-ref",
+                "test:owner-ended",
+                "--reason",
+                "Old owner ended; dirty WIP is attributable to that round.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"])
+        self.assertNotIn("worktree_dirty", reconciled["reasons"])
+
+    @unittest.expectedFailure
+    def test_ws008_stale_threshold_is_independent_from_renew_interval(self) -> None:
+        """WS008 target: liveness cadence is independently configured from lease renewal."""
+        init = self.init_task("WS908")
+        state_dir = Path(str(init["state_dir"]))
+        control_path = state_dir / "control.json"
+        control = json.loads(control_path.read_text(encoding="utf-8"))
+        control["renew_interval_minutes"] = 45
+        control["heartbeat_interval_minutes"] = 10
+        control["stale_after_minutes"] = 25
+        control_path.write_text(json.dumps(control, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "ws008-long-run-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["last_heartbeat_at"] = continuation._iso(continuation._now() - timedelta(minutes=30))
+        lease_path.write_text(json.dumps(lease, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertEqual("stale", doctor["lease"]["liveness"])
+        self.assertEqual(1500, doctor["lease"]["stale_after_seconds"])
+
     def test_pause_during_active_round_blocks_renew_and_release_finishes_paused(self) -> None:
         self.init_task()
         code, claim, _ = self.run_json(
