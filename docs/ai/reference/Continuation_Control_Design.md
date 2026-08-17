@@ -48,6 +48,10 @@ acf continuation doctor
 acf continuation claim
 acf continuation assert-owner
 acf continuation heartbeat
+acf continuation progress
+acf continuation effect prepare
+acf continuation effect update
+acf continuation effect list
 acf continuation renew
 acf continuation checkpoint
 acf continuation release
@@ -66,6 +70,12 @@ acf continuation issue
 `assert-owner` 对 active lease 的 `lease_id + generation + fence_token` 做所有权校验。新 generation 生效后，旧 owner 的 `assert-owner`、`heartbeat`、`renew`、`checkpoint` 和 `release` 都会被确定性拒绝。该 fencing 保护的是 ACF continuation 控制协议；它不能阻止绕过 ACF 直接写外部系统，因此 non-idempotent 外部动作仍应在动作前显式 assert-owner。
 
 `heartbeat` 只刷新 `last_heartbeat_at`，用于证明 runner liveness，不延长 `expires_at`。`renew` 在校验 owner 后同时刷新 heartbeat/renew 时间并延长同一 lease TTL，不改变外部调度周期。expired lease 仍只有在身份、Git 和当前恢复规则重新通过后才能产生下一 generation；正式 orphan takeover 由后续 reconcile/recover 协议负责，stale heartbeat 本身不授权接管。
+
+`progress` 把当前 fenced round 的执行状态记录在用户级 `rounds.json`。核心 phase 只使用 runtime-neutral 的 `claimed / executing / waiting_external / finalizing / reconciling / released`，并允许 bounded milestone/evidence refs；不保存 runtime-specific phase、raw output 或 transcript。round journal 只保留有限条目，超过上限时只允许裁掉已经 `released` 的旧 round，不能为了腾空间丢掉未收口现场。
+
+外部/non-idempotent work 使用 write-ahead effect contract。`effect prepare --key <logical-key> --kind <generic-kind>` 在动作之前写入 deterministic effect id；同一 task + logical key + kind 得到稳定 identity。只有返回 `created=true` 的首次 prepare 才允许执行外部动作；`created=false` 表示 effect 已经存在，必须复用、查询外部 authority 或进入 reconciliation，不能再次 submit。`effect update` 只记录 generic `prepared / active / completed / failed / unknown` status、可选 external id、milestone 与 evidence refs；terminal status 不允许重新回到 active。effect journal 有固定记录/字节上限，schema 不接受 raw output/transcript 字段。
+
+WS007.3 暂时采用更保守的恢复边界：只要 `state=running` 的 lease 已过期且 effect journal 非空，`doctor` 就返回 `effect_reconciliation_required` 并保持 `can_claim=false`，无论 effect 当前是否看起来 terminal。这样在 WS007.4 正式 `reconcile/recover` 能验证 external authority、Git 与 effect evidence 之前，旧版“clean worktree + unchanged HEAD 直接 re-claim”不会绕过 durable side-effect evidence。没有 round/effect journal 的 v0.0.3.61 task 仍沿用 legacy conservative semantics，并在下一次正常 fenced claim 时 lazy 创建 round journal。
 
 默认时间参数：
 
@@ -115,6 +125,7 @@ doctor
     ├─ active + fresh heartbeat → no-op，当前 owner live
     ├─ active + stale heartbeat → orphan candidate，fail-closed/no claim
     ├─ active + legacy-unknown → no-op，等待兼容路径收口
+    ├─ expired running + effect records → effect_reconciliation_required，禁止直接 re-claim
     ├─ paused/dirty/reconciling → no-op
     └─ can_claim=true → claim → 单轮执行
 ```

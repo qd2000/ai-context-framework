@@ -34,6 +34,7 @@ except ImportError:  # pragma: no cover - Windows path.
     fcntl = None  # type: ignore[assignment]
 
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
+from ai_context_framework import continuation_rounds
 from ai_context_framework.observability import (
     append_usage_event,
     atomic_write_text,
@@ -51,6 +52,9 @@ STATE_SCHEMA = "acf.continuation.state.v1"
 LEASE_SCHEMA = "acf.continuation.lease.v1"
 PAUSE_SCHEMA = "acf.continuation.pause.v1"
 RECEIPT_SCHEMA = "acf.continuation.receipt.v1"
+
+ROUND_PHASES = continuation_rounds.ROUND_PHASES
+EFFECT_STATUSES = continuation_rounds.EFFECT_STATUSES
 
 DEFAULT_INTERVAL_MINUTES = 60
 DEFAULT_LEASE_TTL_MINUTES = 120
@@ -250,6 +254,8 @@ def _paths(root: Path, task_id: str | None) -> dict[str, Path]:
         "lease": directory / "lease.json",
         "pause": directory / "pause.json",
         "receipt": directory / "last_run.json",
+        "rounds": directory / "rounds.json",
+        "effects": directory / "effects.json",
     }
 
 
@@ -270,6 +276,103 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
         path,
         json.dumps(dict(payload), ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n",
     )
+
+
+def _round_error(exc: continuation_rounds.ContinuationRoundError) -> ContinuationError:
+    return ContinuationError(str(exc), code=exc.code)
+
+
+def _load_round_journal(
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    *,
+    require_existing: bool = False,
+) -> dict[str, Any]:
+    path = paths["rounds"]
+    if not path.exists():
+        if require_existing:
+            raise ContinuationError(
+                "active fenced round is missing its round journal",
+                code="round_record_missing",
+                exit_code=3,
+            )
+        return continuation_rounds.empty_round_journal(str(control["task_id"]))
+    try:
+        payload = _read_json(path, label="round_journal")
+        return continuation_rounds.validate_round_journal(payload, task_id=str(control["task_id"]))
+    except continuation_rounds.ContinuationRoundError as exc:
+        raise _round_error(exc) from exc
+
+
+def _load_effect_journal(
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    *,
+    require_existing: bool = False,
+) -> dict[str, Any]:
+    path = paths["effects"]
+    if not path.exists():
+        if require_existing:
+            raise ContinuationError("effect journal is missing", code="effect_journal_missing")
+        return continuation_rounds.empty_effect_journal(str(control["task_id"]))
+    try:
+        payload = _read_json(path, label="effect_journal")
+        return continuation_rounds.validate_effect_journal(payload, task_id=str(control["task_id"]))
+    except continuation_rounds.ContinuationRoundError as exc:
+        raise _round_error(exc) from exc
+
+
+def _journal_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    round_path = paths["rounds"]
+    effect_path = paths["effects"]
+    if round_path.exists():
+        try:
+            rounds = _load_round_journal(paths, control)
+            round_snapshot = {
+                "state": "valid",
+                "path": str(round_path),
+                "count": len(rounds["rounds"]),
+                "latest": continuation_rounds.latest_round(rounds, task_id=str(control["task_id"])),
+            }
+        except ContinuationError as exc:
+            round_snapshot = {"state": "invalid", "path": str(round_path), "error": str(exc)}
+    else:
+        round_snapshot = {"state": "absent", "path": str(round_path), "count": 0, "latest": None}
+
+    if effect_path.exists():
+        try:
+            effects = _load_effect_journal(paths, control)
+            effect_snapshot = {
+                "state": "valid",
+                "path": str(effect_path),
+                "summary": continuation_rounds.effect_summary(effects, task_id=str(control["task_id"])),
+            }
+        except ContinuationError as exc:
+            effect_snapshot = {"state": "invalid", "path": str(effect_path), "error": str(exc)}
+    else:
+        effect_snapshot = {
+            "state": "absent",
+            "path": str(effect_path),
+            "summary": continuation_rounds.effect_summary(
+                continuation_rounds.empty_effect_journal(str(control["task_id"])),
+                task_id=str(control["task_id"]),
+            ),
+        }
+    return round_snapshot, effect_snapshot
+
+
+def _require_fenced_generation(lease: Mapping[str, Any]) -> int:
+    generation = lease.get("generation")
+    if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
+        raise ContinuationError(
+            "this command requires a fenced continuation round",
+            code="fenced_round_required",
+            exit_code=3,
+            next_actions=[
+                "Finish the legacy round through its compatible path, then claim a new fenced round before using progress/effect commands."
+            ],
+        )
+    return generation
 
 
 @contextmanager
@@ -560,6 +663,11 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
     lease = _lease_snapshot(paths, control)
     if lease["state"] == "invalid":
         identity_errors.append("lease is malformed or identity-mismatched")
+    round_journal, effect_journal = _journal_snapshot(paths, control)
+    if round_journal["state"] == "invalid":
+        identity_errors.append("round journal is malformed or identity-mismatched")
+    if effect_journal["state"] == "invalid":
+        identity_errors.append("effect journal is malformed or identity-mismatched")
     pause = _read_json(paths["pause"], label="pause") if paths["pause"].exists() else None
     expired_running_round = state["status"] == "running" and lease["state"] == "expired"
     expired_round_head_changed = bool(
@@ -567,7 +675,18 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         and isinstance(lease.get("lease"), Mapping)
         and lease["lease"].get("head") != git["head"]
     )
-    recoverable_expired = expired_running_round and not expired_round_head_changed
+    effect_summary = effect_journal.get("summary", {})
+    effect_reconciliation_required = bool(
+        expired_running_round
+        and effect_journal["state"] == "valid"
+        and isinstance(effect_summary, Mapping)
+        and int(effect_summary.get("total", 0)) > 0
+    )
+    recoverable_expired = (
+        expired_running_round
+        and not expired_round_head_changed
+        and not effect_reconciliation_required
+    )
     can_claim = (
         not identity_errors
         and git["clean"]
@@ -587,6 +706,8 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         blocked.append("orphan_candidate")
     if expired_round_head_changed:
         blocked.append("expired_round_head_changed")
+    if effect_reconciliation_required:
+        blocked.append("effect_reconciliation_required")
     if state["status"] not in RUNNABLE_STATUSES and not recoverable_expired:
         blocked.append(f"state_status:{state['status']}")
     return {
@@ -597,11 +718,14 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         "state": state,
         "git": git,
         "lease": lease,
+        "round_journal": round_journal,
+        "effect_journal": effect_journal,
         "pause": pause,
         "workstream": workstream,
         "state_dir": str(paths["directory"]),
         "recoverable_expired_round": recoverable_expired,
         "expired_round_head_changed": expired_round_head_changed,
+        "effect_reconciliation_required": effect_reconciliation_required,
         "orphan_candidate": orphan_candidate,
     }
 
@@ -703,6 +827,8 @@ def continuation_init_command(args: argparse.Namespace) -> int:
             "lease": directory / "lease.json",
             "pause": directory / "pause.json",
             "receipt": directory / "last_run.json",
+            "rounds": directory / "rounds.json",
+            "effects": directory / "effects.json",
         }
         if paths["control"].exists() and not args.force:
             raise ContinuationError(
@@ -754,7 +880,13 @@ def continuation_init_command(args: argparse.Namespace) -> int:
         _write_json(paths["control"], control)
         _write_state(paths["state"], state)
         if args.force:
-            for stale in (paths["lease"], paths["pause"], paths["receipt"]):
+            for stale in (
+                paths["lease"],
+                paths["pause"],
+                paths["receipt"],
+                paths["rounds"],
+                paths["effects"],
+            ):
                 stale.unlink(missing_ok=True)
         return {
             "status": "initialized",
@@ -816,6 +948,16 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                         "Inspect commits since the expired lease head and reconcile the prior round before retrying."
                     ],
                 )
+            if status.get("effect_reconciliation_required"):
+                raise ContinuationError(
+                    "expired round has durable effect records; reconcile them before another claim",
+                    code="continuation_reconciliation_required",
+                    exit_code=3,
+                    details={"effect_summary": status["effect_journal"].get("summary", {})},
+                    next_actions=[
+                        "Inspect `acf continuation effect list` and use the formal reconcile/recover path once available; do not resubmit recorded effects."
+                    ],
+                )
             recoverable = state["status"] == "running" and status["lease"]["state"] == "expired"
             if state["status"] not in RUNNABLE_STATUSES and not recoverable:
                 raise ContinuationError(
@@ -827,7 +969,10 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 raise ContinuationError("invalid lease TTL", code="timing_invalid")
             now = _now()
             generation = int(control.get("generation", 0)) + 1
-            fence_token = secrets.token_urlsafe(32)
+            # Keep the owner credential safe to pass as a separate argparse value.
+            # URL-safe base64 can begin with "-", which argparse may interpret as
+            # another option instead of the value for --fence-token.
+            fence_token = secrets.token_hex(32)
             lease = {
                 "schema_version": LEASE_SCHEMA,
                 "lease_id": str(uuid.uuid4()),
@@ -843,10 +988,23 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 "last_renew_at": _iso(now),
                 "expires_at": _iso(now + timedelta(minutes=ttl)),
             }
+            round_journal = _load_round_journal(paths, control)
+            try:
+                round_journal, round_record = continuation_rounds.begin_round(
+                    round_journal,
+                    task_id=str(control["task_id"]),
+                    generation=generation,
+                    lease_id=str(lease["lease_id"]),
+                    runner_id=str(lease["runner_id"]),
+                    now=_iso(now),
+                )
+            except continuation_rounds.ContinuationRoundError as exc:
+                raise _round_error(exc) from exc
             control["generation"] = generation
             control["updated_at"] = _iso(now)
             _write_json(paths["control"], control)
             _write_json(paths["lease"], lease)
+            _write_json(paths["rounds"], round_journal)
             state["status"] = "running"
             state["updated_at"] = _iso()
             if recoverable:
@@ -860,6 +1018,7 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 "lease": _public_lease(lease),
                 "fence_token": fence_token,
                 "generation": generation,
+                "round": round_record,
                 "stage": state["stage"],
                 "next_action": state["next_action"],
                 "renew_interval_minutes": control["renew_interval_minutes"],
@@ -919,6 +1078,162 @@ def continuation_heartbeat_command(args: argparse.Namespace) -> int:
             }
 
     return _guarded(args, "continuation heartbeat", operation)
+
+
+def continuation_progress_command(args: argparse.Namespace) -> int:
+    def operation() -> dict[str, Any]:
+        if args.phase is None and args.milestone is None and not (args.evidence_ref or []):
+            raise ContinuationError(
+                "progress requires --phase, --milestone, or --evidence-ref",
+                code="progress_empty",
+            )
+        root = _workspace_root(args.path)
+        paths = _paths(root, args.task_id)
+        with _state_lock(paths["lock"]):
+            control = _load_control(paths, root)
+            snapshot = _lease_snapshot(paths, control)
+            lease = _assert_lease_owner(
+                snapshot,
+                lease_id=args.lease_id,
+                fence_token=args.fence_token,
+                generation=args.generation,
+            )
+            generation = _require_fenced_generation(lease)
+            journal = _load_round_journal(paths, control, require_existing=True)
+            try:
+                journal, record = continuation_rounds.update_round(
+                    journal,
+                    task_id=str(control["task_id"]),
+                    generation=generation,
+                    lease_id=str(lease["lease_id"]),
+                    phase=args.phase,
+                    milestone=args.milestone,
+                    evidence_refs=args.evidence_ref or [],
+                    now=_iso(),
+                )
+            except continuation_rounds.ContinuationRoundError as exc:
+                raise _round_error(exc) from exc
+            _write_json(paths["rounds"], journal)
+            return {
+                "status": "progress_recorded",
+                "round": record,
+                "generation": generation,
+            }
+
+    return _guarded(args, "continuation progress", operation)
+
+
+def continuation_effect_prepare_command(args: argparse.Namespace) -> int:
+    def operation() -> dict[str, Any]:
+        root = _workspace_root(args.path)
+        paths = _paths(root, args.task_id)
+        with _state_lock(paths["lock"]):
+            control = _load_control(paths, root)
+            snapshot = _lease_snapshot(paths, control)
+            lease = _assert_lease_owner(
+                snapshot,
+                lease_id=args.lease_id,
+                fence_token=args.fence_token,
+                generation=args.generation,
+            )
+            generation = _require_fenced_generation(lease)
+            journal = _load_effect_journal(paths, control)
+            try:
+                journal, effect, created = continuation_rounds.prepare_effect(
+                    journal,
+                    task_id=str(control["task_id"]),
+                    generation=generation,
+                    logical_key=args.key,
+                    kind=args.kind,
+                    external_id=args.external_id,
+                    milestone=args.milestone,
+                    evidence_refs=args.evidence_ref or [],
+                    now=_iso(),
+                )
+            except continuation_rounds.ContinuationRoundError as exc:
+                raise _round_error(exc) from exc
+            if created:
+                _write_json(paths["effects"], journal)
+            return {
+                "status": "effect_prepared" if created else "effect_exists",
+                "created": created,
+                "effect": effect,
+                "summary": continuation_rounds.effect_summary(
+                    journal, task_id=str(control["task_id"])
+                ),
+            }
+
+    return _guarded(args, "continuation effect prepare", operation)
+
+
+def continuation_effect_update_command(args: argparse.Namespace) -> int:
+    def operation() -> dict[str, Any]:
+        if (
+            args.status is None
+            and args.external_id is None
+            and args.milestone is None
+            and not (args.evidence_ref or [])
+        ):
+            raise ContinuationError(
+                "effect update requires a status, external id, milestone, or evidence reference",
+                code="effect_update_empty",
+            )
+        root = _workspace_root(args.path)
+        paths = _paths(root, args.task_id)
+        with _state_lock(paths["lock"]):
+            control = _load_control(paths, root)
+            snapshot = _lease_snapshot(paths, control)
+            lease = _assert_lease_owner(
+                snapshot,
+                lease_id=args.lease_id,
+                fence_token=args.fence_token,
+                generation=args.generation,
+            )
+            generation = _require_fenced_generation(lease)
+            journal = _load_effect_journal(paths, control, require_existing=True)
+            try:
+                journal, effect = continuation_rounds.update_effect(
+                    journal,
+                    task_id=str(control["task_id"]),
+                    generation=generation,
+                    logical_key=args.key,
+                    status=args.status,
+                    external_id=args.external_id,
+                    milestone=args.milestone,
+                    evidence_refs=args.evidence_ref or [],
+                    now=_iso(),
+                )
+            except continuation_rounds.ContinuationRoundError as exc:
+                raise _round_error(exc) from exc
+            _write_json(paths["effects"], journal)
+            return {
+                "status": "effect_updated",
+                "effect": effect,
+                "summary": continuation_rounds.effect_summary(
+                    journal, task_id=str(control["task_id"])
+                ),
+            }
+
+    return _guarded(args, "continuation effect update", operation)
+
+
+def continuation_effect_list_command(args: argparse.Namespace) -> int:
+    def operation() -> dict[str, Any]:
+        root = _workspace_root(args.path)
+        paths = _paths(root, args.task_id)
+        with _state_lock(paths["lock"]):
+            control = _load_control(paths, root)
+            journal = _load_effect_journal(paths, control)
+            return {
+                "status": "listed",
+                "effects": journal["effects"],
+                "summary": continuation_rounds.effect_summary(
+                    journal, task_id=str(control["task_id"])
+                ),
+                "path": str(paths["effects"]),
+            }
+
+    return _guarded(args, "continuation effect list", operation)
 
 
 def continuation_renew_command(args: argparse.Namespace) -> int:
@@ -1008,6 +1323,10 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 fence_token=args.fence_token,
                 generation=args.generation,
             )
+            generation = lease.get("generation")
+            round_journal: dict[str, Any] | None = None
+            if generation is not None:
+                round_journal = _load_round_journal(paths, control, require_existing=True)
             state = _load_state(paths)
             git = _git_identity(root)
             pause = _read_json(paths["pause"], label="pause") if paths["pause"].exists() else None
@@ -1035,8 +1354,26 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 if args.next_action:
                     state["next_action"] = args.next_action.strip()
                 state["verification"] = _append_unique(state["verification"], args.verification or [])
-            state["updated_at"] = _iso()
+            release_now = _iso()
+            finished_round: dict[str, Any] | None = None
+            if round_journal is not None:
+                try:
+                    round_journal, finished_round = continuation_rounds.finish_round(
+                        round_journal,
+                        task_id=str(control["task_id"]),
+                        generation=_require_fenced_generation(lease),
+                        lease_id=str(lease["lease_id"]),
+                        reconciling=state["status"] == "reconciling",
+                        milestone=outcome,
+                        evidence_refs=[],
+                        now=release_now,
+                    )
+                except continuation_rounds.ContinuationRoundError as exc:
+                    raise _round_error(exc) from exc
+            state["updated_at"] = release_now
             _write_state(paths["state"], state)
+            if round_journal is not None:
+                _write_json(paths["rounds"], round_journal)
             receipt = {
                 "schema_version": RECEIPT_SCHEMA,
                 "task_id": control["task_id"],
@@ -1048,7 +1385,7 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 "head_before": lease["head"],
                 "head_after": git["head"],
                 "started_at": lease["issued_at"],
-                "released_at": _iso(),
+                "released_at": release_now,
                 "outcome": outcome,
                 "state_status": state["status"],
                 "state_stage": state["stage"],
@@ -1061,6 +1398,7 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 "status": outcome,
                 "state": state,
                 "receipt": receipt,
+                "round": finished_round,
                 "next_action": state["next_action"],
             }
 
@@ -1140,13 +1478,14 @@ Continuation protocol:
 2. Run `acf continuation doctor {json.dumps(str(root))}{task_flag} --json`.
 3. If `can_claim` is false, do not modify the worktree. Report the blocking reason.
 4. Claim one bounded round with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json` and keep the returned lease_id, generation, and fence_token. Treat fence_token as an owner credential and do not copy it into project files or logs.
-5. Execute only the current bounded gate. Never repeat an uncertain non-idempotent operation.
+5. Execute only the current bounded gate. Record compact runtime-neutral progress with `acf continuation progress ... --phase <phase> --milestone <compact-name> --evidence-ref <durable-ref> --json`; do not copy raw tool output or transcript history into continuation state.
 6. Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. For long work, record liveness with `acf continuation heartbeat ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` and extend TTL with `acf continuation renew ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before their configured thresholds; heartbeat proves liveness but does not extend TTL.
-7. Validate the gate and create the project-required clean Git checkpoint before release.
-8. Update bounded state with `acf continuation checkpoint ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> ... --json`.
-9. Release the same lease with `acf continuation release ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`.
-10. Stop on paused, blocked_human, reconciling, identity mismatch, or unknown write outcome.
-11. If this round exposes a concrete reusable ACF/continuation/workflow defect or operational gap, record it immediately with `acf continuation issue {json.dumps(str(root))}{task_flag} --category <category> --severity <low|medium|high|critical> --text <concise issue> --evidence-ref <path-or-commit> --json`. Do not record normal active-lease no-ops, expected waits, or task-specific scientific failures as product issues.
+7. Before executing each external/non-idempotent side effect, write its deterministic identity first with `acf continuation effect prepare ... --key <logical-key> --kind <generic-kind> --json`. Execute the side effect only when prepare returns `created=true`; `created=false` means the logical effect already exists and must be inspected/reused/reconciled rather than resubmitted. After authoritative observations, update only compact status/milestone/external-id/evidence references with `acf continuation effect update ...`. If an outcome is uncertain, stop and preserve the effect for reconciliation; never resubmit it from memory. Use `acf continuation effect list ... --json` to inspect durable effect identities.
+8. Validate the gate and create the project-required clean Git checkpoint before release.
+9. Update bounded state with `acf continuation checkpoint ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> ... --json`.
+10. Release the same lease with `acf continuation release ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`.
+11. Stop on paused, blocked_human, reconciling, identity mismatch, effect reconciliation required, or unknown write outcome.
+12. If this round exposes a concrete reusable ACF/continuation/workflow defect or operational gap, record it immediately with `acf continuation issue {json.dumps(str(root))}{task_flag} --category <category> --severity <low|medium|high|critical> --text <concise issue> --evidence-ref <path-or-commit> --json`. Do not record normal active-lease no-ops, expected waits, or task-specific scientific failures as product issues.
 """
         return {"status": "rendered", "task_id": control["task_id"], "prompt": prompt}
 
@@ -1218,17 +1557,96 @@ def continuation_issue_command(args: argparse.Namespace) -> int:
     return _guarded(args, "continuation issue", operation)
 
 
+def register_round_effect_parsers(subparsers, add_json_argument) -> None:
+    progress = subparsers.add_parser(
+        "progress",
+        help="record bounded runtime-neutral round phase/milestone progress",
+    )
+    progress.add_argument("path", nargs="?", type=Path)
+    progress.add_argument("--task-id", default=None)
+    progress.add_argument("--lease-id", required=True)
+    progress.add_argument("--generation", type=int, default=None)
+    progress.add_argument("--fence-token", default=None)
+    progress.add_argument(
+        "--phase",
+        choices=tuple(sorted(ROUND_PHASES - {"released"})),
+        default=None,
+    )
+    progress.add_argument("--milestone", default=None)
+    progress.add_argument("--evidence-ref", action="append", default=None)
+    add_json_argument(progress)
+    progress.set_defaults(func=continuation_progress_command)
+
+    effect = subparsers.add_parser(
+        "effect",
+        help="record bounded write-ahead identities and durable external-effect observations",
+    )
+    effect_subparsers = effect.add_subparsers(dest="continuation_effect_command", required=True)
+
+    prepare = effect_subparsers.add_parser(
+        "prepare",
+        help="prepare one deterministic external-effect identity before executing it",
+    )
+    prepare.add_argument("path", nargs="?", type=Path)
+    prepare.add_argument("--task-id", default=None)
+    prepare.add_argument("--lease-id", required=True)
+    prepare.add_argument("--generation", type=int, default=None)
+    prepare.add_argument("--fence-token", default=None)
+    prepare.add_argument("--key", required=True)
+    prepare.add_argument("--kind", required=True)
+    prepare.add_argument("--external-id", default=None)
+    prepare.add_argument("--milestone", default=None)
+    prepare.add_argument("--evidence-ref", action="append", default=None)
+    add_json_argument(prepare)
+    prepare.set_defaults(func=continuation_effect_prepare_command)
+
+    update = effect_subparsers.add_parser(
+        "update",
+        help="record an observed durable effect status/milestone/evidence update",
+    )
+    update.add_argument("path", nargs="?", type=Path)
+    update.add_argument("--task-id", default=None)
+    update.add_argument("--lease-id", required=True)
+    update.add_argument("--generation", type=int, default=None)
+    update.add_argument("--fence-token", default=None)
+    update.add_argument("--key", required=True)
+    update.add_argument(
+        "--status",
+        choices=tuple(sorted(EFFECT_STATUSES)),
+        default=None,
+    )
+    update.add_argument("--external-id", default=None)
+    update.add_argument("--milestone", default=None)
+    update.add_argument("--evidence-ref", action="append", default=None)
+    add_json_argument(update)
+    update.set_defaults(func=continuation_effect_update_command)
+
+    list_parser = effect_subparsers.add_parser(
+        "list",
+        help="list compact durable effect records for reconciliation/reuse decisions",
+    )
+    list_parser.add_argument("path", nargs="?", type=Path)
+    list_parser.add_argument("--task-id", default=None)
+    add_json_argument(list_parser)
+    list_parser.set_defaults(func=continuation_effect_list_command)
+
+
 __all__ = [
     "continuation_assert_owner_command",
     "continuation_checkpoint_command",
     "continuation_claim_command",
     "continuation_doctor_command",
+    "continuation_effect_list_command",
+    "continuation_effect_prepare_command",
+    "continuation_effect_update_command",
     "continuation_heartbeat_command",
     "continuation_init_command",
     "continuation_issue_command",
     "continuation_pause_command",
+    "continuation_progress_command",
     "continuation_prompt_command",
     "continuation_release_command",
     "continuation_renew_command",
     "continuation_resume_command",
+    "register_round_effect_parsers",
 ]

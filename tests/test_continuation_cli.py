@@ -97,6 +97,8 @@ class ContinuationCliTests(unittest.TestCase):
         state_dir = Path(str(init["state_dir"]))
         self.assertTrue((state_dir / "control.json").is_file())
         self.assertTrue((state_dir / "state.json").is_file())
+        self.assertFalse((state_dir / "rounds.json").exists())
+        self.assertFalse((state_dir / "effects.json").exists())
         self.assertEqual("", self._git("status", "--porcelain").stdout)
 
         code, doctor, stderr = self.run_json(
@@ -272,6 +274,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, f"{stderr}\n{claim}")
         self.assertEqual(1, claim["generation"])
         self.assertTrue(str(claim["fence_token"]))
+        self.assertRegex(str(claim["fence_token"]), r"^[0-9a-f]{64}$")
         lease_id = str(claim["lease"]["lease_id"])
 
         persisted = json.loads((state_dir / "lease.json").read_text(encoding="utf-8"))
@@ -622,6 +625,292 @@ class ContinuationCliTests(unittest.TestCase):
             doctor_after_fenced_calls["lease"]["lease"]["lease_id"],
         )
 
+        code, fenced_progress, _ = self.run_json(
+            [
+                "continuation",
+                "progress",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--phase",
+                "executing",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("lease_mismatch", fenced_progress["error_code"])
+
+        code, fenced_effect, _ = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "update",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--key",
+                "job-a",
+                "--status",
+                "active",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("lease_mismatch", fenced_effect["error_code"])
+
+    def test_round_progress_and_effect_journal_are_bounded_write_ahead_records(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        self.assertEqual("claimed", claim["round"]["phase"])
+        self.assertTrue((state_dir / "rounds.json").is_file())
+        self.assertFalse((state_dir / "effects.json").exists())
+
+        owner = [
+            "--lease-id",
+            str(claim["lease"]["lease_id"]),
+            *self.owner_flags(claim),
+        ]
+        code, progress, stderr = self.run_json(
+            [
+                "continuation",
+                "progress",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *owner,
+                "--phase",
+                "executing",
+                "--milestone",
+                "wave-1",
+                "--evidence-ref",
+                "artifact:wave-plan.json",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{progress}")
+        self.assertEqual("executing", progress["round"]["phase"])
+        self.assertEqual("wave-1", progress["round"]["milestone"])
+
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *owner,
+                "--key",
+                "campaign:wave-1",
+                "--kind",
+                "external-job",
+                "--evidence-ref",
+                "plan:campaign-wave-1",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        self.assertTrue(prepared["created"])
+        self.assertEqual("prepared", prepared["effect"]["status"])
+        first_effect_id = prepared["effect"]["effect_id"]
+        self.assertEqual(64, len(str(first_effect_id)))
+
+        code, duplicate, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *owner,
+                "--key",
+                "campaign:wave-1",
+                "--kind",
+                "external-job",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{duplicate}")
+        self.assertFalse(duplicate["created"])
+        self.assertEqual(first_effect_id, duplicate["effect"]["effect_id"])
+
+        code, active, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "update",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *owner,
+                "--key",
+                "campaign:wave-1",
+                "--status",
+                "active",
+                "--external-id",
+                "runtime-job-123",
+                "--milestone",
+                "submitted",
+                "--evidence-ref",
+                "authority:runtime-job-123",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{active}")
+        self.assertEqual("runtime-job-123", active["effect"]["external_id"])
+        self.assertEqual("active", active["effect"]["status"])
+
+        code, completed, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "update",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *owner,
+                "--key",
+                "campaign:wave-1",
+                "--status",
+                "completed",
+                "--milestone",
+                "collected",
+                "--evidence-ref",
+                "artifact:wave-1-result.json",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{completed}")
+        self.assertEqual("completed", completed["effect"]["status"])
+
+        code, listed, stderr = self.run_json(
+            ["continuation", "effect", "list", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{listed}")
+        self.assertEqual(1, listed["summary"]["total"])
+        self.assertEqual(["campaign:wave-1"], listed["summary"]["terminal"])
+        self.assertEqual([], listed["summary"]["unresolved"])
+
+        persisted = (state_dir / "effects.json").read_text(encoding="utf-8")
+        self.assertNotIn(str(claim["fence_token"]), persisted)
+        self.assertNotIn("raw_output", persisted)
+        self.assertNotIn("transcript", persisted)
+
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *owner,
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        self.assertEqual("released", released["round"]["phase"])
+        rounds = json.loads((state_dir / "rounds.json").read_text(encoding="utf-8"))
+        self.assertEqual("released", rounds["rounds"][-1]["phase"])
+
+    def test_expired_running_round_with_effects_requires_reconciliation_before_reclaim(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--key",
+                "deployment:prod",
+                "--kind",
+                "external-write",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["issued_at"] = continuation._iso(continuation._now() - timedelta(minutes=20))
+        lease["expires_at"] = continuation._iso(continuation._now() - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertFalse(doctor["can_claim"])
+        self.assertFalse(doctor["recoverable_expired_round"])
+        self.assertTrue(doctor["effect_reconciliation_required"])
+        self.assertIn("effect_reconciliation_required", doctor["blocked_reasons"])
+        self.assertEqual(1, doctor["effect_journal"]["summary"]["total"])
+
+        code, blocked, _ = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("continuation_reconciliation_required", blocked["error_code"])
+        self.assertEqual(1, blocked["details"]["effect_summary"]["total"])
+
+    def test_malformed_effect_journal_fails_doctor_closed(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        (state_dir / "effects.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "acf.continuation.effect-journal.v1",
+                    "task_id": "WS900",
+                    "effects": [],
+                    "raw_output": "forbidden",
+                }
+            ),
+            encoding="utf-8",
+        )
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(2, code, f"{stderr}\n{doctor}")
+        self.assertFalse(doctor["ok"])
+        self.assertFalse(doctor["can_claim"])
+        self.assertEqual("invalid", doctor["effect_journal"]["state"])
+        self.assertIn("effect journal is malformed or identity-mismatched", doctor["blocked_reasons"])
+
     def test_legacy_active_lease_without_fencing_metadata_remains_readable(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
@@ -648,12 +937,16 @@ class ContinuationCliTests(unittest.TestCase):
         for field in ("generation", "fence_token_hash", "last_heartbeat_at", "last_renew_at"):
             lease.pop(field, None)
         continuation._write_json(lease_path, lease)
+        (state_dir / "rounds.json").unlink(missing_ok=True)
+        (state_dir / "effects.json").unlink(missing_ok=True)
 
         code, doctor, stderr = self.run_json(
             ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
         )
         self.assertEqual(0, code, f"{stderr}\n{doctor}")
         self.assertEqual("legacy_unknown", doctor["lease"]["liveness"])
+        self.assertEqual("absent", doctor["round_journal"]["state"])
+        self.assertEqual("absent", doctor["effect_journal"]["state"])
         self.assertFalse(doctor["orphan_candidate"])
         self.assertFalse(doctor["can_claim"])
 
@@ -779,6 +1072,10 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertIn("acf continuation claim", prompt)
         self.assertIn("acf continuation assert-owner", prompt)
         self.assertIn("heartbeat", prompt)
+        self.assertIn("acf continuation progress", prompt)
+        self.assertIn("acf continuation effect prepare", prompt)
+        self.assertIn("acf continuation effect update", prompt)
+        self.assertIn("acf continuation effect list", prompt)
         self.assertIn("acf continuation renew", prompt)
         self.assertIn("acf continuation release", prompt)
 

@@ -136,10 +136,15 @@ acf continuation claim C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 -
 # 保存 claim 返回的 lease_id、generation、fence_token；不要把 fence_token 写入项目文件或普通日志
 acf continuation assert-owner C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
 acf continuation heartbeat C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
+acf continuation progress C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --phase executing --milestone gate-started --json
+acf continuation effect prepare C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --key campaign:wave-01 --kind external-job --json
+# 只有 prepare 返回 created=true 才执行首次外部动作；created=false 时先 list/核对/复用，禁止重复 submit
+acf continuation effect update C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --key campaign:wave-01 --status active --external-id runtime-job-123 --evidence-ref authority:runtime-job-123 --json
+acf continuation effect list C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --json
 acf continuation renew C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
 ```
 
-新 claim 的同一 round 使用返回的 `lease_id + generation + fence_token` 调用 `assert-owner`、`heartbeat`、`renew`、`checkpoint` 和 `release`。`heartbeat` 只刷新 liveness，不延长 TTL；`renew` 才延长 TTL。`doctor` 会把 heartbeat 超过 renew interval 的 active lease 标记为 stale/orphan candidate，但 stale 本身仍不允许 claim；需要后续 reconciliation/recover 证明安全后才能 fencing takeover。旧 v0.0.3.61 lease 没有 heartbeat/generation 时会以 `legacy_unknown` 保守读取，不要求 force re-init。人工中止使用 `pause`，确认后使用 `resume`。状态保存在用户级 `~/.acf/projects/.../continuation/`，不修改项目工作树。`init` 要求 clean checkpoint；可选绑定 Workstream 后会验证 registry/path/branch/common-dir。该能力不创建定时任务、不保存 transcript、不进行语义规划，也不替代项目自身计划和 evidence。完整设计见 [Continuation_Control_Design.md](Continuation_Control_Design.md)。
+新 claim 的同一 round 使用返回的 `lease_id + generation + fence_token` 调用 owner-protected 写命令。`progress` 只记录 generic phase/milestone/evidence；外部/non-idempotent work 必须先 `effect prepare`，再根据 authority observation 用 `effect update` 推进，不能把 raw stdout/tool output/transcript 写入 journal。`heartbeat` 只刷新 liveness，不延长 TTL；`renew` 才延长 TTL。`doctor` 会把 stale active lease 标记为 orphan candidate，但 stale 本身仍不允许 claim；如果 expired running round 已有 effect records，则返回 `effect_reconciliation_required`，在正式 reconciliation/recover 完成前也不允许直接 re-claim。旧 v0.0.3.61 task 没有 heartbeat/generation/round/effect journal 时保守读取并 lazy upgrade，不要求 force re-init。人工中止使用 `pause`，确认后使用 `resume`。状态保存在用户级 `~/.acf/projects/.../continuation/`，不修改项目工作树。完整设计见 [Continuation_Control_Design.md](Continuation_Control_Design.md)。
 
 ### Workstream guard 模式
 

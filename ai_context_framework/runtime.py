@@ -1277,6 +1277,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(continuation_heartbeat_parser)
     continuation_heartbeat_parser.set_defaults(func=continuation_commands.continuation_heartbeat_command)
 
+    continuation_commands.register_round_effect_parsers(
+        continuation_subparsers,
+        add_json_argument,
+    )
+
     continuation_renew_parser = continuation_subparsers.add_parser(
         "renew",
         help="extend an active lease before it expires",
