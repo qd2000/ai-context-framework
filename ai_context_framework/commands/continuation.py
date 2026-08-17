@@ -448,7 +448,13 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
     if lease["state"] == "invalid":
         identity_errors.append("lease is malformed or identity-mismatched")
     pause = _read_json(paths["pause"], label="pause") if paths["pause"].exists() else None
-    recoverable_expired = state["status"] == "running" and lease["state"] == "expired"
+    expired_running_round = state["status"] == "running" and lease["state"] == "expired"
+    expired_round_head_changed = bool(
+        expired_running_round
+        and isinstance(lease.get("lease"), Mapping)
+        and lease["lease"].get("head") != git["head"]
+    )
+    recoverable_expired = expired_running_round and not expired_round_head_changed
     can_claim = (
         not identity_errors
         and git["clean"]
@@ -463,6 +469,8 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         blocked.append("paused")
     if lease["state"] == "active":
         blocked.append("active_lease")
+    if expired_round_head_changed:
+        blocked.append("expired_round_head_changed")
     if state["status"] not in RUNNABLE_STATUSES and not recoverable_expired:
         blocked.append(f"state_status:{state['status']}")
     return {
@@ -477,6 +485,7 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         "workstream": workstream,
         "state_dir": str(paths["directory"]),
         "recoverable_expired_round": recoverable_expired,
+        "expired_round_head_changed": expired_round_head_changed,
     }
 
 
@@ -676,6 +685,20 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
             if not status["git"]["clean"]:
                 raise ContinuationError("worktree is dirty", code="worktree_dirty")
             state = _load_state(paths)
+            if status.get("expired_round_head_changed"):
+                lease_head = status["lease"].get("lease", {}).get("head")
+                raise ContinuationError(
+                    "expired round changed Git HEAD; reconcile the uncertain prior outcome before another claim",
+                    code="continuation_reconciliation_required",
+                    exit_code=3,
+                    details={
+                        "lease_head": lease_head,
+                        "current_head": status["git"]["head"],
+                    },
+                    next_actions=[
+                        "Inspect commits since the expired lease head and reconcile the prior round before retrying."
+                    ],
+                )
             recoverable = state["status"] == "running" and status["lease"]["state"] == "expired"
             if state["status"] not in RUNNABLE_STATUSES and not recoverable:
                 raise ContinuationError(

@@ -331,6 +331,57 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, stderr)
         self.assertNotEqual(claim["lease"]["lease_id"], recovered["lease"]["lease_id"])
 
+    def test_expired_running_lease_with_advanced_head_requires_reconciliation(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, _ = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, claim)
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+
+        (self.root / "completed.txt").write_text("completed before crash\n", encoding="utf-8")
+        self._git("add", "completed.txt")
+        self._git("commit", "-m", "test: completed before crash")
+
+        lease["issued_at"] = continuation._iso(continuation._now() - timedelta(minutes=20))
+        lease["expires_at"] = continuation._iso(continuation._now() - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, doctor, _ = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code)
+        self.assertFalse(doctor["recoverable_expired_round"])
+        self.assertTrue(doctor["expired_round_head_changed"])
+        self.assertFalse(doctor["can_claim"])
+        self.assertIn("expired_round_head_changed", doctor["blocked_reasons"])
+
+        code, blocked, _ = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("continuation_reconciliation_required", blocked["error_code"])
+        self.assertEqual(lease["head"], blocked["details"]["lease_head"])
+        self.assertEqual(self._git("rev-parse", "HEAD").stdout.strip(), blocked["details"]["current_head"])
+
     def test_prompt_is_local_first_and_contains_full_round_protocol(self) -> None:
         self.init_task()
         code, payload, stderr = self.run_json(

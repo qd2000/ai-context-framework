@@ -2,6 +2,18 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.60 — 2026-08-17
+
+### 安全修复
+
+- `acf continuation` 不再把“lease 已过期但 Git HEAD 已从该 lease 的起始 HEAD 前进”的 `running` 轮次自动判定为可恢复。该场景可能表示前一轮已经完成并提交了非幂等写操作、但在 checkpoint/release 前中断；自动重新 claim 会有重复执行风险。
+- `doctor` 现在返回 `expired_round_head_changed=true`、`can_claim=false` 和 `blocked_reasons=[..., "expired_round_head_changed"]`；直接 `claim` 返回 `continuation_reconciliation_required`，并提供 lease HEAD 与当前 HEAD 供审计。
+- 保留原有安全恢复路径：如果 lease 过期、state 仍为 `running`、worktree clean 且 HEAD 未变化，则仍允许从 clean checkpoint 重新 claim。
+
+### 验证
+
+- 新增 failure-injection 回归测试，覆盖“上一轮提交后崩溃、lease 随后过期”的 clean-but-advanced-HEAD 场景，确认不会重复自动执行。
+
 ## v0.0.3.59 — 2026-08-16
 
 ### 新增
