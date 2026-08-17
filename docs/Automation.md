@@ -8,6 +8,10 @@
 
 ## 当前已自动化
 
+### Continuation dogfood 反馈闭环
+
+并行 Scheduled Task / 外部 agent 使用 `acf continuation` 时，命令级成功/失败自动进入用户级 usage log；遇到具体、可复用、证据支持的 ACF / continuation / 调度工作流缺口时，agent 通过 `acf continuation issue` 写结构化 issue。`acf log issues --all-projects --json` 按稳定 fingerprint 聚合不同 worktree 的重复 occurrence，供后续产品改进直接复用。正常 active-lease no-op、等待外部任务和业务算法失败不得记录为产品 issue。
+
 `acf.py` 先覆盖确定性工作：
 
 - 可安装入口：`pyproject.toml` 提供 `acf` console script；正式用户从 PyPI 使用 `uv tool install ai-context-framework`，更新使用 `uv tool upgrade ai-context-framework`；仓库开发期可用 `uv tool install -e .`，本仓库开发入口仍保留 `uv run python acf.py ...`。

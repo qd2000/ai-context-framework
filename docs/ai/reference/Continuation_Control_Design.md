@@ -52,6 +52,7 @@ acf continuation release
 acf continuation pause
 acf continuation resume
 acf continuation prompt
+acf continuation issue
 ```
 
 `init` 从 clean Git checkpoint 建立控制状态。可选 `--workstream WSNNN` 时，同时验证 ACF registry、path、branch 和 Git common-dir；没有 Workstream 的普通项目也可只用 `--task-id`。
@@ -74,6 +75,28 @@ acf continuation prompt
 - clean → 写 last-run receipt，进入指定 final status，删除 lease；
 - dirty → 进入 `reconciling`，删除 lease但禁止下一轮自动 claim；
 - active round 期间收到 pause → release 后进入 `paused`。
+
+`issue` 用于记录**可复用的 ACF / continuation / 自动化工作流缺口**，不是业务任务自己的科学失败日志。事件写入用户级 ACF usage log，包含 task/workstream/stage、分类、严重度、简短描述、证据引用和稳定 fingerprint；相同 fingerprint 的多次出现保留为 occurrence，查询时自动聚合计数。
+
+标准 `acf continuation prompt` 会要求外部 agent：只有发现具体、可复用、证据支持的产品或工作流问题时才调用 `acf continuation issue`；active lease no-op、正常等待、业务模型未收敛等预期状态不得当作产品 issue。
+
+## Dogfood 可观测性与问题积累
+
+ACF 使用两层用户级日志，不要求用户把多个聊天的问题重新手工汇总：
+
+1. **usage event**：`continuation`、`worktree` 等 CLI 命令自动记录 command、exit code、error code、duration 和 changed files；
+2. **continuation issue**：agent 在真实 dogfood 中发现可复用缺口时写结构化 issue event。
+
+查询入口：
+
+```text
+acf log summarize <project> --errors-only --json
+acf log issues <project> --json
+acf log issues --all-projects --json
+acf log projects --json
+```
+
+`log issues --all-projects` 按 fingerprint 聚合不同 worktree / 任务中的相同问题，输出 occurrence count、首次/最近出现时间、最高严重度、tasks/projects、相关命令和 evidence refs。多任务并行运行产生的经验可以直接作为下一轮 ACF 改进的输入。
 
 ## 固定小时调度与租约
 
@@ -127,4 +150,4 @@ init → doctor → claim → renew → checkpoint → release → doctor
 
 验证结果：复用现有 `codex/ws088-chatgpt-web-scheduled-devspace`，未重建 worktree；ACF worktree 身份验证通过；运行态只写用户级 `~/.acf`；WS088 HEAD 保持 `8e2729a2...`；结束后 worktree clean、lease absent、`can_claim=true`。
 
-下一道产品门是外部 Scheduled Task 的无人值守只读 canary，它验证外部平台能否在实际轮次中调用 DevSpace，而不是验证 ACF 内部状态机。
+后续 WS088 已继续通过无人值守只读 Scheduled Task、真实写入/commit/checkpoint/release、expired-lease 恢复和既有 WS082 worktree 直接 adoption smoke。并行任务正式接入后，新的产品问题通过上述 usage/issue 双层日志持续积累。

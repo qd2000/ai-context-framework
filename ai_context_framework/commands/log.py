@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,6 +20,7 @@ from ai_context_framework.json_contract import (
 )
 from ai_context_framework.models import ContextLocation
 from ai_context_framework.observability import (
+    acf_home,
     append_usage_event,
     filter_usage_events,
     parse_usage_since,
@@ -33,6 +36,7 @@ from ai_context_framework.observability import (
     write_usage_events,
 )
 from ai_context_framework.paths import (
+    discover_context,
     make_context_location,
     relative_display_path,
     require_context_root,
@@ -80,6 +84,10 @@ def command_label(args: argparse.Namespace) -> str:
         return "doctor"
     if command == "workstream":
         return f"workstream {getattr(args, 'workstream_command', '')}".strip()
+    if command == "worktree":
+        return f"worktree {getattr(args, 'worktree_command', '')}".strip()
+    if command == "continuation":
+        return f"continuation {getattr(args, 'continuation_command', '')}".strip()
     if command == "link":
         return f"link {getattr(args, 'link_command', '')}".strip()
     return command
@@ -115,6 +123,27 @@ def context_location_for_args(args: argparse.Namespace) -> ContextLocation:
         return make_context_location(require_context_root(getattr(args, "context", None)))
     if command in {"plan", "task", "archive", "decisions", "knowledge", "review", "audit", "doctor", "workstream"}:
         return make_context_location(require_context_root(getattr(args, "path", None)))
+    if command in {"worktree", "continuation"}:
+        start = Path(getattr(args, "path", None) or Path.cwd()).resolve()
+        try:
+            return discover_context(start)
+        except SystemExit:
+            completed = subprocess.run(
+                ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if completed.returncode != 0 or not completed.stdout.strip():
+                raise
+            project_root = Path(completed.stdout.strip()).resolve()
+            return ContextLocation(
+                project_root=project_root,
+                context_root=project_root,
+                profile="git",
+            )
     raise SystemExit("usage log is not available for this command")
 
 
@@ -298,6 +327,118 @@ def log_summarize_command(args: argparse.Namespace) -> int:
             print("errors:")
             for error_code, count in sorted(payload["error_counts"].items()):
                 print(f"- {error_code}: {count}")
+    return 0
+
+
+_ISSUE_SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+
+
+def _continuation_issue_groups(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    groups: dict[str, dict[str, object]] = {}
+    for event in events:
+        if event.get("event_kind") != "continuation_issue":
+            continue
+        fingerprint = str(event.get("fingerprint") or "")
+        if not fingerprint:
+            seed = "|".join(
+                str(event.get(key) or "")
+                for key in ("category", "related_command", "text")
+            )
+            fingerprint = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:20]
+        current = groups.get(fingerprint)
+        severity = str(event.get("severity") or "medium")
+        if current is None:
+            current = {
+                "fingerprint": fingerprint,
+                "category": event.get("category"),
+                "severity": severity,
+                "text": event.get("text"),
+                "count": 0,
+                "first_seen": event.get("timestamp"),
+                "last_seen": event.get("timestamp"),
+                "tasks": [],
+                "projects": [],
+                "evidence_refs": [],
+                "related_commands": [],
+            }
+            groups[fingerprint] = current
+        current["count"] = int(current["count"]) + 1
+        current["last_seen"] = event.get("timestamp")
+        if _ISSUE_SEVERITY_RANK.get(severity, 2) > _ISSUE_SEVERITY_RANK.get(
+            str(current.get("severity") or "medium"), 2
+        ):
+            current["severity"] = severity
+        for field, event_key in (
+            ("tasks", "task_id"),
+            ("projects", "project_root"),
+            ("related_commands", "related_command"),
+        ):
+            value = event.get(event_key)
+            if value and value not in current[field]:
+                current[field].append(value)
+        for value in event.get("evidence_refs") or []:
+            if value not in current["evidence_refs"]:
+                current["evidence_refs"].append(value)
+    return sorted(
+        groups.values(),
+        key=lambda item: (
+            _ISSUE_SEVERITY_RANK.get(str(item.get("severity") or "medium"), 2),
+            str(item.get("last_seen") or ""),
+        ),
+        reverse=True,
+    )
+
+
+def log_issues_command(args: argparse.Namespace) -> int:
+    events: list[dict[str, object]] = []
+    paths: list[str] = []
+    if bool(getattr(args, "all_projects", False)):
+        projects_root = acf_home() / "projects"
+        if projects_root.is_dir():
+            for log_path in sorted(projects_root.glob("*/logs/usage.jsonl")):
+                paths.append(str(log_path))
+                try:
+                    raw_events: list[dict[str, object]] = []
+                    for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                        if not line.strip():
+                            continue
+                        try:
+                            value = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(value, dict):
+                            raw_events.append(value)
+                except OSError:
+                    continue
+                events.extend(raw_events)
+        project_root: str | None = None
+    else:
+        location = resolve_status_location(getattr(args, "path", None))
+        project_root = str(location.project_root)
+        paths.append(str(usage_log_path(location.project_root)))
+        events = read_usage_events(location.project_root)
+    groups = _continuation_issue_groups(events)
+    limit = max(0, int(getattr(args, "limit", 100) or 0))
+    if limit:
+        groups = groups[:limit]
+    payload: dict[str, object] = {
+        "command": "log issues",
+        "ok": True,
+        "project_root": project_root,
+        "all_projects": bool(getattr(args, "all_projects", False)),
+        "log_paths": paths,
+        "issue_count": len(groups),
+        "occurrence_count": sum(int(group.get("count") or 0) for group in groups),
+        "issues": groups,
+    }
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        for group in groups:
+            print(
+                f"[{group['severity']}] {group['fingerprint']} x{group['count']} "
+                f"{group['category']}: {group['text']}"
+            )
     return 0
 
 

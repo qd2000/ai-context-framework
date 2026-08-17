@@ -57,6 +57,7 @@ from ai_context_framework.commands.log import (
     log_disable_command,
     log_enable_command,
     log_feedback_command,
+    log_issues_command,
     log_prune_command,
     log_status_command,
     log_summarize_command,
@@ -769,6 +770,16 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(log_projects_parser)
     log_projects_parser.set_defaults(func=log_projects_command)
 
+    log_issues_parser = log_subparsers.add_parser(
+        "issues",
+        help="summarize structured continuation dogfood issues",
+    )
+    log_issues_parser.add_argument("path", nargs="?", type=Path)
+    log_issues_parser.add_argument("--all-projects", action="store_true")
+    log_issues_parser.add_argument("--limit", type=int, default=100)
+    add_json_argument(log_issues_parser)
+    log_issues_parser.set_defaults(func=log_issues_command)
+
     version_parser = subparsers.add_parser("version", help="show or update project version metadata")
     version_subparsers = version_parser.add_subparsers(dest="version_command", required=True)
 
@@ -1323,6 +1334,25 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_prompt_parser.add_argument("--task-id", default=None)
     add_json_argument(continuation_prompt_parser)
     continuation_prompt_parser.set_defaults(func=continuation_commands.continuation_prompt_command)
+
+    continuation_issue_parser = continuation_subparsers.add_parser(
+        "issue",
+        help="record one structured reusable dogfood issue in the user-level ACF log",
+    )
+    continuation_issue_parser.add_argument("path", nargs="?", type=Path)
+    continuation_issue_parser.add_argument("--task-id", default=None)
+    continuation_issue_parser.add_argument("--category", default="other")
+    continuation_issue_parser.add_argument(
+        "--severity",
+        choices=("low", "medium", "high", "critical"),
+        default="medium",
+    )
+    continuation_issue_parser.add_argument("--text", required=True)
+    continuation_issue_parser.add_argument("--evidence-ref", action="append", default=None)
+    continuation_issue_parser.add_argument("--related-command", default=None)
+    continuation_issue_parser.add_argument("--runner-id", default="agent")
+    add_json_argument(continuation_issue_parser)
+    continuation_issue_parser.set_defaults(func=continuation_commands.continuation_issue_command)
 
     plan_parser = subparsers.add_parser("plan", help="manage active/Task_Plan.md")
     plan_subparsers = plan_parser.add_subparsers(dest="plan_command", required=True)

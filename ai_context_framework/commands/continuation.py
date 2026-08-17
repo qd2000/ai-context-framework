@@ -32,7 +32,14 @@ except ImportError:  # pragma: no cover - Windows path.
     fcntl = None  # type: ignore[assignment]
 
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
-from ai_context_framework.observability import atomic_write_text, usage_project_dir
+from ai_context_framework.observability import (
+    append_usage_event,
+    atomic_write_text,
+    usage_log_enabled,
+    usage_log_path,
+    usage_project_dir,
+    utc_now_iso,
+)
 from ai_context_framework.worktree_service import target_from_registry, verify_target
 from ai_context_framework.git_support import discover_git_project
 
@@ -955,6 +962,7 @@ Continuation protocol:
 8. Update bounded state with `acf continuation checkpoint ... --lease-id <lease_id> ... --json`.
 9. Release the same lease with `acf continuation release ... --lease-id <lease_id> --json`.
 10. Stop on paused, blocked_human, reconciling, identity mismatch, or unknown write outcome.
+11. If this round exposes a concrete reusable ACF/continuation/workflow defect or operational gap, record it immediately with `acf continuation issue {json.dumps(str(root))}{task_flag} --category <category> --severity <low|medium|high|critical> --text <concise issue> --evidence-ref <path-or-commit> --json`. Do not record normal active-lease no-ops, expected waits, or task-specific scientific failures as product issues.
 """
         return {"status": "rendered", "task_id": control["task_id"], "prompt": prompt}
 
@@ -971,11 +979,67 @@ Continuation protocol:
     return exit_code
 
 
+def continuation_issue_command(args: argparse.Namespace) -> int:
+    def operation() -> dict[str, Any]:
+        root = _workspace_root(args.path)
+        paths = _paths(root, args.task_id)
+        control = _load_control(paths, root)
+        state = _load_state(paths)
+        if not usage_log_enabled(root):
+            raise ContinuationError(
+                "usage logging is disabled for this worktree",
+                code="usage_log_disabled",
+                next_actions=["Run `acf log enable` from the project context before recording dogfood issues."],
+            )
+        category = str(args.category or "other").strip().lower() or "other"
+        severity = str(args.severity or "medium").strip().lower()
+        if severity not in {"low", "medium", "high", "critical"}:
+            raise ContinuationError("unsupported issue severity", code="issue_invalid")
+        text = _validate_text(args.text, field="text")
+        related_command = str(args.related_command or "").strip()
+        normalized_text = " ".join(text.lower().split())
+        fingerprint_seed = "|".join((category, related_command.lower(), normalized_text))
+        fingerprint = hashlib.sha256(fingerprint_seed.encode("utf-8")).hexdigest()[:20]
+        event: dict[str, object] = {
+            "schema_version": 1,
+            "timestamp": utc_now_iso(),
+            "event_kind": "continuation_issue",
+            "command": "continuation issue",
+            "project_root": str(root),
+            "workspace_root": str(root),
+            "task_id": control["task_id"],
+            "workstream_id": control.get("workstream_id"),
+            "stage": state["stage"],
+            "state_status": state["status"],
+            "category": category,
+            "severity": severity,
+            "text": text,
+            "fingerprint": fingerprint,
+            "evidence_refs": list(dict.fromkeys(args.evidence_ref or []))[:MAX_LIST_ITEMS],
+            "related_command": related_command or None,
+            "runner_id": str(args.runner_id or "agent").strip() or "agent",
+            "ok": True,
+            "exit_code": 0,
+            "error_code": None,
+        }
+        append_usage_event(root, event)
+        return {
+            "status": "issue_recorded",
+            "task_id": control["task_id"],
+            "fingerprint": fingerprint,
+            "log_path": str(usage_log_path(root)),
+            "issue": event,
+        }
+
+    return _guarded(args, "continuation issue", operation)
+
+
 __all__ = [
     "continuation_checkpoint_command",
     "continuation_claim_command",
     "continuation_doctor_command",
     "continuation_init_command",
+    "continuation_issue_command",
     "continuation_pause_command",
     "continuation_prompt_command",
     "continuation_release_command",

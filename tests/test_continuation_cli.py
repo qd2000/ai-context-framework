@@ -12,6 +12,7 @@ from pathlib import Path
 
 import acf
 from ai_context_framework.commands import continuation
+from ai_context_framework.observability import usage_log_path
 
 
 class ContinuationCliTests(unittest.TestCase):
@@ -96,6 +97,61 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertTrue(doctor["can_claim"])
         self.assertEqual("ready", doctor["state"]["status"])
         self.assertEqual("local_first", doctor["control"]["history_policy"])
+
+        events = [
+            json.loads(line)
+            for line in usage_log_path(self.root).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertTrue(any(event.get("command") == "continuation init" for event in events))
+        self.assertTrue(any(event.get("command") == "continuation doctor" for event in events))
+
+    def test_issue_events_are_structured_and_aggregated_across_projects(self) -> None:
+        self.init_task()
+        for evidence in ("git:abc", "git:def"):
+            code, payload, stderr = self.run_json(
+                [
+                    "continuation",
+                    "issue",
+                    str(self.root),
+                    "--task-id",
+                    "WS900",
+                    "--category",
+                    "recovery",
+                    "--severity",
+                    "high",
+                    "--text",
+                    "Expired round recovery needs explicit operator evidence.",
+                    "--evidence-ref",
+                    evidence,
+                    "--related-command",
+                    "continuation claim",
+                    "--runner-id",
+                    "scheduled-test",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{payload}")
+            self.assertEqual("issue_recorded", payload["status"])
+
+        code, issues, stderr = self.run_json(
+            ["log", "issues", "--all-projects", "--limit", "20"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{issues}")
+        self.assertEqual(1, issues["issue_count"])
+        self.assertEqual(2, issues["occurrence_count"])
+        row = issues["issues"][0]
+        self.assertEqual(2, row["count"])
+        self.assertEqual("high", row["severity"])
+        self.assertEqual("recovery", row["category"])
+        self.assertEqual(["WS900"], row["tasks"])
+        self.assertEqual(["git:abc", "git:def"], row["evidence_refs"])
+
+        code, prompt, stderr = self.run_json(
+            ["continuation", "prompt", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prompt}")
+        self.assertIn("acf continuation issue", prompt["prompt"])
+        self.assertIn("Do not record normal active-lease no-ops", prompt["prompt"])
 
     def test_claim_renew_checkpoint_release_and_collision(self) -> None:
         self.init_task()

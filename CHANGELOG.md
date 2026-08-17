@@ -2,6 +2,19 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.61 — 2026-08-17
+
+### Dogfooding 可观测性
+
+- `continuation` 与 `worktree` CLI 命令现在进入用户级 usage event log，记录 command、exit/error code、duration 和 changed files；不再因为缺少 context routing 而静默漏记。
+- 新增 `acf continuation issue`：外部 agent 可在发现具体、可复用、证据支持的 ACF / continuation / 自动化工作流缺口时写入结构化 issue event，包含 task/workstream/stage、category、severity、evidence refs、related command 和稳定 fingerprint。
+- 新增 `acf log issues [--all-projects]`：按 fingerprint 聚合不同 worktree / task 中的重复 issue occurrence，保留 count、首次/最近出现时间、最高严重度、任务/项目和证据引用，便于多任务并行 dogfood 后直接进入下一轮产品改进。
+- `acf continuation prompt` 自动包含 issue 记录协议；正常 active-lease no-op、等待和任务自身业务失败明确不作为产品 issue。
+
+### 验证
+
+- 新增 continuation usage logging、issue 记录/去重聚合和 prompt 协议回归测试。
+
 ## v0.0.3.60 — 2026-08-17
 
 ### 安全修复
