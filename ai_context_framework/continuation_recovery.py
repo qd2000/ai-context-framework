@@ -1,0 +1,163 @@
+"""Pure validation and decision helpers for continuation orphan recovery."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from typing import Any, Mapping, Sequence
+
+from ai_context_framework import continuation_rounds
+
+
+RECONCILE_SCHEMA = "acf.continuation.reconcile.v1"
+RECOVERY_SCHEMA = "acf.continuation.recovery.v1"
+
+
+class ContinuationRecoveryError(ValueError):
+    def __init__(self, message: str, *, code: str = "reconcile_invalid") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def json_digest(payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(dict(payload), ensure_ascii=False, sort_keys=True, allow_nan=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def build_observation(
+    status: Mapping[str, Any],
+    *,
+    rounds: Mapping[str, Any],
+    effects: Mapping[str, Any],
+    task_id: str,
+) -> dict[str, Any]:
+    lease_payload = status["lease"].get("lease")
+    lease = dict(lease_payload) if isinstance(lease_payload, Mapping) else {}
+    return {
+        "lease_state": status["lease"]["state"],
+        "lease_id": lease.get("lease_id"),
+        "lease_generation": lease.get("generation"),
+        "liveness": status["lease"].get("liveness"),
+        "lease_head": lease.get("head"),
+        "control_generation": int(status["control"].get("generation", 0)),
+        "state_status": status["state"]["status"],
+        "current_head": status["git"]["head"],
+        "git_clean": bool(status["git"]["clean"]),
+        "round_digest": json_digest(rounds),
+        "effect_digest": json_digest(effects),
+        "latest_round": continuation_rounds.latest_round(rounds, task_id=task_id),
+        "effect_summary": continuation_rounds.effect_summary(effects, task_id=task_id),
+    }
+
+
+def reconcile_decision(
+    status: Mapping[str, Any],
+    observation: Mapping[str, Any],
+    *,
+    owner_ended: bool,
+    accepted_head: str | None,
+    evidence_refs: Sequence[str],
+) -> tuple[str, list[str]]:
+    reasons: list[str] = []
+    if not bool(status.get("ok")):
+        reasons.append("continuation_identity_invalid")
+    if not bool(observation.get("git_clean")):
+        reasons.append("worktree_dirty")
+    if status.get("pause") is not None:
+        reasons.append("paused")
+
+    lease_state = observation.get("lease_state")
+    liveness = observation.get("liveness")
+    if lease_state not in {"active", "expired"}:
+        reasons.append("recoverable_lease_missing")
+    if lease_state == "active":
+        if liveness == "fresh":
+            reasons.append("active_owner_live")
+        elif liveness in {"stale", "legacy_unknown"}:
+            if not owner_ended:
+                reasons.append("owner_end_not_proven")
+        else:
+            reasons.append("active_owner_liveness_invalid")
+
+    lease_generation = observation.get("lease_generation")
+    latest_round = observation.get("latest_round")
+    if lease_generation is not None:
+        if not isinstance(latest_round, Mapping):
+            reasons.append("round_record_missing")
+        elif (
+            latest_round.get("generation") != lease_generation
+            or latest_round.get("lease_id") != observation.get("lease_id")
+            or latest_round.get("phase") == "released"
+        ):
+            reasons.append("round_record_mismatch")
+
+    current_head = str(observation.get("current_head") or "")
+    lease_head = str(observation.get("lease_head") or "")
+    if current_head and lease_head and current_head != lease_head:
+        if accepted_head != current_head:
+            reasons.append("head_change_unaccepted")
+    elif accepted_head is not None and accepted_head != current_head:
+        reasons.append("accepted_head_mismatch")
+
+    effect_summary = observation.get("effect_summary")
+    if isinstance(effect_summary, Mapping) and effect_summary.get("unresolved"):
+        reasons.append("unresolved_effects")
+
+    if (owner_ended or accepted_head is not None) and not evidence_refs:
+        reasons.append("recovery_evidence_required")
+    return ("eligible" if not reasons else "blocked"), reasons
+
+
+def validate_reconcile_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
+    receipt = dict(payload)
+    required = {
+        "schema_version",
+        "receipt_id",
+        "task_id",
+        "created_at",
+        "decision",
+        "reasons",
+        "reason",
+        "evidence_refs",
+        "assertions",
+        "observation",
+    }
+    if receipt.get("schema_version") != RECONCILE_SCHEMA or set(receipt) != required:
+        raise ContinuationRecoveryError("reconcile receipt schema is invalid")
+    if receipt.get("decision") not in {"eligible", "blocked"}:
+        raise ContinuationRecoveryError("reconcile receipt decision is invalid")
+    for field in ("receipt_id", "task_id", "created_at", "reason"):
+        value = receipt.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ContinuationRecoveryError(f"reconcile receipt {field} is invalid")
+    try:
+        parsed = datetime.fromisoformat(str(receipt["created_at"]).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ContinuationRecoveryError("reconcile receipt created_at is invalid") from exc
+    if parsed.tzinfo is None:
+        raise ContinuationRecoveryError("reconcile receipt created_at must include timezone")
+    if not isinstance(receipt.get("reasons"), list) or not isinstance(receipt.get("evidence_refs"), list):
+        raise ContinuationRecoveryError("reconcile receipt lists are invalid")
+    assertions = receipt.get("assertions")
+    observation = receipt.get("observation")
+    if not isinstance(assertions, Mapping) or set(assertions) != {"owner_ended", "accepted_head"}:
+        raise ContinuationRecoveryError("reconcile receipt assertions are invalid")
+    if not isinstance(assertions.get("owner_ended"), bool):
+        raise ContinuationRecoveryError("reconcile owner_ended assertion is invalid")
+    if assertions.get("accepted_head") is not None and not isinstance(assertions.get("accepted_head"), str):
+        raise ContinuationRecoveryError("reconcile accepted_head assertion is invalid")
+    if not isinstance(observation, Mapping):
+        raise ContinuationRecoveryError("reconcile receipt observation is invalid")
+    return receipt
+
+
+__all__ = [
+    "RECONCILE_SCHEMA",
+    "RECOVERY_SCHEMA",
+    "ContinuationRecoveryError",
+    "build_observation",
+    "json_digest",
+    "reconcile_decision",
+    "validate_reconcile_receipt",
+]

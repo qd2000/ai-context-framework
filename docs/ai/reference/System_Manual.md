@@ -133,9 +133,26 @@ acf worktree create --workstream WS005 --apply --json
 acf continuation init C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --workstream WS001 --title "WS001" --objective "目标" --json
 acf continuation doctor C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --json
 acf continuation claim C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --runner-id scheduled-agent --json
+# 保存 claim 返回的 lease_id、generation、fence_token；不要把 fence_token 写入项目文件或普通日志
+acf continuation assert-owner C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
+acf continuation heartbeat C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
+acf continuation progress C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --phase executing --milestone gate-started --json
+acf continuation effect prepare C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --key campaign:wave-01 --kind external-job --json
+# 只有 prepare 返回 created=true 才执行首次外部动作；created=false 时先 list/核对/复用，禁止重复 submit
+acf continuation effect update C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --key campaign:wave-01 --status active --external-id runtime-job-123 --evidence-ref authority:runtime-job-123 --json
+acf continuation effect list C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --json
+# doctor 显示 stale/orphan/legacy_unknown/reconciliation_required 时先只读 reconcile；不要复制旧 lease-id 接管
+acf continuation reconcile C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --json
+# 只有确认旧 owner 已结束、effects 均已终态/可复用、HEAD 已解释后才记录 eligible receipt
+acf continuation reconcile C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --owner-ended --accept-head <current-head-if-advanced> --evidence-ref scheduler:old-run-ended --reason "verified prior owner ended and durable state is reconciled" --record --json
+acf continuation recover C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --reconcile-id <receipt_id> --runner-id recovery-agent --json
+acf continuation renew C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
+# 已修复 dogfood issue 用 append-only resolution event 收口；历史 occurrence 不删除
+acf continuation issue C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --text "fixed by validated checkpoint" --resolve-fingerprint <fingerprint> --evidence-ref git:<commit> --json
+acf log issues --all-projects --open-only --json
 ```
 
-同一 round 使用 `renew`、`checkpoint` 和 `release`；人工中止使用 `pause`，确认后使用 `resume`。状态保存在用户级 `~/.acf/projects/.../continuation/`，不修改项目工作树。`init` 要求 clean checkpoint；可选绑定 Workstream 后会验证 registry/path/branch/common-dir。该能力不创建定时任务、不保存 transcript、不进行语义规划，也不替代项目自身计划和 evidence。完整设计见 [Continuation_Control_Design.md](Continuation_Control_Design.md)。
+新 claim 或 recover 的同一 round 使用返回的 `lease_id + generation + fence_token` 调用 owner-protected 写命令。`progress` 只记录 generic phase/milestone/evidence；外部/non-idempotent work 必须先 `effect prepare`，再根据 authority observation 用 `effect update` 推进，不能把 raw stdout/tool output/transcript 写入 journal。`heartbeat` 只刷新 liveness，不延长 TTL；`renew` 才延长 TTL。`reconcile` 默认只读；fresh active owner 永远不可 takeover，stale/legacy active 需要明确 owner-ended evidence，advanced HEAD 必须精确接受当前 HEAD，unresolved effect 仍然 blocked。`recover` 只消费 recorded eligible receipt，并在 generation+1 前再次检查 observation 未发生任何漂移。clean release 未给 `--final-status` 时会保留已经 checkpoint 的非 running state；wrong task-id 会列出当前 available tasks；issue resolution 使用追加事件而不是改写历史。旧 v0.0.3.61 task 可直接使用该路径原位恢复，不要求 force re-init。人工中止使用 `pause`，确认后使用 `resume`。状态保存在用户级 `~/.acf/projects/.../continuation/`，不修改项目工作树。完整设计见 [Continuation_Control_Design.md](Continuation_Control_Design.md)。
 
 ### Workstream guard 模式
 

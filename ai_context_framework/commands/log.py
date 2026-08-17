@@ -335,8 +335,18 @@ _ISSUE_SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
 def _continuation_issue_groups(events: list[dict[str, object]]) -> list[dict[str, object]]:
     groups: dict[str, dict[str, object]] = {}
-    for event in events:
-        if event.get("event_kind") != "continuation_issue":
+    for event in sorted(events, key=lambda item: str(item.get("timestamp") or "")):
+        event_kind = event.get("event_kind")
+        if event_kind == "continuation_issue_resolution":
+            fingerprint = str(event.get("fingerprint") or "")
+            current = groups.get(fingerprint)
+            if current is not None:
+                current["status"] = "resolved"
+                current["resolved_at"] = event.get("timestamp")
+                current["resolution_text"] = event.get("text")
+                current["resolution_evidence_refs"] = list(event.get("evidence_refs") or [])
+            continue
+        if event_kind != "continuation_issue":
             continue
         fingerprint = str(event.get("fingerprint") or "")
         if not fingerprint:
@@ -360,8 +370,19 @@ def _continuation_issue_groups(events: list[dict[str, object]]) -> list[dict[str
                 "projects": [],
                 "evidence_refs": [],
                 "related_commands": [],
+                "status": "open",
+                "resolved_at": None,
+                "resolution_text": None,
+                "resolution_evidence_refs": [],
+                "reopened_at": None,
             }
             groups[fingerprint] = current
+        elif current.get("status") == "resolved":
+            current["status"] = "open"
+            current["reopened_at"] = event.get("timestamp")
+            current["resolved_at"] = None
+            current["resolution_text"] = None
+            current["resolution_evidence_refs"] = []
         current["count"] = int(current["count"]) + 1
         current["last_seen"] = event.get("timestamp")
         if _ISSUE_SEVERITY_RANK.get(severity, 2) > _ISSUE_SEVERITY_RANK.get(
@@ -418,6 +439,8 @@ def log_issues_command(args: argparse.Namespace) -> int:
         paths.append(str(usage_log_path(location.project_root)))
         events = read_usage_events(location.project_root)
     groups = _continuation_issue_groups(events)
+    if bool(getattr(args, "open_only", False)):
+        groups = [group for group in groups if group.get("status") == "open"]
     limit = max(0, int(getattr(args, "limit", 100) or 0))
     if limit:
         groups = groups[:limit]

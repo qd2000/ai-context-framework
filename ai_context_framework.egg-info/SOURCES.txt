@@ -7,6 +7,8 @@ ai_context_framework/__init__.py
 ai_context_framework/cli.py
 ai_context_framework/constants.py
 ai_context_framework/context_budget.py
+ai_context_framework/continuation_recovery.py
+ai_context_framework/continuation_rounds.py
 ai_context_framework/front_matter.py
 ai_context_framework/git_support.py
 ai_context_framework/json_contract.py

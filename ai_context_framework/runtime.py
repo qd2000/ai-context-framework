@@ -776,6 +776,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     log_issues_parser.add_argument("path", nargs="?", type=Path)
     log_issues_parser.add_argument("--all-projects", action="store_true")
+    log_issues_parser.add_argument("--open-only", action="store_true")
     log_issues_parser.add_argument("--limit", type=int, default=100)
     add_json_argument(log_issues_parser)
     log_issues_parser.set_defaults(func=log_issues_command)
@@ -1251,6 +1252,37 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(continuation_claim_parser)
     continuation_claim_parser.set_defaults(func=continuation_commands.continuation_claim_command)
 
+    continuation_assert_owner_parser = continuation_subparsers.add_parser(
+        "assert-owner",
+        help="verify that lease id, generation, and fence token still own the active round",
+    )
+    continuation_assert_owner_parser.add_argument("path", nargs="?", type=Path)
+    continuation_assert_owner_parser.add_argument("--task-id", default=None)
+    continuation_assert_owner_parser.add_argument("--lease-id", required=True)
+    continuation_assert_owner_parser.add_argument("--generation", type=int, default=None)
+    continuation_assert_owner_parser.add_argument("--fence-token", default=None)
+    add_json_argument(continuation_assert_owner_parser)
+    continuation_assert_owner_parser.set_defaults(
+        func=continuation_commands.continuation_assert_owner_command
+    )
+
+    continuation_heartbeat_parser = continuation_subparsers.add_parser(
+        "heartbeat",
+        help="refresh runner liveness without extending the lease TTL",
+    )
+    continuation_heartbeat_parser.add_argument("path", nargs="?", type=Path)
+    continuation_heartbeat_parser.add_argument("--task-id", default=None)
+    continuation_heartbeat_parser.add_argument("--lease-id", required=True)
+    continuation_heartbeat_parser.add_argument("--generation", type=int, default=None)
+    continuation_heartbeat_parser.add_argument("--fence-token", default=None)
+    add_json_argument(continuation_heartbeat_parser)
+    continuation_heartbeat_parser.set_defaults(func=continuation_commands.continuation_heartbeat_command)
+
+    continuation_commands.register_round_effect_parsers(
+        continuation_subparsers,
+        add_json_argument,
+    )
+
     continuation_renew_parser = continuation_subparsers.add_parser(
         "renew",
         help="extend an active lease before it expires",
@@ -1258,6 +1290,8 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_renew_parser.add_argument("path", nargs="?", type=Path)
     continuation_renew_parser.add_argument("--task-id", default=None)
     continuation_renew_parser.add_argument("--lease-id", required=True)
+    continuation_renew_parser.add_argument("--generation", type=int, default=None)
+    continuation_renew_parser.add_argument("--fence-token", default=None)
     continuation_renew_parser.add_argument("--ttl-minutes", type=int, default=None)
     add_json_argument(continuation_renew_parser)
     continuation_renew_parser.set_defaults(func=continuation_commands.continuation_renew_command)
@@ -1269,6 +1303,8 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_checkpoint_parser.add_argument("path", nargs="?", type=Path)
     continuation_checkpoint_parser.add_argument("--task-id", default=None)
     continuation_checkpoint_parser.add_argument("--lease-id", required=True)
+    continuation_checkpoint_parser.add_argument("--generation", type=int, default=None)
+    continuation_checkpoint_parser.add_argument("--fence-token", default=None)
     continuation_checkpoint_parser.add_argument(
         "--status",
         choices=tuple(sorted(continuation_commands.STATE_STATUSES)),
@@ -1294,10 +1330,12 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_release_parser.add_argument("path", nargs="?", type=Path)
     continuation_release_parser.add_argument("--task-id", default=None)
     continuation_release_parser.add_argument("--lease-id", required=True)
+    continuation_release_parser.add_argument("--generation", type=int, default=None)
+    continuation_release_parser.add_argument("--fence-token", default=None)
     continuation_release_parser.add_argument(
         "--final-status",
         choices=tuple(sorted(continuation_commands.STATE_STATUSES - {"running"})),
-        default="ready",
+        default=None,
     )
     continuation_release_parser.add_argument("--stage", default=None)
     continuation_release_parser.add_argument("--next-action", default=None)
@@ -1348,6 +1386,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="medium",
     )
     continuation_issue_parser.add_argument("--text", required=True)
+    continuation_issue_parser.add_argument(
+        "--resolve-fingerprint",
+        default=None,
+        help="append a resolution event for an existing aggregated issue fingerprint",
+    )
     continuation_issue_parser.add_argument("--evidence-ref", action="append", default=None)
     continuation_issue_parser.add_argument("--related-command", default=None)
     continuation_issue_parser.add_argument("--runner-id", default="agent")
