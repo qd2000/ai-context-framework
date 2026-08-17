@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Inactive
+Active
 
-说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Inactive
 
 | ID    | 状态   | 标题                         | Owner   | 写入范围                                                                                                                                                                                                                                                                                                                                                                                                      | 依赖                  | 输出物                              | 详情                                                  |
 | ----- | ---- | -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------- | --------------------------------------------------- |
-| WS007 | Open | Continuation orphan recovery, fencing and durable reconciliation | codex | assigned: active/workstreams/WS007.md, shared: active/Workstreams.md, assigned: ai_context_framework/commands/continuation.py, assigned: ai_context_framework/commands/log.py, assigned: ai_context_framework/continuation_rounds.py, shared: ai_context_framework/runtime.py, assigned: tests/test_continuation_cli.py, shared: README.md, shared: CHANGELOG.md, shared: docs/**, shared: pyproject.toml, shared: ai_context_framework/version.py, shared: uv.lock, shared: ai_context_framework.egg-info/** | 无。 | Continuation v2 orphan recovery, fencing, durable side-effect reconciliation, tests, migration docs, and release candidate | active/workstreams/WS007.md |
+| WS007 | Active | Continuation orphan recovery, fencing and durable reconciliation | codex | assigned: active/workstreams/WS007.md, shared: active/Workstreams.md, assigned: ai_context_framework/commands/continuation.py, assigned: ai_context_framework/commands/log.py, assigned: ai_context_framework/continuation_rounds.py, shared: ai_context_framework/runtime.py, assigned: tests/test_continuation_cli.py, shared: README.md, shared: CHANGELOG.md, shared: docs/**, shared: pyproject.toml, shared: ai_context_framework/version.py, shared: uv.lock, shared: ai_context_framework.egg-info/** |  | Continuation v2 orphan recovery, fencing, durable side-effect reconciliation, tests, migration docs, and release candidate | active/workstreams/WS007.md |
 
 ---
 
