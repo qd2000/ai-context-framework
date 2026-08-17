@@ -911,6 +911,371 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("invalid", doctor["effect_journal"]["state"])
         self.assertIn("effect journal is malformed or identity-mismatched", doctor["blocked_reasons"])
 
+    def test_reconcile_never_steals_a_fresh_active_owner(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:runner-a-ended",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertFalse(reconciled["eligible_for_recover"])
+        self.assertEqual("blocked", reconciled["decision"])
+        self.assertIn("active_owner_live", reconciled["reasons"])
+
+    def test_stale_fenced_owner_reconcile_recover_fences_resurrection(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--key",
+                "campaign-wave-a",
+                "--kind",
+                "campaign",
+                "--external-id",
+                "campaign-001",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        code, completed, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "update",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--key",
+                "campaign-wave-a",
+                "--status",
+                "completed",
+                "--milestone",
+                "aggregated",
+                "--evidence-ref",
+                "artifact:aggregate.json",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{completed}")
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["issued_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=60)
+        )
+        lease["last_heartbeat_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=31)
+        )
+        continuation._write_json(lease_path, lease)
+
+        code, blocked, stderr = self.run_json(
+            ["continuation", "reconcile", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{blocked}")
+        self.assertIn("owner_end_not_proven", blocked["reasons"])
+
+        reconcile_args = [
+            "continuation",
+            "reconcile",
+            str(self.root),
+            "--task-id",
+            "WS900",
+            "--owner-ended",
+            "--evidence-ref",
+            "scheduler:runner-a-ended",
+            "--reason",
+            "Scheduler reports the stale runner has ended and the recorded effect is terminal.",
+            "--record",
+        ]
+        code, reconciled, stderr = self.run_json(reconcile_args)
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"])
+        reconcile_id = str(reconciled["receipt"]["receipt_id"])
+
+        # A resurrected old owner invalidates the previously recorded observation.
+        code, heartbeat, stderr = self.run_json(
+            [
+                "continuation",
+                "heartbeat",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{heartbeat}")
+        code, stale_receipt, _ = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--reconcile-id",
+                reconcile_id,
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("reconciliation_stale", stale_receipt["error_code"])
+
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["last_heartbeat_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=31)
+        )
+        continuation._write_json(lease_path, lease)
+        code, reconciled, stderr = self.run_json(reconcile_args)
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        reconcile_id = str(reconciled["receipt"]["receipt_id"])
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--reconcile-id",
+                reconcile_id,
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        self.assertEqual(2, recovered["generation"])
+        self.assertNotEqual(lease_id, recovered["lease"]["lease_id"])
+
+        for command in ("assert-owner", "heartbeat", "renew", "checkpoint", "release"):
+            with self.subTest(command=command):
+                code, fenced, _ = self.run_json(
+                    [
+                        "continuation",
+                        command,
+                        str(self.root),
+                        "--task-id",
+                        "WS900",
+                        "--lease-id",
+                        lease_id,
+                        *self.owner_flags(claim),
+                    ]
+                )
+                self.assertEqual(3, code)
+                self.assertEqual("lease_mismatch", fenced["error_code"])
+
+        code, effects, stderr = self.run_json(
+            ["continuation", "effect", "list", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{effects}")
+        self.assertEqual("completed", effects["effects"][0]["status"])
+        self.assertEqual(["campaign-wave-a"], effects["summary"]["terminal"])
+
+    def test_reconcile_blocks_unresolved_effects_and_blocked_receipt_cannot_recover(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--key",
+                "external-write",
+                "--kind",
+                "deployment",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["issued_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=60)
+        )
+        lease["last_heartbeat_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=31)
+        )
+        continuation._write_json(lease_path, lease)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:runner-a-ended",
+                "--reason",
+                "Runner ended but external effect outcome is unresolved.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertFalse(reconciled["eligible_for_recover"])
+        self.assertIn("unresolved_effects", reconciled["reasons"])
+
+        code, denied, _ = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("recovery_not_authorized", denied["error_code"])
+
+    def test_legacy_unknown_owner_with_advanced_head_requires_explicit_head_acceptance(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "legacy-runner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+
+        control_path = state_dir / "control.json"
+        control = json.loads(control_path.read_text(encoding="utf-8"))
+        control.pop("generation", None)
+        continuation._write_json(control_path, control)
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        for field in ("generation", "fence_token_hash", "last_heartbeat_at", "last_renew_at"):
+            lease.pop(field, None)
+        continuation._write_json(lease_path, lease)
+        (state_dir / "rounds.json").unlink(missing_ok=True)
+        (state_dir / "effects.json").unlink(missing_ok=True)
+
+        (self.root / "recovered-work.txt").write_text("durable work before crash\n", encoding="utf-8")
+        self._git("add", "recovered-work.txt")
+        self._git("commit", "-m", "test: durable work before crash")
+        current_head = self._git("rev-parse", "HEAD").stdout.strip()
+
+        base_reconcile = [
+            "continuation",
+            "reconcile",
+            str(self.root),
+            "--task-id",
+            "WS900",
+            "--owner-ended",
+            "--evidence-ref",
+            "scheduler:legacy-runner-ended",
+        ]
+        code, blocked, stderr = self.run_json(base_reconcile)
+        self.assertEqual(0, code, f"{stderr}\n{blocked}")
+        self.assertIn("head_change_unaccepted", blocked["reasons"])
+
+        code, reconciled, stderr = self.run_json(
+            [
+                *base_reconcile,
+                "--accept-head",
+                current_head,
+                "--reason",
+                "Operator verified the old runner ended and the advanced HEAD is the recovered durable checkpoint.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"])
+        self.assertEqual("legacy_unknown", reconciled["observation"]["liveness"])
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        self.assertEqual(1, recovered["generation"])
+        self.assertEqual(current_head, recovered["lease"]["head"])
+        self.assertEqual(lease["lease_id"], recovered["recovery"]["previous_lease_id"])
+        self.assertIsNone(recovered["recovery"]["previous_generation"])
+
     def test_legacy_active_lease_without_fencing_metadata_remains_readable(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
@@ -1076,6 +1441,8 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertIn("acf continuation effect prepare", prompt)
         self.assertIn("acf continuation effect update", prompt)
         self.assertIn("acf continuation effect list", prompt)
+        self.assertIn("acf continuation reconcile", prompt)
+        self.assertIn("acf continuation recover", prompt)
         self.assertIn("acf continuation renew", prompt)
         self.assertIn("acf continuation release", prompt)
 

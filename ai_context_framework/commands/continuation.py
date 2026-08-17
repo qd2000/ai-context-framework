@@ -34,7 +34,7 @@ except ImportError:  # pragma: no cover - Windows path.
     fcntl = None  # type: ignore[assignment]
 
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
-from ai_context_framework import continuation_rounds
+from ai_context_framework import continuation_recovery, continuation_rounds
 from ai_context_framework.observability import (
     append_usage_event,
     atomic_write_text,
@@ -164,6 +164,36 @@ def _public_lease(lease: Mapping[str, Any]) -> dict[str, Any]:
     return public
 
 
+def _new_fenced_lease(
+    *,
+    control: Mapping[str, Any],
+    root: Path,
+    branch: str,
+    head: str,
+    runner_id: str,
+    generation: int,
+    ttl_minutes: int,
+    now: datetime,
+) -> tuple[dict[str, Any], str]:
+    fence_token = secrets.token_hex(32)
+    lease = {
+        "schema_version": LEASE_SCHEMA,
+        "lease_id": str(uuid.uuid4()),
+        "runner_id": runner_id.strip(),
+        "generation": generation,
+        "fence_token_hash": _fence_token_hash(fence_token),
+        "task_id": control["task_id"],
+        "workspace_root": str(root),
+        "branch": branch,
+        "head": head,
+        "issued_at": _iso(now),
+        "last_heartbeat_at": _iso(now),
+        "last_renew_at": _iso(now),
+        "expires_at": _iso(now + timedelta(minutes=ttl_minutes)),
+    }
+    return lease, fence_token
+
+
 def _safe_key(value: str) -> str:
     normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip(".-")
     if not normalized:
@@ -256,6 +286,8 @@ def _paths(root: Path, task_id: str | None) -> dict[str, Path]:
         "receipt": directory / "last_run.json",
         "rounds": directory / "rounds.json",
         "effects": directory / "effects.json",
+        "reconcile": directory / "reconcile.json",
+        "recovery": directory / "last_recovery.json",
     }
 
 
@@ -359,6 +391,24 @@ def _journal_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> 
             ),
         }
     return round_snapshot, effect_snapshot
+
+
+def _reconcile_observation(
+    root: Path,
+    task_id: str | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    status = _status(root, task_id)
+    paths = _paths(root, task_id)
+    control = status["control"]
+    rounds = _load_round_journal(paths, control)
+    effects = _load_effect_journal(paths, control)
+    observation = continuation_recovery.build_observation(
+        status,
+        rounds=rounds,
+        effects=effects,
+        task_id=str(control["task_id"]),
+    )
+    return status, observation
 
 
 def _require_fenced_generation(lease: Mapping[str, Any]) -> int:
@@ -829,6 +879,8 @@ def continuation_init_command(args: argparse.Namespace) -> int:
             "receipt": directory / "last_run.json",
             "rounds": directory / "rounds.json",
             "effects": directory / "effects.json",
+            "reconcile": directory / "reconcile.json",
+            "recovery": directory / "last_recovery.json",
         }
         if paths["control"].exists() and not args.force:
             raise ContinuationError(
@@ -886,6 +938,8 @@ def continuation_init_command(args: argparse.Namespace) -> int:
                 paths["receipt"],
                 paths["rounds"],
                 paths["effects"],
+                paths["reconcile"],
+                paths["recovery"],
             ):
                 stale.unlink(missing_ok=True)
         return {
@@ -969,25 +1023,16 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 raise ContinuationError("invalid lease TTL", code="timing_invalid")
             now = _now()
             generation = int(control.get("generation", 0)) + 1
-            # Keep the owner credential safe to pass as a separate argparse value.
-            # URL-safe base64 can begin with "-", which argparse may interpret as
-            # another option instead of the value for --fence-token.
-            fence_token = secrets.token_hex(32)
-            lease = {
-                "schema_version": LEASE_SCHEMA,
-                "lease_id": str(uuid.uuid4()),
-                "runner_id": str(args.runner_id).strip(),
-                "generation": generation,
-                "fence_token_hash": _fence_token_hash(fence_token),
-                "task_id": control["task_id"],
-                "workspace_root": str(root),
-                "branch": status["git"]["branch"],
-                "head": status["git"]["head"],
-                "issued_at": _iso(now),
-                "last_heartbeat_at": _iso(now),
-                "last_renew_at": _iso(now),
-                "expires_at": _iso(now + timedelta(minutes=ttl)),
-            }
+            lease, fence_token = _new_fenced_lease(
+                control=control,
+                root=root,
+                branch=str(status["git"]["branch"]),
+                head=str(status["git"]["head"]),
+                runner_id=str(args.runner_id),
+                generation=generation,
+                ttl_minutes=ttl,
+                now=now,
+            )
             round_journal = _load_round_journal(paths, control)
             try:
                 round_journal, round_record = continuation_rounds.begin_round(
@@ -1236,6 +1281,207 @@ def continuation_effect_list_command(args: argparse.Namespace) -> int:
     return _guarded(args, "continuation effect list", operation)
 
 
+def continuation_reconcile_command(args: argparse.Namespace) -> int:
+    def operation() -> dict[str, Any]:
+        root = _workspace_root(args.path)
+        paths = _paths(root, args.task_id)
+        with _state_lock(paths["lock"]):
+            status, observation = _reconcile_observation(root, args.task_id)
+            evidence_refs = list(dict.fromkeys(args.evidence_ref or []))[:MAX_LIST_ITEMS]
+            for evidence_ref in evidence_refs:
+                _validate_text(evidence_ref, field="evidence_ref")
+            accepted_head = str(args.accept_head).strip() if args.accept_head else None
+            decision, reasons = continuation_recovery.reconcile_decision(
+                status,
+                observation,
+                owner_ended=bool(args.owner_ended),
+                accepted_head=accepted_head,
+                evidence_refs=evidence_refs,
+            )
+            result: dict[str, Any] = {
+                "status": "reconciled",
+                "decision": decision,
+                "eligible_for_recover": decision == "eligible",
+                "reasons": reasons,
+                "observation": observation,
+                "assertions": {
+                    "owner_ended": bool(args.owner_ended),
+                    "accepted_head": accepted_head,
+                },
+                "evidence_refs": evidence_refs,
+                "recorded": False,
+            }
+            if args.record:
+                reason = _validate_text(args.reason, field="reason")
+                receipt = {
+                    "schema_version": continuation_recovery.RECONCILE_SCHEMA,
+                    "receipt_id": str(uuid.uuid4()),
+                    "task_id": status["control"]["task_id"],
+                    "created_at": _iso(),
+                    "decision": decision,
+                    "reasons": reasons,
+                    "reason": reason,
+                    "evidence_refs": evidence_refs,
+                    "assertions": result["assertions"],
+                    "observation": observation,
+                }
+                _write_json(paths["reconcile"], receipt)
+                result["recorded"] = True
+                result["receipt"] = receipt
+            return result
+
+    return _guarded(args, "continuation reconcile", operation)
+
+
+def continuation_recover_command(args: argparse.Namespace) -> int:
+    def operation() -> dict[str, Any]:
+        root = _workspace_root(args.path)
+        paths = _paths(root, args.task_id)
+        with _state_lock(paths["lock"]):
+            control = _load_control(paths, root)
+            try:
+                receipt = continuation_recovery.validate_reconcile_receipt(
+                    _read_json(paths["reconcile"], label="reconcile")
+                )
+            except continuation_recovery.ContinuationRecoveryError as exc:
+                raise ContinuationError(str(exc), code=exc.code) from exc
+            if receipt["task_id"] != control["task_id"]:
+                raise ContinuationError("reconcile receipt task mismatch", code="reconcile_invalid")
+            if receipt["receipt_id"] != args.reconcile_id:
+                raise ContinuationError(
+                    "reconcile receipt id does not match",
+                    code="reconcile_mismatch",
+                    exit_code=3,
+                )
+            if receipt["decision"] != "eligible":
+                raise ContinuationError(
+                    "reconcile receipt does not authorize recovery",
+                    code="recovery_not_authorized",
+                    exit_code=3,
+                    details={"reasons": receipt["reasons"]},
+                )
+
+            status, observation = _reconcile_observation(root, args.task_id)
+            if dict(receipt["observation"]) != observation:
+                raise ContinuationError(
+                    "continuation state changed after reconciliation",
+                    code="reconciliation_stale",
+                    exit_code=3,
+                    details={"recorded": receipt["observation"], "current": observation},
+                    next_actions=["Run `acf continuation reconcile` again against the current state."],
+                )
+            assertions = receipt["assertions"]
+            owner_ended = assertions.get("owner_ended") is True
+            accepted_head = assertions.get("accepted_head")
+            decision, reasons = continuation_recovery.reconcile_decision(
+                status,
+                observation,
+                owner_ended=owner_ended,
+                accepted_head=str(accepted_head) if accepted_head is not None else None,
+                evidence_refs=[str(value) for value in receipt["evidence_refs"]],
+            )
+            if decision != "eligible":
+                raise ContinuationError(
+                    "current state no longer satisfies the recorded reconciliation",
+                    code="recovery_not_authorized",
+                    exit_code=3,
+                    details={"reasons": reasons},
+                )
+
+            ttl = int(args.ttl_minutes or control["lease_ttl_minutes"])
+            if ttl < 1 or ttl > MAX_LEASE_TTL_MINUTES:
+                raise ContinuationError("invalid lease TTL", code="timing_invalid")
+            old_lease_payload = status["lease"].get("lease")
+            if not isinstance(old_lease_payload, Mapping):
+                raise ContinuationError("recoverable lease is missing", code="lease_invalid")
+            old_lease = dict(old_lease_payload)
+            old_generation = old_lease.get("generation")
+            generation = max(
+                int(control.get("generation", 0)),
+                int(old_generation) if isinstance(old_generation, int) and not isinstance(old_generation, bool) else 0,
+            ) + 1
+            now = _now()
+            lease, fence_token = _new_fenced_lease(
+                control=control,
+                root=root,
+                branch=str(status["git"]["branch"]),
+                head=str(status["git"]["head"]),
+                runner_id=str(args.runner_id),
+                generation=generation,
+                ttl_minutes=ttl,
+                now=now,
+            )
+
+            round_journal = _load_round_journal(paths, control)
+            if isinstance(old_generation, int) and not isinstance(old_generation, bool):
+                try:
+                    round_journal, _ = continuation_rounds.finish_round(
+                        round_journal,
+                        task_id=str(control["task_id"]),
+                        generation=old_generation,
+                        lease_id=str(old_lease["lease_id"]),
+                        reconciling=True,
+                        milestone="superseded_by_recovery",
+                        evidence_refs=[f"reconcile:{receipt['receipt_id']}"],
+                        now=_iso(now),
+                    )
+                except continuation_rounds.ContinuationRoundError as exc:
+                    raise _round_error(exc) from exc
+            try:
+                round_journal, round_record = continuation_rounds.begin_round(
+                    round_journal,
+                    task_id=str(control["task_id"]),
+                    generation=generation,
+                    lease_id=str(lease["lease_id"]),
+                    runner_id=str(lease["runner_id"]),
+                    now=_iso(now),
+                )
+            except continuation_rounds.ContinuationRoundError as exc:
+                raise _round_error(exc) from exc
+
+            control["generation"] = generation
+            control["updated_at"] = _iso(now)
+            state = _load_state(paths)
+            state["status"] = "running"
+            state["updated_at"] = _iso(now)
+            state["verification"] = _append_unique(
+                state["verification"],
+                [f"Recovered continuation ownership via reconcile receipt {receipt['receipt_id']}."],
+            )
+            recovery = {
+                "schema_version": continuation_recovery.RECOVERY_SCHEMA,
+                "recovery_id": str(uuid.uuid4()),
+                "reconcile_receipt_id": receipt["receipt_id"],
+                "task_id": control["task_id"],
+                "recovered_at": _iso(now),
+                "previous_lease_id": old_lease["lease_id"],
+                "previous_generation": old_generation,
+                "new_lease_id": lease["lease_id"],
+                "new_generation": generation,
+                "runner_id": lease["runner_id"],
+                "head": status["git"]["head"],
+                "effect_digest": observation["effect_digest"],
+            }
+            _write_json(paths["control"], control)
+            _write_json(paths["lease"], lease)
+            _write_json(paths["rounds"], round_journal)
+            _write_state(paths["state"], state)
+            _write_json(paths["recovery"], recovery)
+            return {
+                "status": "recovered",
+                "task_id": control["task_id"],
+                "lease": _public_lease(lease),
+                "fence_token": fence_token,
+                "generation": generation,
+                "round": round_record,
+                "recovery": recovery,
+                "next_action": state["next_action"],
+                "renew_interval_minutes": control["renew_interval_minutes"],
+            }
+
+    return _guarded(args, "continuation recover", operation)
+
+
 def continuation_renew_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
@@ -1476,8 +1722,8 @@ Next action: {state['next_action']}
 Continuation protocol:
 1. Do not reconstruct task state from chat history by default. Read local project plans/evidence and `acf continuation doctor` first.
 2. Run `acf continuation doctor {json.dumps(str(root))}{task_flag} --json`.
-3. If `can_claim` is false, do not modify the worktree. Report the blocking reason.
-4. Claim one bounded round with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json` and keep the returned lease_id, generation, and fence_token. Treat fence_token as an owner credential and do not copy it into project files or logs.
+3. If `can_claim` is false, never copy an old lease id to impersonate its owner. A fresh active owner means no-op. For stale/orphan_candidate, legacy_unknown, changed HEAD, or effect reconciliation signals, use `acf continuation reconcile ... --json` to inspect the exact recovery blockers. Only after external/local evidence proves the prior owner ended, all effects are resolved/reusable, and any advanced HEAD is explicitly accepted may you record an eligible receipt with `acf continuation reconcile ... --owner-ended --accept-head <current-head-if-needed> --evidence-ref <durable-ref> --reason <concise-reason> --record --json`, then fence the old owner with `acf continuation recover ... --reconcile-id <receipt_id> --runner-id <runner> --json`. If reconcile remains blocked, stop without modifying the worktree.
+4. If `can_claim` is true, claim one bounded round with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`. If step 3 recovered an orphan instead, use the credentials returned by `recover` and do not claim again. Keep the returned lease_id, generation, and fence_token; treat fence_token as an owner credential and do not copy it into project files or logs.
 5. Execute only the current bounded gate. Record compact runtime-neutral progress with `acf continuation progress ... --phase <phase> --milestone <compact-name> --evidence-ref <durable-ref> --json`; do not copy raw tool output or transcript history into continuation state.
 6. Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. For long work, record liveness with `acf continuation heartbeat ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` and extend TTL with `acf continuation renew ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before their configured thresholds; heartbeat proves liveness but does not extend TTL.
 7. Before executing each external/non-idempotent side effect, write its deterministic identity first with `acf continuation effect prepare ... --key <logical-key> --kind <generic-kind> --json`. Execute the side effect only when prepare returns `created=true`; `created=false` means the logical effect already exists and must be inspected/reused/reconciled rather than resubmitted. After authoritative observations, update only compact status/milestone/external-id/evidence references with `acf continuation effect update ...`. If an outcome is uncertain, stop and preserve the effect for reconciliation; never resubmit it from memory. Use `acf continuation effect list ... --json` to inspect durable effect identities.
@@ -1630,6 +1876,32 @@ def register_round_effect_parsers(subparsers, add_json_argument) -> None:
     add_json_argument(list_parser)
     list_parser.set_defaults(func=continuation_effect_list_command)
 
+    reconcile = subparsers.add_parser(
+        "reconcile",
+        help="classify an interrupted round and optionally record an auditable recovery decision",
+    )
+    reconcile.add_argument("path", nargs="?", type=Path)
+    reconcile.add_argument("--task-id", default=None)
+    reconcile.add_argument("--owner-ended", action="store_true")
+    reconcile.add_argument("--accept-head", default=None)
+    reconcile.add_argument("--evidence-ref", action="append", default=None)
+    reconcile.add_argument("--reason", default=None)
+    reconcile.add_argument("--record", action="store_true")
+    add_json_argument(reconcile)
+    reconcile.set_defaults(func=continuation_reconcile_command)
+
+    recover = subparsers.add_parser(
+        "recover",
+        help="fence an interrupted owner using one eligible reconcile receipt",
+    )
+    recover.add_argument("path", nargs="?", type=Path)
+    recover.add_argument("--task-id", default=None)
+    recover.add_argument("--reconcile-id", required=True)
+    recover.add_argument("--runner-id", required=True)
+    recover.add_argument("--ttl-minutes", type=int, default=None)
+    add_json_argument(recover)
+    recover.set_defaults(func=continuation_recover_command)
+
 
 __all__ = [
     "continuation_assert_owner_command",
@@ -1645,6 +1917,8 @@ __all__ = [
     "continuation_pause_command",
     "continuation_progress_command",
     "continuation_prompt_command",
+    "continuation_reconcile_command",
+    "continuation_recover_command",
     "continuation_release_command",
     "continuation_renew_command",
     "continuation_resume_command",

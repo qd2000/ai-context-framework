@@ -52,6 +52,8 @@ acf continuation progress
 acf continuation effect prepare
 acf continuation effect update
 acf continuation effect list
+acf continuation reconcile
+acf continuation recover
 acf continuation renew
 acf continuation checkpoint
 acf continuation release
@@ -69,13 +71,17 @@ acf continuation issue
 
 `assert-owner` 对 active lease 的 `lease_id + generation + fence_token` 做所有权校验。新 generation 生效后，旧 owner 的 `assert-owner`、`heartbeat`、`renew`、`checkpoint` 和 `release` 都会被确定性拒绝。该 fencing 保护的是 ACF continuation 控制协议；它不能阻止绕过 ACF 直接写外部系统，因此 non-idempotent 外部动作仍应在动作前显式 assert-owner。
 
-`heartbeat` 只刷新 `last_heartbeat_at`，用于证明 runner liveness，不延长 `expires_at`。`renew` 在校验 owner 后同时刷新 heartbeat/renew 时间并延长同一 lease TTL，不改变外部调度周期。expired lease 仍只有在身份、Git 和当前恢复规则重新通过后才能产生下一 generation；正式 orphan takeover 由后续 reconcile/recover 协议负责，stale heartbeat 本身不授权接管。
+`heartbeat` 只刷新 `last_heartbeat_at`，用于证明 runner liveness，不延长 `expires_at`。`renew` 在校验 owner 后同时刷新 heartbeat/renew 时间并延长同一 lease TTL，不改变外部调度周期。stale heartbeat 本身永远不授权接管。
 
 `progress` 把当前 fenced round 的执行状态记录在用户级 `rounds.json`。核心 phase 只使用 runtime-neutral 的 `claimed / executing / waiting_external / finalizing / reconciling / released`，并允许 bounded milestone/evidence refs；不保存 runtime-specific phase、raw output 或 transcript。round journal 只保留有限条目，超过上限时只允许裁掉已经 `released` 的旧 round，不能为了腾空间丢掉未收口现场。
 
 外部/non-idempotent work 使用 write-ahead effect contract。`effect prepare --key <logical-key> --kind <generic-kind>` 在动作之前写入 deterministic effect id；同一 task + logical key + kind 得到稳定 identity。只有返回 `created=true` 的首次 prepare 才允许执行外部动作；`created=false` 表示 effect 已经存在，必须复用、查询外部 authority 或进入 reconciliation，不能再次 submit。`effect update` 只记录 generic `prepared / active / completed / failed / unknown` status、可选 external id、milestone 与 evidence refs；terminal status 不允许重新回到 active。effect journal 有固定记录/字节上限，schema 不接受 raw output/transcript 字段。
 
-WS007.3 暂时采用更保守的恢复边界：只要 `state=running` 的 lease 已过期且 effect journal 非空，`doctor` 就返回 `effect_reconciliation_required` 并保持 `can_claim=false`，无论 effect 当前是否看起来 terminal。这样在 WS007.4 正式 `reconcile/recover` 能验证 external authority、Git 与 effect evidence 之前，旧版“clean worktree + unchanged HEAD 直接 re-claim”不会绕过 durable side-effect evidence。没有 round/effect journal 的 v0.0.3.61 task 仍沿用 legacy conservative semantics，并在下一次正常 fenced claim 时 lazy 创建 round journal。
+只要 `state=running` 的 lease 已过期且 effect journal 非空，`doctor` 返回 `effect_reconciliation_required` 并保持 `can_claim=false`，防止旧式 clean-HEAD re-claim 绕过 durable side-effect evidence。没有 round/effect journal 的 v0.0.3.61 task 仍可保守读取。
+
+`reconcile` 默认只读，不会“猜旧 runner 已死”。它基于当前 lease/liveness、Git clean/HEAD、round/effect journal 和调用方显式 assertion 生成 `eligible|blocked` decision：fresh active owner 无条件 blocked；stale 或 `legacy_unknown` active owner 必须显式 `--owner-ended` 并提供 evidence；lease HEAD 与 current HEAD 不同必须用 `--accept-head <current-head>` 精确接受并附 evidence；任何 `prepared/active/unknown` effect 仍 blocked。`--record --reason ...` 才把 observation、assertions、effect summary/digest 和 evidence refs 写成用户级 reconcile receipt。
+
+`recover --reconcile-id ... --runner-id ...` 只消费 recorded eligible receipt。执行前重新计算整个 observation；lease state/id/generation、liveness class、HEAD、state status、round/effect digest 任一变化都会返回 `reconciliation_stale`，要求重新 reconcile。成功后旧 round（若为 fenced round）以 `reconciling/superseded_by_recovery` 收口，新 lease generation 单调递增并返回新的 fence credential，写 `last_recovery.json`。因此旧 owner 即使随后复活，也无法 heartbeat/renew/checkpoint/release 新 generation。`reconcile/recover` 只确定性执行调用方已经明确提供的 evidence assertion，不自动裁决外部事实。
 
 默认时间参数：
 
@@ -123,9 +129,9 @@ acf log projects --json
     ↓
 doctor
     ├─ active + fresh heartbeat → no-op，当前 owner live
-    ├─ active + stale heartbeat → orphan candidate，fail-closed/no claim
-    ├─ active + legacy-unknown → no-op，等待兼容路径收口
-    ├─ expired running + effect records → effect_reconciliation_required，禁止直接 re-claim
+    ├─ active + stale heartbeat → orphan candidate → reconcile；未证明 owner ended 则 stop
+    ├─ active + legacy-unknown → reconcile；必须显式 owner-ended evidence
+    ├─ expired running + effect records → effect_reconciliation_required → reconcile
     ├─ paused/dirty/reconciling → no-op
     └─ can_claim=true → claim → 单轮执行
 ```
@@ -157,6 +163,7 @@ Continuation 状态不是 transcript cache，而是低噪声恢复索引。
 - fenced round 的 owner credential 只返回给 claimant，持久态只保存 hash；
 - generation 前进后，旧 owner 的 heartbeat/renew/checkpoint/release 必须失败；
 - stale/orphan candidate 只触发 reconciliation 信号，不允许自动 steal；
+- reconcile receipt 只在当前 observation 未漂移时有效；fresh owner、dirty Git、未接受 HEAD advance 或 unresolved effects 均不可 recover；
 - pause 不强杀外部进程，只阻止 renew，并在 release 收口；
 - malformed lease/state fail-closed；
 - Workstream 绑定可选，绑定后必须通过 registry/path/branch/common-dir 验证；
