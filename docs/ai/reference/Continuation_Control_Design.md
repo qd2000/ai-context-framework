@@ -92,9 +92,9 @@ Workspace ownership 保存在用户级 `workspace.json`，只记录 bounded path
 
 只要 `state=running` 的 lease 已过期且 effect journal 非空，`doctor` 返回 `effect_reconciliation_required` 并保持 `can_claim=false`，防止旧式 clean-HEAD re-claim 绕过 durable side-effect evidence。没有 round/effect journal 的 v0.0.3.61 task 仍可保守读取。
 
-`reconcile` 默认只读，不会“猜旧 runner 已死”。它基于当前 lease/liveness、Git clean/HEAD、round/effect journal 和调用方显式 assertion 生成 `eligible|blocked` decision：fresh active owner 无条件 blocked；stale 或 `legacy_unknown` active owner 必须显式 `--owner-ended` 并提供 evidence；lease HEAD 与 current HEAD 不同必须用 `--accept-head <current-head>` 精确接受并附 evidence；任何 `prepared/active/unknown` effect 仍 blocked。`--record --reason ...` 才把 observation、assertions、effect summary/digest 和 evidence refs 写成用户级 reconcile receipt。
+`reconcile` 默认只读，不会“猜旧 runner 已死”。它基于当前 lease/liveness、Git clean/HEAD、round/effect journal、workspace ownership manifest 和调用方显式 assertion 生成 `eligible|blocked` decision：fresh active owner 无条件 blocked；stale 或 `legacy_unknown` active owner 必须显式 `--owner-ended` 并提供 evidence；lease HEAD 与 current HEAD 不同必须用 `--accept-head <current-head>` 精确接受并附 evidence；任何 `prepared/active/unknown` effect 仍 blocked。Git dirty 本身不再是 recovery blocker：只要 workspace manifest 可验证、generation 与 interrupted owner 一致且没有真实 conflict，`baseline_external`、`unexpected_nonoverlap` 和已声明 write intent 下的 `runner_owned` 都可进入 formal recovery；缺失/无效 manifest、generation 漂移或真实 ownership conflict 仍 fail-closed。`--record --reason ...` 才把 observation、assertions、effect summary/digest、workspace ownership digest 和 evidence refs 写成用户级 reconcile receipt。
 
-`recover --reconcile-id ... --runner-id ...` 只消费 recorded eligible receipt。执行前重新计算整个 observation；lease state/id/generation、liveness class、HEAD、state status、round/effect digest 任一变化都会返回 `reconciliation_stale`，要求重新 reconcile。成功后旧 round（若为 fenced round）以 `reconciling/superseded_by_recovery` 收口，新 lease generation 单调递增并返回新的 fence credential，写 `last_recovery.json`。因此旧 owner 即使随后复活，也无法 heartbeat/renew/checkpoint/release 新 generation。`reconcile/recover` 只确定性执行调用方已经明确提供的 evidence assertion，不自动裁决外部事实。
+`recover --reconcile-id ... --runner-id ...` 只消费 recorded eligible receipt。执行前重新计算整个 observation；lease state/id/generation、liveness class、HEAD、state status、round/effect digest 或 workspace ownership digest 任一变化都会返回 `reconciliation_stale`，要求重新 reconcile。成功后旧 round（若为 fenced round）以 `reconciling/superseded_by_recovery` 收口，新 lease generation 单调递增并返回新的 fence credential；workspace manifest 同步转移到新 generation，保留原 write intents 与可证明的 `runner_owned` WIP，同时继续保护不重叠的 baseline/external dirty；恢复动作不会 stash/reset/clean、不会提交 external dirty。`last_recovery.json` 只记录 compact recovery identity/digest。因此旧 owner 即使随后复活，也无法 heartbeat/renew/checkpoint/release 新 generation。`reconcile/recover` 只确定性执行调用方已经明确提供的 evidence assertion，不自动裁决外部事实。
 
 默认时间参数：
 
@@ -182,7 +182,7 @@ Continuation 状态不是 transcript cache，而是低噪声恢复索引。
 - fenced round 的 owner credential 只返回给 claimant，持久态只保存 hash；
 - generation 前进后，旧 owner 的 heartbeat/renew/checkpoint/release 必须失败；
 - stale/orphan candidate 只触发 reconciliation 信号，不允许自动 steal；
-- reconcile receipt 只在当前 observation 未漂移时有效；WS008.2 仍保持“dirty interrupted owner 不可 recover”的 v0.0.3.62 边界，后续 WS008.3 才会把可证明的 runner-owned WIP 纳入 formal recovery；fresh owner、未接受 HEAD advance 或 unresolved effects 仍不可 recover；
+- reconcile receipt 只在当前 observation 未漂移时有效；workspace path/status/content digest 变化也会使 receipt stale。可证明的 runner-owned WIP 已纳入 formal recovery，并由新 generation 继承原 write intent/ownership；fresh owner、无 manifest 的 ambiguous dirty、workspace conflict、generation 漂移、未接受 HEAD advance 或 unresolved effects 仍不可 recover；
 - pause 不强杀外部进程，只阻止 renew，并在 release 收口；
 - malformed lease/state fail-closed；
 - Workstream 绑定可选，绑定后必须通过 registry/path/branch/common-dir 验证；

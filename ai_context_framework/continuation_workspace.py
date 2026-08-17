@@ -291,6 +291,55 @@ def begin_generation(
     return validate_manifest(payload, task_id=task_id)
 
 
+def recover_generation(
+    manifest: Mapping[str, Any],
+    *,
+    task_id: str,
+    previous_generation: int,
+    generation: int,
+    snapshot: Mapping[str, Any],
+    now: str,
+) -> dict[str, Any]:
+    """Transfer evidence-backed dirty ownership into a fenced generation.
+
+    Recovery is intentionally different from ``begin_generation``: a normal
+    claim treats all current dirty state as external baseline, while recovery
+    must preserve the previous round's declared write intents and its
+    attributable runner-owned WIP.  Unrelated dirty state remains external and
+    conflicts still fail closed.
+    """
+
+    if isinstance(previous_generation, bool) or not isinstance(previous_generation, int) or previous_generation < 1:
+        raise ContinuationWorkspaceError(
+            "previous workspace generation is invalid",
+            code="workspace_generation_mismatch",
+        )
+    if isinstance(generation, bool) or not isinstance(generation, int) or generation <= previous_generation:
+        raise ContinuationWorkspaceError(
+            "recovery workspace generation must advance",
+            code="workspace_generation_mismatch",
+        )
+    current = validate_manifest(manifest, task_id=task_id)
+    if int(current["generation"]) != previous_generation:
+        raise ContinuationWorkspaceError(
+            "workspace manifest generation does not match interrupted owner",
+            code="workspace_generation_mismatch",
+        )
+    current = classify(current, task_id=task_id, snapshot=snapshot, now=now)
+    if current["conflicts"]:
+        raise ContinuationWorkspaceError(
+            "workspace contains ambiguous/conflicting dirty state",
+            code="workspace_conflict",
+        )
+    payload = {
+        **current,
+        "baseline_head": str(snapshot["head"]),
+        "generation": generation,
+        "last_observed_at": now,
+    }
+    return validate_manifest(payload, task_id=task_id)
+
+
 def _entry_map(values: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     return {str(item["path"]): dict(item) for item in values}
 
@@ -408,9 +457,12 @@ def add_intents(
 
 def summary(manifest: Mapping[str, Any], *, task_id: str) -> dict[str, Any]:
     current = validate_manifest(manifest, task_id=task_id)
+    ownership_payload = {key: value for key, value in current.items() if key != "last_observed_at"}
+    encoded = json.dumps(ownership_payload, ensure_ascii=False, sort_keys=True, allow_nan=False).encode("utf-8")
     return {
         "generation": current["generation"],
         "baseline_head": current["baseline_head"],
+        "manifest_digest": hashlib.sha256(encoded).hexdigest(),
         "baseline_external_paths": [entry["path"] for entry in current["baseline_external"]],
         "write_intent_paths": list(current["write_intents"]),
         "runner_owned_paths": [entry["path"] for entry in current["runner_owned"]],
@@ -432,6 +484,7 @@ __all__ = [
     "normalize_path",
     "path_matches_scope",
     "paths_overlap",
+    "recover_generation",
     "summary",
     "validate_manifest",
 ]

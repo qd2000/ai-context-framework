@@ -615,7 +615,6 @@ class ContinuationCliTests(unittest.TestCase):
             doctor["workspace"]["unexpected_nonoverlap_paths"],
         )
 
-    @unittest.expectedFailure
     def test_ws008_stale_owner_reconcile_can_preserve_attributable_dirty_wip(self) -> None:
         """WS008 target: dirty orphan WIP is not rejected solely because Git is dirty."""
         init = self.init_task("WS908")
@@ -648,10 +647,12 @@ class ContinuationCliTests(unittest.TestCase):
         )
         self.assertEqual(0, code, f"{stderr}\n{intent}")
         (self.root / "runner-owned.txt").write_text("recover me\n", encoding="utf-8")
+        (self.root / "external-note.txt").write_text("preserve me\n", encoding="utf-8")
 
         state_dir = Path(str(init["state_dir"]))
         lease_path = state_dir / "lease.json"
         lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["issued_at"] = continuation._iso(continuation._now() - timedelta(minutes=60))
         stale = continuation._now() - timedelta(minutes=31)
         lease["last_heartbeat_at"] = continuation._iso(stale)
         lease_path.write_text(json.dumps(lease, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -668,11 +669,144 @@ class ContinuationCliTests(unittest.TestCase):
                 "test:owner-ended",
                 "--reason",
                 "Old owner ended; dirty WIP is attributable to that round.",
+                "--record",
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{reconciled}")
-        self.assertTrue(reconciled["eligible_for_recover"])
+        self.assertTrue(reconciled["eligible_for_recover"], reconciled)
         self.assertNotIn("worktree_dirty", reconciled["reasons"])
+        self.assertEqual(["runner-owned.txt"], reconciled["observation"]["workspace_runner_owned_paths"])
+        self.assertEqual(
+            ["external-note.txt"],
+            reconciled["observation"]["workspace_unexpected_nonoverlap_paths"],
+        )
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "ws008-new-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        self.assertGreater(int(recovered["generation"]), int(claim["generation"]))
+        self.assertEqual(["runner-owned.txt"], recovered["workspace"]["runner_owned_paths"])
+        self.assertEqual(["runner-owned.txt"], recovered["workspace"]["write_intent_paths"])
+        self.assertEqual(["external-note.txt"], recovered["workspace"]["unexpected_nonoverlap_paths"])
+        self.assertTrue((self.root / "runner-owned.txt").exists())
+        self.assertTrue((self.root / "external-note.txt").exists())
+
+        code, stale_owner, _ = self.run_json(
+            [
+                "continuation",
+                "heartbeat",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertIn(stale_owner["error_code"], {"lease_mismatch", "fence_generation_mismatch"})
+
+        code, refreshed, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "refresh",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(recovered["lease"]["lease_id"]),
+                *self.owner_flags(recovered),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{refreshed}")
+        self.assertEqual(["runner-owned.txt"], refreshed["workspace"]["runner_owned_paths"])
+        self.assertEqual(["external-note.txt"], refreshed["workspace"]["unexpected_nonoverlap_paths"])
+
+    def test_ws008_dirty_recovery_receipt_stales_when_workspace_digest_changes(self) -> None:
+        init = self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "ws008-old-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, _, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--path",
+                "runner-owned.txt",
+            ]
+        )
+        self.assertEqual(0, code, stderr)
+        (self.root / "runner-owned.txt").write_text("version one\n", encoding="utf-8")
+
+        state_dir = Path(str(init["state_dir"]))
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["issued_at"] = continuation._iso(continuation._now() - timedelta(minutes=60))
+        lease["last_heartbeat_at"] = continuation._iso(continuation._now() - timedelta(minutes=31))
+        lease_path.write_text(json.dumps(lease, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--owner-ended",
+                "--evidence-ref",
+                "test:owner-ended",
+                "--reason",
+                "Old owner ended.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        recorded_digest = reconciled["observation"]["workspace_manifest_digest"]
+
+        (self.root / "runner-owned.txt").write_text("version two\n", encoding="utf-8")
+        code, stale, _ = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "ws008-new-owner",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("reconciliation_stale", stale["error_code"], stale)
+        self.assertNotEqual(recorded_digest, stale["details"]["current"]["workspace_manifest_digest"])
 
     @unittest.expectedFailure
     def test_ws008_stale_threshold_is_independent_from_renew_interval(self) -> None:

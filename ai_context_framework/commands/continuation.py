@@ -1373,6 +1373,58 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 now=now,
             )
 
+            workspace_snapshot = continuation_workspace_commands.workspace_current_snapshot(root)
+            workspace_manifest = continuation_workspace_commands.load_workspace_manifest(paths, control)
+            try:
+                if workspace_manifest is None:
+                    if not status["git"]["clean"]:
+                        raise ContinuationError(
+                            "dirty recovery requires an existing workspace ownership manifest",
+                            code="workspace_manifest_missing",
+                            exit_code=3,
+                        )
+                    workspace_manifest = continuation_workspace.new_manifest(
+                        task_id=str(control["task_id"]),
+                        snapshot=workspace_snapshot,
+                        now=_iso(now),
+                    )
+                    workspace_manifest = continuation_workspace.begin_generation(
+                        workspace_manifest,
+                        task_id=str(control["task_id"]),
+                        generation=generation,
+                        snapshot=workspace_snapshot,
+                        now=_iso(now),
+                    )
+                elif isinstance(old_generation, int) and not isinstance(old_generation, bool):
+                    workspace_manifest = continuation_workspace.recover_generation(
+                        workspace_manifest,
+                        task_id=str(control["task_id"]),
+                        previous_generation=old_generation,
+                        generation=generation,
+                        snapshot=workspace_snapshot,
+                        now=_iso(now),
+                    )
+                else:
+                    if not status["git"]["clean"]:
+                        raise ContinuationError(
+                            "legacy dirty recovery cannot prove workspace ownership",
+                            code="workspace_generation_mismatch",
+                            exit_code=3,
+                        )
+                    workspace_manifest = continuation_workspace.begin_generation(
+                        workspace_manifest,
+                        task_id=str(control["task_id"]),
+                        generation=generation,
+                        snapshot=workspace_snapshot,
+                        now=_iso(now),
+                    )
+            except continuation_workspace.ContinuationWorkspaceError as exc:
+                raise continuation_workspace_commands.workspace_error(exc) from exc
+            workspace_summary = continuation_workspace.summary(
+                workspace_manifest,
+                task_id=str(control["task_id"]),
+            )
+
             round_journal = _load_round_journal(paths, control)
             if isinstance(old_generation, int) and not isinstance(old_generation, bool):
                 try:
@@ -1422,10 +1474,12 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 "runner_id": lease["runner_id"],
                 "head": status["git"]["head"],
                 "effect_digest": observation["effect_digest"],
+                "workspace_digest": workspace_summary["manifest_digest"],
             }
             _write_json(paths["control"], control)
             _write_json(paths["lease"], lease)
             _write_json(paths["rounds"], round_journal)
+            _write_json(paths["workspace"], workspace_manifest)
             _write_state(paths["state"], state)
             _write_json(paths["recovery"], recovery)
             return {
@@ -1436,6 +1490,7 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 "generation": generation,
                 "round": round_record,
                 "recovery": recovery,
+                "workspace": workspace_summary,
                 "next_action": state["next_action"],
                 "renew_interval_minutes": control["renew_interval_minutes"],
             }
@@ -1877,7 +1932,8 @@ def register_round_effect_parsers(subparsers, add_json_argument) -> None:
 
     reconcile = subparsers.add_parser(
         "reconcile",
-        help="classify an interrupted round and optionally record an auditable recovery decision",
+        help="classify an interrupted round, including bounded dirty ownership, and optionally record an auditable recovery decision",
+        description="Classify an interrupted round using lease/effect/workspace ownership evidence and optionally record an auditable recovery decision.",
     )
     reconcile.add_argument("path", nargs="?", type=Path)
     reconcile.add_argument("--task-id", default=None)
@@ -1891,7 +1947,8 @@ def register_round_effect_parsers(subparsers, add_json_argument) -> None:
 
     recover = subparsers.add_parser(
         "recover",
-        help="fence an interrupted owner using one eligible reconcile receipt",
+        help="fence an interrupted owner and transfer evidence-backed WIP using one eligible reconcile receipt",
+        description="Fence an interrupted owner and transfer evidence-backed write intent/WIP ownership using one eligible reconcile receipt.",
     )
     recover.add_argument("path", nargs="?", type=Path)
     recover.add_argument("--task-id", default=None)

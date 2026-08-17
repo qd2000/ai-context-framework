@@ -398,7 +398,7 @@ acf continuation workspace intent <worktree> --task-id WS001 --lease-id <lease_i
 acf continuation workspace refresh <worktree> --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
 ```
 
-`init` 会把当时已有的 dirty 作为受保护的 external baseline，而不是要求为了自动化先清空整个 worktree。active owner 在写项目文件前用 `workspace intent` 声明 concrete path；绑定 Workstream 时 intent 必须命中直接 write scope。`workspace refresh` 只记录 bounded path/status/digest ownership metadata：非重叠 external dirty 保留且不会被 ACF 自动提交，未 checkpoint 的 runner-owned/conflicting dirty 仍 fail-closed。同一轮可继续使用 `renew`、`checkpoint`、`release`；人工控制使用 `pause` / `resume`。运行态保存在用户级 `~/.acf`，不会写入项目 Git。该能力只提供 deterministic lease/state/recovery，不创建定时任务、不读取聊天 transcript，也不替代项目自己的计划、Git checkpoint 或 evidence。
+`init` 会把当时已有的 dirty 作为受保护的 external baseline，而不是要求为了自动化先清空整个 worktree。active owner 在写项目文件前用 `workspace intent` 声明 concrete path；绑定 Workstream 时 intent 必须命中直接 write scope。`workspace refresh` 只记录 bounded path/status/digest ownership metadata：非重叠 external dirty 保留且不会被 ACF 自动提交，未 checkpoint 的 runner-owned/conflicting dirty 仍 fail-closed。stale/orphan recovery 时，Git dirty 本身不是 takeover blocker；只有 workspace manifest 缺失/无效、generation 不匹配、真实路径冲突、HEAD/effect/identity 无法解释才 fail-closed。`reconcile --record` 会把 workspace ownership digest 纳入 receipt，随后 `recover` 在 observation 未漂移时 generation+1 fencing，并继承旧 generation 的 write intents 与可证明 runner-owned WIP，同时继续保护不重叠 external dirty；恢复过程不会 stash/reset/clean，也不会自动提交 external dirty。同一轮可继续使用 `renew`、`checkpoint`、`release`；人工控制使用 `pause` / `resume`。运行态保存在用户级 `~/.acf`，不会写入项目 Git。该能力只提供 deterministic lease/state/recovery，不创建定时任务、不读取聊天 transcript，也不替代项目自己的计划、Git checkpoint 或 evidence。
 
 ### Workstream guard 模式
 

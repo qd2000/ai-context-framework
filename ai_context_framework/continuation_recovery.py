@@ -34,6 +34,8 @@ def build_observation(
 ) -> dict[str, Any]:
     lease_payload = status["lease"].get("lease")
     lease = dict(lease_payload) if isinstance(lease_payload, Mapping) else {}
+    workspace_payload = status.get("workspace")
+    workspace = dict(workspace_payload) if isinstance(workspace_payload, Mapping) else {}
     return {
         "lease_state": status["lease"]["state"],
         "lease_id": lease.get("lease_id"),
@@ -44,6 +46,13 @@ def build_observation(
         "state_status": status["state"]["status"],
         "current_head": status["git"]["head"],
         "git_clean": bool(status["git"]["clean"]),
+        "workspace_state": workspace.get("state"),
+        "workspace_generation": workspace.get("generation"),
+        "workspace_manifest_digest": workspace.get("manifest_digest"),
+        "workspace_has_conflicts": bool(workspace.get("has_conflicts")),
+        "workspace_baseline_external_paths": list(workspace.get("baseline_external_paths") or []),
+        "workspace_runner_owned_paths": list(workspace.get("runner_owned_paths") or []),
+        "workspace_unexpected_nonoverlap_paths": list(workspace.get("unexpected_nonoverlap_paths") or []),
         "round_digest": json_digest(rounds),
         "effect_digest": json_digest(effects),
         "latest_round": continuation_rounds.latest_round(rounds, task_id=task_id),
@@ -62,8 +71,6 @@ def reconcile_decision(
     reasons: list[str] = []
     if not bool(status.get("ok")):
         reasons.append("continuation_identity_invalid")
-    if not bool(observation.get("git_clean")):
-        reasons.append("worktree_dirty")
     if status.get("pause") is not None:
         reasons.append("paused")
 
@@ -81,6 +88,18 @@ def reconcile_decision(
             reasons.append("active_owner_liveness_invalid")
 
     lease_generation = observation.get("lease_generation")
+    workspace_state = observation.get("workspace_state")
+    workspace_generation = observation.get("workspace_generation")
+    workspace_digest = observation.get("workspace_manifest_digest")
+    workspace_has_conflicts = bool(observation.get("workspace_has_conflicts"))
+    if workspace_has_conflicts:
+        reasons.append("workspace_conflict")
+    if workspace_state == "valid" and lease_generation is not None and workspace_generation != lease_generation:
+        reasons.append("workspace_generation_mismatch")
+    if not bool(observation.get("git_clean")):
+        if workspace_state != "valid" or not isinstance(workspace_digest, str) or not workspace_digest:
+            reasons.append("worktree_dirty")
+
     latest_round = observation.get("latest_round")
     if lease_generation is not None:
         if not isinstance(latest_round, Mapping):
