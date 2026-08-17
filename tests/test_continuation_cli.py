@@ -1185,6 +1185,268 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("completed", effects["effects"][0]["status"])
         self.assertEqual(["campaign-wave-a"], effects["summary"]["terminal"])
 
+    def test_crash_point_failure_matrix_classifies_wait_reconcile_and_recover(self) -> None:
+        """Frozen WS007 crash matrix: every durable boundary has an explicit recovery class."""
+
+        def init_claim(task_id: str) -> tuple[Path, dict[str, object], str]:
+            init = self.init_task(task_id)
+            code, claim, stderr = self.run_json(
+                [
+                    "continuation",
+                    "claim",
+                    str(self.root),
+                    "--task-id",
+                    task_id,
+                    "--runner-id",
+                    f"runner-{task_id.lower()}",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{claim}")
+            return Path(str(init["state_dir"])), claim, str(claim["lease"]["lease_id"])
+
+        def make_stale(state_dir: Path) -> None:
+            lease_path = state_dir / "lease.json"
+            lease = json.loads(lease_path.read_text(encoding="utf-8"))
+            lease["issued_at"] = continuation._iso(
+                continuation._now() - timedelta(minutes=60)
+            )
+            lease["last_heartbeat_at"] = continuation._iso(
+                continuation._now() - timedelta(minutes=31)
+            )
+            continuation._write_json(lease_path, lease)
+
+        def owner_ended_reconcile(task_id: str, *extra: str) -> dict[str, object]:
+            code, payload, stderr = self.run_json(
+                [
+                    "continuation",
+                    "reconcile",
+                    str(self.root),
+                    "--task-id",
+                    task_id,
+                    "--owner-ended",
+                    "--evidence-ref",
+                    f"scheduler:{task_id}-owner-ended",
+                    *extra,
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{payload}")
+            return payload
+
+        # Crash after claim while heartbeat is fresh -> wait for the live owner.
+        _, fresh_claim, fresh_lease_id = init_claim("WS901")
+        code, fresh, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS901",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:untrusted-early-end-signal",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{fresh}")
+        self.assertEqual("blocked", fresh["decision"])
+        self.assertIn("active_owner_live", fresh["reasons"])
+        self.assertEqual(fresh_lease_id, fresh["observation"]["lease_id"])
+        self.assertEqual("fresh", fresh["observation"]["liveness"])
+
+        # Crash after effect prepare -> identity exists but outcome is unresolved: reconcile only.
+        state_dir, prepared_claim, prepared_lease_id = init_claim("WS902")
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS902",
+                "--lease-id",
+                prepared_lease_id,
+                *self.owner_flags(prepared_claim),
+                "--key",
+                "effect-prepare",
+                "--kind",
+                "external-job",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        make_stale(state_dir)
+        reconciled = owner_ended_reconcile("WS902")
+        self.assertEqual("blocked", reconciled["decision"])
+        self.assertIn("unresolved_effects", reconciled["reasons"])
+        self.assertEqual(["effect-prepare"], reconciled["observation"]["effect_summary"]["unresolved"])
+
+        # Crash after external submit acknowledgement -> active external identity remains unresolved.
+        state_dir, ack_claim, ack_lease_id = init_claim("WS903")
+        code, _, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS903",
+                "--lease-id",
+                ack_lease_id,
+                *self.owner_flags(ack_claim),
+                "--key",
+                "external-ack",
+                "--kind",
+                "campaign",
+            ]
+        )
+        self.assertEqual(0, code, stderr)
+        code, ack, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "update",
+                str(self.root),
+                "--task-id",
+                "WS903",
+                "--lease-id",
+                ack_lease_id,
+                *self.owner_flags(ack_claim),
+                "--key",
+                "external-ack",
+                "--status",
+                "active",
+                "--external-id",
+                "campaign-ack-001",
+                "--milestone",
+                "submitted",
+                "--evidence-ref",
+                "authority:campaign-ack-001",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{ack}")
+        make_stale(state_dir)
+        reconciled = owner_ended_reconcile("WS903")
+        self.assertEqual("blocked", reconciled["decision"])
+        self.assertIn("unresolved_effects", reconciled["reasons"])
+
+        # Crash after terminal/collect/aggregate evidence -> completed identities are reusable.
+        for task_id, key, milestone in (
+            ("WS904", "terminal-effect", "terminal"),
+            ("WS905", "collected-effect", "collected"),
+            ("WS906", "aggregate-effect", "aggregated"),
+        ):
+            with self.subTest(crash_point=milestone):
+                state_dir, claim, lease_id = init_claim(task_id)
+                code, _, stderr = self.run_json(
+                    [
+                        "continuation",
+                        "effect",
+                        "prepare",
+                        str(self.root),
+                        "--task-id",
+                        task_id,
+                        "--lease-id",
+                        lease_id,
+                        *self.owner_flags(claim),
+                        "--key",
+                        key,
+                        "--kind",
+                        "external-job",
+                    ]
+                )
+                self.assertEqual(0, code, stderr)
+                code, updated, stderr = self.run_json(
+                    [
+                        "continuation",
+                        "effect",
+                        "update",
+                        str(self.root),
+                        "--task-id",
+                        task_id,
+                        "--lease-id",
+                        lease_id,
+                        *self.owner_flags(claim),
+                        "--key",
+                        key,
+                        "--status",
+                        "completed",
+                        "--milestone",
+                        milestone,
+                        "--evidence-ref",
+                        f"artifact:{milestone}.json",
+                    ]
+                )
+                self.assertEqual(0, code, f"{stderr}\n{updated}")
+                make_stale(state_dir)
+                reconciled = owner_ended_reconcile(task_id)
+                self.assertEqual("eligible", reconciled["decision"])
+                self.assertEqual([], reconciled["reasons"])
+                self.assertEqual([key], reconciled["observation"]["effect_summary"]["terminal"])
+
+        # Crash after Git commit -> advanced HEAD must be explicitly reconciled, never inferred.
+        state_dir, _, _ = init_claim("WS907")
+        (self.root / "crash-after-commit.txt").write_text("durable commit\n", encoding="utf-8")
+        self._git("add", "crash-after-commit.txt")
+        self._git("commit", "-m", "test: crash after commit")
+        current_head = self._git("rev-parse", "HEAD").stdout.strip()
+        make_stale(state_dir)
+        reconciled = owner_ended_reconcile("WS907")
+        self.assertEqual("blocked", reconciled["decision"])
+        self.assertIn("head_change_unaccepted", reconciled["reasons"])
+        reconciled = owner_ended_reconcile("WS907", "--accept-head", current_head)
+        self.assertEqual("eligible", reconciled["decision"])
+
+        # Crash after continuation checkpoint -> explicit waiting state survives and is recoverable.
+        state_dir, checkpoint_claim, checkpoint_lease_id = init_claim("WS908")
+        code, checkpointed, stderr = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                checkpoint_lease_id,
+                *self.owner_flags(checkpoint_claim),
+                "--status",
+                "waiting_external",
+                "--next-action",
+                "Reuse the existing completed external identity.",
+                "--evidence-ref",
+                "artifact:checkpoint.json",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{checkpointed}")
+        make_stale(state_dir)
+        reconciled = owner_ended_reconcile("WS908")
+        self.assertEqual("eligible", reconciled["decision"])
+        self.assertEqual("waiting_external", reconciled["observation"]["state_status"])
+
+        # Crash immediately before release -> finalizing round is recoverable from the durable milestone.
+        state_dir, final_claim, final_lease_id = init_claim("WS909")
+        code, progress, stderr = self.run_json(
+            [
+                "continuation",
+                "progress",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--lease-id",
+                final_lease_id,
+                *self.owner_flags(final_claim),
+                "--phase",
+                "finalizing",
+                "--milestone",
+                "pre-release",
+                "--evidence-ref",
+                "git:clean-checkpoint",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{progress}")
+        make_stale(state_dir)
+        reconciled = owner_ended_reconcile("WS909")
+        self.assertEqual("eligible", reconciled["decision"])
+        self.assertEqual("finalizing", reconciled["observation"]["latest_round"]["phase"])
+        self.assertEqual("pre-release", reconciled["observation"]["latest_round"]["milestone"])
+
     def test_reconcile_blocks_unresolved_effects_and_blocked_receipt_cannot_recover(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
