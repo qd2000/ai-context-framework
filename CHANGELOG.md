@@ -2,6 +2,27 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.62 — 2026-08-17
+
+### Continuation 可恢复执行协议
+
+- 新 claim 使用递增 `generation` 与本轮专属 fence credential；持久态只保存 token hash。新增 `continuation assert-owner|heartbeat`，并让 heartbeat/renew/progress/effect/checkpoint/release 全部受 generation fencing 保护；旧 generation 复活后不能继续写控制面。
+- `doctor` 区分 fresh、stale/orphan candidate、legacy-unknown 与 expired lease，不再把 TTL-active 等同于 runner live。stale 只触发 reconciliation，不授权自动 steal。
+- 新增 bounded `rounds.json` / `effects.json` journal 与 `continuation progress`、`effect prepare|update|list`。non-idempotent 外部动作先 write-ahead `effect prepare`；只有 `created=true` 才允许首次执行，已存在 identity 必须复用或核对而不是 replay；raw transcript/tool output 禁止进入 journal。
+- 新增 `continuation reconcile|recover`：fresh owner、dirty Git、未接受的 HEAD advance、unresolved effect 一律 fail-closed；eligible receipt 记录 observation/evidence，recover 前重新校验 lease/liveness/HEAD/state/round/effect digest，任何 drift 都使 receipt stale；成功后 generation+1 fencing 并写 recovery receipt。
+
+### 兼容性与 dogfooding 修复
+
+- clean release 未显式 `--final-status` 时，只把仍为 `running` 的 state 转回 `ready`；已经 checkpoint 的 `waiting_external`、`blocked_human`、`done` 等非 running 状态保持不变，关闭 WS079 的真实 `waiting_external -> ready` 回归。
+- wrong task-id 返回 `continuation_task_not_found` 与 `available_tasks`，避免把拼写错误误判为 control 损坏。
+- `continuation issue --resolve-fingerprint` 使用 append-only resolution event 收口已修复 dogfood issue；`log issues --open-only` 只列 open 项，同 fingerprint 再次出现会自动 reopen。
+- 旧 v0.0.3.61 control/state/legacy lease 无需 force re-init。WS007 自身 legacy active lease 已在 TTL 到期前通过 formal reconcile/recover 原位恢复；WS086 历史 orphan/finalization 使用真实 state 副本隔离 replay，未重复 Runtime submit/collect；WS079 当前 live/dirty legacy round 被新协议正确拒绝接管。
+
+### 验证
+
+- 冻结的 9-point crash matrix 覆盖 claim、effect prepare、external acknowledgement、terminal、collect、aggregate、Git commit、continuation checkpoint 与 pre-release，并验证旧 generation 的全部 owner-protected 操作被拒绝。
+- continuation/state compatibility focused suites 全绿；完整 unittest 在 WS007.5 阶段达到 434/434、零 expected failure；wheel 与 sdist package smoke 均通过。最终 v0.0.3.62 full release gate 在发布前再次执行。
+
 ## v0.0.3.61 — 2026-08-17
 
 ### Dogfooding 可观测性

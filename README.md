@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.59` 是当前推荐版本。在 `v0.0.3.58` 发布/安装闭环基础上新增模型无关的 `acf continuation`：外部 Scheduled Task、其他 scheduler 或人工多轮任务可直接对既有 clean worktree 使用用户级 bounded state、单写者 lease、pause/resume 和 fail-closed recovery，不需要为了续跑控制重建 worktree，也不会把运行态写入项目 Git。
+`v0.0.3.62` 是当前推荐版本。在 `v0.0.3.61` 的 continuation dogfooding 可观测性基础上，新增 heartbeat/liveness、generation fencing、write-ahead effect journal、formal reconcile/recover、状态兼容修复与 issue resolution lifecycle；既有 v0.0.3.61 continuation state 可原位升级，不需要 `init --force`。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
