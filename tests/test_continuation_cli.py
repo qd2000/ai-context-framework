@@ -242,6 +242,60 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertTrue(doctor["can_claim"])
         self.assertEqual("absent", doctor["lease"]["state"])
 
+    @unittest.expectedFailure
+    def test_clean_release_preserves_checkpointed_waiting_external_status(self) -> None:
+        """WS079 regression: release must not silently convert an external wait to ready."""
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+
+        code, checkpoint, stderr = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                "--status",
+                "waiting_external",
+                "--next-action",
+                "Wait for the existing external job identity.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{checkpoint}")
+        self.assertEqual("waiting_external", checkpoint["state"]["status"])
+
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        self.assertEqual("waiting_external", released["state"]["status"])
+        self.assertEqual(
+            "Wait for the existing external job identity.",
+            released["state"]["next_action"],
+        )
+
     def test_dirty_release_fails_closed_into_reconciling(self) -> None:
         self.init_task()
         code, claim, _ = self.run_json(
@@ -386,6 +440,46 @@ class ContinuationCliTests(unittest.TestCase):
         )
         self.assertEqual(0, code, stderr)
         self.assertNotEqual(claim["lease"]["lease_id"], recovered["lease"]["lease_id"])
+
+    @unittest.expectedFailure
+    def test_active_lease_with_stale_heartbeat_is_exposed_as_orphan_candidate(self) -> None:
+        """WS086 regression: TTL-active must not be treated as proof of runner liveness."""
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["generation"] = 1
+        lease["last_heartbeat_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=31)
+        )
+        lease["issued_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=60)
+        )
+        lease["expires_at"] = continuation._iso(
+            continuation._now() + timedelta(minutes=60)
+        )
+        continuation._write_json(lease_path, lease)
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertFalse(doctor["can_claim"])
+        self.assertTrue(doctor["orphan_candidate"])
+        self.assertEqual("stale", doctor["lease"]["liveness"])
+        self.assertIn("orphan_candidate", doctor["blocked_reasons"])
 
     def test_expired_running_lease_with_advanced_head_requires_reconciliation(self) -> None:
         init = self.init_task()
