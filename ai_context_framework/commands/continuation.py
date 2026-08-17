@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import subprocess
 import time
 import uuid
@@ -146,6 +148,16 @@ def _parse_iso(value: Any, *, field: str) -> datetime:
     if parsed.tzinfo is None:
         raise ContinuationError(f"{field} must include a timezone", code="state_invalid")
     return parsed.astimezone(timezone.utc)
+
+
+def _fence_token_hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _public_lease(lease: Mapping[str, Any]) -> dict[str, Any]:
+    public = dict(lease)
+    public.pop("fence_token_hash", None)
+    return public
 
 
 def _safe_key(value: str) -> str:
@@ -375,6 +387,9 @@ def _load_control(paths: Mapping[str, Path], root: Path) -> dict[str, Any]:
         raise ContinuationError("renew interval must be shorter than lease TTL", code="control_invalid")
     if control.get("history_policy") != "local_first":
         raise ContinuationError("continuation history_policy must be local_first", code="control_invalid")
+    generation = control.get("generation", 0)
+    if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+        raise ContinuationError("invalid control field: generation", code="control_invalid")
     return control
 
 
@@ -411,13 +426,104 @@ def _lease_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> di
         expires = _parse_iso(lease.get("expires_at"), field="expires_at")
         if expires <= issued:
             raise ContinuationError("lease expiry must be after issue time", code="lease_invalid")
+        generation = lease.get("generation")
+        if generation is not None and (
+            isinstance(generation, bool) or not isinstance(generation, int) or generation < 1
+        ):
+            raise ContinuationError("lease generation is invalid", code="lease_invalid")
+        fence_hash = lease.get("fence_token_hash")
+        if fence_hash is not None:
+            if not isinstance(fence_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", fence_hash):
+                raise ContinuationError("lease fence token hash is invalid", code="lease_invalid")
+            if generation is None:
+                raise ContinuationError("fenced lease requires generation", code="lease_invalid")
+        heartbeat_at: datetime | None = None
+        if lease.get("last_heartbeat_at") is not None:
+            heartbeat_at = _parse_iso(lease.get("last_heartbeat_at"), field="last_heartbeat_at")
+            if heartbeat_at < issued:
+                raise ContinuationError("lease heartbeat predates issue time", code="lease_invalid")
+        if lease.get("last_renew_at") is not None:
+            last_renew_at = _parse_iso(lease.get("last_renew_at"), field="last_renew_at")
+            if last_renew_at < issued:
+                raise ContinuationError("lease renew timestamp predates issue time", code="lease_invalid")
     except ContinuationError as exc:
         return {"state": "invalid", "path": str(path), "error": str(exc)}
+    active = expires > _now()
+    stale_after_seconds = int(control["renew_interval_minutes"]) * 60
+    heartbeat_age_seconds: int | None = None
+    if not active:
+        liveness = "expired"
+    elif heartbeat_at is None:
+        liveness = "legacy_unknown"
+    else:
+        heartbeat_age_seconds = max(0, int((_now() - heartbeat_at).total_seconds()))
+        liveness = "stale" if heartbeat_age_seconds > stale_after_seconds else "fresh"
+    orphan_candidate = active and liveness == "stale"
     return {
-        "state": "active" if expires > _now() else "expired",
+        "state": "active" if active else "expired",
         "path": str(path),
         "lease": lease,
+        "liveness": liveness,
+        "orphan_candidate": orphan_candidate,
+        "heartbeat_age_seconds": heartbeat_age_seconds,
+        "stale_after_seconds": stale_after_seconds,
     }
+
+
+def _assert_lease_owner(
+    snapshot: Mapping[str, Any],
+    *,
+    lease_id: str,
+    fence_token: str | None,
+    generation: int | None,
+) -> dict[str, Any]:
+    if snapshot.get("state") != "active":
+        raise ContinuationError(
+            f"active lease required; current={snapshot.get('state')}",
+            code="lease_not_active",
+            exit_code=3,
+        )
+    raw_lease = snapshot.get("lease")
+    if not isinstance(raw_lease, Mapping):
+        raise ContinuationError("active lease payload is missing", code="lease_invalid")
+    lease = dict(raw_lease)
+    if lease.get("lease_id") != lease_id:
+        raise ContinuationError(
+            "lease id does not match active lease",
+            code="lease_mismatch",
+            exit_code=3,
+        )
+    lease_generation = lease.get("generation")
+    if lease_generation is not None and generation is None:
+        raise ContinuationError(
+            "lease generation is required for this lease",
+            code="fence_generation_required",
+            exit_code=3,
+            details={"active_generation": lease_generation},
+        )
+    if generation is not None and lease_generation != generation:
+        raise ContinuationError(
+            "lease generation does not match active owner",
+            code="fence_generation_mismatch",
+            exit_code=3,
+            details={"active_generation": lease_generation, "provided_generation": generation},
+        )
+    expected_hash = lease.get("fence_token_hash")
+    if expected_hash is not None:
+        if not fence_token:
+            raise ContinuationError(
+                "fence token is required for this lease",
+                code="fence_token_required",
+                exit_code=3,
+            )
+        actual_hash = _fence_token_hash(fence_token)
+        if not hmac.compare_digest(str(expected_hash), actual_hash):
+            raise ContinuationError(
+                "fence token does not match active owner",
+                code="fence_token_mismatch",
+                exit_code=3,
+            )
+    return lease
 
 
 def _workstream_verification(root: Path, workstream_id: str | None) -> dict[str, Any]:
@@ -476,6 +582,9 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         blocked.append("paused")
     if lease["state"] == "active":
         blocked.append("active_lease")
+    orphan_candidate = bool(lease.get("orphan_candidate"))
+    if orphan_candidate:
+        blocked.append("orphan_candidate")
     if expired_round_head_changed:
         blocked.append("expired_round_head_changed")
     if state["status"] not in RUNNABLE_STATUSES and not recoverable_expired:
@@ -493,6 +602,7 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         "state_dir": str(paths["directory"]),
         "recoverable_expired_round": recoverable_expired,
         "expired_round_head_changed": expired_round_head_changed,
+        "orphan_candidate": orphan_candidate,
     }
 
 
@@ -716,17 +826,26 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
             if ttl < 1 or ttl > MAX_LEASE_TTL_MINUTES:
                 raise ContinuationError("invalid lease TTL", code="timing_invalid")
             now = _now()
+            generation = int(control.get("generation", 0)) + 1
+            fence_token = secrets.token_urlsafe(32)
             lease = {
                 "schema_version": LEASE_SCHEMA,
                 "lease_id": str(uuid.uuid4()),
                 "runner_id": str(args.runner_id).strip(),
+                "generation": generation,
+                "fence_token_hash": _fence_token_hash(fence_token),
                 "task_id": control["task_id"],
                 "workspace_root": str(root),
                 "branch": status["git"]["branch"],
                 "head": status["git"]["head"],
                 "issued_at": _iso(now),
+                "last_heartbeat_at": _iso(now),
+                "last_renew_at": _iso(now),
                 "expires_at": _iso(now + timedelta(minutes=ttl)),
             }
+            control["generation"] = generation
+            control["updated_at"] = _iso(now)
+            _write_json(paths["control"], control)
             _write_json(paths["lease"], lease)
             state["status"] = "running"
             state["updated_at"] = _iso()
@@ -738,13 +857,68 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
             return {
                 "status": "claimed",
                 "task_id": control["task_id"],
-                "lease": lease,
+                "lease": _public_lease(lease),
+                "fence_token": fence_token,
+                "generation": generation,
                 "stage": state["stage"],
                 "next_action": state["next_action"],
                 "renew_interval_minutes": control["renew_interval_minutes"],
             }
 
     return _guarded(args, "continuation claim", operation)
+
+
+def continuation_assert_owner_command(args: argparse.Namespace) -> int:
+    def operation() -> dict[str, Any]:
+        root = _workspace_root(args.path)
+        paths = _paths(root, args.task_id)
+        with _state_lock(paths["lock"]):
+            control = _load_control(paths, root)
+            snapshot = _lease_snapshot(paths, control)
+            lease = _assert_lease_owner(
+                snapshot,
+                lease_id=args.lease_id,
+                fence_token=args.fence_token,
+                generation=args.generation,
+            )
+            git = _git_identity(root)
+            if git["branch"] != control["expected_branch"] or git["detached"]:
+                raise ContinuationError("Git identity changed during active round", code="workspace_mismatch")
+            return {
+                "status": "owner_confirmed",
+                "lease": _public_lease(lease),
+                "generation": lease.get("generation"),
+                "liveness": snapshot.get("liveness"),
+            }
+
+    return _guarded(args, "continuation assert-owner", operation)
+
+
+def continuation_heartbeat_command(args: argparse.Namespace) -> int:
+    def operation() -> dict[str, Any]:
+        root = _workspace_root(args.path)
+        paths = _paths(root, args.task_id)
+        with _state_lock(paths["lock"]):
+            control = _load_control(paths, root)
+            snapshot = _lease_snapshot(paths, control)
+            lease = _assert_lease_owner(
+                snapshot,
+                lease_id=args.lease_id,
+                fence_token=args.fence_token,
+                generation=args.generation,
+            )
+            git = _git_identity(root)
+            if git["branch"] != control["expected_branch"] or git["detached"]:
+                raise ContinuationError("Git identity changed during active round", code="workspace_mismatch")
+            lease["last_heartbeat_at"] = _iso()
+            _write_json(paths["lease"], lease)
+            return {
+                "status": "heartbeat_recorded",
+                "lease": _public_lease(lease),
+                "generation": lease.get("generation"),
+            }
+
+    return _guarded(args, "continuation heartbeat", operation)
 
 
 def continuation_renew_command(args: argparse.Namespace) -> int:
@@ -760,22 +934,24 @@ def continuation_renew_command(args: argparse.Namespace) -> int:
                     exit_code=3,
                 )
             snapshot = _lease_snapshot(paths, control)
-            if snapshot["state"] != "active":
-                raise ContinuationError(
-                    f"active lease required; current={snapshot['state']}", code="lease_not_active", exit_code=3
-                )
-            lease = dict(snapshot["lease"])
-            if lease["lease_id"] != args.lease_id:
-                raise ContinuationError("lease id does not match active lease", code="lease_mismatch")
+            lease = _assert_lease_owner(
+                snapshot,
+                lease_id=args.lease_id,
+                fence_token=args.fence_token,
+                generation=args.generation,
+            )
             git = _git_identity(root)
             if git["branch"] != control["expected_branch"] or git["detached"]:
                 raise ContinuationError("Git identity changed during active round", code="workspace_mismatch")
             ttl = int(args.ttl_minutes or control["lease_ttl_minutes"])
             if ttl < 1 or ttl > MAX_LEASE_TTL_MINUTES:
                 raise ContinuationError("invalid lease TTL", code="timing_invalid")
-            lease["expires_at"] = _iso(_now() + timedelta(minutes=ttl))
+            now = _now()
+            lease["last_heartbeat_at"] = _iso(now)
+            lease["last_renew_at"] = _iso(now)
+            lease["expires_at"] = _iso(now + timedelta(minutes=ttl))
             _write_json(paths["lease"], lease)
-            return {"status": "renewed", "lease": lease}
+            return {"status": "renewed", "lease": _public_lease(lease)}
 
     return _guarded(args, "continuation renew", operation)
 
@@ -787,8 +963,12 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            if snapshot["state"] != "active" or snapshot["lease"]["lease_id"] != args.lease_id:
-                raise ContinuationError("matching active lease required", code="lease_mismatch")
+            _assert_lease_owner(
+                snapshot,
+                lease_id=args.lease_id,
+                fence_token=args.fence_token,
+                generation=args.generation,
+            )
             state = _load_state(paths)
             if args.status:
                 if args.status not in STATE_STATUSES:
@@ -822,9 +1002,12 @@ def continuation_release_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            if snapshot["state"] != "active" or snapshot["lease"]["lease_id"] != args.lease_id:
-                raise ContinuationError("matching active lease required", code="lease_mismatch")
-            lease = snapshot["lease"]
+            lease = _assert_lease_owner(
+                snapshot,
+                lease_id=args.lease_id,
+                fence_token=args.fence_token,
+                generation=args.generation,
+            )
             state = _load_state(paths)
             git = _git_identity(root)
             pause = _read_json(paths["pause"], label="pause") if paths["pause"].exists() else None
@@ -859,6 +1042,7 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 "task_id": control["task_id"],
                 "lease_id": lease["lease_id"],
                 "runner_id": lease["runner_id"],
+                "generation": lease.get("generation"),
                 "workspace_root": str(root),
                 "branch": git["branch"],
                 "head_before": lease["head"],
@@ -955,12 +1139,12 @@ Continuation protocol:
 1. Do not reconstruct task state from chat history by default. Read local project plans/evidence and `acf continuation doctor` first.
 2. Run `acf continuation doctor {json.dumps(str(root))}{task_flag} --json`.
 3. If `can_claim` is false, do not modify the worktree. Report the blocking reason.
-4. Claim one bounded round with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json` and keep the returned lease_id.
+4. Claim one bounded round with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json` and keep the returned lease_id, generation, and fence_token. Treat fence_token as an owner credential and do not copy it into project files or logs.
 5. Execute only the current bounded gate. Never repeat an uncertain non-idempotent operation.
-6. For a long interactive round, renew the same lease before expiry with `acf continuation renew ... --lease-id <lease_id> --json`.
+6. Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. For long work, record liveness with `acf continuation heartbeat ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` and extend TTL with `acf continuation renew ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before their configured thresholds; heartbeat proves liveness but does not extend TTL.
 7. Validate the gate and create the project-required clean Git checkpoint before release.
-8. Update bounded state with `acf continuation checkpoint ... --lease-id <lease_id> ... --json`.
-9. Release the same lease with `acf continuation release ... --lease-id <lease_id> --json`.
+8. Update bounded state with `acf continuation checkpoint ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> ... --json`.
+9. Release the same lease with `acf continuation release ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`.
 10. Stop on paused, blocked_human, reconciling, identity mismatch, or unknown write outcome.
 11. If this round exposes a concrete reusable ACF/continuation/workflow defect or operational gap, record it immediately with `acf continuation issue {json.dumps(str(root))}{task_flag} --category <category> --severity <low|medium|high|critical> --text <concise issue> --evidence-ref <path-or-commit> --json`. Do not record normal active-lease no-ops, expected waits, or task-specific scientific failures as product issues.
 """
@@ -1035,9 +1219,11 @@ def continuation_issue_command(args: argparse.Namespace) -> int:
 
 
 __all__ = [
+    "continuation_assert_owner_command",
     "continuation_checkpoint_command",
     "continuation_claim_command",
     "continuation_doctor_command",
+    "continuation_heartbeat_command",
     "continuation_init_command",
     "continuation_issue_command",
     "continuation_pause_command",

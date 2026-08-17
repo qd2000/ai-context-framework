@@ -133,9 +133,13 @@ acf worktree create --workstream WS005 --apply --json
 acf continuation init C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --workstream WS001 --title "WS001" --objective "目标" --json
 acf continuation doctor C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --json
 acf continuation claim C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --runner-id scheduled-agent --json
+# 保存 claim 返回的 lease_id、generation、fence_token；不要把 fence_token 写入项目文件或普通日志
+acf continuation assert-owner C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
+acf continuation heartbeat C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
+acf continuation renew C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
 ```
 
-同一 round 使用 `renew`、`checkpoint` 和 `release`；人工中止使用 `pause`，确认后使用 `resume`。状态保存在用户级 `~/.acf/projects/.../continuation/`，不修改项目工作树。`init` 要求 clean checkpoint；可选绑定 Workstream 后会验证 registry/path/branch/common-dir。该能力不创建定时任务、不保存 transcript、不进行语义规划，也不替代项目自身计划和 evidence。完整设计见 [Continuation_Control_Design.md](Continuation_Control_Design.md)。
+新 claim 的同一 round 使用返回的 `lease_id + generation + fence_token` 调用 `assert-owner`、`heartbeat`、`renew`、`checkpoint` 和 `release`。`heartbeat` 只刷新 liveness，不延长 TTL；`renew` 才延长 TTL。`doctor` 会把 heartbeat 超过 renew interval 的 active lease 标记为 stale/orphan candidate，但 stale 本身仍不允许 claim；需要后续 reconciliation/recover 证明安全后才能 fencing takeover。旧 v0.0.3.61 lease 没有 heartbeat/generation 时会以 `legacy_unknown` 保守读取，不要求 force re-init。人工中止使用 `pause`，确认后使用 `resume`。状态保存在用户级 `~/.acf/projects/.../continuation/`，不修改项目工作树。`init` 要求 clean checkpoint；可选绑定 Workstream 后会验证 registry/path/branch/common-dir。该能力不创建定时任务、不保存 transcript、不进行语义规划，也不替代项目自身计划和 evidence。完整设计见 [Continuation_Control_Design.md](Continuation_Control_Design.md)。
 
 ### Workstream guard 模式
 

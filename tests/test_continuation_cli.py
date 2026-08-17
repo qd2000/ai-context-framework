@@ -82,6 +82,16 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         return payload
 
+    def owner_flags(self, claim: dict[str, object]) -> list[str]:
+        lease = claim["lease"]
+        self.assertIsInstance(lease, dict)
+        return [
+            "--generation",
+            str(lease["generation"]),
+            "--fence-token",
+            str(claim["fence_token"]),
+        ]
+
     def test_init_and_doctor_use_user_global_state_without_dirtying_repo(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
@@ -192,6 +202,7 @@ class ContinuationCliTests(unittest.TestCase):
                 "WS900",
                 "--lease-id",
                 lease_id,
+                *self.owner_flags(first),
             ]
         )
         self.assertEqual(0, code, stderr)
@@ -206,6 +217,7 @@ class ContinuationCliTests(unittest.TestCase):
                 "WS900",
                 "--lease-id",
                 lease_id,
+                *self.owner_flags(first),
                 "--stage",
                 "gate-1",
                 "--next-action",
@@ -228,6 +240,7 @@ class ContinuationCliTests(unittest.TestCase):
                 "WS900",
                 "--lease-id",
                 lease_id,
+                *self.owner_flags(first),
                 "--next-action",
                 "Run gate two.",
             ]
@@ -241,6 +254,141 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, doctor)
         self.assertTrue(doctor["can_claim"])
         self.assertEqual("absent", doctor["lease"]["state"])
+
+    def test_claim_creates_fenced_owner_and_heartbeat_refreshes_liveness(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        self.assertEqual(1, claim["generation"])
+        self.assertTrue(str(claim["fence_token"]))
+        lease_id = str(claim["lease"]["lease_id"])
+
+        persisted = json.loads((state_dir / "lease.json").read_text(encoding="utf-8"))
+        self.assertEqual(1, persisted["generation"])
+        self.assertIn("fence_token_hash", persisted)
+        self.assertNotIn("fence_token", persisted)
+        self.assertNotIn("fence_token_hash", claim["lease"])
+        expires_before_heartbeat = persisted["expires_at"]
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertEqual("fresh", doctor["lease"]["liveness"])
+        self.assertFalse(doctor["orphan_candidate"])
+
+        code, rejected, _ = self.run_json(
+            [
+                "continuation",
+                "assert-owner",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                "--generation",
+                "1",
+                "--fence-token",
+                "wrong-token",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("fence_token_mismatch", rejected["error_code"])
+
+        code, missing_generation, _ = self.run_json(
+            [
+                "continuation",
+                "assert-owner",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                "--fence-token",
+                str(claim["fence_token"]),
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("fence_generation_required", missing_generation["error_code"])
+
+        code, missing_token, _ = self.run_json(
+            [
+                "continuation",
+                "assert-owner",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                "--generation",
+                "1",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("fence_token_required", missing_token["error_code"])
+
+        code, owner, stderr = self.run_json(
+            [
+                "continuation",
+                "assert-owner",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{owner}")
+        self.assertEqual("owner_confirmed", owner["status"])
+
+        code, heartbeat, stderr = self.run_json(
+            [
+                "continuation",
+                "heartbeat",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{heartbeat}")
+        self.assertEqual("heartbeat_recorded", heartbeat["status"])
+        persisted_after_heartbeat = json.loads(
+            (state_dir / "lease.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(expires_before_heartbeat, persisted_after_heartbeat["expires_at"])
+
+        code, wrong_generation, _ = self.run_json(
+            [
+                "continuation",
+                "assert-owner",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                "--generation",
+                "2",
+                "--fence-token",
+                str(claim["fence_token"]),
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("fence_generation_mismatch", wrong_generation["error_code"])
 
     @unittest.expectedFailure
     def test_clean_release_preserves_checkpointed_waiting_external_status(self) -> None:
@@ -269,6 +417,7 @@ class ContinuationCliTests(unittest.TestCase):
                 "WS900",
                 "--lease-id",
                 lease_id,
+                *self.owner_flags(claim),
                 "--status",
                 "waiting_external",
                 "--next-action",
@@ -287,6 +436,7 @@ class ContinuationCliTests(unittest.TestCase):
                 "WS900",
                 "--lease-id",
                 lease_id,
+                *self.owner_flags(claim),
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{released}")
@@ -322,6 +472,7 @@ class ContinuationCliTests(unittest.TestCase):
                 "WS900",
                 "--lease-id",
                 lease_id,
+                *self.owner_flags(claim),
             ]
         )
         self.assertEqual(2, code)
@@ -366,6 +517,7 @@ class ContinuationCliTests(unittest.TestCase):
                 "WS900",
                 "--lease-id",
                 lease_id,
+                *self.owner_flags(claim),
             ]
         )
         self.assertEqual(3, code)
@@ -380,6 +532,7 @@ class ContinuationCliTests(unittest.TestCase):
                 "WS900",
                 "--lease-id",
                 lease_id,
+                *self.owner_flags(claim),
             ]
         )
         self.assertEqual(2, code)
@@ -440,8 +593,90 @@ class ContinuationCliTests(unittest.TestCase):
         )
         self.assertEqual(0, code, stderr)
         self.assertNotEqual(claim["lease"]["lease_id"], recovered["lease"]["lease_id"])
+        self.assertEqual(int(claim["generation"]) + 1, recovered["generation"])
 
-    @unittest.expectedFailure
+        for command in ("assert-owner", "heartbeat", "renew", "checkpoint", "release"):
+            with self.subTest(command=command):
+                code, fenced, _ = self.run_json(
+                    [
+                        "continuation",
+                        command,
+                        str(self.root),
+                        "--task-id",
+                        "WS900",
+                        "--lease-id",
+                        str(claim["lease"]["lease_id"]),
+                        *self.owner_flags(claim),
+                    ]
+                )
+                self.assertEqual(3, code)
+                self.assertEqual("lease_mismatch", fenced["error_code"])
+
+        code, doctor_after_fenced_calls, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor_after_fenced_calls}")
+        self.assertEqual("active", doctor_after_fenced_calls["lease"]["state"])
+        self.assertEqual(
+            recovered["lease"]["lease_id"],
+            doctor_after_fenced_calls["lease"]["lease"]["lease_id"],
+        )
+
+    def test_legacy_active_lease_without_fencing_metadata_remains_readable(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "legacy-runner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+
+        control_path = state_dir / "control.json"
+        control = json.loads(control_path.read_text(encoding="utf-8"))
+        control.pop("generation", None)
+        continuation._write_json(control_path, control)
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        for field in ("generation", "fence_token_hash", "last_heartbeat_at", "last_renew_at"):
+            lease.pop(field, None)
+        continuation._write_json(lease_path, lease)
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertEqual("legacy_unknown", doctor["lease"]["liveness"])
+        self.assertFalse(doctor["orphan_candidate"])
+        self.assertFalse(doctor["can_claim"])
+
+        code, renewed, stderr = self.run_json(
+            [
+                "continuation",
+                "renew",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                str(lease["lease_id"]),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{renewed}")
+        self.assertEqual("renewed", renewed["status"])
+
+        code, doctor_after_renew, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor_after_renew}")
+        self.assertEqual("fresh", doctor_after_renew["lease"]["liveness"])
+
     def test_active_lease_with_stale_heartbeat_is_exposed_as_orphan_candidate(self) -> None:
         """WS086 regression: TTL-active must not be treated as proof of runner liveness."""
         init = self.init_task()
@@ -542,6 +777,8 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertIn("Do not reconstruct task state from chat history", prompt)
         self.assertIn("acf continuation doctor", prompt)
         self.assertIn("acf continuation claim", prompt)
+        self.assertIn("acf continuation assert-owner", prompt)
+        self.assertIn("heartbeat", prompt)
         self.assertIn("acf continuation renew", prompt)
         self.assertIn("acf continuation release", prompt)
 

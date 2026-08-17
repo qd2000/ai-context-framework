@@ -46,6 +46,8 @@ Continuation 运行态不写入项目仓库，默认位于：
 acf continuation init
 acf continuation doctor
 acf continuation claim
+acf continuation assert-owner
+acf continuation heartbeat
 acf continuation renew
 acf continuation checkpoint
 acf continuation release
@@ -57,9 +59,13 @@ acf continuation issue
 
 `init` 从 clean Git checkpoint 建立控制状态。可选 `--workstream WSNNN` 时，同时验证 ACF registry、path、branch 和 Git common-dir；没有 Workstream 的普通项目也可只用 `--task-id`。
 
-`doctor` 只读核对 Git top-level、branch、dirty 状态、可选 Workstream identity、pause、lease 和 compact state，并返回 `can_claim`。
+`doctor` 只读核对 Git top-level、branch、dirty 状态、可选 Workstream identity、pause、lease 和 compact state，并返回 `can_claim`。带 heartbeat 的 active lease 会按配置的 renew interval 区分 `fresh` 与 `stale`；stale 同时暴露 `orphan_candidate=true`，但仍然 `can_claim=false`，因为“没有新鲜 heartbeat”只能证明需要 reconciliation，不能证明接管安全。旧版没有 heartbeat/generation 的 active lease 返回 `legacy_unknown` 并继续保守阻塞。
 
-`claim` 在本地 OS 文件锁保护下取得单一 active lease；第二个执行器看到 active lease 必须 no-op。expired lease 只有在身份和 clean 状态重新通过后才能接管。`renew` 只延长同一 lease，不改变外部调度周期。
+`claim` 在本地 OS 文件锁保护下取得单一 active lease；第二个执行器看到 active lease 必须 no-op。新 claim 会把 control generation 单调递增，并返回 `lease_id`、`generation` 与高熵 `fence_token`；磁盘只保存 fence token 的 SHA-256 hash，不保存原 token。`fence_token` 是本轮 owner credential，只能保存在当前执行器的私有运行上下文，不得复制到项目文件、普通日志或 handoff 文档。
+
+`assert-owner` 对 active lease 的 `lease_id + generation + fence_token` 做所有权校验。新 generation 生效后，旧 owner 的 `assert-owner`、`heartbeat`、`renew`、`checkpoint` 和 `release` 都会被确定性拒绝。该 fencing 保护的是 ACF continuation 控制协议；它不能阻止绕过 ACF 直接写外部系统，因此 non-idempotent 外部动作仍应在动作前显式 assert-owner。
+
+`heartbeat` 只刷新 `last_heartbeat_at`，用于证明 runner liveness，不延长 `expires_at`。`renew` 在校验 owner 后同时刷新 heartbeat/renew 时间并延长同一 lease TTL，不改变外部调度周期。expired lease 仍只有在身份、Git 和当前恢复规则重新通过后才能产生下一 generation；正式 orphan takeover 由后续 reconcile/recover 协议负责，stale heartbeat 本身不授权接管。
 
 默认时间参数：
 
@@ -106,7 +112,9 @@ acf log projects --json
 每小时触发
     ↓
 doctor
-    ├─ active lease → no-op
+    ├─ active + fresh heartbeat → no-op，当前 owner live
+    ├─ active + stale heartbeat → orphan candidate，fail-closed/no claim
+    ├─ active + legacy-unknown → no-op，等待兼容路径收口
     ├─ paused/dirty/reconciling → no-op
     └─ can_claim=true → claim → 单轮执行
 ```
@@ -135,6 +143,9 @@ Continuation 状态不是 transcript cache，而是低噪声恢复索引。
 - `init` 要求 clean worktree；
 - 不自动 stash/reset/clean/rebase/force/push；
 - active lease 不可被第二个 claimant 覆盖；
+- fenced round 的 owner credential 只返回给 claimant，持久态只保存 hash；
+- generation 前进后，旧 owner 的 heartbeat/renew/checkpoint/release 必须失败；
+- stale/orphan candidate 只触发 reconciliation 信号，不允许自动 steal；
 - pause 不强杀外部进程，只阻止 renew，并在 release 收口；
 - malformed lease/state fail-closed；
 - Workstream 绑定可选，绑定后必须通过 registry/path/branch/common-dir 验证；
@@ -151,3 +162,5 @@ init → doctor → claim → renew → checkpoint → release → doctor
 验证结果：复用现有 `codex/ws088-chatgpt-web-scheduled-devspace`，未重建 worktree；ACF worktree 身份验证通过；运行态只写用户级 `~/.acf`；WS088 HEAD 保持 `8e2729a2...`；结束后 worktree clean、lease absent、`can_claim=true`。
 
 后续 WS088 已继续通过无人值守只读 Scheduled Task、真实写入/commit/checkpoint/release、expired-lease 恢复和既有 WS082 worktree 直接 adoption smoke。并行任务正式接入后，新的产品问题通过上述 usage/issue 双层日志持续积累。
+
+2026-08-17 的 WS007 自身 Scheduled Task 又形成了真实 orphan dogfood 现场：旧 runner 获取 lease 并留下 WS007.2 dirty 修改后，后续独立调度轮次只能对仍处于 120 分钟 TTL 内的 `running` lease 安全 no-op；旧 lease 没有 heartbeat/generation，因此开发版只能保守分类为 `legacy_unknown`，无法从控制面证明旧 runner 是否仍 live。该案例直接验证了“TTL active 不等于 runner live”，也是 heartbeat/fencing 这一阶段的验收证据；在正式 reconcile/recover 完成前仍不允许据此自动接管。
