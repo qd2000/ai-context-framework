@@ -3256,6 +3256,361 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(3, code)
         self.assertEqual("recovery_not_authorized", denied["error_code"])
 
+    def test_ws009_unresolved_durable_physical_writer_identity_blocks_recovery(self) -> None:
+        """A known long-lived writer identity must stay unresolved until authority proves terminal."""
+        init = self.init_task("WS911")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS911",
+                "--runner-id",
+                "physical-writer-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        owner = ["--lease-id", lease_id, *self.owner_flags(claim)]
+
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS911",
+                *owner,
+                "--path",
+                "writer-output.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS911",
+                *owner,
+                "--key",
+                "physical-writer:job-001",
+                "--kind",
+                "long-lived-local-writer",
+                "--external-id",
+                "job-001",
+                "--evidence-ref",
+                "writer:job-001-started",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        code, active, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "update",
+                str(self.root),
+                "--task-id",
+                "WS911",
+                *owner,
+                "--key",
+                "physical-writer:job-001",
+                "--status",
+                "active",
+                "--milestone",
+                "writing",
+                "--evidence-ref",
+                "writer:job-001-running",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{active}")
+        (self.root / "writer-output.txt").write_text("writer still active\n", encoding="utf-8")
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS911",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:old-owner-ended",
+                "--reason",
+                "The logical owner ended, but the durable physical-writer identity is not terminal.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertEqual("blocked", reconciled["decision"])
+        self.assertFalse(reconciled["eligible_for_recover"])
+        self.assertIn("unresolved_effects", reconciled["reasons"])
+        self.assertEqual(
+            ["physical-writer:job-001"],
+            reconciled["observation"]["effect_summary"]["unresolved"],
+        )
+
+        code, denied, _ = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS911",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "physical-writer-new-owner",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("recovery_not_authorized", denied["error_code"])
+
+    def test_ws009_terminal_durable_physical_writer_identity_permits_recovery(self) -> None:
+        """A terminal durable writer identity may hand attributable output to the next generation."""
+        init = self.init_task("WS912")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS912",
+                "--runner-id",
+                "physical-writer-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        owner = ["--lease-id", lease_id, *self.owner_flags(claim)]
+
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS912",
+                *owner,
+                "--path",
+                "writer-output.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS912",
+                *owner,
+                "--key",
+                "physical-writer:job-002",
+                "--kind",
+                "long-lived-local-writer",
+                "--external-id",
+                "job-002",
+                "--evidence-ref",
+                "writer:job-002-started",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        (self.root / "writer-output.txt").write_text("final writer output\n", encoding="utf-8")
+        code, completed, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "update",
+                str(self.root),
+                "--task-id",
+                "WS912",
+                *owner,
+                "--key",
+                "physical-writer:job-002",
+                "--status",
+                "completed",
+                "--milestone",
+                "writer-terminal",
+                "--evidence-ref",
+                "writer:job-002-terminal",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{completed}")
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS912",
+                "--owner-ended",
+                "--evidence-ref",
+                "writer:job-002-terminal",
+                "--reason",
+                "The old owner ended and the durable physical writer is authoritatively terminal.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertEqual("eligible", reconciled["decision"])
+        self.assertTrue(reconciled["eligible_for_recover"])
+        self.assertEqual(
+            ["physical-writer:job-002"],
+            reconciled["observation"]["effect_summary"]["terminal"],
+        )
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS912",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "physical-writer-new-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        self.assertGreater(int(recovered["generation"]), int(claim["generation"]))
+        self.assertEqual(["writer-output.txt"], recovered["workspace"]["task_owned_paths"])
+        self.assertFalse(recovered["workspace"]["has_conflicts"])
+
+    def test_ws009_characterizes_unidentified_old_writer_as_indistinguishable_after_recovery(
+        self,
+    ) -> None:
+        """Freeze P0-A: a writer bypassing durable identity can still mutate inherited intent after recovery."""
+        init = self.init_task("WS913")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS913",
+                "--runner-id",
+                "old-logical-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS913",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--path",
+                "writer-output.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        (self.root / "writer-output.txt").write_text("old generation initial output\n", encoding="utf-8")
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS913",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:old-logical-owner-ended",
+                "--reason",
+                "The logical owner ended; no durable physical-writer identity was registered.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"], reconciled)
+        self.assertEqual([], reconciled["observation"]["effect_summary"]["unresolved"])
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS913",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "new-logical-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+
+        # Failure injection: an old detached physical writer bypasses ACF after
+        # generation N+1 owns the same logical path.  The current workspace
+        # classifier only sees the inherited write intent and therefore cannot
+        # attribute these bytes to generation N versus N+1.
+        (self.root / "writer-output.txt").write_text(
+            "late write from old detached physical writer\n",
+            encoding="utf-8",
+        )
+        code, refreshed, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "refresh",
+                str(self.root),
+                "--task-id",
+                "WS913",
+                "--lease-id",
+                str(recovered["lease"]["lease_id"]),
+                *self.owner_flags(recovered),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{refreshed}")
+        self.assertFalse(refreshed["workspace"]["has_conflicts"])
+        self.assertEqual(["writer-output.txt"], refreshed["workspace"]["task_owned_paths"])
+        self.assertEqual(["writer-output.txt"], refreshed["workspace"]["write_intent_paths"])
+
     def test_legacy_unknown_owner_with_advanced_head_requires_explicit_head_acceptance(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
