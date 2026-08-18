@@ -1299,6 +1299,10 @@ def build_parser() -> argparse.ArgumentParser:
         continuation_subparsers,
         add_json_argument,
     )
+    continuation_commands.register_coordination_parsers(
+        continuation_subparsers,
+        add_json_argument,
+    )
 
     continuation_renew_parser = continuation_subparsers.add_parser(
         "renew",

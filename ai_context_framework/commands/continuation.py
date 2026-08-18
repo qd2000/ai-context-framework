@@ -35,6 +35,7 @@ except ImportError:  # pragma: no cover - Windows path.
 
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
 from ai_context_framework import continuation_recovery, continuation_rounds, continuation_workspace
+from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
 from ai_context_framework.observability import (
     append_usage_event,
@@ -308,6 +309,7 @@ def _paths(root: Path, task_id: str | None) -> dict[str, Path]:
         "receipt": directory / "last_run.json",
         "rounds": directory / "rounds.json",
         "effects": directory / "effects.json",
+        "coordination": directory / "coordination.json",
         "workspace": directory / "workspace.json",
         "reconcile": directory / "reconcile.json",
         "recovery": directory / "last_recovery.json",
@@ -1951,8 +1953,12 @@ continuation_prompt_command = continuation_workspace_commands.continuation_promp
 continuation_workspace_status_command = continuation_workspace_commands.continuation_workspace_status_command
 continuation_workspace_intent_command = continuation_workspace_commands.continuation_workspace_intent_command
 continuation_workspace_refresh_command = continuation_workspace_commands.continuation_workspace_refresh_command
+continuation_coordination_status_command = continuation_coordination_commands.continuation_coordination_status_command
+continuation_coordination_attempt_command = continuation_coordination_commands.continuation_coordination_attempt_command
+continuation_coordination_challenge_command = continuation_coordination_commands.continuation_coordination_challenge_command
 register_workspace_parsers = continuation_workspace_commands.register_workspace_parsers
 register_configure_parser = continuation_workspace_commands.register_configure_parser
+register_coordination_parsers = continuation_coordination_commands.register_coordination_parsers
 
 
 __all__ = [
@@ -1960,6 +1966,9 @@ __all__ = [
     "continuation_checkpoint_command",
     "continuation_claim_command",
     "continuation_configure_command",
+    "continuation_coordination_attempt_command",
+    "continuation_coordination_challenge_command",
+    "continuation_coordination_status_command",
     "continuation_doctor_command",
     "continuation_effect_list_command",
     "continuation_effect_prepare_command",
@@ -1979,6 +1988,7 @@ __all__ = [
     "continuation_workspace_refresh_command",
     "continuation_workspace_status_command",
     "register_round_effect_parsers",
+    "register_coordination_parsers",
     "register_configure_parser",
     "register_workspace_parsers",
 ]

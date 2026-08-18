@@ -1217,6 +1217,195 @@ class ContinuationCliTests(unittest.TestCase):
             )
         self.assertEqual("workspace_intent_out_of_scope", raised.exception.code)
 
+    def test_ws008_coordination_attempt_without_owner_is_only_claim_candidate(self) -> None:
+        init = self.init_task("WS908")
+        state_dir = Path(str(init["state_dir"]))
+        code, before, stderr = self.run_json(
+            ["continuation", "coordination", "status", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{before}")
+        self.assertEqual("absent", before["state"])
+
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "Continue the next bounded gate.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        self.assertEqual("claim_candidate_registered", attempt["status"])
+        self.assertEqual("claim_candidate", attempt["attempt"]["status"])
+        self.assertIsNone(attempt["attempt"]["observed_owner_generation"])
+        self.assertTrue((state_dir / "coordination.json").is_file())
+        self.assertEqual("", self._git("status", "--porcelain").stdout)
+
+    def test_ws008_coordination_contenders_join_one_challenge_per_owner_generation(self) -> None:
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "owner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        generation = int(claim["generation"])
+
+        attempt_ids: list[str] = []
+        challenge_ids: list[str] = []
+        for runner_id in ("contender-a", "contender-b"):
+            code, attempt, stderr = self.run_json(
+                [
+                    "continuation",
+                    "coordination",
+                    "attempt",
+                    str(self.root),
+                    "--task-id",
+                    "WS908",
+                    "--runner-id",
+                    runner_id,
+                    "--objective-summary",
+                    "Continue the same WS008 gate.",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{attempt}")
+            self.assertEqual("contender_registered", attempt["status"])
+            self.assertEqual(generation, attempt["attempt"]["observed_owner_generation"])
+            attempt_id = str(attempt["attempt"]["attempt_id"])
+            attempt_ids.append(attempt_id)
+
+            code, challenge, stderr = self.run_json(
+                [
+                    "continuation",
+                    "coordination",
+                    "challenge",
+                    str(self.root),
+                    "--task-id",
+                    "WS908",
+                    "--attempt-id",
+                    attempt_id,
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{challenge}")
+            challenge_ids.append(str(challenge["challenge"]["challenge_id"]))
+
+        self.assertEqual(challenge_ids[0], challenge_ids[1])
+        code, status, stderr = self.run_json(
+            ["continuation", "coordination", "status", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{status}")
+        self.assertEqual(2, status["coordination"]["contender_count"])
+        self.assertEqual(1, status["coordination"]["challenge_count"])
+        active = status["coordination"]["nonterminal_challenges"]
+        self.assertEqual(1, len(active))
+        self.assertEqual(generation, active[0]["owner_generation"])
+        self.assertEqual(attempt_ids, active[0]["contender_attempt_ids"])
+        self.assertFalse(active[0]["deadline_passed"])
+
+    def test_ws008_coordination_old_attempt_cannot_challenge_new_owner_generation(self) -> None:
+        self.init_task("WS908")
+        code, first_claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "owner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{first_claim}")
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "Continue after the current owner.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        attempt_id = str(attempt["attempt"]["attempt_id"])
+
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(first_claim["lease"]["lease_id"]),
+                *self.owner_flags(first_claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        code, second_claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "owner-b",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{second_claim}")
+        self.assertGreater(int(second_claim["generation"]), int(first_claim["generation"]))
+
+        code, challenged, _ = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "challenge",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--attempt-id",
+                attempt_id,
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("coordination_owner_changed", challenged["error_code"])
+
+    def test_ws008_coordination_rejects_unbounded_objective_text(self) -> None:
+        self.init_task("WS908")
+        code, attempt, _ = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "x" * 1025,
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("coordination_text_too_large", attempt["error_code"])
+
     def test_pause_during_active_round_blocks_renew_and_release_finishes_paused(self) -> None:
         self.init_task()
         code, claim, _ = self.run_json(
