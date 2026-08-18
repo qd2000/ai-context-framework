@@ -6,11 +6,14 @@ Active
 
 ## 目标
 
-在不把 ACF 扩展为 agent runtime、进程管理器或语义事实裁判的前提下，收口 v0.0.3.63 dogfooding 暴露的三类通用问题：
+在不把 ACF 扩展为 agent runtime、进程管理器或语义事实裁判的前提下，收口 v0.0.3.63 dogfooding 暴露的通用问题：
 
 1. continuation 的 generation fencing 只能保证 ACF-authorized writer，不能自动识别旧 generation 已启动、在 recovery 后继续写同一路径的 physical writer；
 2. active attention / authority 生命周期存在可机械发现但当前 doctor/audit 未发现的滞留和 review drift；
 3. Git/worktree 生命周期把 content-identical 的 stat/status-only 变化误报为 dirty，并且 Workstream reservation/worktree 的 Markdown 与本地 runtime authority 之间存在状态漂移。
+4. legacy continuation 在没有 workspace manifest 时缺少显式 WIP adoption/import 路径；已经人工审阅确认属于当前任务的 dirty WIP 仍会被 `workspace_provenance_missing` 阻塞，只能先形成 semantic checkpoint 或破坏性 `init --force`。
+5. expired owner 留下的 `prepared|active|unknown` effect 即使已经由外部权威证明终态，当前 `effect update` 仍要求旧 active fence，而 `reconcile/recover` 又因 unresolved effect 拒绝接管，形成 ownerless effect-reconciliation deadlock。
+6. continuation runtime state 虽已统一走 `ACF_HOME/projects/<root>-<path-hash>/continuation/<task-id>/`，但缺少面向升级/诊断的统一可见性与迁移合同；Scheduled Task 的 generic protocol 已由 `acf continuation prompt` 统一生成，外层 project wrapper 仍主要靠人工/对话约定，容易再次漂移。
 
 WS009 必须优先修复 correctness / deterministic governance 缺口，再做文档、release 和真实项目 adoption；便利性功能不阻塞发布。
 
@@ -24,6 +27,9 @@ WS009 必须优先修复 correctness / deterministic governance 缺口，再做�
 6. **语义不确定不进 strict**：Context 内容真假、版本语义等不由 CLI 自动裁决；机械 stale/terminal-retention 信号进入 review/audit/doctor candidate，必要时生成明确 next_actions。
 7. **本地 runtime state 不冒充 Markdown 事实**：机器相关 worktree path/branch/binding 以 Git/ACF local registry + `worktree verify/list` 为运行期权威，不在共享 Workstream Markdown 中维护易漂移的“当前本地状态”副本。
 8. **无第三方运行依赖**：继续只使用 Python 标准库、Git 和 Markdown；不新增 daemon、数据库、向量库或私有进程 supervisor。
+9. **统一状态实现，隔离命名空间**：所有 continuation task 必须复用同一 `ACF_HOME`、目录解析器、schema 与原子写入路径；不同 resolved project/worktree 通过 path-hash namespace 隔离，不复制项目私有状态实现，也不把所有任务塞进一个共享可碰撞目录。
+10. **Prompt 单一 generic authority + 薄 wrapper**：generic contention/recovery/workspace/effect 协议只由 `acf continuation prompt` 生成；scheduler wrapper 只保留固定执行身份、如何每轮获取 generated prompt、项目特有运行/科学/权限/验证约束。不得把 generic 状态机复制进 wrapper，也不得把项目科学判断硬编码进通用 ACF prompt。
+11. **统一不等于限制推理能力**：ACF 统一的是可验证的 control-plane、安全边界、状态 schema 和 prompt 入口，不规定 Agent 的工程推理步骤、搜索策略、测试组合或一个自然 Gate 内的自主决策；只有冲突、身份、未决副作用和未知写结果继续 fail-closed。
 
 ## v0.0.3.63 dogfood 基线
 
@@ -38,6 +44,13 @@ WS009 必须优先修复 correctness / deterministic governance 缺口，再做�
 - `workstream reserve` 默认生成 Open Workstream；直接显式选择 Open WS 会 `selection_invalid`，需要额外 `workstream set ... --status Active`。当前 next_actions 未把这一执行前步骤明确串起来。
 - Workstream detail 的 `## Workspace` 仍写 `mode: none`，但 ACF local registry 已有真实 worktree；该 section 的 stateful 字段会自然漂移。
 - 新建且原本 clean 的 WS009 worktree 第一次执行 `uv run acf` 后，4 个 tracked `ai_context_framework.egg-info/*.txt` 被 `git status`/`worktree verify` 报为 modified；但 `git diff --quiet` 为 0，working-tree blob hash 与 index blob hash 完全一致。当前 `is_clean()` 只信任 porcelain，因此产生 content-clean/status-dirty 假 dirty。
+- FCC WS079 legacy handoff 证明：旧 generation 没有 workspace manifest 时，3 个已经 file-scoped guard 验证、且仅用于 E118 closeout 的 task WIP 仍被 `workspace_provenance_missing` 阻塞；最终只能先形成 semantic recovery checkpoint `eeaea2a2...`，再 `reconcile -> recover -> checkpoint -> release` 建立 v2 workspace manifest。
+- FCC WS080 legacy handoff复现同一问题：完成的 per-CN heteroatom/metals Gate 经 machine SHA、focused tests 与 file-scoped guard 验证后，仍必须先形成 checkpoint `f6938d74...` 才能从无 manifest 的旧状态迁入 `.63`。
+- FCC WS086 提供更强的 effect recovery 反例：Git/workspace clean，Runtime 0.36.3 权威已证明 `ws086-operation-activity-bulk-q03-v11` 为 `60/60 completed`、`unfinished=0`、`collection_state=collected`，但 effect journal 仍为 `prepared`。旧 owner 已 expired；新 runner 不能 `effect update`，而 `reconcile/recover` 又因 unresolved effect 阻塞。dogfood issue fingerprint=`9b497840ecf1c7a015f2`。
+- WS079 legacy migration gap 已记录 dogfood issue fingerprint=`e0151f84e6b5be2e3d4f`。
+- FCC WS079/WS080/WS086 continuation timing 已统一到 `long-running` profile（scheduler/TTL/renew/heartbeat/stale=`60/180/45/10/25` 分钟），表明 timing 可以作为统一 control-plane profile，而不应在 Scheduled Task wrapper 中复制定时逻辑。
+- 源码确认 continuation state 默认统一落在 `%USERPROFILE%/.acf`（可由 `ACF_HOME` 整体覆盖），项目/工作树 namespace 由 resolved root 的 slug + path hash 派生，task 再位于统一 `continuation/<task-id>` 子树；这是应保留的 canonical layout。
+- 源码与 System Manual/Automation 已确认 `acf continuation prompt` 是 generic Scheduled Task protocol 的唯一权威生成器；当前剩余问题是把“薄 wrapper”本身也形成稳定的 help/docs/可机器读取 recipe，而不是继续由不同对话各自复制一份大提示词。
 
 ## 问题矩阵与解决策略
 
@@ -57,7 +70,31 @@ WS009 必须优先修复 correctness / deterministic governance 缺口，再做�
 6. 扩充 generated `acf continuation prompt`、System Manual、Automation 和 tests，使 “external/non-idempotent effect” 明确包含 long-lived local subprocess / DevSpace / Runtime writer，而不是只让 agent 联想到远端 API。
 7. 添加 deterministic failure injection：旧 generation writer identity 未终态时 recovery 必须 blocked；终态/可证明结束后才允许 generation+1。另保留一项 boundary characterization，明确“完全绕过 ACF 且没有 durable identity 的旧 writer”不可自动归属，不能伪装成已解决。
 
-### P0-B：content-identical porcelain dirty false block
+### P0-B：ownerless externally-proven effect reconciliation deadlock
+
+**现象**：旧 generation 的 effect journal 仍是 `prepared|active|unknown`；owner 已过期且 fence token 不再可用，但项目 Runtime/API/ledger 能以 deterministic identity 证明该 effect 已 terminal/collected/failed。当前 `effect update` 只能由 active fenced owner 写回，而 `reconcile/recover` 在 effect unresolved 时又拒绝建立新 owner。
+
+**策略**：
+
+1. 新增一个明确的 recovery-time effect reconciliation 路径；优先设计为 `reconcile` receipt 的 bounded assertion/evidence，或独立 `effect reconcile`，不得复用普通 owner `effect update` 的语义。
+2. 只允许更新**已经存在的 deterministic logical key**，不得借 recovery 新建 effect、改变外部 identity 或触发执行。
+3. 必须携带 owner-ended/forfeiture 证据、当前 generation/effect digest、external authority evidence refs 和 terminal classification；receipt 绑定 observed digest，任何 journal/HEAD/identity 漂移都令 receipt 失效。
+4. recovery-time reconciliation 只记录“观察到的终态”，绝不自动调用外部 collect/submit/cancel；如果外部状态仍 unknown，继续 fail-closed。
+5. 加入 WS086 等价 fixture：`prepared collect -> owner expires -> external authority says collected -> record terminal observation -> reconcile eligible -> recover`；同时覆盖 external authority unknown/identity mismatch/observation drift 必须 blocked。
+
+### P0-C：legacy pre-manifest dirty WIP adoption gap
+
+**现象**：从 `.63` 之前升级来的 continuation task 没有 workspace manifest，而 worktree 中保留经过人工/测试确认的 task WIP。当前 changed paths 一律变成 `workspace_provenance_missing`；`init --force` 会重建 state 并删除 rounds/effects/reconcile/recovery 历史，因此不是正常迁移工具。
+
+**策略**：
+
+1. 提供显式、一次性、可审计的 legacy workspace adoption/import 操作，不自动猜 dirty 归属。
+2. 调用方必须显式列出 concrete paths，并选择 `task_owned` 或 `baseline_external`；每个 path 记录当前 Git status/content digest、旧 task/generation、evidence refs 与 adoption receipt。
+3. bound Workstream 的 `task_owned` adoption 必须通过 write_scope/guard 边界；冲突路径、父子 overlap、HEAD ambiguity 或无法确定来源仍 fail-closed。
+4. adoption 只创建/升级 workspace manifest，不重置 continuation state、rounds/effects/coordination，不要求为了工具迁移制造 Git commit。
+5. `doctor` 对 legacy no-manifest changed paths 给出可机器解析的 next_action，明确区分“先审阅后 adopt”与“无法确认归属则保留阻塞”，不再把 `init --force` 作为常规升级捷径。
+
+### P0-D：content-identical porcelain dirty false block
 
 **现象**：`uv run acf` 刷新 tracked package metadata 的 stat/checkout 状态后，porcelain 报 `.M`，但 `git diff --quiet` 和 blob hash 证明没有 Git content change；`acf worktree verify` 仍返回 `clean=false` / `worktree_dirty`。
 
@@ -112,6 +149,29 @@ WS009 必须优先修复 correctness / deterministic governance 缺口，再做�
 2. 改善 AI-facing `next_actions`：当 reservation 为 Open 时明确给出 `acf workstream set WSxxx --status Active`，再进入 worktree/context；worktree create 遇到 Open WS 时也给出相同 bounded warning/next action。
 3. 用测试保证 agent 不需要从自然语言错误反推缺失生命周期步骤。
 
+### P1-E：统一 ACF_HOME continuation schema / upgrade visibility
+
+**现状**：状态存储已经统一实现：默认 `~/.acf/projects/<root-slug>-<path-hash>/continuation/<task-id>/`，`ACF_HOME` 仅整体覆盖根目录；control/state/workspace/rounds/effects/coordination/reconcile/recovery 共享同一代码/schema。这个设计应保留，而不是把 state 写进各项目 Git 或给不同项目复制实现。
+
+**策略**：
+
+1. 在 help/System Manual 中把 canonical layout、path-hash 隔离原因、`ACF_HOME` override 和 schema ownership 写成稳定合同，但不承诺用户手工编辑这些 JSON。
+2. 增强统一的只读 discovery/doctor 能力，能够列出当前 ACF_HOME 下 project/task、schema version、control version/timing profile 与需要 migration 的 legacy state；升级仍由 ACF deterministic command 完成，不让 Scheduled Task 自己改 JSON。
+3. state schema 升级必须向后兼容或提供显式 migration/dry-run/receipt；禁止因为 CLI 升级静默丢弃 rounds/effects/recovery history。
+4. `task_id` 与 `workstream_id` 明确分层，并在 `doctor/prompt/list` JSON 中稳定暴露，避免 WS080/WS086 这类 wrapper 错把 Workstream ID 当 continuation task-id。
+
+### P1-F：Scheduled Task thin-wrapper standardization
+
+**现状**：`.63` 已经由 `acf continuation prompt` 统一生成 generic protocol，但 Scheduled Task 最外层 wrapper 仍由人工/Agent 组织，容易复制旧协议、写错 task-id，或把某个版本的 heartbeat/reconcile 规则冻结进提示词。
+
+**策略**：
+
+1. `acf continuation prompt` 继续是唯一 generic state-machine authority；不得增加第二份模板正文。
+2. 在 `acf continuation prompt --help`、System Manual、Automation 和 README 提供统一的 **thin wrapper recipe**：固定 workspace/branch/workstream/task-id；每轮重新调用 `continuation prompt` 并执行返回 prompt；再加载项目特有 runtime/scientific/permission/validation refs。
+3. 评估增加稳定 JSON 字段，例如 `scheduler_wrapper_contract` / `wrapper_requirements` / `identity`，让外部 ChatGPT Scheduled Task 或其他 scheduler 可以机器化组装 wrapper；不得引入 OpenAI 私有格式依赖。
+4. wrapper 不重复 generic contention/recovery/heartbeat/workspace/effect 分支，不硬编码自然 Gate 时长，也不规定 Agent 的研究/编码步骤；Agent 仍根据 local plan/evidence 自主决定一个 bounded Gate 内的工程策略。
+5. 对 ACF 自身 self-hosting 明确 control-plane / product-under-test 分离：continuation ownership 默认由当前已安装稳定 `acf` 控制；worktree 内 `uv run acf` 用于开发/测试候选实现。只有新稳定版发布并验证安装后，后续 round 才切换 control authority，避免未提交候选代码修改自己的恢复协议。
+
 ### P2-A：Continuation design / Automation 文档漂移
 
 **现象**：Continuation design 仍有一处旧表述称 doctor 依据 renew interval 区分 fresh/stale，而实现和后文已使用独立 `stale_after_minutes`；Automation 的部分 release/Trusted Publishing 状态也可能落后于 v0.0.3.63 事实；Workstream Design 还保留旧式 `--depends/--read/--write/--status` 参数描述，与当前 `workstream add/reserve/stage` CLI 不完全一致。WS009 setup 中重复传 `workstream stage add --depends` 时 argparse 只保留最后一个值，说明文档必须明确 stage dependency 是一个可解析摘要字符串，而不是暗示该参数可重复。
@@ -128,8 +188,8 @@ WS009 必须优先修复 correctness / deterministic governance 缺口，再做�
 
 | 阶段 | 状态 | 目标 | 主要输出 | Gate |
 |---|---|---|---|---|
-| WS009.1 | Active | Baseline characterization and contract freeze | deterministic failing/characterization tests、problem matrix、scope/evidence | 不改变产品行为前先证明 physical-writer、terminal retention、stat-only dirty、Workspace/activation UX 当前边界 |
-| WS009.2 | Open | Physical-writer/effect contract hardening | generated prompt + effect/job contract + failure injection | unresolved long-lived writer effect 阻止 recovery；无 daemon；旧 generation owner-protected calls 继续 fenced |
+| WS009.1 | Active | Baseline characterization and contract freeze | deterministic failing/characterization tests、problem matrix、scope/evidence、legacy/effect recovery fixtures | 不改变产品行为前先证明 physical-writer、ownerless effect deadlock、legacy adoption、terminal retention、stat-only dirty、Workspace/activation UX 当前边界 |
+| WS009.2 | Open | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract | 可证明终态 effect 能安全收口；legacy WIP 可显式 adopt；unresolved/unknown 仍阻止 recovery；generic prompt 不被 wrapper 复制；无 daemon |
 | WS009.3 | Open | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | staged/untracked/real diff 不误放行；content-identical stat-only 不阻塞；只读 verify 不改 index |
 | WS009.4 | Open | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | doctor 能看到 terminal retention + Context review stale；strict 不做语义裁决 |
 | WS009.5 | Open | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | full unittest/template/strict/upgrade/release/package smoke 全绿；发布后安装态 generated prompt/doctor 兼容旧 state |
@@ -144,6 +204,8 @@ WS009 必须优先修复 correctness / deterministic governance 缺口，再做�
 6. 修改模板/默认文档契约时同步 README、template System Manual、dogfooding System Manual、Automation、packaging/upgrade 影响与测试。
 7. 每个阶段优先 focused tests；行为冻结后运行 `uv run acf check template`、`uv run acf check --strict`、`uv run python -m unittest`、`git diff --check`；release 阶段运行 full upgrade matrix + `scripts/release_check.py --mode full`。
 8. 新发现的通用 ACF/continuation/worktree dogfood 缺陷用 `acf continuation issue` 记录稳定 fingerprint；预期等待、正常 active lease、单纯业务失败不登记。
+9. continuation state migration 不允许直接编辑 `~/.acf` JSON；所有修复必须通过 ACF 命令形成原子写入和 receipt，并保留旧 state/effect history 可审计。
+10. Scheduled Task wrapper 只做稳定入口，不作为业务计划事实源；current stage/next_action/constraints 优先来自 continuation state 与项目 plan，wrapper 不重复维护易漂移的任务进度。
 
 ## 明确非目标
 
@@ -164,6 +226,9 @@ WS009 必须优先修复 correctness / deterministic governance 缺口，再做�
 6. ACF 自身旧 Done Task/Plan 和 stale Context 在代码合并后的 primary maintenance 中通过 ACF 正式命令收口，不由 WS009 Task 越权直接修改。
 7. 所有 package modules 保持 <= 2000 行，无新增第三方依赖。
 8. release/full regression、PyPI、新稳定版全局安装以及至少 ACF-self + FCC continuation + AStock continuation 的 installed-state smoke 通过。
+9. WS079/WS080 类型 legacy no-manifest WIP 有无需强制 commit/`init --force` 的显式迁移路径；WS086 类型 externally-proven terminal effect 可以在旧 owner 消失后通过审计 receipt 收口且不重放副作用。
+10. `ACF_HOME` continuation layout/schema/help 保持单一实现与可升级合同，外部 scheduler 不需要理解或手工修改 JSON 文件。
+11. Scheduled Task generic protocol 只来自 `acf continuation prompt`；官方 thin-wrapper recipe 能被不同对话/模型一致复用，同时项目工程推理保持开放。
 
 ## 下一步
 
