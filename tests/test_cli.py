@@ -6329,6 +6329,93 @@ This records a reusable write-safety pattern instead of a current task fact.
                 payload["next_actions"],
             )
 
+    def test_review_stale_characterizes_terminal_active_authority_retention_gap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nDone\n\n"
+                "## 任务名称\n\nCompleted task retained in active authority.\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Task_Plan.md").write_text(
+                "## 大任务状态\n\nDone\n\n"
+                "## 当前焦点\n\n无。\n\n"
+                "## 子任务\n\n"
+                "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| T001 | Done | Completed | 无。 | 无。 | done | 已完成 |\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Context.md").write_text(
+                "## 审阅标记\n\n- Last reviewed: 2026-05-05\n\n"
+                "## 当前有效事实\n\n- Fact.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["review", "stale", str(target), "--today", "2026-05-05", "--days", "14", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            signals = {item["signal"] for item in payload["stale_items"]}
+            self.assertNotIn("current_task_terminal_retained", signals)
+            self.assertNotIn("task_plan_terminal_retained", signals)
+            self.assertFalse(
+                any(
+                    item["path"] in {"active/Current_Task.md", "active/Task_Plan.md"}
+                    for item in payload["stale_items"]
+                )
+            )
+
+    def test_doctor_characterizes_terminal_authority_and_context_review_gap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nDone\n\n"
+                "## 任务名称\n\nCompleted task retained in active authority.\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Task_Plan.md").write_text(
+                "## 大任务状态\n\nDone\n\n"
+                "## 当前焦点\n\n无。\n\n"
+                "## 子任务\n\n"
+                "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| T001 | Done | Completed | 无。 | 无。 | done | 已完成 |\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Context.md").write_text(
+                "## 审阅标记\n\n- Last reviewed: 2026-04-01\n\n"
+                "## 当前有效事实\n\n- Fact.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["review", "stale", str(target), "--today", "2026-05-05", "--days", "14", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            review_payload = json.loads(stdout)
+            self.assertIn(
+                "context_review_stale",
+                {item["signal"] for item in review_payload["stale_items"]},
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--today", "2026-05-05", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            doctor_payload = self.json_payload(stdout)
+            self.assert_success_json_contract(doctor_payload, "doctor")
+            finding_codes = {finding["code"] for finding in doctor_payload["findings"]}
+            self.assertNotIn("current_task_terminal_retained", finding_codes)
+            self.assertNotIn("task_plan_terminal_retained", finding_codes)
+            self.assertNotIn("context_review_stale", finding_codes)
+            self.assertEqual(doctor_payload["summary"]["findings_total"], 0)
+
     def test_review_stale_reports_mechanical_attention_signals(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
