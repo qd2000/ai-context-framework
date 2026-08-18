@@ -1020,6 +1020,95 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("stale", doctor["lease"]["liveness"])
         self.assertEqual(1500, doctor["lease"]["stale_after_seconds"])
 
+    def test_ws008_long_running_round_survives_two_hour_simulated_heartbeat_renew_cycles(self) -> None:
+        """WS008.5 failure injection: a 2h+ Gate remains one fenced generation."""
+        init = self.init_task("WS918")
+        state_dir = Path(str(init["state_dir"]))
+        code, configured, stderr = self.run_json(
+            [
+                "continuation",
+                "configure",
+                str(self.root),
+                "--task-id",
+                "WS918",
+                "--profile",
+                "long-running",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{configured}")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS918",
+                "--runner-id",
+                "ws008-two-hour-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        generation = int(claim["generation"])
+        lease_path = state_dir / "lease.json"
+
+        for elapsed_minutes in (55, 110, 125):
+            with self.subTest(elapsed_minutes=elapsed_minutes):
+                lease = json.loads(lease_path.read_text(encoding="utf-8"))
+                now = continuation._now()
+                lease["issued_at"] = continuation._iso(now - timedelta(minutes=elapsed_minutes))
+                lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=9))
+                lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=44))
+                lease["expires_at"] = continuation._iso(now + timedelta(minutes=136))
+                continuation._write_json(lease_path, lease)
+                expires_before_heartbeat = lease["expires_at"]
+
+                code, heartbeat, stderr = self.run_json(
+                    [
+                        "continuation",
+                        "heartbeat",
+                        str(self.root),
+                        "--task-id",
+                        "WS918",
+                        "--lease-id",
+                        lease_id,
+                        *self.owner_flags(claim),
+                    ]
+                )
+                self.assertEqual(0, code, f"{stderr}\n{heartbeat}")
+                after_heartbeat = json.loads(lease_path.read_text(encoding="utf-8"))
+                self.assertEqual(expires_before_heartbeat, after_heartbeat["expires_at"])
+
+                code, renewed, stderr = self.run_json(
+                    [
+                        "continuation",
+                        "renew",
+                        str(self.root),
+                        "--task-id",
+                        "WS918",
+                        "--lease-id",
+                        lease_id,
+                        *self.owner_flags(claim),
+                    ]
+                )
+                self.assertEqual(0, code, f"{stderr}\n{renewed}")
+                self.assertEqual("renewed", renewed["status"])
+                persisted = json.loads(lease_path.read_text(encoding="utf-8"))
+                self.assertEqual(generation, int(persisted["generation"]))
+                self.assertGreater(
+                    continuation._parse_iso(str(persisted["expires_at"]), field="expires_at"),
+                    continuation._now() + timedelta(minutes=170),
+                )
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS918"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertEqual("fresh", doctor["lease"]["liveness"])
+        self.assertEqual(generation, int(doctor["lease"]["lease"]["generation"]))
+        self.assertFalse(doctor["can_claim"])
+        self.assertEqual("running", doctor["state"]["status"])
+
     def test_ws008_long_running_profile_configures_existing_task_and_generated_prompt(self) -> None:
         init = self.init_task("WS908")
         state_dir = Path(str(init["state_dir"]))
