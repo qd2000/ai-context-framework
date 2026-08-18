@@ -282,6 +282,54 @@ class WorktreeCliTests(unittest.TestCase):
         self.assertEqual(len(list_worktrees(repo)), 1)
         self.assertFalse(git(repo, "branch", "--list", "codex/ws001-reserved-task").stdout.strip())
 
+    def test_reserve_workspace_markdown_does_not_follow_local_registry_after_create(self):
+        _root, repo, context = self.make_repo()
+        reserved = self.reserve(context, slug="workspace-authority-drift")
+        workstream_id = reserved["id"]
+        detail = context / "active" / "workstreams" / f"{workstream_id}.md"
+
+        self.assertIn("- mode: none", detail.read_text(encoding="utf-8"))
+        created = self.create_ws_worktree(context, workstream_id)
+        self.assertEqual(created["status"], "created")
+        self.assertTrue(read_registry(git_common_dir(repo), workstream_id))
+
+        post_create_text = detail.read_text(encoding="utf-8")
+        self.assertIn("- mode: none", post_create_text)
+        self.assertNotIn(str(created["target"]["path"]), post_create_text)
+
+    def test_reserve_and_create_open_workstream_omit_activation_next_action(self):
+        _root, _repo, context = self.make_repo()
+        reserved = self.reserve(context, slug="open-activation-gap")
+        workstream_id = reserved["id"]
+        detail = context / "active" / "workstreams" / f"{workstream_id}.md"
+        activation_command = f"workstream set {workstream_id}"
+
+        self.assertIn("status: Open", detail.read_text(encoding="utf-8"))
+        self.assertFalse(
+            any(
+                activation_command in action and "--status Active" in action
+                for action in reserved["next_actions"]
+            )
+        )
+
+        created = self.create_ws_worktree(context, workstream_id)
+        self.assertFalse(
+            any(
+                activation_command in action and "--status Active" in action
+                for action in created["next_actions"]
+            )
+        )
+        target = Path(created["target"]["path"])
+        target_context = target / "docs" / "ai"
+        code, payload, _stderr = self.json_cli(
+            ["status", str(target_context), "--workstream", workstream_id], cwd=target
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(payload["selection_error_code"], "selection_invalid")
+        self.assertTrue(
+            any("workstream_not_active" in error for error in payload["selection_errors"])
+        )
+
     def test_reserve_shared_scope_supplies_serial_merge_contract(self):
         _root, _repo, context = self.make_repo()
         code, payload, stderr = self.json_cli(
