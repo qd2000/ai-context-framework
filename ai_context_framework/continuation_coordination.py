@@ -17,7 +17,8 @@ from typing import Any, Mapping, Sequence
 COORDINATION_SCHEMA = "acf.continuation.coordination.v1"
 ATTEMPT_STATUSES = frozenset({"claim_candidate", "contender", "closed"})
 CHALLENGE_STATUSES = frozenset({"open", "acknowledged", "timed_out", "resolved", "superseded"})
-NONTERMINAL_CHALLENGE_STATUSES = frozenset({"open", "acknowledged", "timed_out"})
+NONTERMINAL_CHALLENGE_STATUSES = frozenset({"open", "timed_out"})
+CHALLENGE_RESOLUTIONS = frozenset({"owner_active", "owner_released"})
 MAX_ATTEMPTS = 32
 MAX_CHALLENGES = 16
 MAX_CONTENDERS_PER_CHALLENGE = 16
@@ -128,6 +129,33 @@ def _validate_challenge(value: Mapping[str, Any], *, attempt_ids: set[str]) -> d
             contenders.append(attempt_id)
     if len(contenders) > MAX_CONTENDERS_PER_CHALLENGE:
         raise ContinuationCoordinationError("challenge contender list exceeds bounded limit", code="coordination_capacity")
+    acknowledged_at = value.get("acknowledged_at")
+    if acknowledged_at is not None:
+        acknowledged_at = str(acknowledged_at)
+        _parse_time(acknowledged_at, field="acknowledged_at")
+    acknowledged_lease_id = value.get("acknowledged_lease_id")
+    if acknowledged_lease_id is not None:
+        acknowledged_lease_id = _validate_uuid(acknowledged_lease_id, field="acknowledged_lease_id")
+    acknowledged_runner_id = value.get("acknowledged_runner_id")
+    if acknowledged_runner_id is not None:
+        acknowledged_runner_id = _require_text(
+            acknowledged_runner_id,
+            field="acknowledged_runner_id",
+            maximum=MAX_RUNNER_ID_BYTES,
+        )
+    timed_out_at = value.get("timed_out_at")
+    if timed_out_at is not None:
+        timed_out_at = str(timed_out_at)
+        _parse_time(timed_out_at, field="timed_out_at")
+    resolved_at = value.get("resolved_at")
+    if resolved_at is not None:
+        resolved_at = str(resolved_at)
+        _parse_time(resolved_at, field="resolved_at")
+    resolution = value.get("resolution")
+    if resolution is not None:
+        resolution = str(resolution)
+        if resolution not in CHALLENGE_RESOLUTIONS:
+            raise ContinuationCoordinationError("challenge resolution is invalid")
     return {
         "challenge_id": challenge_id,
         "owner_generation": owner_generation,
@@ -135,6 +163,12 @@ def _validate_challenge(value: Mapping[str, Any], *, attempt_ids: set[str]) -> d
         "deadline_at": deadline_at,
         "status": status,
         "contender_attempt_ids": contenders,
+        "acknowledged_at": acknowledged_at,
+        "acknowledged_lease_id": acknowledged_lease_id,
+        "acknowledged_runner_id": acknowledged_runner_id,
+        "timed_out_at": timed_out_at,
+        "resolved_at": resolved_at,
+        "resolution": resolution,
     }
 
 
@@ -303,6 +337,12 @@ def open_or_join_challenge(
             "deadline_at": deadline_at,
             "status": "open",
             "contender_attempt_ids": [attempt_id],
+            "acknowledged_at": None,
+            "acknowledged_lease_id": None,
+            "acknowledged_runner_id": None,
+            "timed_out_at": None,
+            "resolved_at": None,
+            "resolution": None,
         }
         challenges = [*current["challenges"], challenge]
     else:
@@ -326,21 +366,133 @@ def open_or_join_challenge(
     return prune_state(updated, task_id=task_id, now=now), challenge, created
 
 
-def summary(state: Mapping[str, Any], *, task_id: str, now: str) -> dict[str, Any]:
+def advance_timeouts(
+    state: Mapping[str, Any],
+    *,
+    task_id: str,
+    now: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     current = validate_state(state, task_id=task_id)
+    current_time = _parse_time(now, field="now")
+    changed: list[dict[str, Any]] = []
+    challenges: list[dict[str, Any]] = []
+    for item in current["challenges"]:
+        challenge = dict(item)
+        if challenge["status"] == "open" and current_time >= _parse_time(
+            challenge["deadline_at"], field="deadline_at"
+        ):
+            challenge["status"] = "timed_out"
+            challenge["timed_out_at"] = now
+            changed.append(challenge)
+        challenges.append(challenge)
+    if not changed:
+        return current, []
+    updated = dict(current)
+    updated["challenges"] = challenges
+    updated["updated_at"] = now
+    return prune_state(updated, task_id=task_id, now=now), changed
+
+
+def acknowledge_owner_activity(
+    state: Mapping[str, Any],
+    *,
+    task_id: str,
+    owner_generation: int,
+    lease_id: str,
+    runner_id: str,
+    now: str,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    current, _ = advance_timeouts(state, task_id=task_id, now=now)
+    lease = _validate_uuid(lease_id, field="lease_id")
+    runner = _require_text(runner_id, field="runner_id", maximum=MAX_RUNNER_ID_BYTES)
+    if isinstance(owner_generation, bool) or not isinstance(owner_generation, int) or owner_generation < 1:
+        raise ContinuationCoordinationError("owner generation is invalid")
+    challenge = next(
+        (
+            item
+            for item in current["challenges"]
+            if item["owner_generation"] == owner_generation
+            and item["status"] in NONTERMINAL_CHALLENGE_STATUSES
+        ),
+        None,
+    )
+    if challenge is None:
+        return current, None
+    acknowledged = dict(challenge)
+    acknowledged["status"] = "acknowledged"
+    acknowledged["acknowledged_at"] = now
+    acknowledged["acknowledged_lease_id"] = lease
+    acknowledged["acknowledged_runner_id"] = runner
+    acknowledged["resolution"] = "owner_active"
+    updated = dict(current)
+    updated["challenges"] = [
+        acknowledged if item["challenge_id"] == acknowledged["challenge_id"] else item
+        for item in current["challenges"]
+    ]
+    updated["updated_at"] = now
+    return prune_state(updated, task_id=task_id, now=now), acknowledged
+
+
+def resolve_owner_release(
+    state: Mapping[str, Any],
+    *,
+    task_id: str,
+    owner_generation: int,
+    lease_id: str,
+    runner_id: str,
+    now: str,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    current, _ = advance_timeouts(state, task_id=task_id, now=now)
+    lease = _validate_uuid(lease_id, field="lease_id")
+    runner = _require_text(runner_id, field="runner_id", maximum=MAX_RUNNER_ID_BYTES)
+    if isinstance(owner_generation, bool) or not isinstance(owner_generation, int) or owner_generation < 1:
+        raise ContinuationCoordinationError("owner generation is invalid")
+    challenge = next(
+        (
+            item
+            for item in current["challenges"]
+            if item["owner_generation"] == owner_generation
+            and item["status"] in NONTERMINAL_CHALLENGE_STATUSES
+        ),
+        None,
+    )
+    if challenge is None:
+        return current, None
+    resolved = dict(challenge)
+    resolved["status"] = "resolved"
+    resolved["acknowledged_at"] = resolved.get("acknowledged_at") or now
+    resolved["acknowledged_lease_id"] = resolved.get("acknowledged_lease_id") or lease
+    resolved["acknowledged_runner_id"] = resolved.get("acknowledged_runner_id") or runner
+    resolved["resolved_at"] = now
+    resolved["resolution"] = "owner_released"
+    updated = dict(current)
+    updated["challenges"] = [
+        resolved if item["challenge_id"] == resolved["challenge_id"] else item
+        for item in current["challenges"]
+    ]
+    updated["updated_at"] = now
+    return prune_state(updated, task_id=task_id, now=now), resolved
+
+
+def summary(state: Mapping[str, Any], *, task_id: str, now: str) -> dict[str, Any]:
+    current, _ = advance_timeouts(state, task_id=task_id, now=now)
     current_time = _parse_time(now, field="now")
     attempts = list(current["attempts"])
     challenges: list[dict[str, Any]] = []
     for item in current["challenges"]:
         challenge = dict(item)
         challenge["deadline_passed"] = bool(
-            challenge["status"] == "open"
+            challenge["status"] in {"open", "timed_out"}
             and current_time >= _parse_time(challenge["deadline_at"], field="deadline_at")
         )
+        challenge["ownership_forfeiture_candidate"] = challenge["status"] == "timed_out"
         challenges.append(challenge)
     return {
         "attempt_count": len(attempts),
         "challenge_count": len(challenges),
+        "ownership_forfeiture_candidate_count": sum(
+            1 for item in challenges if item["ownership_forfeiture_candidate"]
+        ),
         "contender_count": sum(1 for item in attempts if item["status"] == "contender"),
         "claim_candidate_count": sum(1 for item in attempts if item["status"] == "claim_candidate"),
         "nonterminal_challenges": [
@@ -354,7 +506,10 @@ def summary(state: Mapping[str, Any], *, task_id: str, now: str) -> dict[str, An
 
 __all__ = [
     "ATTEMPT_STATUSES",
+    "CHALLENGE_RESOLUTIONS",
     "CHALLENGE_STATUSES",
+    "acknowledge_owner_activity",
+    "advance_timeouts",
     "COORDINATION_SCHEMA",
     "ContinuationCoordinationError",
     "MAX_ATTEMPTS",
@@ -364,6 +519,7 @@ __all__ = [
     "open_or_join_challenge",
     "prune_state",
     "register_attempt",
+    "resolve_owner_release",
     "summary",
     "validate_state",
 ]

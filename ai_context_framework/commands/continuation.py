@@ -728,6 +728,30 @@ def _assert_lease_owner(
     return lease
 
 
+def _assert_lease_owner_with_activity(
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    *,
+    lease_id: str,
+    fence_token: str | None,
+    generation: int | None,
+) -> dict[str, Any]:
+    lease = _assert_lease_owner(
+        snapshot,
+        lease_id=lease_id,
+        fence_token=fence_token,
+        generation=generation,
+    )
+    continuation_coordination_commands.record_authenticated_owner_activity(
+        paths,
+        control,
+        lease,
+        now=_iso(),
+    )
+    return lease
+
+
 def _workstream_verification(root: Path, workstream_id: str | None) -> dict[str, Any]:
     if not workstream_id:
         return {"required": False, "ok": True, "status": "not_required"}
@@ -1069,7 +1093,9 @@ def continuation_assert_owner_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1095,7 +1121,9 @@ def continuation_heartbeat_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1127,7 +1155,9 @@ def continuation_progress_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1165,7 +1195,9 @@ def continuation_effect_prepare_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1218,7 +1250,9 @@ def continuation_effect_update_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1543,7 +1577,9 @@ def continuation_renew_command(args: argparse.Namespace) -> int:
                     exit_code=3,
                 )
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1572,7 +1608,9 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            _assert_lease_owner(
+            _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1714,6 +1752,12 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 "dirty_entries": git["dirty_entries"],
             }
             _write_json(paths["receipt"], receipt)
+            coordination_resolution = continuation_coordination_commands.record_owner_release(
+                paths,
+                control,
+                lease,
+                now=release_now,
+            )
             paths["lease"].unlink(missing_ok=False)
             return {
                 "ok": outcome == "released",
@@ -1722,6 +1766,7 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 "receipt": receipt,
                 "round": finished_round,
                 "workspace": workspace_summary,
+                "coordination_resolution": coordination_resolution,
                 "next_action": state["next_action"],
             }
 

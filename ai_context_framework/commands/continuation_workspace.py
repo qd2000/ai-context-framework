@@ -541,7 +541,9 @@ def continuation_workspace_intent_command(args: argparse.Namespace) -> int:
         with core._state_lock(paths["lock"]):
             control = core._load_control(paths, root)
             lease_snapshot = core._lease_snapshot(paths, control)
-            lease = core._assert_lease_owner(
+            lease = core._assert_lease_owner_with_activity(
+                paths,
+                control,
                 lease_snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -613,7 +615,9 @@ def continuation_workspace_refresh_command(args: argparse.Namespace) -> int:
         with core._state_lock(paths["lock"]):
             control = core._load_control(paths, root)
             lease_snapshot = core._lease_snapshot(paths, control)
-            lease = core._assert_lease_owner(
+            lease = core._assert_lease_owner_with_activity(
+                paths,
+                control,
                 lease_snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,

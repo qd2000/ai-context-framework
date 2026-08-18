@@ -46,6 +46,98 @@ def load_coordination_state(
         raise coordination_error(exc) from exc
 
 
+def refresh_coordination_timeouts(
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    *,
+    now: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    core = _continuation()
+    state = load_coordination_state(paths, control, now=now)
+    try:
+        state, timed_out = continuation_coordination.advance_timeouts(
+            state,
+            task_id=str(control["task_id"]),
+            now=now,
+        )
+    except continuation_coordination.ContinuationCoordinationError as exc:
+        raise coordination_error(exc) from exc
+    if timed_out:
+        core._write_json(paths["coordination"], state)
+    return state, timed_out
+
+
+def challenge_deadline(
+    control: Mapping[str, Any],
+    *,
+    deadline_minutes: int | None,
+    now_dt,
+) -> tuple[int, str]:
+    core = _continuation()
+    minutes = int(deadline_minutes or control["heartbeat_interval_minutes"])
+    if minutes < 1 or minutes >= int(control["lease_ttl_minutes"]):
+        raise core.ContinuationError(
+            "challenge deadline must be positive and shorter than lease TTL",
+            code="coordination_deadline_invalid",
+        )
+    return minutes, core._iso(now_dt + timedelta(minutes=minutes))
+
+
+def record_authenticated_owner_activity(
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    lease: Mapping[str, Any],
+    *,
+    now: str,
+) -> dict[str, Any] | None:
+    core = _continuation()
+    state, timed_out = refresh_coordination_timeouts(paths, control, now=now)
+    try:
+        state, acknowledged = continuation_coordination.acknowledge_owner_activity(
+            state,
+            task_id=str(control["task_id"]),
+            owner_generation=core._require_fenced_generation(lease),
+            lease_id=str(lease["lease_id"]),
+            runner_id=str(lease["runner_id"]),
+            now=now,
+        )
+    except continuation_coordination.ContinuationCoordinationError as exc:
+        raise coordination_error(exc) from exc
+    if acknowledged is not None:
+        core._write_json(paths["coordination"], state)
+    elif timed_out:
+        # refresh_coordination_timeouts already persisted the timeout transition.
+        pass
+    return acknowledged
+
+
+def record_owner_release(
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    lease: Mapping[str, Any],
+    *,
+    now: str,
+) -> dict[str, Any] | None:
+    core = _continuation()
+    state, timed_out = refresh_coordination_timeouts(paths, control, now=now)
+    try:
+        state, resolved = continuation_coordination.resolve_owner_release(
+            state,
+            task_id=str(control["task_id"]),
+            owner_generation=core._require_fenced_generation(lease),
+            lease_id=str(lease["lease_id"]),
+            runner_id=str(lease["runner_id"]),
+            now=now,
+        )
+    except continuation_coordination.ContinuationCoordinationError as exc:
+        raise coordination_error(exc) from exc
+    if resolved is not None:
+        core._write_json(paths["coordination"], state)
+    elif timed_out:
+        pass
+    return resolved
+
+
 def owner_summary(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     raw_lease = snapshot.get("lease")
     lease = raw_lease if isinstance(raw_lease, Mapping) else {}
@@ -68,7 +160,7 @@ def continuation_coordination_status_command(args: argparse.Namespace) -> int:
         with core._state_lock(paths["lock"]):
             control = core._load_control(paths, root)
             now = core._iso()
-            state = load_coordination_state(paths, control, now=now)
+            state, timed_out = refresh_coordination_timeouts(paths, control, now=now)
             lease = core._lease_snapshot(paths, control)
             try:
                 coordination = continuation_coordination.summary(
@@ -85,6 +177,7 @@ def continuation_coordination_status_command(args: argparse.Namespace) -> int:
                 "state": "valid" if paths["coordination"].exists() else "absent",
                 "owner": owner_summary(lease),
                 "coordination": coordination,
+                "timed_out_challenge_ids": [item["challenge_id"] for item in timed_out],
             }
 
     return core._guarded(args, "continuation coordination status", operation)
@@ -112,7 +205,7 @@ def continuation_coordination_attempt_command(args: argparse.Namespace) -> int:
                     raise core.ContinuationError("active lease payload is missing", code="lease_invalid")
                 observed_owner_generation = core._require_fenced_generation(raw_lease)
             now = core._iso()
-            state = load_coordination_state(paths, control, now=now)
+            state, _ = refresh_coordination_timeouts(paths, control, now=now)
             try:
                 state, attempt = continuation_coordination.register_attempt(
                     state,
@@ -122,6 +215,23 @@ def continuation_coordination_attempt_command(args: argparse.Namespace) -> int:
                     observed_owner_generation=observed_owner_generation,
                     now=now,
                 )
+                challenge = None
+                challenge_created = False
+                if observed_owner_generation is not None:
+                    now_dt = core._now()
+                    _, deadline_at = challenge_deadline(
+                        control,
+                        deadline_minutes=args.deadline_minutes,
+                        now_dt=now_dt,
+                    )
+                    state, challenge, challenge_created = continuation_coordination.open_or_join_challenge(
+                        state,
+                        task_id=str(control["task_id"]),
+                        attempt_id=str(attempt["attempt_id"]),
+                        owner_generation=observed_owner_generation,
+                        deadline_at=deadline_at,
+                        now=now,
+                    )
                 coordination = continuation_coordination.summary(
                     state,
                     task_id=str(control["task_id"]),
@@ -135,10 +245,12 @@ def continuation_coordination_attempt_command(args: argparse.Namespace) -> int:
                 "status": "contender_registered" if contender else "claim_candidate_registered",
                 "task_id": control["task_id"],
                 "attempt": attempt,
+                "challenge": challenge,
+                "challenge_created": challenge_created,
                 "owner": owner_summary(lease),
                 "coordination": coordination,
                 "next_action": (
-                    "Open or join a challenge for the observed owner generation before any write."
+                    "Remain a contender; the challenge does not grant write ownership or prove owner death."
                     if contender
                     else "No active owner was observed; re-run doctor/claim rather than treating this attempt as ownership."
                 ),
@@ -169,14 +281,12 @@ def continuation_coordination_challenge_command(args: argparse.Namespace) -> int
             owner_generation = core._require_fenced_generation(raw_lease)
             now_dt = core._now()
             now = core._iso(now_dt)
-            deadline_minutes = int(args.deadline_minutes or control["heartbeat_interval_minutes"])
-            if deadline_minutes < 1 or deadline_minutes >= int(control["lease_ttl_minutes"]):
-                raise core.ContinuationError(
-                    "challenge deadline must be positive and shorter than lease TTL",
-                    code="coordination_deadline_invalid",
-                )
-            deadline_at = core._iso(now_dt + timedelta(minutes=deadline_minutes))
-            state = load_coordination_state(paths, control, now=now)
+            _, deadline_at = challenge_deadline(
+                control,
+                deadline_minutes=args.deadline_minutes,
+                now_dt=now_dt,
+            )
+            state, _ = refresh_coordination_timeouts(paths, control, now=now)
             try:
                 state, challenge, created = continuation_coordination.open_or_join_challenge(
                     state,
@@ -234,6 +344,12 @@ def register_coordination_parsers(subparsers, add_json_argument) -> None:
     attempt.add_argument("--task-id", default=None)
     attempt.add_argument("--runner-id", required=True)
     attempt.add_argument("--objective-summary", required=True)
+    attempt.add_argument(
+        "--deadline-minutes",
+        type=int,
+        default=None,
+        help="automatic challenge response window when an owner is active; defaults to heartbeat recommendation",
+    )
     add_json_argument(attempt)
     attempt.set_defaults(func=continuation_coordination_attempt_command)
 
@@ -255,9 +371,13 @@ def register_coordination_parsers(subparsers, add_json_argument) -> None:
 
 
 __all__ = [
+    "challenge_deadline",
     "continuation_coordination_attempt_command",
     "continuation_coordination_challenge_command",
     "continuation_coordination_status_command",
     "load_coordination_state",
+    "record_authenticated_owner_activity",
+    "record_owner_release",
+    "refresh_coordination_timeouts",
     "register_coordination_parsers",
 ]
