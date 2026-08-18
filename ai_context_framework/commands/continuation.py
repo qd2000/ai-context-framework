@@ -34,7 +34,15 @@ except ImportError:  # pragma: no cover - Windows path.
     fcntl = None  # type: ignore[assignment]
 
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
-from ai_context_framework import continuation_recovery, continuation_rounds
+from ai_context_framework import (
+    continuation_coordination,
+    continuation_recovery,
+    continuation_rounds,
+    continuation_workspace,
+)
+from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
+from ai_context_framework.commands import continuation_recovery as continuation_recovery_commands
+from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
 from ai_context_framework.observability import (
     append_usage_event,
     atomic_write_text,
@@ -56,10 +64,13 @@ RECEIPT_SCHEMA = "acf.continuation.receipt.v1"
 ROUND_PHASES = continuation_rounds.ROUND_PHASES
 EFFECT_STATUSES = continuation_rounds.EFFECT_STATUSES
 
-DEFAULT_INTERVAL_MINUTES = 60
-DEFAULT_LEASE_TTL_MINUTES = 120
-DEFAULT_RENEW_INTERVAL_MINUTES = 30
-MAX_LEASE_TTL_MINUTES = 24 * 60
+DEFAULT_INTERVAL_MINUTES = continuation_workspace_commands.DEFAULT_INTERVAL_MINUTES
+DEFAULT_LEASE_TTL_MINUTES = continuation_workspace_commands.DEFAULT_LEASE_TTL_MINUTES
+DEFAULT_RENEW_INTERVAL_MINUTES = continuation_workspace_commands.DEFAULT_RENEW_INTERVAL_MINUTES
+DEFAULT_HEARTBEAT_INTERVAL_MINUTES = continuation_workspace_commands.DEFAULT_HEARTBEAT_INTERVAL_MINUTES
+DEFAULT_STALE_AFTER_MINUTES = continuation_workspace_commands.DEFAULT_STALE_AFTER_MINUTES
+MAX_LEASE_TTL_MINUTES = continuation_workspace_commands.MAX_LEASE_TTL_MINUTES
+TIMING_PROFILES = continuation_workspace_commands.TIMING_PROFILES
 MAX_STATE_BYTES = 64 * 1024
 MAX_LIST_ITEMS = 64
 MAX_TEXT_BYTES = 4096
@@ -304,6 +315,8 @@ def _paths(root: Path, task_id: str | None) -> dict[str, Path]:
         "receipt": directory / "last_run.json",
         "rounds": directory / "rounds.json",
         "effects": directory / "effects.json",
+        "coordination": directory / "coordination.json",
+        "workspace": directory / "workspace.json",
         "reconcile": directory / "reconcile.json",
         "recovery": directory / "last_recovery.json",
     }
@@ -409,24 +422,6 @@ def _journal_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> 
             ),
         }
     return round_snapshot, effect_snapshot
-
-
-def _reconcile_observation(
-    root: Path,
-    task_id: str | None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    status = _status(root, task_id)
-    paths = _paths(root, task_id)
-    control = status["control"]
-    rounds = _load_round_journal(paths, control)
-    effects = _load_effect_journal(paths, control)
-    observation = continuation_recovery.build_observation(
-        status,
-        rounds=rounds,
-        effects=effects,
-        task_id=str(control["task_id"]),
-    )
-    return status, observation
 
 
 def _require_fenced_generation(lease: Mapping[str, Any]) -> int:
@@ -548,14 +543,38 @@ def _load_control(paths: Mapping[str, Path], root: Path) -> dict[str, Any]:
         "updated_at",
     ):
         _validate_text(control.get(field), field=field)
-    for field in ("interval_minutes", "lease_ttl_minutes", "renew_interval_minutes"):
-        value = control.get(field)
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ContinuationError(f"invalid control field: {field}", code="control_invalid")
-    if control["lease_ttl_minutes"] > MAX_LEASE_TTL_MINUTES:
-        raise ContinuationError("lease TTL exceeds safety maximum", code="control_invalid")
-    if control["renew_interval_minutes"] >= control["lease_ttl_minutes"]:
-        raise ContinuationError("renew interval must be shorter than lease TTL", code="control_invalid")
+    renew = control.get("renew_interval_minutes")
+    if isinstance(renew, bool) or not isinstance(renew, int) or renew < 1:
+        raise ContinuationError("invalid control field: renew_interval_minutes", code="control_invalid")
+    control.setdefault(
+        "heartbeat_interval_minutes",
+        min(DEFAULT_HEARTBEAT_INTERVAL_MINUTES, max(1, renew // 2)),
+    )
+    control.setdefault("stale_after_minutes", renew)
+    timing_source = {
+        field: control.get(field)
+        for field in (
+            "interval_minutes",
+            "lease_ttl_minutes",
+            "renew_interval_minutes",
+            "heartbeat_interval_minutes",
+            "stale_after_minutes",
+        )
+    }
+    try:
+        timing = continuation_workspace_commands.validate_timing_values(timing_source)
+    except ContinuationError as exc:
+        raise ContinuationError(str(exc), code="control_invalid") from exc
+    control.update(timing)
+    timing_profile = str(control.get("timing_profile") or "").strip()
+    if not timing_profile:
+        timing_profile = next(
+            (name for name, profile_values in TIMING_PROFILES.items() if timing == profile_values),
+            "legacy",
+        )
+        control["timing_profile"] = timing_profile
+    elif timing_profile not in {*TIMING_PROFILES, "custom", "legacy"}:
+        raise ContinuationError("invalid control field: timing_profile", code="control_invalid")
     if control.get("history_policy") != "local_first":
         raise ContinuationError("continuation history_policy must be local_first", code="control_invalid")
     generation = control.get("generation", 0)
@@ -620,7 +639,7 @@ def _lease_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> di
     except ContinuationError as exc:
         return {"state": "invalid", "path": str(path), "error": str(exc)}
     active = expires > _now()
-    stale_after_seconds = int(control["renew_interval_minutes"]) * 60
+    stale_after_seconds = int(control["stale_after_minutes"]) * 60
     heartbeat_age_seconds: int | None = None
     if not active:
         liveness = "expired"
@@ -697,6 +716,30 @@ def _assert_lease_owner(
     return lease
 
 
+def _assert_lease_owner_with_activity(
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    *,
+    lease_id: str,
+    fence_token: str | None,
+    generation: int | None,
+) -> dict[str, Any]:
+    lease = _assert_lease_owner(
+        snapshot,
+        lease_id=lease_id,
+        fence_token=fence_token,
+        generation=generation,
+    )
+    continuation_coordination_commands.record_authenticated_owner_activity(
+        paths,
+        control,
+        lease,
+        now=_iso(),
+    )
+    return lease
+
+
 def _workstream_verification(root: Path, workstream_id: str | None) -> dict[str, Any]:
     if not workstream_id:
         return {"required": False, "ok": True, "status": "not_required"}
@@ -737,6 +780,15 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
     if effect_journal["state"] == "invalid":
         identity_errors.append("effect journal is malformed or identity-mismatched")
     pause = _read_json(paths["pause"], label="pause") if paths["pause"].exists() else None
+    rebaseline_workspace = lease["state"] == "absent" and state["status"] in RUNNABLE_STATUSES
+    workspace = continuation_workspace_commands.workspace_snapshot(
+        root,
+        paths,
+        control,
+        rebaseline=rebaseline_workspace,
+    )
+    if workspace["state"] == "invalid":
+        identity_errors.append("workspace ownership manifest is malformed or identity-mismatched")
     expired_running_round = state["status"] == "running" and lease["state"] == "expired"
     expired_round_head_changed = bool(
         expired_running_round
@@ -755,16 +807,24 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         and not expired_round_head_changed
         and not effect_reconciliation_required
     )
+    workspace_has_conflicts = bool(workspace.get("has_conflicts"))
+    workspace_unclassified_paths = list(workspace.get("unclassified_paths") or [])
+    workspace_claimable = (
+        (workspace["state"] == "valid" and not workspace_has_conflicts)
+        or (workspace["state"] == "absent" and not workspace_unclassified_paths)
+    )
     can_claim = (
         not identity_errors
-        and git["clean"]
+        and workspace_claimable
         and pause is None
         and lease["state"] in {"absent", "expired"}
         and (state["status"] in RUNNABLE_STATUSES or recoverable_expired)
     )
     blocked: list[str] = list(identity_errors)
-    if not git["clean"]:
-        blocked.append("worktree_dirty")
+    if workspace["state"] == "absent" and workspace_unclassified_paths:
+        blocked.append("workspace_provenance_missing")
+    if workspace_has_conflicts:
+        blocked.append("workspace_conflict")
     if pause is not None:
         blocked.append("paused")
     if lease["state"] == "active":
@@ -788,6 +848,7 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         "lease": lease,
         "round_journal": round_journal,
         "effect_journal": effect_journal,
+        "workspace": workspace,
         "pause": pause,
         "workstream": workstream,
         "state_dir": str(paths["directory"]),
@@ -855,124 +916,6 @@ def _guarded(args: argparse.Namespace, command: str, operation) -> int:
         return _emit_error(args, command, exc)
 
 
-def continuation_init_command(args: argparse.Namespace) -> int:
-    def operation() -> dict[str, Any]:
-        root = _workspace_root(args.path)
-        task_id = str(args.task_id or args.workstream or "").strip()
-        if not task_id:
-            raise ContinuationError("--task-id or --workstream is required", code="task_id_required")
-        git = _git_identity(root)
-        if git["detached"] or not git["branch"]:
-            raise ContinuationError("continuation init refuses detached HEAD", code="detached_head")
-        if not git["clean"]:
-            raise ContinuationError(
-                "continuation init requires a clean worktree checkpoint",
-                code="worktree_dirty",
-                details={"dirty_entries": git["dirty_entries"]},
-                next_actions=["Commit or otherwise reconcile the current worktree before enabling automation."],
-            )
-        expected_branch = str(args.expected_branch or git["branch"])
-        if expected_branch != git["branch"]:
-            raise ContinuationError("current branch does not match --expected-branch", code="branch_mismatch")
-        workstream = _workstream_verification(root, args.workstream)
-        if args.workstream and not workstream.get("ok"):
-            raise ContinuationError(
-                "ACF worktree verification failed",
-                code="workstream_verification_failed",
-                details={"workstream": workstream},
-            )
-        interval = int(args.interval_minutes)
-        ttl = int(args.lease_ttl_minutes)
-        renew = int(args.renew_interval_minutes)
-        if interval < 1 or ttl < 1 or ttl > MAX_LEASE_TTL_MINUTES or renew < 1 or renew >= ttl:
-            raise ContinuationError("invalid interval/lease timing values", code="timing_invalid")
-        directory = _task_parent(root) / _safe_key(task_id)
-        paths = {
-            "directory": directory,
-            "lock": directory / "state.lock",
-            "control": directory / "control.json",
-            "state": directory / "state.json",
-            "lease": directory / "lease.json",
-            "pause": directory / "pause.json",
-            "receipt": directory / "last_run.json",
-            "rounds": directory / "rounds.json",
-            "effects": directory / "effects.json",
-            "reconcile": directory / "reconcile.json",
-            "recovery": directory / "last_recovery.json",
-        }
-        if paths["control"].exists() and not args.force:
-            raise ContinuationError(
-                "continuation task is already initialized",
-                code="continuation_exists",
-                next_actions=["Use `acf continuation doctor` or rerun init with --force after review."],
-            )
-        now = _iso()
-        control = {
-            "schema_version": CONTROL_SCHEMA,
-            "task_id": task_id,
-            "title": str(args.title).strip(),
-            "objective": str(args.objective).strip(),
-            "workspace_root": str(root),
-            "expected_branch": expected_branch,
-            "bootstrap_head": git["head"],
-            "workstream_id": args.workstream,
-            "interval_minutes": interval,
-            "lease_ttl_minutes": ttl,
-            "renew_interval_minutes": renew,
-            "history_policy": "local_first",
-            "created_at": now,
-            "updated_at": now,
-        }
-        plan_refs = list(args.plan_ref or [])
-        state = {
-            "schema_version": STATE_SCHEMA,
-            "task_id": task_id,
-            "objective": str(args.objective).strip(),
-            "status": "ready",
-            "stage": str(args.stage or "bootstrap").strip(),
-            "next_action": str(args.next_action or "Run continuation doctor and the next bounded gate.").strip(),
-            "updated_at": now,
-            "completed": ["Initialized ACF bounded continuation control."],
-            "constraints": [
-                "Use the configured fixed Git worktree and branch.",
-                "Treat local project state as authoritative; do not reconstruct state from chat history by default.",
-                "Do not repeat an uncertain non-idempotent operation.",
-                "Finish a write round with a clean worktree checkpoint before release.",
-            ],
-            "evidence_refs": [],
-            "open_questions": [],
-            "plan_refs": plan_refs,
-            "verification": ["Continuation control initialized from a clean Git checkpoint."],
-        }
-        directory.mkdir(parents=True, exist_ok=True)
-        if not paths["lock"].exists():
-            paths["lock"].write_bytes(b"0")
-        _write_json(paths["control"], control)
-        _write_state(paths["state"], state)
-        if args.force:
-            for stale in (
-                paths["lease"],
-                paths["pause"],
-                paths["receipt"],
-                paths["rounds"],
-                paths["effects"],
-                paths["reconcile"],
-                paths["recovery"],
-            ):
-                stale.unlink(missing_ok=True)
-        return {
-            "status": "initialized",
-            "task_id": task_id,
-            "workspace_root": str(root),
-            "branch": expected_branch,
-            "state_dir": str(directory),
-            "workstream": workstream,
-            "next_action": state["next_action"],
-        }
-
-    return _guarded(args, "continuation init", operation)
-
-
 def continuation_doctor_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
@@ -1003,8 +946,6 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                     "another round already owns the worktree",
                     details={"lease": status["lease"].get("lease")},
                 )
-            if not status["git"]["clean"]:
-                raise ContinuationError("worktree is dirty", code="worktree_dirty")
             state = _load_state(paths)
             if status.get("expired_round_head_changed"):
                 lease_head = status["lease"].get("lease", {}).get("head")
@@ -1035,6 +976,13 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 raise ContinuationError(
                     f"state is not runnable: {state['status']}", code="continuation_not_runnable", exit_code=3
                 )
+            if not status["can_claim"]:
+                raise ContinuationError(
+                    "continuation round cannot be claimed from the current workspace state",
+                    code="continuation_not_claimable",
+                    exit_code=3,
+                    details={"blocked_reasons": status["blocked_reasons"]},
+                )
             control = _load_control(paths, root)
             ttl = int(args.ttl_minutes or control["lease_ttl_minutes"])
             if ttl < 1 or ttl > MAX_LEASE_TTL_MINUTES:
@@ -1063,16 +1011,45 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 )
             except continuation_rounds.ContinuationRoundError as exc:
                 raise _round_error(exc) from exc
+            workspace_manifest = continuation_workspace_commands.load_workspace_manifest(paths, control)
+            workspace_snapshot = continuation_workspace_commands.workspace_current_snapshot(root)
+            if workspace_manifest is None:
+                if workspace_snapshot["entries"]:
+                    raise ContinuationError(
+                        "legacy continuation has changed paths without ownership provenance",
+                        code="workspace_provenance_missing",
+                        exit_code=3,
+                        details={"paths": [entry["path"] for entry in workspace_snapshot["entries"]]},
+                    )
+                try:
+                    workspace_manifest = continuation_workspace.new_manifest(
+                        task_id=str(control["task_id"]),
+                        snapshot=workspace_snapshot,
+                        now=_iso(now),
+                    )
+                except continuation_workspace.ContinuationWorkspaceError as exc:
+                    raise continuation_workspace_commands.workspace_error(exc) from exc
+            try:
+                workspace_manifest = continuation_workspace.begin_generation(
+                    workspace_manifest,
+                    task_id=str(control["task_id"]),
+                    generation=generation,
+                    snapshot=workspace_snapshot,
+                    now=_iso(now),
+                )
+            except continuation_workspace.ContinuationWorkspaceError as exc:
+                raise continuation_workspace_commands.workspace_error(exc) from exc
             control["generation"] = generation
             control["updated_at"] = _iso(now)
             _write_json(paths["control"], control)
             _write_json(paths["lease"], lease)
             _write_json(paths["rounds"], round_journal)
+            _write_json(paths["workspace"], workspace_manifest)
             state["status"] = "running"
             state["updated_at"] = _iso()
             if recoverable:
                 state["verification"] = _append_unique(
-                    state["verification"], ["Recovered an expired lease after clean identity checks."]
+                    state["verification"], ["Recovered an expired lease after identity/workspace ownership checks."]
                 )
             _write_state(paths["state"], state)
             return {
@@ -1082,8 +1059,15 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 "fence_token": fence_token,
                 "generation": generation,
                 "round": round_record,
+                "workspace": continuation_workspace.summary(
+                    workspace_manifest,
+                    task_id=str(control["task_id"]),
+                ),
                 "stage": state["stage"],
                 "next_action": state["next_action"],
+                "timing_profile": control["timing_profile"],
+                "heartbeat_interval_minutes": control["heartbeat_interval_minutes"],
+                "stale_after_minutes": control["stale_after_minutes"],
                 "renew_interval_minutes": control["renew_interval_minutes"],
             }
 
@@ -1097,7 +1081,9 @@ def continuation_assert_owner_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1123,7 +1109,9 @@ def continuation_heartbeat_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1155,7 +1143,9 @@ def continuation_progress_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1193,7 +1183,9 @@ def continuation_effect_prepare_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1246,7 +1238,9 @@ def continuation_effect_update_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1299,58 +1293,6 @@ def continuation_effect_list_command(args: argparse.Namespace) -> int:
     return _guarded(args, "continuation effect list", operation)
 
 
-def continuation_reconcile_command(args: argparse.Namespace) -> int:
-    def operation() -> dict[str, Any]:
-        root = _workspace_root(args.path)
-        paths = _paths(root, args.task_id)
-        with _state_lock(paths["lock"]):
-            status, observation = _reconcile_observation(root, args.task_id)
-            evidence_refs = list(dict.fromkeys(args.evidence_ref or []))[:MAX_LIST_ITEMS]
-            for evidence_ref in evidence_refs:
-                _validate_text(evidence_ref, field="evidence_ref")
-            accepted_head = str(args.accept_head).strip() if args.accept_head else None
-            decision, reasons = continuation_recovery.reconcile_decision(
-                status,
-                observation,
-                owner_ended=bool(args.owner_ended),
-                accepted_head=accepted_head,
-                evidence_refs=evidence_refs,
-            )
-            result: dict[str, Any] = {
-                "status": "reconciled",
-                "decision": decision,
-                "eligible_for_recover": decision == "eligible",
-                "reasons": reasons,
-                "observation": observation,
-                "assertions": {
-                    "owner_ended": bool(args.owner_ended),
-                    "accepted_head": accepted_head,
-                },
-                "evidence_refs": evidence_refs,
-                "recorded": False,
-            }
-            if args.record:
-                reason = _validate_text(args.reason, field="reason")
-                receipt = {
-                    "schema_version": continuation_recovery.RECONCILE_SCHEMA,
-                    "receipt_id": str(uuid.uuid4()),
-                    "task_id": status["control"]["task_id"],
-                    "created_at": _iso(),
-                    "decision": decision,
-                    "reasons": reasons,
-                    "reason": reason,
-                    "evidence_refs": evidence_refs,
-                    "assertions": result["assertions"],
-                    "observation": observation,
-                }
-                _write_json(paths["reconcile"], receipt)
-                result["recorded"] = True
-                result["receipt"] = receipt
-            return result
-
-    return _guarded(args, "continuation reconcile", operation)
-
-
 def continuation_recover_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
@@ -1379,7 +1321,7 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                     details={"reasons": receipt["reasons"]},
                 )
 
-            status, observation = _reconcile_observation(root, args.task_id)
+            status, observation = continuation_recovery_commands.reconcile_observation(root, args.task_id)
             if dict(receipt["observation"]) != observation:
                 raise ContinuationError(
                     "continuation state changed after reconciliation",
@@ -1430,6 +1372,77 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 now=now,
             )
 
+            workspace_snapshot = continuation_workspace_commands.workspace_current_snapshot(root)
+            workspace_manifest = continuation_workspace_commands.load_workspace_manifest(paths, control)
+            try:
+                if workspace_manifest is None:
+                    if not status["git"]["clean"]:
+                        raise ContinuationError(
+                            "dirty recovery requires an existing workspace ownership manifest",
+                            code="workspace_manifest_missing",
+                            exit_code=3,
+                        )
+                    workspace_manifest = continuation_workspace.new_manifest(
+                        task_id=str(control["task_id"]),
+                        snapshot=workspace_snapshot,
+                        now=_iso(now),
+                    )
+                    workspace_manifest = continuation_workspace.begin_generation(
+                        workspace_manifest,
+                        task_id=str(control["task_id"]),
+                        generation=generation,
+                        snapshot=workspace_snapshot,
+                        now=_iso(now),
+                    )
+                elif isinstance(old_generation, int) and not isinstance(old_generation, bool):
+                    workspace_manifest = continuation_workspace.recover_generation(
+                        workspace_manifest,
+                        task_id=str(control["task_id"]),
+                        previous_generation=old_generation,
+                        generation=generation,
+                        snapshot=workspace_snapshot,
+                        now=_iso(now),
+                    )
+                else:
+                    if not status["git"]["clean"]:
+                        raise ContinuationError(
+                            "legacy dirty recovery cannot prove workspace ownership",
+                            code="workspace_generation_mismatch",
+                            exit_code=3,
+                        )
+                    workspace_manifest = continuation_workspace.begin_generation(
+                        workspace_manifest,
+                        task_id=str(control["task_id"]),
+                        generation=generation,
+                        snapshot=workspace_snapshot,
+                        now=_iso(now),
+                    )
+            except continuation_workspace.ContinuationWorkspaceError as exc:
+                raise continuation_workspace_commands.workspace_error(exc) from exc
+            workspace_summary = continuation_workspace.summary(
+                workspace_manifest,
+                task_id=str(control["task_id"]),
+            )
+
+            coordination_state = continuation_coordination_commands.load_coordination_state(
+                paths,
+                control,
+                now=_iso(now),
+            )
+            challenge_resolution = None
+            if isinstance(old_generation, int) and not isinstance(old_generation, bool):
+                try:
+                    coordination_state, challenge_resolution = continuation_coordination.resolve_recovery(
+                        coordination_state,
+                        task_id=str(control["task_id"]),
+                        owner_generation=old_generation,
+                        recovery_generation=generation,
+                        reconcile_receipt_id=str(receipt["receipt_id"]),
+                        now=_iso(now),
+                    )
+                except continuation_coordination.ContinuationCoordinationError as exc:
+                    raise continuation_coordination_commands.coordination_error(exc) from exc
+
             round_journal = _load_round_journal(paths, control)
             if isinstance(old_generation, int) and not isinstance(old_generation, bool):
                 try:
@@ -1479,11 +1492,17 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 "runner_id": lease["runner_id"],
                 "head": status["git"]["head"],
                 "effect_digest": observation["effect_digest"],
+                "workspace_digest": workspace_summary["manifest_digest"],
+                "coordination_digest": observation["coordination_digest"],
+                "challenge_resolution": challenge_resolution,
             }
             _write_json(paths["control"], control)
             _write_json(paths["lease"], lease)
             _write_json(paths["rounds"], round_journal)
+            _write_json(paths["workspace"], workspace_manifest)
             _write_state(paths["state"], state)
+            if challenge_resolution is not None:
+                _write_json(paths["coordination"], coordination_state)
             _write_json(paths["recovery"], recovery)
             return {
                 "status": "recovered",
@@ -1493,7 +1512,11 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 "generation": generation,
                 "round": round_record,
                 "recovery": recovery,
+                "workspace": workspace_summary,
                 "next_action": state["next_action"],
+                "timing_profile": control["timing_profile"],
+                "heartbeat_interval_minutes": control["heartbeat_interval_minutes"],
+                "stale_after_minutes": control["stale_after_minutes"],
                 "renew_interval_minutes": control["renew_interval_minutes"],
             }
 
@@ -1513,7 +1536,9 @@ def continuation_renew_command(args: argparse.Namespace) -> int:
                     exit_code=3,
                 )
             snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
+            lease = _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1542,7 +1567,9 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             snapshot = _lease_snapshot(paths, control)
-            _assert_lease_owner(
+            _assert_lease_owner_with_activity(
+                paths,
+                control,
                 snapshot,
                 lease_id=args.lease_id,
                 fence_token=args.fence_token,
@@ -1593,19 +1620,43 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 round_journal = _load_round_journal(paths, control, require_existing=True)
             state = _load_state(paths)
             git = _git_identity(root)
+            workspace_manifest = continuation_workspace_commands.load_workspace_manifest(paths, control)
+            workspace_snapshot = continuation_workspace_commands.workspace_current_snapshot(root)
+            workspace_summary: dict[str, Any] | None = None
+            workspace_release_blocked = False
+            workspace_block_reason: str | None = None
+            if workspace_manifest is not None:
+                try:
+                    workspace_manifest = continuation_workspace.handoff_generation(
+                        workspace_manifest,
+                        task_id=str(control["task_id"]),
+                        snapshot=workspace_snapshot,
+                        now=_iso(),
+                    )
+                except continuation_workspace.ContinuationWorkspaceError as exc:
+                    raise continuation_workspace_commands.workspace_error(exc) from exc
+                workspace_summary = continuation_workspace.summary(
+                    workspace_manifest,
+                    task_id=str(control["task_id"]),
+                )
+                workspace_release_blocked = bool(workspace_summary["has_conflicts"])
+                if workspace_release_blocked:
+                    workspace_block_reason = "workspace_conflict"
+            elif workspace_snapshot["entries"]:
+                workspace_release_blocked = True
+                workspace_block_reason = "workspace_provenance_missing"
             pause = _read_json(paths["pause"], label="pause") if paths["pause"].exists() else None
             outcome = "released"
             if pause is not None:
                 state["status"] = "paused"
                 state["next_action"] = "Wait for an explicit continuation resume action."
                 outcome = "released_to_paused"
-            elif not git["clean"]:
+            elif workspace_release_blocked:
                 state["status"] = "reconciling"
-                state["next_action"] = (
-                    "Reconcile the reported worktree changes and create a clean checkpoint before another round."
-                )
+                state["next_action"] = "Reconcile ambiguous workspace ownership before another round."
                 state["verification"] = _append_unique(
-                    state["verification"], ["Release detected a dirty worktree and failed closed."]
+                    state["verification"],
+                    [f"Release failed closed because {workspace_block_reason or 'workspace ownership is ambiguous'}."],
                 )
                 outcome = "released_to_reconciling"
             else:
@@ -1640,6 +1691,8 @@ def continuation_release_command(args: argparse.Namespace) -> int:
             _write_state(paths["state"], state)
             if round_journal is not None:
                 _write_json(paths["rounds"], round_journal)
+            if workspace_manifest is not None:
+                _write_json(paths["workspace"], workspace_manifest)
             receipt = {
                 "schema_version": RECEIPT_SCHEMA,
                 "task_id": control["task_id"],
@@ -1658,6 +1711,12 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 "dirty_entries": git["dirty_entries"],
             }
             _write_json(paths["receipt"], receipt)
+            coordination_resolution = continuation_coordination_commands.record_owner_release(
+                paths,
+                control,
+                lease,
+                now=release_now,
+            )
             paths["lease"].unlink(missing_ok=False)
             return {
                 "ok": outcome == "released",
@@ -1665,6 +1724,8 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 "state": state,
                 "receipt": receipt,
                 "round": finished_round,
+                "workspace": workspace_summary,
+                "coordination_resolution": coordination_resolution,
                 "next_action": state["next_action"],
             }
 
@@ -1721,51 +1782,6 @@ def continuation_resume_command(args: argparse.Namespace) -> int:
             return {"status": "ready", "state": state, "next_action": state["next_action"]}
 
     return _guarded(args, "continuation resume", operation)
-
-
-def continuation_prompt_command(args: argparse.Namespace) -> int:
-    def operation() -> dict[str, Any]:
-        root = _workspace_root(args.path)
-        paths = _paths(root, args.task_id)
-        control = _load_control(paths, root)
-        state = _load_state(paths)
-        task_flag = f" --task-id {json.dumps(control['task_id'])}"
-        prompt = f"""Use the fixed local Git worktree below as the authoritative execution target.
-
-Task: {control['task_id']} — {control['title']}
-Worktree: {root}
-Branch: {control['expected_branch']}
-Current stage: {state['stage']}
-Current status: {state['status']}
-Next action: {state['next_action']}
-
-Continuation protocol:
-1. Do not reconstruct task state from chat history by default. Read local project plans/evidence and `acf continuation doctor` first.
-2. Run `acf continuation doctor {json.dumps(str(root))}{task_flag} --json`.
-3. If `can_claim` is false, never copy an old lease id to impersonate its owner. A fresh active owner means no-op. For stale/orphan_candidate, legacy_unknown, changed HEAD, or effect reconciliation signals, use `acf continuation reconcile ... --json` to inspect the exact recovery blockers. Only after external/local evidence proves the prior owner ended, all effects are resolved/reusable, and any advanced HEAD is explicitly accepted may you record an eligible receipt with `acf continuation reconcile ... --owner-ended --accept-head <current-head-if-needed> --evidence-ref <durable-ref> --reason <concise-reason> --record --json`, then fence the old owner with `acf continuation recover ... --reconcile-id <receipt_id> --runner-id <runner> --json`. If reconcile remains blocked, stop without modifying the worktree.
-4. If `can_claim` is true, claim one bounded round with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`. If step 3 recovered an orphan instead, use the credentials returned by `recover` and do not claim again. Keep the returned lease_id, generation, and fence_token; treat fence_token as an owner credential and do not copy it into project files or logs.
-5. Execute only the current bounded gate. Record compact runtime-neutral progress with `acf continuation progress ... --phase <phase> --milestone <compact-name> --evidence-ref <durable-ref> --json`; do not copy raw tool output or transcript history into continuation state.
-6. Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. For long work, record liveness with `acf continuation heartbeat ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` and extend TTL with `acf continuation renew ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before their configured thresholds; heartbeat proves liveness but does not extend TTL.
-7. Before executing each external/non-idempotent side effect, write its deterministic identity first with `acf continuation effect prepare ... --key <logical-key> --kind <generic-kind> --json`. Execute the side effect only when prepare returns `created=true`; `created=false` means the logical effect already exists and must be inspected/reused/reconciled rather than resubmitted. After authoritative observations, update only compact status/milestone/external-id/evidence references with `acf continuation effect update ...`. If an outcome is uncertain, stop and preserve the effect for reconciliation; never resubmit it from memory. Use `acf continuation effect list ... --json` to inspect durable effect identities.
-8. Validate the gate and create the project-required clean Git checkpoint before release.
-9. Update bounded state with `acf continuation checkpoint ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> ... --json`.
-10. Release the same lease with `acf continuation release ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`.
-11. Stop on paused, blocked_human, reconciling, identity mismatch, effect reconciliation required, or unknown write outcome.
-12. If this round exposes a concrete reusable ACF/continuation/workflow defect or operational gap, record it immediately with `acf continuation issue {json.dumps(str(root))}{task_flag} --category <category> --severity <low|medium|high|critical> --text <concise issue> --evidence-ref <path-or-commit> --json`. Do not record normal active-lease no-ops, expected waits, or task-specific scientific failures as product issues.
-"""
-        return {"status": "rendered", "task_id": control["task_id"], "prompt": prompt}
-
-    result_holder: dict[str, Any] = {}
-
-    def capture() -> dict[str, Any]:
-        value = operation()
-        result_holder.update(value)
-        return value
-
-    exit_code = _guarded(args, "continuation prompt", capture)
-    if exit_code == 0 and not json_enabled(args):
-        print(result_holder["prompt"])
-    return exit_code
 
 
 def continuation_issue_command(args: argparse.Namespace) -> int:
@@ -1906,37 +1922,32 @@ def register_round_effect_parsers(subparsers, add_json_argument) -> None:
     add_json_argument(list_parser)
     list_parser.set_defaults(func=continuation_effect_list_command)
 
-    reconcile = subparsers.add_parser(
-        "reconcile",
-        help="classify an interrupted round and optionally record an auditable recovery decision",
-    )
-    reconcile.add_argument("path", nargs="?", type=Path)
-    reconcile.add_argument("--task-id", default=None)
-    reconcile.add_argument("--owner-ended", action="store_true")
-    reconcile.add_argument("--accept-head", default=None)
-    reconcile.add_argument("--evidence-ref", action="append", default=None)
-    reconcile.add_argument("--reason", default=None)
-    reconcile.add_argument("--record", action="store_true")
-    add_json_argument(reconcile)
-    reconcile.set_defaults(func=continuation_reconcile_command)
+    continuation_recovery_commands.register_recovery_parsers(subparsers, add_json_argument)
 
-    recover = subparsers.add_parser(
-        "recover",
-        help="fence an interrupted owner using one eligible reconcile receipt",
-    )
-    recover.add_argument("path", nargs="?", type=Path)
-    recover.add_argument("--task-id", default=None)
-    recover.add_argument("--reconcile-id", required=True)
-    recover.add_argument("--runner-id", required=True)
-    recover.add_argument("--ttl-minutes", type=int, default=None)
-    add_json_argument(recover)
-    recover.set_defaults(func=continuation_recover_command)
+
+continuation_init_command = continuation_workspace_commands.continuation_init_command
+continuation_configure_command = continuation_workspace_commands.continuation_configure_command
+continuation_prompt_command = continuation_workspace_commands.continuation_prompt_command
+continuation_workspace_status_command = continuation_workspace_commands.continuation_workspace_status_command
+continuation_workspace_intent_command = continuation_workspace_commands.continuation_workspace_intent_command
+continuation_workspace_refresh_command = continuation_workspace_commands.continuation_workspace_refresh_command
+continuation_coordination_status_command = continuation_coordination_commands.continuation_coordination_status_command
+continuation_coordination_attempt_command = continuation_coordination_commands.continuation_coordination_attempt_command
+continuation_coordination_challenge_command = continuation_coordination_commands.continuation_coordination_challenge_command
+continuation_reconcile_command = continuation_recovery_commands.continuation_reconcile_command
+register_workspace_parsers = continuation_workspace_commands.register_workspace_parsers
+register_configure_parser = continuation_workspace_commands.register_configure_parser
+register_coordination_parsers = continuation_coordination_commands.register_coordination_parsers
 
 
 __all__ = [
     "continuation_assert_owner_command",
     "continuation_checkpoint_command",
     "continuation_claim_command",
+    "continuation_configure_command",
+    "continuation_coordination_attempt_command",
+    "continuation_coordination_challenge_command",
+    "continuation_coordination_status_command",
     "continuation_doctor_command",
     "continuation_effect_list_command",
     "continuation_effect_prepare_command",
@@ -1952,5 +1963,11 @@ __all__ = [
     "continuation_release_command",
     "continuation_renew_command",
     "continuation_resume_command",
+    "continuation_workspace_intent_command",
+    "continuation_workspace_refresh_command",
+    "continuation_workspace_status_command",
     "register_round_effect_parsers",
+    "register_coordination_parsers",
+    "register_configure_parser",
+    "register_workspace_parsers",
 ]

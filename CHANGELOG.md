@@ -2,6 +2,26 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## Unreleased
+
+## v0.0.3.63 — 2026-08-18
+
+### Continuation 长轮次时序与统一协议
+
+- continuation timing 拆分 scheduler interval、lease TTL、renew interval、heartbeat recommendation 与 stale threshold；`doctor` 不再用 renew interval 推导 stale。新增 `standard` / `long-running` profile，其中 long-running 默认 `60/180/45/10/25` 分钟。
+- 新增 `acf continuation configure`，已有 task 可原位更新 timing control，不需要 `init --force`；active lease 存在时拒绝 configure，避免运行中改变 owner liveness 语义。
+- `acf continuation prompt` 输出当前 timing 并明确 scheduler 只是唤醒频率、Gate 可自然持续 1-2 小时以上；Scheduled Task 应只保留项目 wrapper，每轮消费当前安装态生成协议。
+- continuation 不再把 worktree-level `clean/dirty` 作为 claim/release/reconcile/recover 安全门。workspace manifest v2 使用 path/status/digest 区分 external 与 `task_owned` WIP；正常 release 可保留未提交 task WIP，下一 generation 验证 ownerless handoff 期间 digest 未漂移后直接继承。Git commit 只在自然语义 checkpoint 创建；真正的 unknown provenance 报 `workspace_provenance_missing`，同路径/父子路径或 task-owned ownerless drift 才进入 `workspace_conflict`。
+- 新增 bounded `coordination attempt|challenge|status`：后来的 runner 可以登记 contender 并针对当前 fenced owner generation open/join challenge，但 challenge 本身不授予写权限。owner-protected continuation 操作在 `lease_id + generation + fence_token` 验证成功后作为 authenticated response；正常 release 解析为 `owner_released`。
+- challenge deadline 到期只产生 `ownership_forfeiture_candidate`，不宣称旧 Agent 已死亡。formal reconcile receipt 同时绑定 workspace/effect/HEAD/identity 与 coordination digest；owner ACK 与 recover 的竞态由同一 state lock 和 generation fencing 保证最多一个 writer，旧 generation 复活后确定性失败。
+- 所有可定位项目的普通 ACF 命令都会 opportunistic 只读提示当前 owner generation 的 pending challenge，但绝不 ACK 或改变 ownership。`acf continuation prompt` 现在是唯一 generic Scheduled Task protocol 权威，项目 wrapper 只保留固定 project/worktree/branch/task identity 与项目特有 Runtime/科学/权限/验收约束。
+
+### Failure injection 与真实项目兼容性
+
+- 冻结 12 场景 failure matrix，覆盖模拟 2h+ 同 generation heartbeat/renew、clean crash、可归属 task WIP、external dirty、路径 overlap、ownerless digest drift、HEAD advance、unresolved effect、challenge ACK/recover race 与旧 generation resurrection。
+- WS008 开发版已对 FCC WS079、WS080、WS086 的真实既有 continuation state 原位生成 v0.0.3.63 协议，无需 force re-init，并保留各自科学/runtime next_action；真实 task-id alias 也会被原样保留。
+- AStockT_AI WS003 在 qdspc 的 v0.0.3.61 安装态仍生成旧协议，作为发布后安装/cutover 的明确 adoption 基线；新版本安装前不提前修改生产 Scheduled Task wrapper。
+
 ## v0.0.3.62 — 2026-08-17
 
 ### Continuation 可恢复执行协议

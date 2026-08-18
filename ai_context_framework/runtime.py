@@ -49,11 +49,11 @@ from ai_context_framework.commands import plan_task as plan_task_commands
 from ai_context_framework.commands import workstream as workstream_commands
 from ai_context_framework.commands import worktree as worktree_commands
 from ai_context_framework.commands import continuation as continuation_commands
+from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
 from ai_context_framework.commands.log import (
     build_usage_event,
     check_counts,
     command_label,
-    context_location_for_args,
     log_disable_command,
     log_enable_command,
     log_feedback_command,
@@ -1202,7 +1202,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     continuation_init_parser = continuation_subparsers.add_parser(
         "init",
-        help="initialize bounded continuation state for one clean Git worktree",
+        help="initialize bounded continuation state and capture the current Git workspace baseline",
     )
     continuation_init_parser.add_argument("path", nargs="?", type=Path)
     continuation_init_parser.add_argument("--task-id", default=None)
@@ -1214,23 +1214,36 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_init_parser.add_argument("--plan-ref", action="append", default=None)
     continuation_init_parser.add_argument("--expected-branch", default=None)
     continuation_init_parser.add_argument(
+        "--profile",
+        choices=tuple(sorted(continuation_commands.TIMING_PROFILES)),
+        default="standard",
+        help="timing profile; explicit timing flags override the selected profile",
+    )
+    continuation_init_parser.add_argument(
         "--interval-minutes",
         type=int,
-        default=continuation_commands.DEFAULT_INTERVAL_MINUTES,
+        default=None,
     )
     continuation_init_parser.add_argument(
         "--lease-ttl-minutes",
         type=int,
-        default=continuation_commands.DEFAULT_LEASE_TTL_MINUTES,
+        default=None,
     )
     continuation_init_parser.add_argument(
         "--renew-interval-minutes",
         type=int,
-        default=continuation_commands.DEFAULT_RENEW_INTERVAL_MINUTES,
+        default=None,
     )
+    continuation_init_parser.add_argument("--heartbeat-interval-minutes", type=int, default=None)
+    continuation_init_parser.add_argument("--stale-after-minutes", type=int, default=None)
     continuation_init_parser.add_argument("--force", action="store_true")
     add_json_argument(continuation_init_parser)
     continuation_init_parser.set_defaults(func=continuation_commands.continuation_init_command)
+
+    continuation_commands.register_configure_parser(
+        continuation_subparsers,
+        add_json_argument,
+    )
 
     continuation_doctor_parser = continuation_subparsers.add_parser(
         "doctor",
@@ -1279,6 +1292,14 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_heartbeat_parser.set_defaults(func=continuation_commands.continuation_heartbeat_command)
 
     continuation_commands.register_round_effect_parsers(
+        continuation_subparsers,
+        add_json_argument,
+    )
+    continuation_commands.register_workspace_parsers(
+        continuation_subparsers,
+        add_json_argument,
+    )
+    continuation_commands.register_coordination_parsers(
         continuation_subparsers,
         add_json_argument,
     )
@@ -1966,6 +1987,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         emit_cli_error(argv_list, message, "runtime_error", exit_code)
 
     if args is not None:
+        continuation_coordination_commands.emit_pending_challenge_probe(args)
         duration_ms = int((time.perf_counter() - started) * 1000)
         record_usage_event(args, exit_code, duration_ms)
     return exit_code

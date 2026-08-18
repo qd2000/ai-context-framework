@@ -130,11 +130,17 @@ acf worktree create --workstream WS005 --apply --json
 需要让 Scheduled Task、其他 scheduler 或人工多轮任务持续推进现有 worktree 时，使用 `acf continuation`，而不是为每个项目复制 controller：
 
 ```powershell
-acf continuation init C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --workstream WS001 --title "WS001" --objective "目标" --json
+acf continuation init C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --workstream WS001 --title "WS001" --objective "目标" --profile long-running --json
+acf continuation configure C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --profile long-running --json
 acf continuation doctor C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --json
 acf continuation claim C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --runner-id scheduled-agent --json
 # 保存 claim 返回的 lease_id、generation、fence_token；不要把 fence_token 写入项目文件或普通日志
 acf continuation assert-owner C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
+acf continuation workspace status C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --json
+# 修改项目文件前声明 concrete intent；绑定 Workstream 时必须命中其直接 write_scope
+acf continuation workspace intent C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --path src/example.py --json
+# 写入后/收口前刷新 bounded path/status/digest ownership metadata
+acf continuation workspace refresh C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
 acf continuation heartbeat C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
 acf continuation progress C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --phase executing --milestone gate-started --json
 acf continuation effect prepare C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --key campaign:wave-01 --kind external-job --json
@@ -152,7 +158,7 @@ acf continuation issue C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 -
 acf log issues --all-projects --open-only --json
 ```
 
-新 claim 或 recover 的同一 round 使用返回的 `lease_id + generation + fence_token` 调用 owner-protected 写命令。`progress` 只记录 generic phase/milestone/evidence；外部/non-idempotent work 必须先 `effect prepare`，再根据 authority observation 用 `effect update` 推进，不能把 raw stdout/tool output/transcript 写入 journal。`heartbeat` 只刷新 liveness，不延长 TTL；`renew` 才延长 TTL。`reconcile` 默认只读；fresh active owner 永远不可 takeover，stale/legacy active 需要明确 owner-ended evidence，advanced HEAD 必须精确接受当前 HEAD，unresolved effect 仍然 blocked。`recover` 只消费 recorded eligible receipt，并在 generation+1 前再次检查 observation 未发生任何漂移。clean release 未给 `--final-status` 时会保留已经 checkpoint 的非 running state；wrong task-id 会列出当前 available tasks；issue resolution 使用追加事件而不是改写历史。旧 v0.0.3.61 task 可直接使用该路径原位恢复，不要求 force re-init。人工中止使用 `pause`，确认后使用 `resume`。状态保存在用户级 `~/.acf/projects/.../continuation/`，不修改项目工作树。完整设计见 [Continuation_Control_Design.md](Continuation_Control_Design.md)。
+新 claim 或 recover 的同一 round 使用返回的 `lease_id + generation + fence_token` 调用 owner-protected 写命令。`standard` timing 为 scheduler/TTL/renew/heartbeat/stale=`60/120/30/10/30` 分钟，`long-running` 为 `60/180/45/10/25`；已有 task 可用 `configure` 原位切换。`progress` 只记录 generic phase/milestone/evidence；外部/non-idempotent work 必须先 `effect prepare`，再根据 authority observation 用 `effect update` 推进，不能把 raw stdout/tool output/transcript 写入 journal。workspace manifest v2 只记录 bounded path/status/digest ownership：`baseline_external` 是受保护外部修改，显式 write intent 下产生或继承的未提交修改是 `task_owned`。worktree-level `clean/dirty` 不参与 liveness、claim、release、reconcile 或 recover；正常 release 可以保留 task-owned WIP 并让下一 generation 在 ownerless handoff digest 未漂移时继续继承，因此 Scheduled round 不要求 Git commit。无 manifest 的 changed paths 报 `workspace_provenance_missing`，task-owned handoff 漂移、同路径/父子路径碰撞、HEAD/effect/identity 无法解释才 fail-closed。`heartbeat` 只刷新 liveness，不延长 TTL；`renew` 才延长 TTL。fresh active owner 永远不可 takeover；stale/orphan recovery 在 workspace/effect/HEAD evidence 可解释时 generation+1 fencing，并保留 task/external WIP，不 stash/reset/clean。`acf continuation prompt` 是 Scheduled Task 的 generic 协议权威。人工中止使用 `pause`，确认后使用 `resume`。状态保存在用户级 `~/.acf/projects/.../continuation/`，不会自动修改项目文件。完整设计见 [Continuation_Control_Design.md](Continuation_Control_Design.md)。
 
 ### Workstream guard 模式
 
