@@ -18,7 +18,7 @@ COORDINATION_SCHEMA = "acf.continuation.coordination.v1"
 ATTEMPT_STATUSES = frozenset({"claim_candidate", "contender", "closed"})
 CHALLENGE_STATUSES = frozenset({"open", "acknowledged", "timed_out", "resolved", "superseded"})
 NONTERMINAL_CHALLENGE_STATUSES = frozenset({"open", "timed_out"})
-CHALLENGE_RESOLUTIONS = frozenset({"owner_active", "owner_released"})
+CHALLENGE_RESOLUTIONS = frozenset({"owner_active", "owner_released", "ownership_recovered"})
 MAX_ATTEMPTS = 32
 MAX_CHALLENGES = 16
 MAX_CONTENDERS_PER_CHALLENGE = 16
@@ -156,6 +156,16 @@ def _validate_challenge(value: Mapping[str, Any], *, attempt_ids: set[str]) -> d
         resolution = str(resolution)
         if resolution not in CHALLENGE_RESOLUTIONS:
             raise ContinuationCoordinationError("challenge resolution is invalid")
+    recovery_generation = value.get("recovery_generation")
+    if recovery_generation is not None and (
+        isinstance(recovery_generation, bool)
+        or not isinstance(recovery_generation, int)
+        or recovery_generation < 1
+    ):
+        raise ContinuationCoordinationError("challenge recovery_generation is invalid")
+    reconcile_receipt_id = value.get("reconcile_receipt_id")
+    if reconcile_receipt_id is not None:
+        reconcile_receipt_id = _validate_uuid(reconcile_receipt_id, field="reconcile_receipt_id")
     return {
         "challenge_id": challenge_id,
         "owner_generation": owner_generation,
@@ -169,6 +179,8 @@ def _validate_challenge(value: Mapping[str, Any], *, attempt_ids: set[str]) -> d
         "timed_out_at": timed_out_at,
         "resolved_at": resolved_at,
         "resolution": resolution,
+        "recovery_generation": recovery_generation,
+        "reconcile_receipt_id": reconcile_receipt_id,
     }
 
 
@@ -343,6 +355,8 @@ def open_or_join_challenge(
             "timed_out_at": None,
             "resolved_at": None,
             "resolution": None,
+            "recovery_generation": None,
+            "reconcile_receipt_id": None,
         }
         challenges = [*current["challenges"], challenge]
     else:
@@ -474,6 +488,57 @@ def resolve_owner_release(
     return prune_state(updated, task_id=task_id, now=now), resolved
 
 
+def resolve_recovery(
+    state: Mapping[str, Any],
+    *,
+    task_id: str,
+    owner_generation: int,
+    recovery_generation: int,
+    reconcile_receipt_id: str,
+    now: str,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Resolve one timed-out owner challenge after fenced recovery succeeds.
+
+    A timed-out challenge is only an ownership-forfeiture candidate.  This
+    transition is therefore intentionally called only by the continuation
+    controller after reconcile has revalidated workspace/HEAD/effect/identity
+    evidence and selected a strictly newer generation.
+    """
+    current, _ = advance_timeouts(state, task_id=task_id, now=now)
+    if isinstance(owner_generation, bool) or not isinstance(owner_generation, int) or owner_generation < 1:
+        raise ContinuationCoordinationError("owner generation is invalid")
+    if (
+        isinstance(recovery_generation, bool)
+        or not isinstance(recovery_generation, int)
+        or recovery_generation <= owner_generation
+    ):
+        raise ContinuationCoordinationError("recovery generation must advance beyond challenged owner")
+    receipt_id = _validate_uuid(reconcile_receipt_id, field="reconcile_receipt_id")
+    challenge = next(
+        (
+            item
+            for item in current["challenges"]
+            if item["owner_generation"] == owner_generation and item["status"] == "timed_out"
+        ),
+        None,
+    )
+    if challenge is None:
+        return current, None
+    resolved = dict(challenge)
+    resolved["status"] = "resolved"
+    resolved["resolved_at"] = now
+    resolved["resolution"] = "ownership_recovered"
+    resolved["recovery_generation"] = recovery_generation
+    resolved["reconcile_receipt_id"] = receipt_id
+    updated = dict(current)
+    updated["challenges"] = [
+        resolved if item["challenge_id"] == resolved["challenge_id"] else item
+        for item in current["challenges"]
+    ]
+    updated["updated_at"] = now
+    return prune_state(updated, task_id=task_id, now=now), resolved
+
+
 def summary(state: Mapping[str, Any], *, task_id: str, now: str) -> dict[str, Any]:
     current, _ = advance_timeouts(state, task_id=task_id, now=now)
     current_time = _parse_time(now, field="now")
@@ -520,6 +585,7 @@ __all__ = [
     "prune_state",
     "register_attempt",
     "resolve_owner_release",
+    "resolve_recovery",
     "summary",
     "validate_state",
 ]

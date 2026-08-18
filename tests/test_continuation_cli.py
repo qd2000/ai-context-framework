@@ -1679,6 +1679,212 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, f"{stderr}\n{next_claim}")
         self.assertGreater(int(next_claim["generation"]), int(claim["generation"]))
 
+    def test_ws008_timed_out_challenge_can_authorize_fenced_recovery_without_death_claim(self) -> None:
+        init = self.init_task("WS908")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "owner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "Take ownership only after challenge-backed formal recovery.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        challenge_id = str(attempt["challenge"]["challenge_id"])
+        coordination_path = state_dir / "coordination.json"
+        coordination = continuation._read_json(coordination_path, label="coordination")
+        challenge = coordination["challenges"][0]
+        challenge["opened_at"] = continuation._iso(continuation._now() - timedelta(minutes=2))
+        challenge["deadline_at"] = continuation._iso(continuation._now() - timedelta(minutes=1))
+        continuation._write_json(coordination_path, coordination)
+
+        code, status, stderr = self.run_json(
+            ["continuation", "coordination", "status", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{status}")
+        self.assertEqual([challenge_id], status["timed_out_challenge_ids"])
+        self.assertEqual("fresh", status["owner"]["liveness"])
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--record",
+                "--reason",
+                "The owner did not answer the bounded challenge; formal state evidence is otherwise safe.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"], reconciled)
+        self.assertFalse(reconciled["assertions"]["owner_ended"])
+        self.assertEqual([], reconciled["evidence_refs"])
+        candidates = reconciled["observation"]["ownership_forfeiture_candidates"]
+        self.assertEqual([challenge_id], [item["challenge_id"] for item in candidates])
+        self.assertTrue(reconciled["observation"]["coordination_digest"])
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "contender-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        self.assertEqual(int(claim["generation"]) + 1, recovered["generation"])
+        resolution = recovered["recovery"]["challenge_resolution"]
+        self.assertEqual(challenge_id, resolution["challenge_id"])
+        self.assertEqual("ownership_recovered", resolution["resolution"])
+        self.assertEqual(recovered["generation"], resolution["recovery_generation"])
+
+        code, coordination_after, stderr = self.run_json(
+            ["continuation", "coordination", "status", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{coordination_after}")
+        current = next(
+            item
+            for item in coordination_after["coordination"]["challenges"]
+            if item["challenge_id"] == challenge_id
+        )
+        self.assertEqual("resolved", current["status"])
+        self.assertEqual("ownership_recovered", current["resolution"])
+        self.assertEqual(0, coordination_after["coordination"]["ownership_forfeiture_candidate_count"])
+
+        code, fenced, _ = self.run_json(
+            [
+                "continuation",
+                "heartbeat",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("lease_mismatch", fenced["error_code"])
+
+    def test_ws008_owner_ack_after_reconcile_stales_challenge_backed_recovery(self) -> None:
+        init = self.init_task("WS908")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "owner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "Race owner acknowledgement against recovery safely.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        coordination_path = state_dir / "coordination.json"
+        coordination = continuation._read_json(coordination_path, label="coordination")
+        challenge = coordination["challenges"][0]
+        challenge["opened_at"] = continuation._iso(continuation._now() - timedelta(minutes=2))
+        challenge["deadline_at"] = continuation._iso(continuation._now() - timedelta(minutes=1))
+        continuation._write_json(coordination_path, coordination)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--record",
+                "--reason",
+                "Challenge timed out before the old owner responded.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"], reconciled)
+
+        code, heartbeat, stderr = self.run_json(
+            [
+                "continuation",
+                "heartbeat",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{heartbeat}")
+
+        code, denied, _ = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "contender-a",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("reconciliation_stale", denied["error_code"])
+        self.assertNotEqual(
+            reconciled["observation"]["coordination_digest"],
+            denied["details"]["current"]["coordination_digest"],
+        )
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertEqual(str(claim["lease"]["lease_id"]), doctor["lease"]["lease"]["lease_id"])
+        self.assertEqual(int(claim["generation"]), doctor["lease"]["lease"]["generation"])
+
     def test_pause_during_active_round_blocks_renew_and_release_finishes_paused(self) -> None:
         self.init_task()
         code, claim, _ = self.run_json(

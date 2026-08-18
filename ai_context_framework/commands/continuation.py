@@ -34,8 +34,14 @@ except ImportError:  # pragma: no cover - Windows path.
     fcntl = None  # type: ignore[assignment]
 
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
-from ai_context_framework import continuation_recovery, continuation_rounds, continuation_workspace
+from ai_context_framework import (
+    continuation_coordination,
+    continuation_recovery,
+    continuation_rounds,
+    continuation_workspace,
+)
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
+from ai_context_framework.commands import continuation_recovery as continuation_recovery_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
 from ai_context_framework.observability import (
     append_usage_event,
@@ -416,24 +422,6 @@ def _journal_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> 
             ),
         }
     return round_snapshot, effect_snapshot
-
-
-def _reconcile_observation(
-    root: Path,
-    task_id: str | None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    status = _status(root, task_id)
-    paths = _paths(root, task_id)
-    control = status["control"]
-    rounds = _load_round_journal(paths, control)
-    effects = _load_effect_journal(paths, control)
-    observation = continuation_recovery.build_observation(
-        status,
-        rounds=rounds,
-        effects=effects,
-        task_id=str(control["task_id"]),
-    )
-    return status, observation
 
 
 def _require_fenced_generation(lease: Mapping[str, Any]) -> int:
@@ -1305,58 +1293,6 @@ def continuation_effect_list_command(args: argparse.Namespace) -> int:
     return _guarded(args, "continuation effect list", operation)
 
 
-def continuation_reconcile_command(args: argparse.Namespace) -> int:
-    def operation() -> dict[str, Any]:
-        root = _workspace_root(args.path)
-        paths = _paths(root, args.task_id)
-        with _state_lock(paths["lock"]):
-            status, observation = _reconcile_observation(root, args.task_id)
-            evidence_refs = list(dict.fromkeys(args.evidence_ref or []))[:MAX_LIST_ITEMS]
-            for evidence_ref in evidence_refs:
-                _validate_text(evidence_ref, field="evidence_ref")
-            accepted_head = str(args.accept_head).strip() if args.accept_head else None
-            decision, reasons = continuation_recovery.reconcile_decision(
-                status,
-                observation,
-                owner_ended=bool(args.owner_ended),
-                accepted_head=accepted_head,
-                evidence_refs=evidence_refs,
-            )
-            result: dict[str, Any] = {
-                "status": "reconciled",
-                "decision": decision,
-                "eligible_for_recover": decision == "eligible",
-                "reasons": reasons,
-                "observation": observation,
-                "assertions": {
-                    "owner_ended": bool(args.owner_ended),
-                    "accepted_head": accepted_head,
-                },
-                "evidence_refs": evidence_refs,
-                "recorded": False,
-            }
-            if args.record:
-                reason = _validate_text(args.reason, field="reason")
-                receipt = {
-                    "schema_version": continuation_recovery.RECONCILE_SCHEMA,
-                    "receipt_id": str(uuid.uuid4()),
-                    "task_id": status["control"]["task_id"],
-                    "created_at": _iso(),
-                    "decision": decision,
-                    "reasons": reasons,
-                    "reason": reason,
-                    "evidence_refs": evidence_refs,
-                    "assertions": result["assertions"],
-                    "observation": observation,
-                }
-                _write_json(paths["reconcile"], receipt)
-                result["recorded"] = True
-                result["receipt"] = receipt
-            return result
-
-    return _guarded(args, "continuation reconcile", operation)
-
-
 def continuation_recover_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
@@ -1385,7 +1321,7 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                     details={"reasons": receipt["reasons"]},
                 )
 
-            status, observation = _reconcile_observation(root, args.task_id)
+            status, observation = continuation_recovery_commands.reconcile_observation(root, args.task_id)
             if dict(receipt["observation"]) != observation:
                 raise ContinuationError(
                     "continuation state changed after reconciliation",
@@ -1488,6 +1424,25 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 task_id=str(control["task_id"]),
             )
 
+            coordination_state = continuation_coordination_commands.load_coordination_state(
+                paths,
+                control,
+                now=_iso(now),
+            )
+            challenge_resolution = None
+            if isinstance(old_generation, int) and not isinstance(old_generation, bool):
+                try:
+                    coordination_state, challenge_resolution = continuation_coordination.resolve_recovery(
+                        coordination_state,
+                        task_id=str(control["task_id"]),
+                        owner_generation=old_generation,
+                        recovery_generation=generation,
+                        reconcile_receipt_id=str(receipt["receipt_id"]),
+                        now=_iso(now),
+                    )
+                except continuation_coordination.ContinuationCoordinationError as exc:
+                    raise continuation_coordination_commands.coordination_error(exc) from exc
+
             round_journal = _load_round_journal(paths, control)
             if isinstance(old_generation, int) and not isinstance(old_generation, bool):
                 try:
@@ -1538,12 +1493,16 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 "head": status["git"]["head"],
                 "effect_digest": observation["effect_digest"],
                 "workspace_digest": workspace_summary["manifest_digest"],
+                "coordination_digest": observation["coordination_digest"],
+                "challenge_resolution": challenge_resolution,
             }
             _write_json(paths["control"], control)
             _write_json(paths["lease"], lease)
             _write_json(paths["rounds"], round_journal)
             _write_json(paths["workspace"], workspace_manifest)
             _write_state(paths["state"], state)
+            if challenge_resolution is not None:
+                _write_json(paths["coordination"], coordination_state)
             _write_json(paths["recovery"], recovery)
             return {
                 "status": "recovered",
@@ -1963,33 +1922,7 @@ def register_round_effect_parsers(subparsers, add_json_argument) -> None:
     add_json_argument(list_parser)
     list_parser.set_defaults(func=continuation_effect_list_command)
 
-    reconcile = subparsers.add_parser(
-        "reconcile",
-        help="classify an interrupted round, including bounded dirty ownership, and optionally record an auditable recovery decision",
-        description="Classify an interrupted round using lease/effect/workspace ownership evidence and optionally record an auditable recovery decision.",
-    )
-    reconcile.add_argument("path", nargs="?", type=Path)
-    reconcile.add_argument("--task-id", default=None)
-    reconcile.add_argument("--owner-ended", action="store_true")
-    reconcile.add_argument("--accept-head", default=None)
-    reconcile.add_argument("--evidence-ref", action="append", default=None)
-    reconcile.add_argument("--reason", default=None)
-    reconcile.add_argument("--record", action="store_true")
-    add_json_argument(reconcile)
-    reconcile.set_defaults(func=continuation_reconcile_command)
-
-    recover = subparsers.add_parser(
-        "recover",
-        help="fence an interrupted owner and transfer evidence-backed WIP using one eligible reconcile receipt",
-        description="Fence an interrupted owner and transfer evidence-backed write intent/WIP ownership using one eligible reconcile receipt.",
-    )
-    recover.add_argument("path", nargs="?", type=Path)
-    recover.add_argument("--task-id", default=None)
-    recover.add_argument("--reconcile-id", required=True)
-    recover.add_argument("--runner-id", required=True)
-    recover.add_argument("--ttl-minutes", type=int, default=None)
-    add_json_argument(recover)
-    recover.set_defaults(func=continuation_recover_command)
+    continuation_recovery_commands.register_recovery_parsers(subparsers, add_json_argument)
 
 
 continuation_init_command = continuation_workspace_commands.continuation_init_command
@@ -2001,6 +1934,7 @@ continuation_workspace_refresh_command = continuation_workspace_commands.continu
 continuation_coordination_status_command = continuation_coordination_commands.continuation_coordination_status_command
 continuation_coordination_attempt_command = continuation_coordination_commands.continuation_coordination_attempt_command
 continuation_coordination_challenge_command = continuation_coordination_commands.continuation_coordination_challenge_command
+continuation_reconcile_command = continuation_recovery_commands.continuation_reconcile_command
 register_workspace_parsers = continuation_workspace_commands.register_workspace_parsers
 register_configure_parser = continuation_workspace_commands.register_configure_parser
 register_coordination_parsers = continuation_coordination_commands.register_coordination_parsers

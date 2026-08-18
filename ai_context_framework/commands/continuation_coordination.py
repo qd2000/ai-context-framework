@@ -91,12 +91,22 @@ def record_authenticated_owner_activity(
     now: str,
 ) -> dict[str, Any] | None:
     core = _continuation()
+    owner_generation = lease.get("generation")
+    if (
+        isinstance(owner_generation, bool)
+        or not isinstance(owner_generation, int)
+        or owner_generation < 1
+    ):
+        # Legacy active leases remain readable/renewable through their
+        # compatibility path.  They predate generation fencing, so they cannot
+        # safely authenticate a generation-bound challenge response.
+        return None
     state, timed_out = refresh_coordination_timeouts(paths, control, now=now)
     try:
         state, acknowledged = continuation_coordination.acknowledge_owner_activity(
             state,
             task_id=str(control["task_id"]),
-            owner_generation=core._require_fenced_generation(lease),
+            owner_generation=owner_generation,
             lease_id=str(lease["lease_id"]),
             runner_id=str(lease["runner_id"]),
             now=now,
@@ -119,12 +129,19 @@ def record_owner_release(
     now: str,
 ) -> dict[str, Any] | None:
     core = _continuation()
+    owner_generation = lease.get("generation")
+    if (
+        isinstance(owner_generation, bool)
+        or not isinstance(owner_generation, int)
+        or owner_generation < 1
+    ):
+        return None
     state, timed_out = refresh_coordination_timeouts(paths, control, now=now)
     try:
         state, resolved = continuation_coordination.resolve_owner_release(
             state,
             task_id=str(control["task_id"]),
-            owner_generation=core._require_fenced_generation(lease),
+            owner_generation=owner_generation,
             lease_id=str(lease["lease_id"]),
             runner_id=str(lease["runner_id"]),
             now=now,

@@ -30,12 +30,29 @@ def build_observation(
     *,
     rounds: Mapping[str, Any],
     effects: Mapping[str, Any],
+    coordination: Mapping[str, Any],
+    coordination_summary: Mapping[str, Any],
     task_id: str,
 ) -> dict[str, Any]:
     lease_payload = status["lease"].get("lease")
     lease = dict(lease_payload) if isinstance(lease_payload, Mapping) else {}
     workspace_payload = status.get("workspace")
     workspace = dict(workspace_payload) if isinstance(workspace_payload, Mapping) else {}
+    forfeiture_candidates: list[dict[str, Any]] = []
+    raw_challenges = coordination_summary.get("challenges")
+    if isinstance(raw_challenges, list):
+        for raw in raw_challenges:
+            if not isinstance(raw, Mapping) or raw.get("ownership_forfeiture_candidate") is not True:
+                continue
+            forfeiture_candidates.append(
+                {
+                    "challenge_id": raw.get("challenge_id"),
+                    "owner_generation": raw.get("owner_generation"),
+                    "deadline_at": raw.get("deadline_at"),
+                    "timed_out_at": raw.get("timed_out_at"),
+                    "contender_attempt_ids": list(raw.get("contender_attempt_ids") or []),
+                }
+            )
     return {
         "lease_state": status["lease"]["state"],
         "lease_id": lease.get("lease_id"),
@@ -56,6 +73,8 @@ def build_observation(
         "workspace_unexpected_nonoverlap_paths": list(workspace.get("unexpected_nonoverlap_paths") or []),
         "round_digest": json_digest(rounds),
         "effect_digest": json_digest(effects),
+        "coordination_digest": json_digest(coordination),
+        "ownership_forfeiture_candidates": forfeiture_candidates,
         "latest_round": continuation_rounds.latest_round(rounds, task_id=task_id),
         "effect_summary": continuation_rounds.effect_summary(effects, task_id=task_id),
     }
@@ -77,10 +96,23 @@ def reconcile_decision(
 
     lease_state = observation.get("lease_state")
     liveness = observation.get("liveness")
+    lease_generation = observation.get("lease_generation")
+    raw_forfeiture_candidates = observation.get("ownership_forfeiture_candidates")
+    forfeiture_candidates = (
+        [item for item in raw_forfeiture_candidates if isinstance(item, Mapping)]
+        if isinstance(raw_forfeiture_candidates, list)
+        else []
+    )
+    ownership_forfeited = any(
+        item.get("owner_generation") == lease_generation and isinstance(item.get("challenge_id"), str)
+        for item in forfeiture_candidates
+    )
     if lease_state not in {"active", "expired"}:
         reasons.append("recoverable_lease_missing")
     if lease_state == "active":
-        if liveness == "fresh":
+        if ownership_forfeited:
+            pass
+        elif liveness == "fresh":
             reasons.append("active_owner_live")
         elif liveness in {"stale", "legacy_unknown"}:
             if not owner_ended:
@@ -88,7 +120,6 @@ def reconcile_decision(
         else:
             reasons.append("active_owner_liveness_invalid")
 
-    lease_generation = observation.get("lease_generation")
     workspace_state = observation.get("workspace_state")
     workspace_generation = observation.get("workspace_generation")
     workspace_digest = observation.get("workspace_manifest_digest")

@@ -40,6 +40,7 @@ ai_context_framework/commands/__init__.py
 ai_context_framework/commands/archive.py
 ai_context_framework/commands/continuation.py
 ai_context_framework/commands/continuation_coordination.py
+ai_context_framework/commands/continuation_recovery.py
 ai_context_framework/commands/continuation_workspace.py
 ai_context_framework/commands/decisions.py
 ai_context_framework/commands/doctor.py
