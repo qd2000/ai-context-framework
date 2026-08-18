@@ -49,11 +49,11 @@ from ai_context_framework.commands import plan_task as plan_task_commands
 from ai_context_framework.commands import workstream as workstream_commands
 from ai_context_framework.commands import worktree as worktree_commands
 from ai_context_framework.commands import continuation as continuation_commands
+from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
 from ai_context_framework.commands.log import (
     build_usage_event,
     check_counts,
     command_label,
-    context_location_for_args,
     log_disable_command,
     log_enable_command,
     log_feedback_command,
@@ -1987,6 +1987,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         emit_cli_error(argv_list, message, "runtime_error", exit_code)
 
     if args is not None:
+        continuation_coordination_commands.emit_pending_challenge_probe(args)
         duration_ms = int((time.perf_counter() - started) * 1000)
         record_usage_event(args, exit_code, duration_ms)
     return exit_code

@@ -1442,6 +1442,98 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(int(claim["generation"]), attempt["challenge"]["owner_generation"])
         self.assertEqual(1, len(attempt["coordination"]["nonterminal_challenges"]))
 
+    def test_ws008_generic_project_command_probes_pending_challenge_without_ack(self) -> None:
+        code, initialized, stderr = self.run_json(["init", str(self.root / "docs" / "ai")])
+        self.assertEqual(0, code, f"{stderr}\n{initialized}")
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "owner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "Surface the challenge through ordinary project commands.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        challenge_id = str(attempt["challenge"]["challenge_id"])
+
+        code, project_status, stderr = self.run_json(["status", str(self.root)])
+        self.assertEqual(0, code, f"{stderr}\n{project_status}")
+        self.assertIn("ACF continuation challenge pending", stderr)
+        self.assertIn("task=WS908", stderr)
+        self.assertIn("does not ACK the challenge or grant ownership", stderr)
+
+        code, coordination_status, stderr = self.run_json(
+            ["continuation", "coordination", "status", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{coordination_status}")
+        current = next(
+            item
+            for item in coordination_status["coordination"]["challenges"]
+            if item["challenge_id"] == challenge_id
+        )
+        self.assertEqual("open", current["status"])
+        self.assertIsNone(current["acknowledged_at"])
+
+    def test_ws008_generic_probe_ignores_challenge_for_noncurrent_generation(self) -> None:
+        code, initialized, stderr = self.run_json(["init", str(self.root / "docs" / "ai")])
+        self.assertEqual(0, code, f"{stderr}\n{initialized}")
+        init = self.init_task("WS908")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "owner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "Create a challenge that will be made historically stale.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        coordination_path = state_dir / "coordination.json"
+        coordination = continuation._read_json(coordination_path, label="coordination")
+        coordination["challenges"][0]["owner_generation"] = int(claim["generation"]) + 100
+        continuation._write_json(coordination_path, coordination)
+
+        code, project_status, stderr = self.run_json(["status", str(self.root)])
+        self.assertEqual(0, code, f"{stderr}\n{project_status}")
+        self.assertNotIn("ACF continuation challenge pending", stderr)
+
     def test_ws008_owner_authenticated_activity_acknowledges_pending_challenge(self) -> None:
         self.init_task("WS908")
         code, claim, stderr = self.run_json(
@@ -3099,6 +3191,12 @@ class ContinuationCliTests(unittest.TestCase):
         prompt = str(payload["prompt"])
         self.assertIn("Do not reconstruct task state from chat history", prompt)
         self.assertIn("acf continuation doctor", prompt)
+        self.assertIn("only generic continuation state-machine contract", prompt)
+        self.assertIn("acf continuation coordination attempt", prompt)
+        self.assertIn("acf continuation coordination status", prompt)
+        self.assertIn("ACF continuation challenge pending", prompt)
+        self.assertIn("ownership_forfeiture_candidate", prompt)
+        self.assertIn("does not prove the Agent is dead", prompt)
         self.assertIn("acf continuation claim", prompt)
         self.assertIn("acf continuation assert-owner", prompt)
         self.assertIn("heartbeat", prompt)

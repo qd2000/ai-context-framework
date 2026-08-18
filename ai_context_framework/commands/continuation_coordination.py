@@ -9,6 +9,8 @@ declares an owner dead.
 from __future__ import annotations
 
 import argparse
+import json
+import sys
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Mapping
@@ -166,6 +168,135 @@ def owner_summary(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         "liveness": snapshot.get("liveness"),
         "orphan_candidate": bool(snapshot.get("orphan_candidate")),
     }
+
+
+def pending_challenge_probe(root: Path) -> list[dict[str, Any]]:
+    """Return bounded pending challenge hints without changing ownership state.
+
+    The top-level CLI calls this after ordinary project commands.  It is
+    deliberately fail-open and read-only: unauthenticated ACF activity may
+    surface a challenge, but it must never become an owner ACK or grant write
+    authority.
+    """
+    core = _continuation()
+    try:
+        workspace_root = core._workspace_root(root)
+        parent = core._task_parent(workspace_root)
+    except Exception:
+        return []
+    if not parent.is_dir():
+        return []
+
+    now = core._iso()
+    findings: list[dict[str, Any]] = []
+    candidates = sorted(
+        path
+        for path in parent.iterdir()
+        if path.is_dir()
+        and (path / "control.json").is_file()
+        and (path / "coordination.json").is_file()
+    )
+    for directory in candidates:
+        try:
+            raw_control = core._read_json(directory / "control.json", label="control")
+            task_id = str(raw_control.get("task_id") or "").strip()
+            if not task_id:
+                continue
+            paths = core._paths(workspace_root, task_id)
+            control = core._load_control(paths, workspace_root)
+            lease_snapshot = core._lease_snapshot(paths, control)
+            if lease_snapshot.get("state") != "active":
+                continue
+            raw_lease = lease_snapshot.get("lease")
+            if not isinstance(raw_lease, Mapping):
+                continue
+            owner_generation = raw_lease.get("generation")
+            if (
+                isinstance(owner_generation, bool)
+                or not isinstance(owner_generation, int)
+                or owner_generation < 1
+            ):
+                continue
+            state = load_coordination_state(paths, control, now=now)
+            coordination = continuation_coordination.summary(
+                state,
+                task_id=str(control["task_id"]),
+                now=now,
+            )
+        except Exception:
+            continue
+        for challenge in coordination["nonterminal_challenges"]:
+            if challenge["owner_generation"] != owner_generation:
+                continue
+            findings.append(
+                {
+                    "task_id": str(control["task_id"]),
+                    "challenge_id": challenge["challenge_id"],
+                    "owner_generation": challenge["owner_generation"],
+                    "status": challenge["status"],
+                    "deadline_at": challenge["deadline_at"],
+                    "deadline_passed": bool(challenge["deadline_passed"]),
+                    "ownership_forfeiture_candidate": bool(
+                        challenge["ownership_forfeiture_candidate"]
+                    ),
+                    "contender_count": len(challenge["contender_attempt_ids"]),
+                }
+            )
+            if len(findings) >= 8:
+                return findings
+    return findings
+
+
+def _probe_workspace_root(args: argparse.Namespace) -> Path | None:
+    core = _continuation()
+    candidates: list[Path] = []
+    for field in ("path", "context", "target"):
+        value = getattr(args, field, None)
+        if isinstance(value, (str, Path)):
+            candidates.append(Path(value))
+    candidates.append(Path.cwd())
+    for candidate in candidates:
+        try:
+            location = candidate.expanduser().resolve()
+            if location.is_file():
+                location = location.parent
+            return core._workspace_root(location)
+        except (Exception, SystemExit):
+            continue
+    return None
+
+
+def emit_pending_challenge_probe(args: argparse.Namespace) -> None:
+    """Surface pending challenges without changing command success or ownership."""
+    root = _probe_workspace_root(args)
+    if root is None:
+        return
+    try:
+        findings = pending_challenge_probe(root)
+    except (Exception, SystemExit):
+        return
+    if not findings:
+        return
+
+    shown = findings[:3]
+    for finding in shown:
+        status = str(finding["status"])
+        if finding["ownership_forfeiture_candidate"]:
+            status += "/ownership_forfeiture_candidate"
+        print(
+            "ACF continuation challenge pending: "
+            f"task={finding['task_id']} generation={finding['owner_generation']} "
+            f"status={status} contenders={finding['contender_count']}. "
+            "This ordinary ACF command is only a probe; it does not ACK the challenge or grant ownership. "
+            f"Inspect with `acf continuation coordination status {json.dumps(str(root))} "
+            f"--task-id {json.dumps(str(finding['task_id']))} --json`.",
+            file=sys.stderr,
+        )
+    if len(findings) > len(shown):
+        print(
+            f"ACF continuation challenge pending: {len(findings) - len(shown)} additional challenge(s) omitted.",
+            file=sys.stderr,
+        )
 
 
 def continuation_coordination_status_command(args: argparse.Namespace) -> int:
@@ -392,7 +523,9 @@ __all__ = [
     "continuation_coordination_attempt_command",
     "continuation_coordination_challenge_command",
     "continuation_coordination_status_command",
+    "emit_pending_challenge_probe",
     "load_coordination_state",
+    "pending_challenge_probe",
     "record_authenticated_owner_activity",
     "record_owner_release",
     "refresh_coordination_timeouts",

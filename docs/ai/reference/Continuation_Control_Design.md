@@ -46,6 +46,9 @@ Continuation 运行态不写入项目仓库，默认位于：
 ```text
 acf continuation init
 acf continuation doctor
+acf continuation coordination status
+acf continuation coordination attempt
+acf continuation coordination challenge
 acf continuation claim
 acf continuation assert-owner
 acf continuation heartbeat
@@ -71,9 +74,11 @@ acf continuation issue
 
 `doctor` 只读核对 Git top-level、branch、dirty 状态、可选 Workstream identity、pause、lease 和 compact state，并返回 `can_claim`。带 heartbeat 的 active lease 会按配置的 renew interval 区分 `fresh` 与 `stale`；stale 同时暴露 `orphan_candidate=true`，但仍然 `can_claim=false`，因为“没有新鲜 heartbeat”只能证明需要 reconciliation，不能证明接管安全。旧版没有 heartbeat/generation 的 active lease 返回 `legacy_unknown` 并继续保守阻塞。
 
-`claim` 在本地 OS 文件锁保护下取得单一 active lease；第二个执行器看到 active lease 必须 no-op。新 claim 会把 control generation 单调递增，并返回 `lease_id`、`generation` 与高熵 `fence_token`；磁盘只保存 fence token 的 SHA-256 hash，不保存原 token。`fence_token` 是本轮 owner credential，只能保存在当前执行器的私有运行上下文，不得复制到项目文件、普通日志或 handoff 文档。
+`coordination attempt` 为每个到达 runner 记录 bounded `attempt_id / started_at / objective_summary`。没有 owner 时 attempt 只是 `claim_candidate`；有 fenced owner 时 attempt 是 contender，并自动 open/join 当前 owner generation 唯一的 nonterminal challenge。challenge 不授予写权限，也不证明 owner 已死亡。任何可定位到项目的普通 ACF 命令都可以在 stderr opportunistic 提示**当前 active owner generation** 的 pending challenge，但该 probe 只读、不更新 coordination state，也绝不能冒充 ACK。只有 owner-protected continuation 命令在 `lease_id + generation + fence_token` 校验成功后才记录 authenticated owner activity；正常 release 单独把 challenge 解析为 `owner_released`。deadline 到期只得到 `timed_out / ownership_forfeiture_candidate`，后续仍需 formal reconcile workspace/HEAD/effect/identity；匹配 generation 的 timeout evidence 可以撤销旧 owner 的 ownership claim，但不能绕过其余 recovery 安全门。ACK/reconcile/recover 继续共享 continuation state lock 与 generation fencing，因此竞态最多产生一个 writer。
 
-`assert-owner` 对 active lease 的 `lease_id + generation + fence_token` 做所有权校验。新 generation 生效后，旧 owner 的 `assert-owner`、`heartbeat`、`renew`、`checkpoint` 和 `release` 都会被确定性拒绝。该 fencing 保护的是 ACF continuation 控制协议；它不能阻止绕过 ACF 直接写外部系统，因此 non-idempotent 外部动作仍应在动作前显式 assert-owner。
+`claim` 在本地 OS 文件锁保护下取得单一 active lease；第二个执行器看到 active lease 时不能 claim 或写 worktree，但可以作为 contender 登记 attempt/challenge 并等待 authenticated response、owner release 或 formal recovery。新 claim 会把 control generation 单调递增，并返回 `lease_id`、`generation` 与高熵 `fence_token`；磁盘只保存 fence token 的 SHA-256 hash，不保存原 token。`fence_token` 是本轮 owner credential，只能保存在当前执行器的私有运行上下文，不得复制到项目文件、普通日志或 handoff 文档。
+
+`assert-owner` 对 active lease 的 `lease_id + generation + fence_token` 做所有权校验。owner-protected continuation 命令在凭据验证成功后会执行 authenticated coordination touch，因此可以响应当前 generation 的 pending/timed-out challenge；错误凭据和普通 ACF 命令都不能 ACK。新 generation 生效后，旧 owner 的 `assert-owner`、`heartbeat`、`renew`、`checkpoint` 和 `release` 都会被确定性拒绝。该 fencing 保护的是 ACF continuation 控制协议；它不能阻止绕过 ACF 直接写外部系统，因此 non-idempotent 外部动作仍应在动作前显式 assert-owner。
 
 `heartbeat` 只刷新 `last_heartbeat_at`，用于证明 runner liveness，不延长 `expires_at`。`renew` 在校验 owner 后同时刷新 heartbeat/renew 时间并延长同一 lease TTL，不改变外部调度周期。stale heartbeat 本身永远不授权接管。
 
@@ -94,7 +99,7 @@ Workspace ownership 保存在用户级 `workspace.json`，只记录 bounded path
 
 只要 `state=running` 的 lease 已过期且 effect journal 非空，`doctor` 返回 `effect_reconciliation_required` 并保持 `can_claim=false`，防止普通 re-claim 绕过 durable side-effect evidence。没有 round/effect journal 的 v0.0.3.61 task 仍可保守读取。
 
-`reconcile` 默认只读，不会“猜旧 runner 已死”。它基于当前 lease/liveness、HEAD、round/effect journal、workspace ownership manifest 和调用方显式 assertion 生成 `eligible|blocked` decision：fresh active owner 无条件 blocked；stale 或 `legacy_unknown` active owner 必须显式 `--owner-ended` 并提供 evidence；lease HEAD 与 current HEAD 不同必须用 `--accept-head <current-head>` 精确接受并附 evidence；任何 `prepared/active/unknown` effect 仍 blocked。worktree-level dirty/clean 不进入 decision；只要 workspace manifest 可验证、generation 与 interrupted owner 一致且没有真实 conflict，`baseline_external`、`unexpected_nonoverlap` 和可证明 `task_owned` 都可进入 formal recovery。缺失 provenance、generation 漂移或真实 ownership conflict 才 fail-closed。`--record --reason ...` 才把 observation、assertions、effect summary/digest、workspace ownership digest 和 evidence refs 写成用户级 reconcile receipt。
+`reconcile` 默认只读，不会“猜旧 runner 已死”。它基于当前 lease/liveness、HEAD、round/effect journal、workspace ownership manifest、coordination digest 和调用方显式 assertion 生成 `eligible|blocked` decision：没有匹配 timed-out challenge evidence 时，fresh active owner 无条件 blocked，stale 或 `legacy_unknown` active owner 必须显式 `--owner-ended` 并提供 evidence；匹配当前 owner generation 的 `ownership_forfeiture_candidate` 可以替代这项 ownership-ended assertion，但绝不跳过其他安全门。lease HEAD 与 current HEAD 不同必须用 `--accept-head <current-head>` 精确接受并附 evidence；任何 `prepared/active/unknown` effect 仍 blocked。worktree-level dirty/clean 不进入 decision；只要 workspace manifest 可验证、generation 与 interrupted owner 一致且没有真实 conflict，`baseline_external`、`unexpected_nonoverlap` 和可证明 `task_owned` 都可进入 formal recovery。缺失 provenance、generation 漂移或真实 ownership conflict 才 fail-closed。`--record --reason ...` 才把 observation、assertions、effect summary/digest、workspace ownership digest、coordination digest 和 evidence refs 写成用户级 reconcile receipt。
 
 `recover --reconcile-id ... --runner-id ...` 只消费 recorded eligible receipt。执行前重新计算整个 observation；lease state/id/generation、liveness class、HEAD、state status、round/effect digest 或 workspace ownership digest 任一变化都会返回 `reconciliation_stale`，要求重新 reconcile。成功后旧 round（若为 fenced round）以 `reconciling/superseded_by_recovery` 收口，新 lease generation 单调递增并返回新的 fence credential；workspace manifest 同步转移到新 generation，保留原 write intents 与可证明的 `task_owned` WIP，同时继续保护不重叠的 baseline/external dirty；恢复动作不会 stash/reset/clean，也不会为了换轮次自动提交 task/external WIP。`last_recovery.json` 只记录 compact recovery identity/digest。因此旧 owner 即使随后复活，也无法 heartbeat/renew/checkpoint/release 新 generation。`reconcile/recover` 只确定性执行调用方已经明确提供的 evidence assertion，不自动裁决外部事实。
 
@@ -120,7 +125,7 @@ Workspace ownership 保存在用户级 `workspace.json`，只记录 bounded path
 
 显式 `--task-id` 指向不存在的 continuation task 时，CLI 返回 `continuation_task_not_found`，并在 `details.available_tasks` 给出当前 worktree 已配置的 task id，避免 AI 把 task-id 拼写错误误判为 control 文件损坏。
 
-标准 `acf continuation prompt` 会要求外部 agent：只有发现具体、可复用、证据支持的产品或工作流问题时才调用 `acf continuation issue`；active lease no-op、正常等待、业务模型未收敛等预期状态不得当作产品 issue。
+标准 `acf continuation prompt` 是唯一 generic Scheduled Task protocol 权威：它包含 attempt/challenge、普通命令只读 probe、authenticated owner response、timeout-to-forfeiture、formal preemption/recover、workspace ownership、effect identity、heartbeat/renew、checkpoint/release 与 issue 记录协议。外部 wrapper 不再复制这些状态机细节，只保留固定 project/worktree/branch/task identity 和项目特有 Runtime/科学/权限/验收约束。prompt 同时要求只有发现具体、可复用、证据支持的产品或工作流问题时才调用 `acf continuation issue`；active lease no-op、正常等待、业务模型未收敛等预期状态不得当作产品 issue。
 
 生成 prompt 同时输出当前 timing profile 与五个时序参数，并明确 scheduler interval 只是唤醒频率，不是 round/Gate 的硬截止时间。项目 Scheduled Task 不应冻结一份手写 generic recovery 状态机；wrapper 只保留固定 worktree/branch/task-id、项目特有 Runtime/科学/权限约束，每轮重新消费当前安装态 `acf continuation prompt`。
 
@@ -151,12 +156,16 @@ acf log projects --json
 每小时触发
     ↓
 doctor
-    ├─ active + fresh heartbeat → no-op，当前 owner live
-    ├─ active + stale heartbeat → orphan candidate → reconcile；未证明 owner ended 则 stop
-    ├─ active + legacy-unknown → reconcile；必须显式 owner-ended evidence
+    ↓
+coordination attempt
+    ├─ active owner → contender + open/join challenge → 不写 worktree
+    │      ├─ owner authenticated touch → owner_active → contender stop
+    │      ├─ owner release → owner_released → 重新 doctor/attempt
+    │      └─ challenge timeout → ownership_forfeiture_candidate → formal reconcile
+    ├─ stale/legacy-unknown 且无 challenge forfeiture evidence → reconcile；必须显式 owner-ended evidence
     ├─ expired running + effect records → effect_reconciliation_required → reconcile
     ├─ paused/reconciling/真实 workspace conflict → no-op
-    └─ can_claim=true → claim → 单轮执行
+    └─ no owner + can_claim=true → claim → 单轮执行
 ```
 
 因此本地 worktree 不依赖外部平台未文档化的并发、顺延或重试语义保证单写者。
@@ -184,7 +193,9 @@ Continuation 状态不是 transcript cache，而是低噪声恢复索引。
 - 不自动 stash/reset/clean/rebase/force/push；
 - `workspace intent` 只接受具体路径；绑定 Workstream 时必须落在直接 write scope 内；与 baseline/external dirty 同路径或父子路径碰撞时拒绝 intent；
 - active round 的非重叠 external dirty 可以共存；task-owned WIP 也可以在未 Git commit 的情况下正常 release/claim 跨 generation handoff。ACF 不自动提交两者；
-- active lease 不可被第二个 claimant 覆盖；
+- active lease 不可被第二个 claimant 覆盖；后续 runner 只能作为 contender 登记 attempt/challenge，challenge 本身不授予写权限；
+- 普通可定位项目的 ACF 命令只读提示 pending challenge，不构成 authenticated response；
+- challenge timeout 只形成 ownership forfeiture candidate，仍必须 formal reconcile，并由 coordination digest + generation fencing 处理 ACK/recover race；
 - fenced round 的 owner credential 只返回给 claimant，持久态只保存 hash；
 - generation 前进后，旧 owner 的 heartbeat/renew/checkpoint/release 必须失败；
 - stale/orphan candidate 只触发 reconciliation 信号，不允许自动 steal；
