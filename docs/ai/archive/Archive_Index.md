@@ -53,6 +53,7 @@
 | 2026-08-04 | workstream | WS005 | active/workstreams/WS005.md | `archive/workstreams/WS005.md` | Done | WS005已合入master，生产acf v0.0.3.54完整生命周期smoke通过，关联worktree与分支已安全关闭。 |
 | 2026-08-05 | workstream | WS006 | active/workstreams/WS006.md | `archive/workstreams/WS006.md` | Done | ACF v0.0.3.55 global-first progressive disclosure released to production and validated in FCC. |
 | 2026-08-17 | workstream | WS007 | active/workstreams/WS007.md | `archive/workstreams/WS007.md` | Done | Merged to master as 1ac7c87; completion evidence recorded and post-merge strict verification passed. |
+| 2026-08-18 | workstream | WS008 | active/workstreams/WS008.md | `archive/workstreams/WS008.md` | Done | Merged to master at 157daf9; v0.0.3.63 released to PyPI, installed on lenovo and qdspc, and four-project generated-protocol adoption verified. |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
