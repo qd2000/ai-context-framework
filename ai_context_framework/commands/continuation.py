@@ -1299,37 +1299,19 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
         paths = _paths(root, args.task_id)
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
-            try:
-                receipt = continuation_recovery.validate_reconcile_receipt(
-                    _read_json(paths["reconcile"], label="reconcile")
-                )
-            except continuation_recovery.ContinuationRecoveryError as exc:
-                raise ContinuationError(str(exc), code=exc.code) from exc
-            if receipt["task_id"] != control["task_id"]:
-                raise ContinuationError("reconcile receipt task mismatch", code="reconcile_invalid")
-            if receipt["receipt_id"] != args.reconcile_id:
-                raise ContinuationError(
-                    "reconcile receipt id does not match",
-                    code="reconcile_mismatch",
-                    exit_code=3,
-                )
-            if receipt["decision"] != "eligible":
-                raise ContinuationError(
-                    "reconcile receipt does not authorize recovery",
-                    code="recovery_not_authorized",
-                    exit_code=3,
-                    details={"reasons": receipt["reasons"]},
-                )
-
-            status, observation = continuation_recovery_commands.reconcile_observation(root, args.task_id)
-            if dict(receipt["observation"]) != observation:
-                raise ContinuationError(
-                    "continuation state changed after reconciliation",
-                    code="reconciliation_stale",
-                    exit_code=3,
-                    details={"recorded": receipt["observation"], "current": observation},
-                    next_actions=["Run `acf continuation reconcile` again against the current state."],
-                )
+            (
+                receipt,
+                status,
+                observation,
+                effect_journal,
+                effect_reconciliations,
+            ) = continuation_recovery_commands.validate_recovery_inputs(
+                root,
+                paths,
+                control,
+                task_id=args.task_id,
+                reconcile_id=str(args.reconcile_id),
+            )
             assertions = receipt["assertions"]
             owner_ended = assertions.get("owner_ended") is True
             accepted_head = assertions.get("accepted_head")
@@ -1339,6 +1321,7 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 owner_ended=owner_ended,
                 accepted_head=str(accepted_head) if accepted_head is not None else None,
                 evidence_refs=[str(value) for value in receipt["evidence_refs"]],
+                effect_reconciliations=effect_reconciliations,
             )
             if decision != "eligible":
                 raise ContinuationError(
@@ -1370,6 +1353,17 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 generation=generation,
                 ttl_minutes=ttl,
                 now=now,
+            )
+
+            reconciled_effect_journal, reconciled_effects = (
+                continuation_recovery_commands.apply_recovery_effect_reconciliations(
+                    effect_journal,
+                    task_id=str(control["task_id"]),
+                    generation=generation,
+                    reconciliations=effect_reconciliations,
+                    reconcile_id=str(receipt["receipt_id"]),
+                    now=_iso(now),
+                )
             )
 
             workspace_snapshot = continuation_workspace_commands.workspace_current_snapshot(root)
@@ -1492,6 +1486,8 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 "runner_id": lease["runner_id"],
                 "head": status["git"]["head"],
                 "effect_digest": observation["effect_digest"],
+                "reconciled_effect_digest": continuation_recovery.json_digest(reconciled_effect_journal),
+                "effect_reconciliations": [str(effect["logical_key"]) for effect in reconciled_effects],
                 "workspace_digest": workspace_summary["manifest_digest"],
                 "coordination_digest": observation["coordination_digest"],
                 "challenge_resolution": challenge_resolution,
@@ -1499,6 +1495,8 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
             _write_json(paths["control"], control)
             _write_json(paths["lease"], lease)
             _write_json(paths["rounds"], round_journal)
+            if effect_reconciliations:
+                _write_json(paths["effects"], reconciled_effect_journal)
             _write_json(paths["workspace"], workspace_manifest)
             _write_state(paths["state"], state)
             if challenge_resolution is not None:

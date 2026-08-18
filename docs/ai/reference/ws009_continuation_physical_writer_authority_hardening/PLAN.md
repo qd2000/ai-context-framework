@@ -250,8 +250,8 @@ ADOPTION_MATRIX.md
 
 | 阶段 | 状态 | 目标 | 主要输出 | Gate |
 |---|---|---|---|---|
-| WS009.1 | Active | Baseline characterization and contract freeze | deterministic failing/characterization tests、problem matrix、scope/evidence、legacy/effect recovery fixtures | 不改变产品行为前先证明 physical-writer、ownerless effect deadlock、legacy adoption、terminal retention、stat-only dirty、Workspace/activation UX 当前边界 |
-| WS009.2 | Open | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract | 可证明终态 effect 能安全收口；legacy WIP 可显式 adopt；unresolved/unknown 仍阻止 recovery；generic prompt 不被 wrapper 复制；无 daemon |
+| WS009.1 | Done | Baseline characterization and contract freeze | deterministic failing/characterization tests、problem matrix、scope/evidence、legacy/effect recovery fixtures | physical-writer、ownerless effect deadlock、legacy adoption、terminal retention、stat-only dirty、Workspace/activation UX 边界已由测试冻结 |
+| WS009.2 | Active | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract | 可证明终态 effect 能安全收口；legacy WIP 可显式 adopt；unresolved/unknown 仍阻止 recovery；generic prompt 不被 wrapper 复制；无 daemon |
 | WS009.3 | Open | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | staged/untracked/real diff 不误放行；content-identical stat-only 不阻塞；只读 verify 不改 index |
 | WS009.4 | Open | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | doctor 能看到 terminal retention + Context review stale；strict 不做语义裁决 |
 | WS009.5 | Open | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | full unittest/template/strict/upgrade/release/package smoke 全绿；发布后安装态 generated prompt/doctor 兼容旧 state |
@@ -294,4 +294,4 @@ ADOPTION_MATRIX.md
 
 ## 下一步
 
-完成 WS009.1：先为 `.63` 真实 legacy handoff 暴露的两个 recovery 缺口建立 deterministic characterization/failing tests——legacy no-workspace-manifest dirty WIP adoption，以及 ownerless externally-proven terminal effect reconciliation；随后覆盖 physical-writer、stat-only semantic-clean、terminal active retention 与 Workstream lifecycle UX 基线。在这些边界被测试冻结前，不修改生产行为。
+继续 WS009.2：ownerless externally-proven terminal effect reconciliation Gate 已形成候选实现与 deterministic regression。下一 Gate 实现 legacy no-manifest reviewed WIP adoption：必须显式列出并审阅 concrete paths，记录 path/status/content digest/evidence，并继续受 bound Workstream write_scope 约束；迁移过程不得要求破坏已有 continuation 历史，也不得强制先形成 Git semantic checkpoint。该 Gate 收口后再推进 generated prompt / durable writer contract / thin-wrapper 标准化。

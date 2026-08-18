@@ -3256,6 +3256,400 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(3, code)
         self.assertEqual("recovery_not_authorized", denied["error_code"])
 
+    def test_ws009_ownerless_terminal_effect_reconciliation_allows_recovery_without_replay(
+        self,
+    ) -> None:
+        """An expired owner may reconcile one existing effect from authoritative terminal evidence."""
+        init = self.init_task("WS914")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS914",
+                "--runner-id",
+                "expired-effect-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        owner = ["--lease-id", lease_id, *self.owner_flags(claim)]
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS914",
+                *owner,
+                "--key",
+                "campaign-q03",
+                "--kind",
+                "runtime-campaign",
+                "--external-id",
+                "runtime-job-q03-v11",
+                "--evidence-ref",
+                "runtime:submission-q03-v11",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS914",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:expired-effect-owner-ended",
+                "--effect-key",
+                "campaign-q03",
+                "--effect-terminal-status",
+                "completed",
+                "--effect-external-id",
+                "runtime-job-q03-v11",
+                "--effect-milestone",
+                "collected",
+                "--effect-evidence-ref",
+                "runtime:60-of-60-collected",
+                "--reason",
+                "Runtime authority proves the existing deterministic job completed and was collected.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertEqual("eligible", reconciled["decision"])
+        self.assertTrue(reconciled["eligible_for_recover"])
+        self.assertEqual(
+            ["campaign-q03"],
+            reconciled["observation"]["effect_summary"]["unresolved"],
+        )
+        self.assertEqual(1, len(reconciled["effect_reconciliations"]))
+        effect_assertion = reconciled["effect_reconciliations"][0]
+        self.assertEqual("prepared", effect_assertion["observed_status"])
+        self.assertEqual("completed", effect_assertion["terminal_status"])
+        self.assertEqual("runtime-job-q03-v11", effect_assertion["external_id"])
+
+        code, before_recover, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "list",
+                str(self.root),
+                "--task-id",
+                "WS914",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{before_recover}")
+        self.assertEqual("prepared", before_recover["effects"][0]["status"])
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS914",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "new-effect-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        self.assertEqual(["campaign-q03"], recovered["recovery"]["effect_reconciliations"])
+
+        code, after_recover, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "list",
+                str(self.root),
+                "--task-id",
+                "WS914",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{after_recover}")
+        effect = after_recover["effects"][0]
+        self.assertEqual("completed", effect["status"])
+        self.assertEqual("collected", effect["milestone"])
+        self.assertIn("runtime:60-of-60-collected", effect["evidence_refs"])
+        self.assertIn(
+            f"reconcile:{reconciled['receipt']['receipt_id']}",
+            effect["evidence_refs"],
+        )
+        self.assertEqual([], after_recover["summary"]["unresolved"])
+
+    def test_ws009_ownerless_effect_reconciliation_accepts_matching_forfeiture_challenge(
+        self,
+    ) -> None:
+        """A timed-out generation-bound challenge can replace an explicit owner-ended assertion."""
+        init = self.init_task("WS917")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS917",
+                "--runner-id",
+                "effect-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS917",
+                *owner,
+                "--key",
+                "campaign-q03",
+                "--kind",
+                "runtime-campaign",
+                "--external-id",
+                "runtime-job-q03-v11",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS917",
+                "--runner-id",
+                "effect-contender",
+                "--objective-summary",
+                "Recover the existing terminal external effect without replay.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        challenge_id = str(attempt["challenge"]["challenge_id"])
+        coordination_path = state_dir / "coordination.json"
+        coordination = continuation._read_json(coordination_path, label="coordination")
+        coordination["challenges"][0]["opened_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=2)
+        )
+        coordination["challenges"][0]["deadline_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=1)
+        )
+        continuation._write_json(coordination_path, coordination)
+        code, status, stderr = self.run_json(
+            ["continuation", "coordination", "status", str(self.root), "--task-id", "WS917"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{status}")
+        self.assertEqual([challenge_id], status["timed_out_challenge_ids"])
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS917",
+                "--effect-key",
+                "campaign-q03",
+                "--effect-terminal-status",
+                "completed",
+                "--effect-external-id",
+                "runtime-job-q03-v11",
+                "--effect-evidence-ref",
+                "runtime:60-of-60-collected",
+                "--reason",
+                "The matching timed-out challenge forfeits old ownership; external authority proves terminal state.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"])
+        self.assertFalse(reconciled["assertions"]["owner_ended"])
+        candidates = reconciled["observation"]["ownership_forfeiture_candidates"]
+        self.assertEqual([challenge_id], [item["challenge_id"] for item in candidates])
+        self.assertEqual("campaign-q03", reconciled["effect_reconciliations"][0]["logical_key"])
+
+    def test_ws009_ownerless_effect_reconciliation_rejects_external_identity_mismatch(
+        self,
+    ) -> None:
+        init = self.init_task("WS915")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS915",
+                "--runner-id",
+                "expired-effect-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS915",
+                *owner,
+                "--key",
+                "campaign-q03",
+                "--kind",
+                "runtime-campaign",
+                "--external-id",
+                "runtime-job-q03-v11",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, rejected, _ = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS915",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:expired-effect-owner-ended",
+                "--effect-key",
+                "campaign-q03",
+                "--effect-terminal-status",
+                "completed",
+                "--effect-external-id",
+                "runtime-job-q03-v12",
+                "--effect-evidence-ref",
+                "runtime:60-of-60-collected",
+                "--reason",
+                "Mismatched runtime identity must not be accepted.",
+                "--record",
+            ]
+        )
+        self.assertEqual(2, code)
+        self.assertEqual("effect_identity_conflict", rejected["error_code"])
+
+    def test_ws009_ownerless_effect_reconciliation_receipt_fails_closed_on_effect_drift(
+        self,
+    ) -> None:
+        init = self.init_task("WS916")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS916",
+                "--runner-id",
+                "expired-effect-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS916",
+                *owner,
+                "--key",
+                "campaign-q03",
+                "--kind",
+                "runtime-campaign",
+                "--external-id",
+                "runtime-job-q03-v11",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS916",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:expired-effect-owner-ended",
+                "--effect-key",
+                "campaign-q03",
+                "--effect-terminal-status",
+                "completed",
+                "--effect-external-id",
+                "runtime-job-q03-v11",
+                "--effect-evidence-ref",
+                "runtime:60-of-60-collected",
+                "--reason",
+                "Record a terminal observation that must stay bound to the observed effect digest.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        effects_path = state_dir / "effects.json"
+        effects = json.loads(effects_path.read_text(encoding="utf-8"))
+        effects["effects"][0]["milestone"] = "observation-drifted"
+        continuation._write_json(effects_path, effects)
+
+        code, denied, _ = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS916",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "new-effect-owner",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("reconciliation_stale", denied["error_code"])
+
     def test_ws009_unresolved_durable_physical_writer_identity_blocks_recovery(self) -> None:
         """A known long-lived writer identity must stay unresolved until authority proves terminal."""
         init = self.init_task("WS911")

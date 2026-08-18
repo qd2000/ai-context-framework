@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
-from ai_context_framework import continuation_coordination, continuation_recovery
+from ai_context_framework import continuation_coordination, continuation_recovery, continuation_rounds
 from ai_context_framework.commands import continuation_coordination as coordination_commands
 
 
@@ -69,6 +69,104 @@ def reconcile_observation(
     return status, observation
 
 
+def validate_recovery_effect_reconciliations(
+    effect_journal: Mapping[str, Any],
+    observation: Mapping[str, Any],
+    *,
+    task_id: str,
+    receipt: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    core = _continuation()
+    try:
+        return continuation_recovery.validate_effect_reconciliations(
+            effect_journal,
+            observation,
+            task_id=task_id,
+            reconciliations=receipt.get("effect_reconciliations", []),
+            owner_ended=receipt["assertions"].get("owner_ended") is True,
+        )
+    except continuation_recovery.ContinuationRecoveryError as exc:
+        raise core.ContinuationError(str(exc), code=exc.code, exit_code=3) from exc
+
+
+def apply_recovery_effect_reconciliations(
+    effect_journal: Mapping[str, Any],
+    *,
+    task_id: str,
+    generation: int,
+    reconciliations: list[dict[str, Any]],
+    reconcile_id: str,
+    now: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    core = _continuation()
+    try:
+        return continuation_recovery.apply_effect_reconciliations(
+            effect_journal,
+            task_id=task_id,
+            generation=generation,
+            reconciliations=reconciliations,
+            reconcile_id=reconcile_id,
+            now=now,
+        )
+    except continuation_rounds.ContinuationRoundError as exc:
+        raise core._round_error(exc) from exc
+
+
+def validate_recovery_inputs(
+    root: Path,
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    *,
+    task_id: str | None,
+    reconcile_id: str,
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    list[dict[str, Any]],
+]:
+    core = _continuation()
+    try:
+        receipt = continuation_recovery.validate_reconcile_receipt(
+            core._read_json(paths["reconcile"], label="reconcile")
+        )
+    except continuation_recovery.ContinuationRecoveryError as exc:
+        raise core.ContinuationError(str(exc), code=exc.code) from exc
+    if receipt["task_id"] != control["task_id"]:
+        raise core.ContinuationError("reconcile receipt task mismatch", code="reconcile_invalid")
+    if receipt["receipt_id"] != reconcile_id:
+        raise core.ContinuationError(
+            "reconcile receipt id does not match",
+            code="reconcile_mismatch",
+            exit_code=3,
+        )
+    if receipt["decision"] != "eligible":
+        raise core.ContinuationError(
+            "reconcile receipt does not authorize recovery",
+            code="recovery_not_authorized",
+            exit_code=3,
+            details={"reasons": receipt["reasons"]},
+        )
+    status, observation = reconcile_observation(root, task_id)
+    if dict(receipt["observation"]) != observation:
+        raise core.ContinuationError(
+            "continuation state changed after reconciliation",
+            code="reconciliation_stale",
+            exit_code=3,
+            details={"recorded": receipt["observation"], "current": observation},
+            next_actions=["Run `acf continuation reconcile` again against the current state."],
+        )
+    effect_journal = core._load_effect_journal(paths, control)
+    effect_reconciliations = validate_recovery_effect_reconciliations(
+        effect_journal,
+        observation,
+        task_id=str(control["task_id"]),
+        receipt=receipt,
+    )
+    return receipt, status, observation, effect_journal, effect_reconciliations
+
+
 def continuation_reconcile_command(args: argparse.Namespace) -> int:
     core = _continuation()
 
@@ -80,6 +178,51 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
             evidence_refs = list(dict.fromkeys(args.evidence_ref or []))[: core.MAX_LIST_ITEMS]
             for evidence_ref in evidence_refs:
                 core._validate_text(evidence_ref, field="evidence_ref")
+            effect_option_values = (
+                args.effect_key,
+                args.effect_terminal_status,
+                args.effect_external_id,
+                args.effect_milestone,
+            )
+            effect_requested = any(value is not None for value in effect_option_values) or bool(
+                args.effect_evidence_ref or []
+            )
+            effect_reconciliations: list[dict[str, Any]] = []
+            if effect_requested:
+                if (
+                    args.effect_key is None
+                    or args.effect_terminal_status is None
+                    or args.effect_external_id is None
+                ):
+                    raise core.ContinuationError(
+                        "ownerless effect reconciliation requires effect key, terminal status, and external id",
+                        code="effect_reconcile_incomplete",
+                    )
+                effect_evidence_refs = list(
+                    dict.fromkeys(args.effect_evidence_ref or [])
+                )[: core.MAX_LIST_ITEMS]
+                for evidence_ref in effect_evidence_refs:
+                    core._validate_text(evidence_ref, field="effect_evidence_ref")
+                effects = core._load_effect_journal(paths, status["control"], require_existing=True)
+                try:
+                    effect_reconciliations.append(
+                        continuation_recovery.build_effect_reconciliation(
+                            effects,
+                            observation,
+                            task_id=str(status["control"]["task_id"]),
+                            logical_key=core._validate_text(args.effect_key, field="effect_key"),
+                            external_id=core._validate_text(
+                                args.effect_external_id,
+                                field="effect_external_id",
+                            ),
+                            terminal_status=str(args.effect_terminal_status),
+                            milestone=args.effect_milestone,
+                            evidence_refs=effect_evidence_refs,
+                            owner_ended=bool(args.owner_ended),
+                        )
+                    )
+                except continuation_recovery.ContinuationRecoveryError as exc:
+                    raise core.ContinuationError(str(exc), code=exc.code) from exc
             accepted_head = str(args.accept_head).strip() if args.accept_head else None
             decision, reasons = continuation_recovery.reconcile_decision(
                 status,
@@ -87,6 +230,7 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                 owner_ended=bool(args.owner_ended),
                 accepted_head=accepted_head,
                 evidence_refs=evidence_refs,
+                effect_reconciliations=effect_reconciliations,
             )
             result: dict[str, Any] = {
                 "status": "reconciled",
@@ -99,6 +243,7 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                     "accepted_head": accepted_head,
                 },
                 "evidence_refs": evidence_refs,
+                "effect_reconciliations": effect_reconciliations,
                 "recorded": False,
             }
             if args.record:
@@ -115,6 +260,8 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                     "assertions": result["assertions"],
                     "observation": observation,
                 }
+                if effect_reconciliations:
+                    receipt["effect_reconciliations"] = effect_reconciliations
                 core._write_json(paths["reconcile"], receipt)
                 result["recorded"] = True
                 result["receipt"] = receipt
@@ -134,6 +281,33 @@ def register_recovery_parsers(subparsers, add_json_argument) -> None:
     reconcile.add_argument("--owner-ended", action="store_true")
     reconcile.add_argument("--accept-head", default=None)
     reconcile.add_argument("--evidence-ref", action="append", default=None)
+    reconcile.add_argument(
+        "--effect-key",
+        default=None,
+        help="existing deterministic effect key to reconcile from external terminal evidence",
+    )
+    reconcile.add_argument(
+        "--effect-terminal-status",
+        choices=tuple(sorted(continuation_rounds.TERMINAL_EFFECT_STATUSES)),
+        default=None,
+        help="authoritatively observed terminal status for the existing effect",
+    )
+    reconcile.add_argument(
+        "--effect-external-id",
+        default=None,
+        help="existing durable external identity; must exactly match the prepared effect",
+    )
+    reconcile.add_argument(
+        "--effect-milestone",
+        default=None,
+        help="compact terminal milestone to record if recovery succeeds",
+    )
+    reconcile.add_argument(
+        "--effect-evidence-ref",
+        action="append",
+        default=None,
+        help="external authority evidence for the terminal effect observation; can be repeated",
+    )
     reconcile.add_argument("--reason", default=None)
     reconcile.add_argument("--record", action="store_true")
     add_json_argument(reconcile)

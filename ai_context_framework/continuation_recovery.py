@@ -87,6 +87,7 @@ def reconcile_decision(
     owner_ended: bool,
     accepted_head: str | None,
     evidence_refs: Sequence[str],
+    effect_reconciliations: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[str, list[str]]:
     reasons: list[str] = []
     if not bool(status.get("ok")):
@@ -154,12 +155,198 @@ def reconcile_decision(
         reasons.append("accepted_head_mismatch")
 
     effect_summary = observation.get("effect_summary")
-    if isinstance(effect_summary, Mapping) and effect_summary.get("unresolved"):
-        reasons.append("unresolved_effects")
+    if isinstance(effect_summary, Mapping):
+        unresolved = [str(value) for value in effect_summary.get("unresolved") or []]
+        reconciled_keys = {
+            str(item.get("logical_key"))
+            for item in effect_reconciliations
+            if isinstance(item, Mapping)
+            and item.get("effect_digest") == observation.get("effect_digest")
+            and isinstance(item.get("logical_key"), str)
+        }
+        if any(key not in reconciled_keys for key in unresolved):
+            reasons.append("unresolved_effects")
 
     if (owner_ended or accepted_head is not None) and not evidence_refs:
         reasons.append("recovery_evidence_required")
     return ("eligible" if not reasons else "blocked"), reasons
+
+
+def ownership_forfeited(observation: Mapping[str, Any]) -> bool:
+    lease_generation = observation.get("lease_generation")
+    raw_candidates = observation.get("ownership_forfeiture_candidates")
+    if not isinstance(raw_candidates, list):
+        return False
+    return any(
+        isinstance(item, Mapping)
+        and item.get("owner_generation") == lease_generation
+        and isinstance(item.get("challenge_id"), str)
+        and bool(str(item.get("challenge_id")).strip())
+        for item in raw_candidates
+    )
+
+
+def build_effect_reconciliation(
+    effects: Mapping[str, Any],
+    observation: Mapping[str, Any],
+    *,
+    task_id: str,
+    logical_key: str,
+    external_id: str,
+    terminal_status: str,
+    milestone: str | None,
+    evidence_refs: Sequence[str],
+    owner_ended: bool,
+) -> dict[str, Any]:
+    if not owner_ended and not ownership_forfeited(observation):
+        raise ContinuationRecoveryError(
+            "ownerless effect reconciliation requires owner-ended or ownership-forfeiture evidence",
+            code="effect_reconcile_owner_not_ended",
+        )
+    if terminal_status not in continuation_rounds.TERMINAL_EFFECT_STATUSES:
+        raise ContinuationRecoveryError(
+            "ownerless effect reconciliation requires a terminal effect status",
+            code="effect_status_invalid",
+        )
+    refs = [str(value).strip() for value in evidence_refs if str(value).strip()]
+    refs = list(dict.fromkeys(refs))
+    if not refs:
+        raise ContinuationRecoveryError(
+            "ownerless effect reconciliation requires external authority evidence",
+            code="effect_reconcile_evidence_required",
+        )
+    journal = continuation_rounds.validate_effect_journal(effects, task_id=task_id)
+    target = next(
+        (record for record in journal["effects"] if record["logical_key"] == logical_key),
+        None,
+    )
+    if target is None:
+        raise ContinuationRecoveryError(
+            "effect key is not prepared",
+            code="effect_missing",
+        )
+    observed_status = str(target["status"])
+    if observed_status in continuation_rounds.TERMINAL_EFFECT_STATUSES:
+        raise ContinuationRecoveryError(
+            "effect is already terminal and does not need ownerless reconciliation",
+            code="effect_already_terminal",
+        )
+    stored_external_id = target.get("external_id")
+    if not isinstance(stored_external_id, str) or not stored_external_id.strip():
+        raise ContinuationRecoveryError(
+            "effect has no durable external identity to reconcile",
+            code="effect_identity_missing",
+        )
+    if external_id != stored_external_id:
+        raise ContinuationRecoveryError(
+            "effect external identity does not match the prepared effect",
+            code="effect_identity_conflict",
+        )
+    effect_digest = observation.get("effect_digest")
+    if not isinstance(effect_digest, str) or not effect_digest:
+        raise ContinuationRecoveryError(
+            "effect observation digest is missing",
+            code="reconcile_invalid",
+        )
+    resolved_milestone = (
+        str(milestone).strip() if isinstance(milestone, str) and milestone.strip() else terminal_status
+    )
+    return {
+        "effect_id": str(target["effect_id"]),
+        "logical_key": str(target["logical_key"]),
+        "kind": str(target["kind"]),
+        "external_id": stored_external_id,
+        "observed_status": observed_status,
+        "terminal_status": terminal_status,
+        "milestone": resolved_milestone,
+        "evidence_refs": refs,
+        "effect_digest": effect_digest,
+    }
+
+
+def validate_effect_reconciliations(
+    effects: Mapping[str, Any],
+    observation: Mapping[str, Any],
+    *,
+    task_id: str,
+    reconciliations: Sequence[Mapping[str, Any]],
+    owner_ended: bool,
+) -> list[dict[str, Any]]:
+    validated: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in reconciliations:
+        if not isinstance(raw, Mapping):
+            raise ContinuationRecoveryError("effect reconciliation assertion is invalid")
+        item = dict(raw)
+        required = {
+            "effect_id",
+            "logical_key",
+            "kind",
+            "external_id",
+            "observed_status",
+            "terminal_status",
+            "milestone",
+            "evidence_refs",
+            "effect_digest",
+        }
+        if set(item) != required:
+            raise ContinuationRecoveryError("effect reconciliation assertion schema is invalid")
+        logical_key = item.get("logical_key")
+        if not isinstance(logical_key, str) or not logical_key.strip() or logical_key in seen:
+            raise ContinuationRecoveryError("effect reconciliation logical key is invalid")
+        seen.add(logical_key)
+        rebuilt = build_effect_reconciliation(
+            effects,
+            observation,
+            task_id=task_id,
+            logical_key=logical_key,
+            external_id=str(item.get("external_id") or ""),
+            terminal_status=str(item.get("terminal_status") or ""),
+            milestone=str(item.get("milestone") or ""),
+            evidence_refs=(
+                [str(value) for value in item.get("evidence_refs")]
+                if isinstance(item.get("evidence_refs"), list)
+                else []
+            ),
+            owner_ended=owner_ended,
+        )
+        if rebuilt != item:
+            raise ContinuationRecoveryError(
+                "effect reconciliation assertion no longer matches the observed effect",
+                code="reconciliation_stale",
+            )
+        validated.append(rebuilt)
+    return validated
+
+
+def apply_effect_reconciliations(
+    effects: Mapping[str, Any],
+    *,
+    task_id: str,
+    generation: int,
+    reconciliations: Sequence[Mapping[str, Any]],
+    reconcile_id: str,
+    now: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    journal = continuation_rounds.validate_effect_journal(effects, task_id=task_id)
+    applied: list[dict[str, Any]] = []
+    for item in reconciliations:
+        journal, effect = continuation_rounds.update_effect(
+            journal,
+            task_id=task_id,
+            generation=generation,
+            logical_key=str(item["logical_key"]),
+            status=str(item["terminal_status"]),
+            external_id=str(item["external_id"]),
+            milestone=str(item["milestone"]),
+            evidence_refs=[
+                *[str(value) for value in item["evidence_refs"]],
+                f"reconcile:{reconcile_id}",
+            ],
+            now=now,
+        )
+        applied.append(effect)
+    return journal, applied
 
 
 def validate_reconcile_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -176,7 +363,8 @@ def validate_reconcile_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
         "assertions",
         "observation",
     }
-    if receipt.get("schema_version") != RECONCILE_SCHEMA or set(receipt) != required:
+    allowed = required | {"effect_reconciliations"}
+    if receipt.get("schema_version") != RECONCILE_SCHEMA or not required.issubset(receipt) or not set(receipt).issubset(allowed):
         raise ContinuationRecoveryError("reconcile receipt schema is invalid")
     if receipt.get("decision") not in {"eligible", "blocked"}:
         raise ContinuationRecoveryError("reconcile receipt decision is invalid")
@@ -202,6 +390,10 @@ def validate_reconcile_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise ContinuationRecoveryError("reconcile accepted_head assertion is invalid")
     if not isinstance(observation, Mapping):
         raise ContinuationRecoveryError("reconcile receipt observation is invalid")
+    effect_reconciliations = receipt.get("effect_reconciliations", [])
+    if not isinstance(effect_reconciliations, list):
+        raise ContinuationRecoveryError("reconcile receipt effect_reconciliations is invalid")
+    receipt["effect_reconciliations"] = effect_reconciliations
     return receipt
 
 
@@ -210,7 +402,11 @@ __all__ = [
     "RECOVERY_SCHEMA",
     "ContinuationRecoveryError",
     "build_observation",
+    "build_effect_reconciliation",
+    "apply_effect_reconciliations",
     "json_digest",
+    "ownership_forfeited",
     "reconcile_decision",
+    "validate_effect_reconciliations",
     "validate_reconcile_receipt",
 ]
