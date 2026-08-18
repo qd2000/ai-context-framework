@@ -28,4 +28,3 @@ Record the real pre-release adoption evidence for the long-running continuation 
 - Update the AStockT_AI Autonomous_Execution authority so it no longer freezes a duplicate generic continuation state machine.
 - Update the external Scheduled Task wrappers to keep only fixed project/worktree/branch/task identity and project-specific Runtime/scientific/permission/validation constraints; do not copy the generated protocol body.
 - Do not replay or repair WS079/WS080/WS086 scientific/runtime work as part of protocol adoption.
-
