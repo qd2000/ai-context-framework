@@ -294,4 +294,4 @@ ADOPTION_MATRIX.md
 
 ## 下一步
 
-完成 WS009.1：建立 continuation control、冻结 failure/characterization tests，并在不改变生产行为的情况下确认每个问题的最小可复现证据。
+完成 WS009.1：先为 `.63` 真实 legacy handoff 暴露的两个 recovery 缺口建立 deterministic characterization/failing tests——legacy no-workspace-manifest dirty WIP adoption，以及 ownerless externally-proven terminal effect reconciliation；随后覆盖 physical-writer、stat-only semantic-clean、terminal active retention 与 Workstream lifecycle UX 基线。在这些边界被测试冻结前，不修改生产行为。
