@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
-WORKSPACE_SCHEMA = "acf.continuation.workspace.v1"
+WORKSPACE_SCHEMA = "acf.continuation.workspace.v2"
+LEGACY_WORKSPACE_SCHEMA = "acf.continuation.workspace.v1"
 ENTRY_SCHEMA = "acf.continuation.workspace-entry.v1"
 CONFLICT_SCHEMA = "acf.continuation.workspace-conflict.v1"
 
@@ -210,7 +211,7 @@ def _bounded(payload: Mapping[str, Any]) -> None:
 
 def validate_manifest(payload: Mapping[str, Any], *, task_id: str) -> dict[str, Any]:
     manifest = dict(payload)
-    allowed = {
+    legacy_allowed = {
         "schema_version",
         "task_id",
         "baseline_head",
@@ -218,6 +219,31 @@ def validate_manifest(payload: Mapping[str, Any], *, task_id: str) -> dict[str, 
         "baseline_external",
         "write_intents",
         "runner_owned",
+        "unexpected_nonoverlap",
+        "conflicts",
+        "last_observed_at",
+    }
+    if manifest.get("schema_version") == LEGACY_WORKSPACE_SCHEMA and set(manifest) == legacy_allowed:
+        manifest = {
+            "schema_version": WORKSPACE_SCHEMA,
+            "task_id": manifest.get("task_id"),
+            "baseline_head": manifest.get("baseline_head"),
+            "generation": manifest.get("generation"),
+            "baseline_external": manifest.get("baseline_external"),
+            "write_intents": manifest.get("write_intents"),
+            "task_owned": manifest.get("runner_owned"),
+            "unexpected_nonoverlap": manifest.get("unexpected_nonoverlap"),
+            "conflicts": manifest.get("conflicts"),
+            "last_observed_at": manifest.get("last_observed_at"),
+        }
+    allowed = {
+        "schema_version",
+        "task_id",
+        "baseline_head",
+        "generation",
+        "baseline_external",
+        "write_intents",
+        "task_owned",
         "unexpected_nonoverlap",
         "conflicts",
         "last_observed_at",
@@ -242,7 +268,7 @@ def validate_manifest(payload: Mapping[str, Any], *, task_id: str) -> dict[str, 
         "generation": generation,
         "baseline_external": _entries(manifest.get("baseline_external"), field="baseline_external"),
         "write_intents": sorted(normalized_intents),
-        "runner_owned": _entries(manifest.get("runner_owned"), field="runner_owned"),
+        "task_owned": _entries(manifest.get("task_owned"), field="task_owned"),
         "unexpected_nonoverlap": _entries(manifest.get("unexpected_nonoverlap"), field="unexpected_nonoverlap"),
         "conflicts": _conflicts(manifest.get("conflicts")),
         "last_observed_at": _text(manifest.get("last_observed_at"), field="last_observed_at", max_bytes=128),
@@ -259,7 +285,7 @@ def new_manifest(*, task_id: str, snapshot: Mapping[str, Any], now: str) -> dict
         "generation": 0,
         "baseline_external": list(snapshot["entries"]),
         "write_intents": [],
-        "runner_owned": [],
+        "task_owned": [],
         "unexpected_nonoverlap": [],
         "conflicts": [],
         "last_observed_at": now,
@@ -275,15 +301,34 @@ def begin_generation(
     snapshot: Mapping[str, Any],
     now: str,
 ) -> dict[str, Any]:
-    validate_manifest(manifest, task_id=task_id)
+    current = observe_handoff(
+        manifest,
+        task_id=task_id,
+        snapshot=snapshot,
+        now=now,
+    )
+    if current["conflicts"]:
+        raise ContinuationWorkspaceError(
+            "task-owned workspace changed during ownerless handoff",
+            code="workspace_conflict",
+        )
+    task_paths = [entry["path"] for entry in current["task_owned"]]
+    retained_intents = [
+        intent
+        for intent in current["write_intents"]
+        if any(paths_overlap(intent, path_value) for path_value in task_paths)
+    ]
+    baseline_external = _entry_map(
+        [*current["baseline_external"], *current["unexpected_nonoverlap"]]
+    )
     payload = {
         "schema_version": WORKSPACE_SCHEMA,
         "task_id": task_id,
         "baseline_head": str(snapshot["head"]),
         "generation": generation,
-        "baseline_external": list(snapshot["entries"]),
-        "write_intents": [],
-        "runner_owned": [],
+        "baseline_external": list(baseline_external.values()),
+        "write_intents": retained_intents,
+        "task_owned": list(current["task_owned"]),
         "unexpected_nonoverlap": [],
         "conflicts": [],
         "last_observed_at": now,
@@ -302,10 +347,8 @@ def recover_generation(
 ) -> dict[str, Any]:
     """Transfer evidence-backed dirty ownership into a fenced generation.
 
-    Recovery is intentionally different from ``begin_generation``: a normal
-    claim treats all current dirty state as external baseline, while recovery
-    must preserve the previous round's declared write intents and its
-    attributable runner-owned WIP.  Unrelated dirty state remains external and
+    Recovery preserves the interrupted task's declared write intents and
+    attributable task-owned WIP.  Unrelated dirty state remains external and
     conflicts still fail closed.
     """
 
@@ -353,10 +396,11 @@ def classify(
 ) -> dict[str, Any]:
     current = validate_manifest(manifest, task_id=task_id)
     baseline = _entry_map(current["baseline_external"])
+    previous_task_owned = _entry_map(current["task_owned"])
     observed = _entry_map(snapshot["entries"])
     intents = list(current["write_intents"])
     baseline_external: list[dict[str, Any]] = []
-    runner_owned: list[dict[str, Any]] = []
+    task_owned: list[dict[str, Any]] = []
     unexpected: list[dict[str, Any]] = []
     conflicts: list[dict[str, str]] = []
 
@@ -377,8 +421,34 @@ def classify(
             # false parallelism blocker.
             baseline_external.append(live)
 
+    for path_value, previous in previous_task_owned.items():
+        live = observed.get(path_value)
+        has_intent = any(paths_overlap(path_value, intent) for intent in intents)
+        if live is None:
+            if not has_intent:
+                conflicts.append(
+                    {
+                        "schema_version": CONFLICT_SCHEMA,
+                        "path": path_value,
+                        "reason": "task_owned_changed_without_intent",
+                    }
+                )
+            # With an active write intent, disappearance means the owner
+            # intentionally cleaned, reverted, or committed the path.
+            continue
+        changed = live["status"] != previous["status"] or live["digest"] != previous["digest"]
+        if changed and not has_intent:
+            conflicts.append(
+                {
+                    "schema_version": CONFLICT_SCHEMA,
+                    "path": path_value,
+                    "reason": "task_owned_changed_without_intent",
+                }
+            )
+        task_owned.append(live if has_intent else previous)
+
     for path_value, live in observed.items():
-        if path_value in baseline:
+        if path_value in baseline or path_value in previous_task_owned:
             continue
         if any(paths_overlap(path_value, baseline_path) for baseline_path in baseline):
             conflicts.append(
@@ -388,16 +458,101 @@ def classify(
                     "reason": "baseline_path_overlap",
                 }
             )
+        elif any(paths_overlap(path_value, task_path) for task_path in previous_task_owned):
+            conflicts.append(
+                {
+                    "schema_version": CONFLICT_SCHEMA,
+                    "path": path_value,
+                    "reason": "task_owned_path_overlap",
+                }
+            )
         elif any(paths_overlap(path_value, intent) for intent in intents):
-            runner_owned.append(live)
+            task_owned.append(live)
         else:
             unexpected.append(live)
 
     payload = {
         **current,
-        "runner_owned": runner_owned,
+        "task_owned": task_owned,
         "unexpected_nonoverlap": unexpected,
         "conflicts": conflicts,
+        "last_observed_at": now,
+    }
+    return validate_manifest(payload, task_id=task_id)
+
+
+def observe_handoff(
+    manifest: Mapping[str, Any],
+    *,
+    task_id: str,
+    snapshot: Mapping[str, Any],
+    now: str,
+) -> dict[str, Any]:
+    """Observe an ownerless handoff without silently re-attributing task WIP.
+
+    External dirty paths may continue changing while no continuation owner is
+    present.  Task-owned WIP is different: its recorded status/content digest
+    must remain unchanged until a new fenced generation claims it.  Any drift
+    is provenance ambiguity and therefore a real workspace conflict.
+    """
+
+    current = validate_manifest(manifest, task_id=task_id)
+    expected_task_owned = _entry_map(current["task_owned"])
+    observed = _entry_map(snapshot["entries"])
+    classified = classify(current, task_id=task_id, snapshot=snapshot, now=now)
+    drift_conflicts: list[dict[str, str]] = []
+    for path_value, expected in expected_task_owned.items():
+        live = observed.get(path_value)
+        if (
+            live is None
+            or live["status"] != expected["status"]
+            or live["digest"] != expected["digest"]
+        ):
+            drift_conflicts.append(
+                {
+                    "schema_version": CONFLICT_SCHEMA,
+                    "path": path_value,
+                    "reason": "task_owned_handoff_drift",
+                }
+            )
+    if not drift_conflicts:
+        return classified
+    payload = {
+        **classified,
+        "task_owned": list(current["task_owned"]),
+        "conflicts": [*classified["conflicts"], *drift_conflicts],
+        "last_observed_at": now,
+    }
+    return validate_manifest(payload, task_id=task_id)
+
+
+def handoff_generation(
+    manifest: Mapping[str, Any],
+    *,
+    task_id: str,
+    snapshot: Mapping[str, Any],
+    now: str,
+) -> dict[str, Any]:
+    """Prepare a normal lease release while retaining uncommitted task WIP."""
+
+    current = classify(manifest, task_id=task_id, snapshot=snapshot, now=now)
+    if current["conflicts"]:
+        return current
+    task_paths = [entry["path"] for entry in current["task_owned"]]
+    retained_intents = [
+        intent
+        for intent in current["write_intents"]
+        if any(paths_overlap(intent, path_value) for path_value in task_paths)
+    ]
+    baseline_external = _entry_map(
+        [*current["baseline_external"], *current["unexpected_nonoverlap"]]
+    )
+    payload = {
+        **current,
+        "baseline_head": str(snapshot["head"]),
+        "baseline_external": list(baseline_external.values()),
+        "write_intents": retained_intents,
+        "unexpected_nonoverlap": [],
         "last_observed_at": now,
     }
     return validate_manifest(payload, task_id=task_id)
@@ -465,7 +620,9 @@ def summary(manifest: Mapping[str, Any], *, task_id: str) -> dict[str, Any]:
         "manifest_digest": hashlib.sha256(encoded).hexdigest(),
         "baseline_external_paths": [entry["path"] for entry in current["baseline_external"]],
         "write_intent_paths": list(current["write_intents"]),
-        "runner_owned_paths": [entry["path"] for entry in current["runner_owned"]],
+        "task_owned_paths": [entry["path"] for entry in current["task_owned"]],
+        # Backward-compatible JSON alias for v0.0.3.63 development clients.
+        "runner_owned_paths": [entry["path"] for entry in current["task_owned"]],
         "unexpected_nonoverlap_paths": [entry["path"] for entry in current["unexpected_nonoverlap"]],
         "conflicts": list(current["conflicts"]),
         "has_conflicts": bool(current["conflicts"]),
@@ -475,13 +632,16 @@ def summary(manifest: Mapping[str, Any], *, task_id: str) -> dict[str, Any]:
 
 __all__ = [
     "ContinuationWorkspaceError",
+    "LEGACY_WORKSPACE_SCHEMA",
     "WORKSPACE_SCHEMA",
     "add_intents",
     "begin_generation",
     "classify",
     "git_snapshot",
+    "handoff_generation",
     "new_manifest",
     "normalize_path",
+    "observe_handoff",
     "path_matches_scope",
     "paths_overlap",
     "recover_generation",

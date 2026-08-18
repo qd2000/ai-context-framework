@@ -390,7 +390,8 @@ acf worktree create --workstream WS001 --apply --json
 需要被外部 Scheduled Task、其他 scheduler 或人工多轮 agent 持续推进时，可使用安装态 ACF 的 `continuation` 命令组：
 
 ```powershell
-acf continuation init <worktree> --task-id WS001 --workstream WS001 --title "WS001" --objective "目标" --json
+acf continuation init <worktree> --task-id WS001 --workstream WS001 --title "WS001" --objective "目标" --profile long-running --json
+acf continuation configure <worktree> --task-id WS001 --profile long-running --json
 acf continuation doctor <worktree> --task-id WS001 --json
 acf continuation claim <worktree> --task-id WS001 --runner-id scheduled-agent --json
 acf continuation workspace status <worktree> --task-id WS001 --json
@@ -398,7 +399,7 @@ acf continuation workspace intent <worktree> --task-id WS001 --lease-id <lease_i
 acf continuation workspace refresh <worktree> --task-id WS001 --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json
 ```
 
-`init` 会把当时已有的 dirty 作为受保护的 external baseline，而不是要求为了自动化先清空整个 worktree。active owner 在写项目文件前用 `workspace intent` 声明 concrete path；绑定 Workstream 时 intent 必须命中直接 write scope。`workspace refresh` 只记录 bounded path/status/digest ownership metadata：非重叠 external dirty 保留且不会被 ACF 自动提交，未 checkpoint 的 runner-owned/conflicting dirty 仍 fail-closed。stale/orphan recovery 时，Git dirty 本身不是 takeover blocker；只有 workspace manifest 缺失/无效、generation 不匹配、真实路径冲突、HEAD/effect/identity 无法解释才 fail-closed。`reconcile --record` 会把 workspace ownership digest 纳入 receipt，随后 `recover` 在 observation 未漂移时 generation+1 fencing，并继承旧 generation 的 write intents 与可证明 runner-owned WIP，同时继续保护不重叠 external dirty；恢复过程不会 stash/reset/clean，也不会自动提交 external dirty。同一轮可继续使用 `renew`、`checkpoint`、`release`；人工控制使用 `pause` / `resume`。运行态保存在用户级 `~/.acf`，不会写入项目 Git。该能力只提供 deterministic lease/state/recovery，不创建定时任务、不读取聊天 transcript，也不替代项目自己的计划、Git checkpoint 或 evidence。
+`init` 会把当时已有的 changed paths 作为受保护的 external baseline，而不是要求为了自动化先清空整个 worktree。`standard` timing 为 scheduler/TTL/renew/heartbeat/stale=`60/120/30/10/30` 分钟；`long-running` 为 `60/180/45/10/25` 分钟。已有 task 用 `configure` 原位调整，不需要 `init --force`；active lease 存在时 configure 会拒绝执行。heartbeat 只证明 runner 近期仍活跃，不延长 TTL；stale threshold 与 renew interval 独立；Scheduled Task 的小时触发只是唤醒频率，不是 Gate 的硬时限。active owner 在写项目文件前用 `workspace intent` 声明 concrete path。workspace manifest v2 只记录 bounded path/status/digest：外部修改是 `baseline_external`，当前 task 的显式 intent 修改以及前一 generation 继承的未提交 WIP 是 `task_owned`。worktree-level `clean/dirty` 不参与 continuation 安全判断；正常 release 可以保留 task-owned WIP 并在下一 generation 验证 ownerless handoff digest 后直接继承，所以 Scheduled round 不要求 Git commit。无 manifest 的 changed paths 报 `workspace_provenance_missing`；同路径/父子路径、task-owned ownerless drift、HEAD/effect/identity ambiguity 才 fail-closed。stale/orphan recovery 同样继承可证明 task-owned WIP，同时继续保护 external 修改，不 stash/reset/clean，也不自动提交。`acf continuation prompt` 输出当前 timing 与完整 generic protocol，Scheduled Task wrapper 每轮应重新读取该 prompt，只保留项目特有约束。运行态保存在用户级 `~/.acf`，不会写入项目 Git；ACF 不是通用文件编辑器或源码备份系统。
 
 ### Workstream guard 模式
 

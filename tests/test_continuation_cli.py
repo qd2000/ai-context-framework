@@ -518,7 +518,7 @@ class ContinuationCliTests(unittest.TestCase):
             released["state"]["next_action"],
         )
 
-    def test_dirty_release_fails_closed_into_reconciling(self) -> None:
+    def test_task_owned_wip_release_succeeds_without_git_commit(self) -> None:
         self.init_task()
         code, claim, _ = self.run_json(
             [
@@ -563,9 +563,174 @@ class ContinuationCliTests(unittest.TestCase):
                 *self.owner_flags(claim),
             ]
         )
-        self.assertEqual(2, code)
-        self.assertEqual("released_to_reconciling", release["status"])
-        self.assertEqual("reconciling", release["state"]["status"])
+        self.assertEqual(0, code, release)
+        self.assertEqual("released", release["status"])
+        self.assertEqual("ready", release["state"]["status"])
+        self.assertEqual(["dirty.txt"], release["workspace"]["task_owned_paths"])
+        self.assertEqual(["dirty.txt"], release["workspace"]["write_intent_paths"])
+        self.assertTrue((self.root / "dirty.txt").exists())
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertTrue(doctor["can_claim"], doctor)
+        self.assertNotIn("worktree_dirty", doctor["blocked_reasons"])
+        self.assertEqual(["dirty.txt"], doctor["workspace"]["task_owned_paths"])
+
+        code, inherited, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{inherited}")
+        self.assertGreater(int(inherited["generation"]), int(claim["generation"]))
+        self.assertEqual(["dirty.txt"], inherited["workspace"]["task_owned_paths"])
+        self.assertEqual(["dirty.txt"], inherited["workspace"]["write_intent_paths"])
+
+    def test_task_owned_wip_can_cross_multiple_generations_without_commit(self) -> None:
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "runner-1",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--path",
+                "feature.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        (self.root / "feature.txt").write_text("generation 1\n", encoding="utf-8")
+
+        current = claim
+        for generation_number in (2, 3):
+            code, released, stderr = self.run_json(
+                [
+                    "continuation",
+                    "release",
+                    str(self.root),
+                    "--task-id",
+                    "WS908",
+                    "--lease-id",
+                    str(current["lease"]["lease_id"]),
+                    *self.owner_flags(current),
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{released}")
+            self.assertEqual(["feature.txt"], released["workspace"]["task_owned_paths"])
+            code, current, stderr = self.run_json(
+                [
+                    "continuation",
+                    "claim",
+                    str(self.root),
+                    "--task-id",
+                    "WS908",
+                    "--runner-id",
+                    f"runner-{generation_number}",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{current}")
+            self.assertEqual(["feature.txt"], current["workspace"]["task_owned_paths"])
+            (self.root / "feature.txt").write_text(
+                f"generation {generation_number}\n", encoding="utf-8"
+            )
+
+    def test_ownerless_task_owned_drift_blocks_next_claim_by_provenance(self) -> None:
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--path",
+                "handoff.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        (self.root / "handoff.txt").write_text("owned v1\n", encoding="utf-8")
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+
+        (self.root / "handoff.txt").write_text("unknown owner edit\n", encoding="utf-8")
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertFalse(doctor["can_claim"])
+        self.assertIn("workspace_conflict", doctor["blocked_reasons"])
+        self.assertNotIn("worktree_dirty", doctor["blocked_reasons"])
+        self.assertEqual(
+            "task_owned_handoff_drift",
+            doctor["workspace"]["conflicts"][0]["reason"],
+        )
+
+    def test_legacy_changed_paths_report_provenance_missing_not_worktree_dirty(self) -> None:
+        init = self.init_task("WS908")
+        state_dir = Path(str(init["state_dir"]))
+        (state_dir / "workspace.json").unlink()
+        (self.root / "unknown.txt").write_text("unknown provenance\n", encoding="utf-8")
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertFalse(doctor["can_claim"])
+        self.assertIn("workspace_provenance_missing", doctor["blocked_reasons"])
+        self.assertNotIn("worktree_dirty", doctor["blocked_reasons"])
+        self.assertEqual(["unknown.txt"], doctor["workspace"]["unclassified_paths"])
 
     def test_ws008_preexisting_unrelated_dirty_is_baseline_not_global_blocker(self) -> None:
         """WS008 target: pre-claim external dirty is preserved as baseline metadata."""
@@ -808,17 +973,29 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("reconciliation_stale", stale["error_code"], stale)
         self.assertNotEqual(recorded_digest, stale["details"]["current"]["workspace_manifest_digest"])
 
-    @unittest.expectedFailure
     def test_ws008_stale_threshold_is_independent_from_renew_interval(self) -> None:
         """WS008 target: liveness cadence is independently configured from lease renewal."""
         init = self.init_task("WS908")
         state_dir = Path(str(init["state_dir"]))
-        control_path = state_dir / "control.json"
-        control = json.loads(control_path.read_text(encoding="utf-8"))
-        control["renew_interval_minutes"] = 45
-        control["heartbeat_interval_minutes"] = 10
-        control["stale_after_minutes"] = 25
-        control_path.write_text(json.dumps(control, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        code, configured, stderr = self.run_json(
+            [
+                "continuation",
+                "configure",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-ttl-minutes",
+                "180",
+                "--renew-interval-minutes",
+                "45",
+                "--heartbeat-interval-minutes",
+                "10",
+                "--stale-after-minutes",
+                "25",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{configured}")
+        self.assertEqual("long-running", configured["control"]["timing_profile"])
         code, claim, stderr = self.run_json(
             [
                 "continuation",
@@ -833,6 +1010,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, f"{stderr}\n{claim}")
         lease_path = state_dir / "lease.json"
         lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["issued_at"] = continuation._iso(continuation._now() - timedelta(minutes=60))
         lease["last_heartbeat_at"] = continuation._iso(continuation._now() - timedelta(minutes=30))
         lease_path.write_text(json.dumps(lease, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         code, doctor, stderr = self.run_json(
@@ -841,6 +1019,84 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, f"{stderr}\n{doctor}")
         self.assertEqual("stale", doctor["lease"]["liveness"])
         self.assertEqual(1500, doctor["lease"]["stale_after_seconds"])
+
+    def test_ws008_long_running_profile_configures_existing_task_and_generated_prompt(self) -> None:
+        init = self.init_task("WS908")
+        state_dir = Path(str(init["state_dir"]))
+        state_before = json.loads((state_dir / "state.json").read_text(encoding="utf-8"))
+
+        code, configured, stderr = self.run_json(
+            [
+                "continuation",
+                "configure",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--profile",
+                "long-running",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{configured}")
+        self.assertEqual(
+            {
+                "timing_profile": "long-running",
+                "interval_minutes": 60,
+                "lease_ttl_minutes": 180,
+                "renew_interval_minutes": 45,
+                "heartbeat_interval_minutes": 10,
+                "stale_after_minutes": 25,
+            },
+            configured["control"],
+        )
+        state_after = json.loads((state_dir / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state_before, state_after)
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertEqual("long-running", doctor["control"]["timing_profile"])
+        self.assertEqual(10, doctor["control"]["heartbeat_interval_minutes"])
+        self.assertEqual(25, doctor["control"]["stale_after_minutes"])
+
+        code, prompt, stderr = self.run_json(
+            ["continuation", "prompt", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prompt}")
+        prompt_text = str(prompt["prompt"])
+        self.assertIn("Timing profile: long-running", prompt_text)
+        self.assertIn("Heartbeat recommendation: every 10 minutes", prompt_text)
+        self.assertIn("Stale threshold: 25 minutes", prompt_text)
+        self.assertIn("Renew recommendation: every 45 minutes", prompt_text)
+        self.assertIn("scheduler interval is only a wake cadence", prompt_text)
+
+    def test_ws008_configure_refuses_active_owner(self) -> None:
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "ws008-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, configured, _ = self.run_json(
+            [
+                "continuation",
+                "configure",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--profile",
+                "long-running",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("continuation_busy", configured["error_code"])
 
     def test_ws008_write_intent_rejects_protected_external_dirty_overlap(self) -> None:
         (self.root / "manual-note.txt").write_text("manual external change\n", encoding="utf-8")
@@ -905,7 +1161,8 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, f"{stderr}\n{release}")
         self.assertEqual("released", release["status"])
         self.assertEqual("ready", release["state"]["status"])
-        self.assertEqual(["external-note.txt"], release["workspace"]["unexpected_nonoverlap_paths"])
+        self.assertEqual(["external-note.txt"], release["workspace"]["baseline_external_paths"])
+        self.assertEqual([], release["workspace"]["unexpected_nonoverlap_paths"])
         self.assertTrue((self.root / "external-note.txt").exists())
 
     def test_ws008_preexisting_external_dirty_may_change_without_false_conflict(self) -> None:

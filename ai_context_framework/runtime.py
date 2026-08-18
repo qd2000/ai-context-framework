@@ -1214,23 +1214,36 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_init_parser.add_argument("--plan-ref", action="append", default=None)
     continuation_init_parser.add_argument("--expected-branch", default=None)
     continuation_init_parser.add_argument(
+        "--profile",
+        choices=tuple(sorted(continuation_commands.TIMING_PROFILES)),
+        default="standard",
+        help="timing profile; explicit timing flags override the selected profile",
+    )
+    continuation_init_parser.add_argument(
         "--interval-minutes",
         type=int,
-        default=continuation_commands.DEFAULT_INTERVAL_MINUTES,
+        default=None,
     )
     continuation_init_parser.add_argument(
         "--lease-ttl-minutes",
         type=int,
-        default=continuation_commands.DEFAULT_LEASE_TTL_MINUTES,
+        default=None,
     )
     continuation_init_parser.add_argument(
         "--renew-interval-minutes",
         type=int,
-        default=continuation_commands.DEFAULT_RENEW_INTERVAL_MINUTES,
+        default=None,
     )
+    continuation_init_parser.add_argument("--heartbeat-interval-minutes", type=int, default=None)
+    continuation_init_parser.add_argument("--stale-after-minutes", type=int, default=None)
     continuation_init_parser.add_argument("--force", action="store_true")
     add_json_argument(continuation_init_parser)
     continuation_init_parser.set_defaults(func=continuation_commands.continuation_init_command)
+
+    continuation_commands.register_configure_parser(
+        continuation_subparsers,
+        add_json_argument,
+    )
 
     continuation_doctor_parser = continuation_subparsers.add_parser(
         "doctor",

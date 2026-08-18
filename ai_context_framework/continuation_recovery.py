@@ -45,12 +45,13 @@ def build_observation(
         "control_generation": int(status["control"].get("generation", 0)),
         "state_status": status["state"]["status"],
         "current_head": status["git"]["head"],
-        "git_clean": bool(status["git"]["clean"]),
         "workspace_state": workspace.get("state"),
         "workspace_generation": workspace.get("generation"),
         "workspace_manifest_digest": workspace.get("manifest_digest"),
         "workspace_has_conflicts": bool(workspace.get("has_conflicts")),
+        "workspace_unclassified_paths": list(workspace.get("unclassified_paths") or []),
         "workspace_baseline_external_paths": list(workspace.get("baseline_external_paths") or []),
+        "workspace_task_owned_paths": list(workspace.get("task_owned_paths") or []),
         "workspace_runner_owned_paths": list(workspace.get("runner_owned_paths") or []),
         "workspace_unexpected_nonoverlap_paths": list(workspace.get("unexpected_nonoverlap_paths") or []),
         "round_digest": json_digest(rounds),
@@ -92,13 +93,15 @@ def reconcile_decision(
     workspace_generation = observation.get("workspace_generation")
     workspace_digest = observation.get("workspace_manifest_digest")
     workspace_has_conflicts = bool(observation.get("workspace_has_conflicts"))
+    workspace_unclassified_paths = list(observation.get("workspace_unclassified_paths") or [])
     if workspace_has_conflicts:
         reasons.append("workspace_conflict")
     if workspace_state == "valid" and lease_generation is not None and workspace_generation != lease_generation:
         reasons.append("workspace_generation_mismatch")
-    if not bool(observation.get("git_clean")):
-        if workspace_state != "valid" or not isinstance(workspace_digest, str) or not workspace_digest:
-            reasons.append("worktree_dirty")
+    if workspace_state == "absent" and workspace_unclassified_paths:
+        reasons.append("workspace_provenance_missing")
+    if workspace_state == "valid" and (not isinstance(workspace_digest, str) or not workspace_digest):
+        reasons.append("workspace_manifest_digest_missing")
 
     latest_round = observation.get("latest_round")
     if lease_generation is not None:

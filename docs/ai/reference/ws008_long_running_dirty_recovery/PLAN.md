@@ -13,6 +13,9 @@
 5. **Fencing 处理“旧 runner 复活”。** safe recovery 后 generation 前进；旧 runner 再次执行 owner-protected ACF 操作必须失败。生成提示词要求所有非幂等 side effect 和关键写入前重新 assert owner。
 6. **长 Gate 是正常形态。** Scheduled Task 每小时只是唤醒频率，不是 Gate 时长；Gate 不因定时器被机械切碎。
 7. **通用协议只维护在 ACF。** Scheduled Task 只保存固定 worktree/branch/task-id 和项目特有约束；每轮先调用 `acf continuation prompt` 获取当前通用协议。
+8. **Git clean 不是 continuation 健康信号。** `worktree dirty` 不参与 owner liveness、并发、claim、release、reconcile 或 recover 决策；Git 只提供 path/status/content digest 等底层观测。真正 blocker 必须表达为 path ownership conflict、provenance missing、HEAD/effect/identity ambiguity 等具体原因。
+9. **Continuation checkpoint 与 Git checkpoint 解耦。** 一轮 Scheduled Task 可以在功能尚未形成自然语义提交点时保留未提交 task WIP 并正常 release；Git commit 只在功能、阶段或其他项目语义形成自然 checkpoint 时创建，不能为了释放 continuation lease 制造半成品提交。
+10. **同一 worktree 保持 single writer，但允许多个 contender。** 后来的 Agent 可以登记 attempt 并 challenge 当前 owner；只有一个 fenced generation 拥有写授权。challenge timeout 表示旧 owner 未续证 ownership，而不是 ACF 声称证明该 Agent 已死亡。
 
 ## Dirty 分类
 
@@ -20,9 +23,9 @@
 
 claim/init 时已经存在、且不是本轮 runner 创建的修改。保存路径、Git status 类别和内容/diff digest。默认只读保护，不进入本轮 commit。
 
-### runner_owned
+### task_owned（含当前 generation runner-owned）
 
-当前 generation 在显式 write intent 后产生的 tracked/untracked 修改。异常中断后可以作为 WIP recovery 候选。
+由当前 continuation task 的显式 write intent 产生、且 ownership/digest 可解释的 tracked/untracked 修改。它可以由当前 generation 新产生，也可以从前一 generation 正常 handoff 或异常 recovery 继承；不要求为了换轮次先提交 Git。
 
 ### unexpected_nonoverlap
 
@@ -40,7 +43,7 @@ claim 后出现、但与 runner write intent 和 runner-owned 路径不重叠的
 - baseline dirty paths/status/digest；
 - generation；
 - declared write-intent paths；
-- runner-owned paths/digest；
+- task-owned paths/digest；
 - observed external non-overlap paths；
 - last observation timestamp；
 - classification summary。
@@ -60,6 +63,32 @@ acf continuation workspace refresh
 ```
 
 不要把 ACF 扩展成通用文本编辑器；它只管理 ownership metadata 和冲突判断。
+
+## Commitless WIP handoff
+
+正常 release 不要求整个 Git worktree clean。active owner 在 release 前刷新 workspace ownership；只要没有真实冲突、未知 provenance、未解决 effect 或 identity 问题，ACF 可以：
+
+1. 把当前 write intent 下仍存在的修改固化为 `task_owned` handoff metadata；
+2. 把本轮出现的非重叠 external dirty 转为下一轮受保护 external baseline；
+3. 删除 lease 并把 continuation state 正常转为 `ready`；
+4. 下一 generation claim 时验证 `task_owned` status/digest 在 ownerless window 内未漂移，并继承对应 write intent/WIP；
+5. 如果 ownerless window 内 task-owned 路径发生未知修改，报告 `workspace_conflict/task_owned_handoff_drift`，而不是 `worktree_dirty`。
+
+因此正常 handoff 与异常 recovery 最终共享同一 ownership 模型：前者是 voluntary ownership transfer，后者是 fenced/forced ownership transfer。两者都保留 task WIP，都不要求 stash/reset/clean，也不自动提交代码。
+
+## Contention / challenge coordination
+
+ACF 不尝试从 heartbeat 证明远端 Agent 是否“死亡”。当后来的 Agent 到达同一 worktree 时，允许它先登记 bounded `attempt_id + started_at + objective_summary`，随后针对当前 owner generation 打开或加入一个 challenge：
+
+1. 没有 owner：attempt 可继续 claim；
+2. 有 owner：后来的 attempt 成为 contender，不获得写权限；同一 owner generation 只维护一个 active challenge；
+3. 任何通过 `lease_id + generation + fence_token` 验证的 owner-authenticated continuation 操作都可作为 challenge response；普通只读 `acf status/check` 只能提示 challenge，不能冒充 owner ACK；
+4. owner 在 challenge deadline 内响应：challenge → resolved_owner_active，contender 阻塞，原 owner 继续；
+5. owner 正常 release：challenge → resolved_owner_released，contender 可重新 claim；
+6. deadline 到期仍无 authenticated response：只得到 `ownership_forfeiture_candidate`，随后仍必须 formal reconcile workspace/HEAD/effect/identity；全部安全才 generation+1 recover；
+7. recover 后旧 generation 的 owner-protected 操作确定性失败；如果旧 Agent 完全绕过 ACF 直接写文件，则后续 path/digest conflict 继续 fail-closed。
+
+coordination state 存在用户级 `~/.acf`，不写项目 Markdown、不制造 Git dirty；challenge 采用 `open → acknowledged/timed_out → resolved/superseded` 状态迁移并 bounded prune，不通过“创建后删除临时沟通文件”传递消息。
 
 ## Long-running timing
 
@@ -138,10 +167,12 @@ heartbeat 只表示近期 owner activity，不延长 TTL；renew 才延长 TTL�
 
 ### WS008.4 Long-running timing and unified prompt
 
-- heartbeat/stale/renew 解耦；
-- 支持现有 task 原位 configure，不要求 force re-init；
-- long-running profile；
-- `continuation prompt` 成为唯一 generic Scheduled Task 协议。
+- **WS008.4A Timing/configure**：heartbeat/stale/renew 解耦；支持现有 task 原位 configure；long-running profile；generated prompt 输出 timing。
+- **WS008.4B Dirty-gate removal + commitless WIP handoff**：删除 worktree-level dirty gate；task-owned WIP 正常 release/claim 跨 generation 继承；Git commit 与 Scheduled round 解耦。
+- **WS008.4C Attempt/challenge model**：bounded attempt identity、started_at、contender、challenge lifecycle 与用户级 coordination state。
+- **WS008.4D Active contention protocol**：后来的 Agent 自动 open/join challenge；owner-authenticated ACF activity ACK；timeout 形成 ownership forfeiture candidate。
+- **WS008.4E Formal preemption**：challenge evidence 接入 reconcile receipt/digest/recover；timeout 与 owner ACK/recover race 必须由 state lock + generation fencing 保证最多一个 writer。
+- **WS008.4F Universal probe + generated protocol**：所有可定位项目的 ACF 命令 opportunistic 提示 pending challenge；owner-protected continuation 命令 authenticated touch；`continuation prompt` 成为唯一 generic Scheduled Task 协议。
 
 ### WS008.5 Failure injection, project adoption and release
 

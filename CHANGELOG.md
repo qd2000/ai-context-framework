@@ -2,6 +2,15 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## Unreleased
+
+### Continuation 长轮次时序与统一协议
+
+- continuation timing 拆分 scheduler interval、lease TTL、renew interval、heartbeat recommendation 与 stale threshold；`doctor` 不再用 renew interval 推导 stale。新增 `standard` / `long-running` profile，其中 long-running 默认 `60/180/45/10/25` 分钟。
+- 新增 `acf continuation configure`，已有 task 可原位更新 timing control，不需要 `init --force`；active lease 存在时拒绝 configure，避免运行中改变 owner liveness 语义。
+- `acf continuation prompt` 输出当前 timing 并明确 scheduler 只是唤醒频率、Gate 可自然持续 1-2 小时以上；Scheduled Task 应只保留项目 wrapper，每轮消费当前安装态生成协议。
+- continuation 不再把 worktree-level `clean/dirty` 作为 claim/release/reconcile/recover 安全门。workspace manifest v2 使用 path/status/digest 区分 external 与 `task_owned` WIP；正常 release 可保留未提交 task WIP，下一 generation 验证 ownerless handoff 期间 digest 未漂移后直接继承。Git commit 只在自然语义 checkpoint 创建；真正的 unknown provenance 报 `workspace_provenance_missing`，同路径/父子路径或 task-owned ownerless drift 才进入 `workspace_conflict`。
+
 ## v0.0.3.62 — 2026-08-17
 
 ### Continuation 可恢复执行协议
