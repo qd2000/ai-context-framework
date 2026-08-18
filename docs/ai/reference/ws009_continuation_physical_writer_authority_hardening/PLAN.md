@@ -66,7 +66,7 @@ WS009 必须优先修复 correctness / deterministic governance 缺口，再做�
 1. 定义 `semantic Git dirty` 与 `status/stat-only observation` 的机械差异。
 2. 对 ordinary tracked unstaged entries，仅当 Git diff/metadata 确认真实 index-vs-worktree 变化时计入 lifecycle dirty；staged、untracked、rename/delete/type/mode/unmerged/submodule 等仍按现有严格规则处理。
 3. 只做只读比较，不使用 `git update-index --refresh` 作为 `verify` 的隐式修复，避免只读命令修改 index metadata。
-4. `worktree verify/audit/sync/merge/close` 共享同一 canonical clean 语义；可额外报告 bounded `stat_only_paths` / warning，但不得让内容相同项阻塞生命周期。
+4. `worktree verify/audit/sync/merge/close` 与 continuation workspace observation/refresh 共享同一 canonical clean 语义；可额外报告 bounded `stat_only_paths` / warning，但不得让内容相同项阻塞生命周期。已有 continuation manifest 中因此误捕获的 `baseline_external` 应在后续 refresh 观察到路径语义 clean 后自然消失，而不是靠 reset/checkout/手改 manifest 清理。
 5. 添加 synthetic Git fixture 和 Windows dogfood 回归；跨平台无法稳定制造 racy/stat-only 状态时，使用 parser/helper 单元测试 + Windows 真实 smoke 双证据。
 
 ### P1-A：terminal Current_Task / Task_Plan 滞留 active
