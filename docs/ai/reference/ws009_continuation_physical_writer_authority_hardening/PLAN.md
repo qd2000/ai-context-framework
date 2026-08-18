@@ -30,6 +30,68 @@ WS009 必须优先修复 correctness / deterministic governance 缺口，再做�
 9. **统一状态实现，隔离命名空间**：所有 continuation task 必须复用同一 `ACF_HOME`、目录解析器、schema 与原子写入路径；不同 resolved project/worktree 通过 path-hash namespace 隔离，不复制项目私有状态实现，也不把所有任务塞进一个共享可碰撞目录。
 10. **Prompt 单一 generic authority + 薄 wrapper**：generic contention/recovery/workspace/effect 协议只由 `acf continuation prompt` 生成；scheduler wrapper 只保留固定执行身份、如何每轮获取 generated prompt、项目特有运行/科学/权限/验证约束。不得把 generic 状态机复制进 wrapper，也不得把项目科学判断硬编码进通用 ACF prompt。
 11. **统一不等于限制推理能力**：ACF 统一的是可验证的 control-plane、安全边界、状态 schema 和 prompt 入口，不规定 Agent 的工程推理步骤、搜索策略、测试组合或一个自然 Gate 内的自主决策；只有冲突、身份、未决副作用和未知写结果继续 fail-closed。
+12. **动态目标不写死在 Scheduled Task**：Scheduled Task 是稳定启动器，不是任务计划事实源。WS009 的问题、优先级、阶段、技术路线和成功标准以 Workstream + PLAN 为持久权威；continuation `state.next_action` 只保存当前 bounded 执行指针。普通目标调整通过更新 PLAN/stage/scope/next_action 生效，不要求重写 Scheduled Task。
+
+## 标准 ACF 长任务结构
+
+WS009 同时 dogfood 一套后续可复用的 ACF 长任务结构。标准任务最少只需要：
+
+```text
+docs/ai/
+├─ active/
+│  ├─ Workstreams.md
+│  └─ workstreams/
+│     └─ WS009.md
+└─ reference/
+   └─ ws009_continuation_physical_writer_authority_hardening/
+      ├─ PLAN.md
+      └─ SCHEDULED_TASK_PROMPT.md
+```
+
+复杂协议任务可按需要渐进增加：
+
+```text
+PROBLEM_MATRIX.md
+FAILURE_MATRIX.md
+ADOPTION_MATRIX.md
+```
+
+职责必须保持单一：
+
+1. `WS009.md`：当前状态、current_stage、read/write scope、证据指针、merge contract；不复制完整问题分析。
+2. `PLAN.md`：任务问题矩阵、优先级、解决策略、阶段依赖、成功标准和非目标，是 WS009 技术路线的单一持久权威。
+3. `SCHEDULED_TASK_PROMPT.md`：可直接复制到外部 scheduler 的薄 wrapper；只保存固定身份、每轮入口、任务级 guardrails 与动态目标解析规则，不保存 generic continuation 状态机。
+4. `~/.acf/.../continuation/<task-id>/`：lease、generation、workspace ownership、round/effect/recovery 等运行态；不进入 Git，也不由人或 Scheduled Task 手改 JSON。
+5. optional matrix 文件：仅当问题/失败/adoption 证据复杂到 PLAN 不宜继续膨胀时创建，不作为所有 WS 的强制模板。
+
+## 目标与需求动态变更协议
+
+### 权威优先级
+
+交互式人工变更发生时，以用户最新明确指令最高；一旦决定让后续无人值守轮次继承，必须把变更落到本地权威状态。无人值守 Scheduled Task 的解析顺序统一为：
+
+1. 当前 verified Workstream identity / scope；
+2. 最新 `WS009.md` current_stage 与本 `PLAN.md`；
+3. continuation state 中的 status / next_action / constraints / evidence refs；
+4. Scheduled Task 静态 wrapper 中的历史描述。
+
+如果 PLAN/current_stage 已经因为较新的人工需求发生变化，而 continuation `state.next_action` 仍旧陈旧，合法 owner 应先按当前 generated continuation protocol 更新 bounded checkpoint/next_action，再执行新的有效 Gate；不得机械执行陈旧 next_action，也不得绕过 ownership 直接手改 state JSON。
+
+### 变更粒度
+
+1. **小调整**：只改变执行顺序或下一步，不改变 mission/scope。更新 current stage 的 next_action 和 continuation checkpoint 即可。
+2. **中等调整**：仍属于 WS009 mission，但新增/删除问题、改变优先级或技术路线。更新 PLAN，必要时调整 Workstream stage、scope 和 continuation next_action；Scheduled Task 不改。
+3. **安全不变量变化**：例如决定允许 daemon/PID supervisor、改变 authority 规则或自动事实裁决。这属于产品边界变化，必须有明确人工批准，并同步 ADR/rules/PLAN；不能由 Scheduled Task 自行演化。
+4. **根本换题**：新需求已经超出 WS009 mission。WS009 应完成、暂停、取消或保留边界说明，再 reserve 新 Workstream；不得无限扩展当前 WS。
+
+### 何时才修改 Scheduled Task
+
+只有两类变化需要修改外部 Scheduled Task：
+
+1. 固定 identity 变化：project/worktree/branch/workstream/task-id 发生正式迁移；
+2. ACF 官方 thin-wrapper contract 本身升级，需要统一迁移 wrapper。
+
+普通目标、优先级、阶段和技术路线变化都不应通过 Scheduled Task 文本维护。
 
 ## v0.0.3.63 dogfood 基线
 
