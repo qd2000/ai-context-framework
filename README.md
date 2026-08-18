@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.62` 是当前推荐版本。在 `v0.0.3.61` 的 continuation dogfooding 可观测性基础上，新增 heartbeat/liveness、generation fencing、write-ahead effect journal、formal reconcile/recover、状态兼容修复与 issue resolution lifecycle；既有 v0.0.3.61 continuation state 可原位升级，不需要 `init --force`。
+`v0.0.3.63` 是当前推荐版本。在 `v0.0.3.62` 的 fenced recovery 基础上，新增 path/digest workspace ownership、commitless task-owned WIP handoff、long-running timing profile、single-writer/multi-contender attempt/challenge coordination、challenge-backed formal preemption、通用只读 challenge probe，以及由 `acf continuation prompt` 统一生成的 Scheduled Task 协议；既有 continuation state 可原位读取/升级，不需要 `init --force`。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
