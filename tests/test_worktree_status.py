@@ -128,7 +128,7 @@ class WorktreeStatusTests(unittest.TestCase):
         with TemporaryWorktreeScenario() as scenario:
             run_git(scenario.primary, "config", "core.autocrlf", "true")
             scenario.write(scenario.primary, ".gitattributes", "normalized.txt text eol=crlf\n")
-            scenario.write(scenario.primary, "normalized.txt", "alpha\nbeta\n")
+            (scenario.primary / "normalized.txt").write_bytes(b"alpha\nbeta\n")
             run_git(scenario.primary, "add", ".gitattributes", "normalized.txt")
             run_git(scenario.primary, "commit", "-m", "add normalized fixture")
             (scenario.primary / "normalized.txt").unlink()

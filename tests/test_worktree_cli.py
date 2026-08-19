@@ -623,7 +623,7 @@ class WorktreeCliTests(unittest.TestCase):
         target = Path(created["target"]["path"])
         git(repo, "config", "core.autocrlf", "true")
         (target / ".gitattributes").write_text("normalized.txt text eol=crlf\n", encoding="utf-8")
-        (target / "normalized.txt").write_text("alpha\nbeta\n", encoding="utf-8")
+        (target / "normalized.txt").write_bytes(b"alpha\nbeta\n")
         git(target, "add", ".gitattributes", "normalized.txt")
         git(target, "commit", "-m", "add normalized fixture")
         (target / "normalized.txt").unlink()
