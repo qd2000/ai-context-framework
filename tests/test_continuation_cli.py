@@ -1822,6 +1822,40 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertNotIn("worktree_dirty", doctor["blocked_reasons"])
         self.assertEqual(["manual-note.txt"], doctor["workspace"]["baseline_external_paths"])
 
+    def test_ws008_preexisting_external_dirty_drops_from_baseline_when_path_becomes_clean(self) -> None:
+        (self.root / "manual-note.txt").write_text("manual\n", encoding="utf-8")
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "ws008-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        (self.root / "manual-note.txt").unlink()
+        code, refreshed, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "refresh",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{refreshed}")
+        self.assertEqual([], refreshed["workspace"]["baseline_external_paths"])
+        self.assertEqual([], refreshed["workspace"]["task_owned_paths"])
+        self.assertEqual([], refreshed["workspace"]["unexpected_nonoverlap_paths"])
+
     def test_ws008_workspace_intent_scope_filter_is_path_specific(self) -> None:
         manifest = continuation_workspace.new_manifest(
             task_id="WS908",

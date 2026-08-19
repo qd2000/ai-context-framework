@@ -691,6 +691,7 @@ def classify(
 
     payload = {
         **current,
+        "baseline_external": baseline_external,
         "task_owned": task_owned,
         "unexpected_nonoverlap": unexpected,
         "conflicts": conflicts,
