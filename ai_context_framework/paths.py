@@ -95,12 +95,16 @@ def relative_display_path(path: Path, base: Path) -> str:
     try:
         return display_path(path.relative_to(base))
     except ValueError:
+        pass
+    try:
+        return display_path(path.resolve().relative_to(base.resolve()))
+    except ValueError:
         return display_path(path)
 
 
 def is_relative_to(path: Path, parent: Path) -> bool:
     try:
-        path.relative_to(parent)
+        path.resolve().relative_to(parent.resolve())
     except ValueError:
         return False
     return True

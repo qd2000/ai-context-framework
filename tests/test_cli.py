@@ -794,7 +794,7 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertIn(str(detail_path), payload["changed_files"])
+            self.assertIn(str(detail_path.resolve()), payload["changed_files"])
             self.assertNotIn("候选摘要", detail_path.read_text(encoding="utf-8"))
 
             exit_code, stdout, stderr = self.run_cli_output(
@@ -1111,7 +1111,7 @@ class CliTests(unittest.TestCase):
                 ]
             )
             self.assertEqual(exit_code, 0, stderr)
-            self.assertIn(str(detail_path), json.loads(stdout)["changed_files"])
+            self.assertIn(str(detail_path.resolve()), json.loads(stdout)["changed_files"])
             self.assertNotIn("新的发现", detail_path.read_text(encoding="utf-8"))
 
             exit_code, stdout, stderr = self.run_cli_output(
@@ -1205,7 +1205,7 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertIn(str(detail_path), payload["changed_files"])
+            self.assertIn(str(detail_path.resolve()), payload["changed_files"])
             self.assertTrue(payload["warnings"])
             self.assertNotIn("reference/Architecture.md", detail_path.read_text(encoding="utf-8"))
 
@@ -1650,7 +1650,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertEqual(payload["changed_files"], [str(index_path)])
+            self.assertEqual(payload["changed_files"], [str(index_path.resolve())])
             self.assertIn("| WS002 | Open | WS002 |", payload["preview"]["content"])
             self.assertEqual(index_path.read_text(encoding="utf-8"), drifted)
 
@@ -1671,7 +1671,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertEqual(payload["changed_files"], [str(index_path)])
+            self.assertEqual(payload["changed_files"], [str(index_path.resolve())])
             synced = index_path.read_text(encoding="utf-8")
             self.assertIn("| WS002 | Open | WS002 | detail owner |", synced)
             self.assertTrue(payload["check"]["ok"])
@@ -1699,7 +1699,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertEqual(payload["changed_files"], [str(index_path)])
+            self.assertEqual(payload["changed_files"], [str(index_path.resolve())])
             self.assertIn("| WS999 | Open | 未索引 | 主 agent | owned: active/workstreams/WS999.md | 无。 | 待补充。 | active/workstreams/WS999.md |", index_path.read_text(encoding="utf-8"))
             self.assertTrue(payload["check"]["ok"])
 
@@ -1928,7 +1928,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertEqual(payload["changed_files"], [str(detail_path)])
+            self.assertEqual(payload["changed_files"], [str(detail_path.resolve())])
             self.assertIn("| WS004.2 | Pending | pct10 formal Morris |", detail_path.read_text(encoding="utf-8"))
             self.assertEqual((target / "active" / "Current_Task.md").read_text(encoding="utf-8"), current_task_before)
             self.assertEqual((target / "active" / "Context.md").read_text(encoding="utf-8"), context_before)

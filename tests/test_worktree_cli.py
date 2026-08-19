@@ -1313,7 +1313,7 @@ class WorktreeCliTests(unittest.TestCase):
         reserved = self.reserve(context, slug="configured-task")
         created = self.create_ws_worktree(context, reserved["id"])
         self.assertEqual(created["target"]["branch"], "agent/ws001-configured-task")
-        self.assertTrue(Path(created["target"]["path"]).is_relative_to(custom_root))
+        self.assertTrue(Path(created["target"]["path"]).resolve().is_relative_to(custom_root.resolve()))
         project = discover_git_project(context)
         self.assertEqual(project.config.primary_dirty_policy, "require_clean")
         self.assertEqual(project.config.artifact_cache_patterns, ("**/__pycache__/*.pyc",))
