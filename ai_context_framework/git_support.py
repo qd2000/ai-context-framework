@@ -216,6 +216,108 @@ def status_porcelain(path: str | Path) -> list[str]:
     return output.splitlines() if output else []
 
 
+def status_porcelain_records(path: str | Path) -> list[dict[str, str | None]]:
+    """Return porcelain-v1 records without allowing Git to refresh index metadata."""
+
+    env = os.environ.copy()
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    output = run_git(
+        path,
+        ("status", "--porcelain=v1", "-z", "--untracked-files=all"),
+        env=env,
+    ).stdout
+    tokens = output.split("\0")
+    records: list[dict[str, str | None]] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        if not token:
+            continue
+        if len(token) < 4:
+            continue
+        status = token[:2]
+        current_path = token[3:].replace("\\", "/")
+        original_path: str | None = None
+        if status[0] in {"R", "C"} or status[1] in {"R", "C"}:
+            if index < len(tokens) and tokens[index]:
+                original_path = tokens[index].replace("\\", "/")
+                index += 1
+        records.append(
+            {
+                "status": status,
+                "path": current_path,
+                "original_path": original_path,
+            }
+        )
+    return records
+
+
+def _relative_status_key(value: str) -> str:
+    normalized = value.replace("\\", "/")
+    return normalized.casefold() if os.name == "nt" else normalized
+
+
+def semantic_status(path: str | Path) -> dict[str, object]:
+    """Classify real Git changes separately from content-identical stat-only observations.
+
+    Only ordinary tracked unstaged ``M`` records are eligible to be ignored, and
+    only when read-only ``git diff --name-only`` confirms that the index and
+    normalized working-tree content are identical.  Staged, untracked,
+    rename/delete/type/mode/unmerged/submodule and real unstaged changes remain
+    dirty.  ``GIT_OPTIONAL_LOCKS=0`` keeps this diagnostic from refreshing the
+    index as a side effect.
+    """
+
+    records = status_porcelain_records(path)
+    env = os.environ.copy()
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    diff = run_git(
+        path,
+        ("diff", "--name-only", "-z", "--no-ext-diff"),
+        check=False,
+        env=env,
+    )
+    if diff.returncode != 0:
+        real_unstaged = {
+            _relative_status_key(str(record["path"]))
+            for record in records
+            if record.get("path")
+        }
+    else:
+        real_unstaged = {
+            _relative_status_key(value)
+            for value in diff.stdout.split("\0")
+            if value
+        }
+    dirty_records: list[dict[str, str | None]] = []
+    stat_only_paths: list[str] = []
+    for record in records:
+        status = str(record["status"])
+        path_value = str(record["path"])
+        if (
+            status == " M"
+            and record.get("original_path") is None
+            and _relative_status_key(path_value) not in real_unstaged
+        ):
+            stat_only_paths.append(path_value)
+            continue
+        dirty_records.append(record)
+    dirty_paths: list[str] = []
+    for record in dirty_records:
+        path_value = str(record["path"])
+        dirty_paths.append(path_value)
+        original = record.get("original_path")
+        if isinstance(original, str) and original:
+            dirty_paths.append(original)
+    return {
+        "dirty_records": dirty_records,
+        "dirty_paths": sorted(set(dirty_paths), key=_relative_status_key),
+        "stat_only_paths": sorted(set(stat_only_paths), key=_relative_status_key),
+        "clean": not dirty_records,
+    }
+
+
 def porcelain_status_path(line: str) -> str:
     value = line[3:] if len(line) >= 4 else line
     if " -> " in value:
@@ -225,7 +327,8 @@ def porcelain_status_path(line: str) -> str:
 
 def is_clean_except(path: str | Path, allowed_relative_paths: Iterable[str] = ()) -> bool:
     allowed = {value.replace("\\", "/") for value in allowed_relative_paths}
-    return all(porcelain_status_path(line) in allowed for line in status_porcelain(path))
+    status = semantic_status(path)
+    return all(str(value).replace("\\", "/") in allowed for value in status["dirty_paths"])
 
 
 def is_clean(path: str | Path) -> bool:

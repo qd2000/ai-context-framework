@@ -64,6 +64,7 @@ from ai_context_framework.git_support import (
     release_operation_lock,
     rev_parse,
     run_git,
+    semantic_status,
     status_porcelain,
     target_payload,
     update_operation,
@@ -268,9 +269,12 @@ def verify_target(project: GitProject, target: WorktreeTarget) -> dict[str, Any]
     branch_rows = records_for_branch(records, target.branch)
     if len(branch_rows) != 1:
         issues.append("branch_checkout_count_invalid")
-    clean = is_clean(record.path)
+    semantic = semantic_status(record.path)
+    clean = bool(semantic["clean"])
     if not clean:
         warnings.append("worktree_dirty")
+    elif semantic["stat_only_paths"]:
+        warnings.append("worktree_stat_only")
     head = record.head or rev_parse(record.path, "HEAD")
     if target.reservation_commit and not is_ancestor(
         project.repo_root, target.reservation_commit, head
@@ -291,6 +295,7 @@ def verify_target(project: GitProject, target: WorktreeTarget) -> dict[str, Any]
         "target": target_payload(target),
         "exists": record.path.is_dir(),
         "clean": clean,
+        "stat_only_paths": semantic["stat_only_paths"],
         "head": head,
         "branch": record.branch_short,
         "git_common_dir": str(actual_common) if actual_common else None,
@@ -573,6 +578,11 @@ def list_payload(project: GitProject) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for record in list_worktrees(project.repo_root):
         registry = registry_by_path.get(path_key(record.path))
+        semantic = (
+            semantic_status(record.path)
+            if record.path.exists() and not record.bare
+            else None
+        )
         rows.append(
             {
                 "path": str(record.path),
@@ -581,7 +591,8 @@ def list_payload(project: GitProject) -> dict[str, Any]:
                 "detached": record.detached,
                 "bare": record.bare,
                 "prunable": record.prunable,
-                "clean": is_clean(record.path) if record.path.exists() and not record.bare else None,
+                "clean": bool(semantic["clean"]) if semantic is not None else None,
+                "stat_only_paths": semantic["stat_only_paths"] if semantic is not None else [],
                 "binding": registry,
             }
         )

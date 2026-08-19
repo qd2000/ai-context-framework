@@ -5,7 +5,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from ai_context_framework.git_support import is_clean
+from ai_context_framework import continuation_workspace
+from ai_context_framework.git_support import is_clean, semantic_status
 from ai_context_framework.worktree_status import (
     SNAPSHOT_SCHEMA_VERSION,
     capture_git_worktree_snapshot,
@@ -149,7 +150,11 @@ class WorktreeStatusTests(unittest.TestCase):
                 "--untracked-files=all",
             )
             self.assertIn("1 .M ", status.stdout)
-            self.assertFalse(is_clean(scenario.primary))
+            semantic = semantic_status(scenario.primary)
+            self.assertTrue(is_clean(scenario.primary))
+            self.assertTrue(semantic["clean"])
+            self.assertEqual(["normalized.txt"], semantic["stat_only_paths"])
+            self.assertEqual([], semantic["dirty_paths"])
 
             diff = run_git_read_only(
                 scenario.primary,
@@ -175,6 +180,11 @@ class WorktreeStatusTests(unittest.TestCase):
             self.assertEqual(worktree_oid, index_oid)
             self.assertEqual(index_path.read_bytes(), index_before)
 
+            continuation_snapshot = continuation_workspace.git_snapshot(scenario.primary)
+            self.assertEqual([], continuation_snapshot["entries"])
+            self.assertEqual(["normalized.txt"], continuation_snapshot["stat_only_paths"])
+            self.assertEqual(index_path.read_bytes(), index_before)
+
     def test_read_only_plumbing_keeps_real_git_changes_distinct(self):
         with TemporaryWorktreeScenario() as scenario:
             index_path = Path(
@@ -185,6 +195,10 @@ class WorktreeStatusTests(unittest.TestCase):
             scenario.write(scenario.primary, "base.txt", "real content change\n")
             index_before = index_path.read_bytes()
             self.assertFalse(is_clean(scenario.primary))
+            semantic = semantic_status(scenario.primary)
+            self.assertFalse(semantic["clean"])
+            self.assertIn("base.txt", semantic["dirty_paths"])
+            self.assertEqual([], semantic["stat_only_paths"])
             self.assertEqual(
                 run_git_read_only(
                     scenario.primary,
@@ -207,6 +221,10 @@ class WorktreeStatusTests(unittest.TestCase):
             )
             index_before = index_path.read_bytes()
             self.assertFalse(is_clean(scenario.primary))
+            semantic = semantic_status(scenario.primary)
+            self.assertFalse(semantic["clean"])
+            self.assertIn("base.txt", semantic["dirty_paths"])
+            self.assertEqual([], semantic["stat_only_paths"])
             self.assertEqual(
                 run_git_read_only(
                     scenario.primary,
@@ -229,6 +247,10 @@ class WorktreeStatusTests(unittest.TestCase):
             )
             index_before = index_path.read_bytes()
             self.assertFalse(is_clean(scenario.primary))
+            semantic = semantic_status(scenario.primary)
+            self.assertFalse(semantic["clean"])
+            self.assertIn("untracked.txt", semantic["dirty_paths"])
+            self.assertEqual([], semantic["stat_only_paths"])
             untracked = run_git_read_only(
                 scenario.primary,
                 "ls-files",
@@ -237,6 +259,20 @@ class WorktreeStatusTests(unittest.TestCase):
             ).stdout.splitlines()
             self.assertIn("untracked.txt", untracked)
             self.assertEqual(index_path.read_bytes(), index_before)
+
+        with TemporaryWorktreeScenario() as scenario:
+            scenario.write(scenario.primary, "delete-me.txt", "tracked\n")
+            scenario.write(scenario.primary, "rename-me.txt", "tracked\n")
+            run_git(scenario.primary, "add", "delete-me.txt", "rename-me.txt")
+            run_git(scenario.primary, "commit", "-m", "add lifecycle fixtures")
+            (scenario.primary / "delete-me.txt").unlink()
+            run_git(scenario.primary, "mv", "rename-me.txt", "renamed.txt")
+            semantic = semantic_status(scenario.primary)
+            self.assertFalse(semantic["clean"])
+            self.assertIn("delete-me.txt", semantic["dirty_paths"])
+            self.assertIn("rename-me.txt", semantic["dirty_paths"])
+            self.assertIn("renamed.txt", semantic["dirty_paths"])
+            self.assertEqual([], semantic["stat_only_paths"])
 
     def test_unmerged_parser_preserves_all_stage_modes_and_oids(self):
         h1 = "1" * 40

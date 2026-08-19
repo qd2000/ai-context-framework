@@ -213,6 +213,8 @@ ADOPTION_MATRIX.md
 2. 改善 AI-facing `next_actions`：当 reservation 为 Open 时明确给出 `acf workstream set WSxxx --status Active`，再进入 worktree/context；worktree create 遇到 Open WS 时也给出相同 bounded warning/next action。
 3. 用测试保证 agent 不需要从自然语言错误反推缺失生命周期步骤。
 
+**WS009.3 implementation evidence（2026-08-19）**：新增 canonical `semantic_status()`，只在 ordinary tracked unstaged `M` 且 `GIT_OPTIONAL_LOCKS=0 git diff --name-only` 无 normalized content diff 时归入 `stat_only_paths`；`is_clean`、worktree verify/list/sync/merge/close 与 continuation workspace snapshot 复用该语义。synthetic CRLF/LF fixture、真实 unstaged/staged/untracked/delete/rename blocker、verify index-byte-preservation smoke 均通过。reservation `## Workspace` 已移除 `mode:none`，改为稳定 slug + local registry/verify/list authority；reserve/create 对 Open Workstream 均返回显式 Active transition next_action。focused worktree status/CLI/resilient-merge suite 62/62 通过。
+
 ### P1-E：统一 ACF_HOME continuation schema / upgrade visibility
 
 **现状**：状态存储已经统一实现：默认 `~/.acf/projects/<root-slug>-<path-hash>/continuation/<task-id>/`，`ACF_HOME` 仅整体覆盖根目录；control/state/workspace/rounds/effects/coordination/reconcile/recovery 共享同一代码/schema。这个设计应保留，而不是把 state 写进各项目 Git 或给不同项目复制实现。

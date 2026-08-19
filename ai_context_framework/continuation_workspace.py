@@ -15,6 +15,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from ai_context_framework.git_support import semantic_status
+
 
 WORKSPACE_SCHEMA = "acf.continuation.workspace.v3"
 LEGACY_WORKSPACE_SCHEMA_V2 = "acf.continuation.workspace.v2"
@@ -127,25 +129,15 @@ def _entry_digest(root: Path, path_value: str, status: str) -> str:
 def git_snapshot(root: Path) -> dict[str, Any]:
     root = root.resolve()
     head = _run_git(root, "rev-parse", "HEAD").strip()
-    raw = _run_git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-    tokens = raw.split("\0")
+    semantic = semantic_status(root)
     entries: list[dict[str, str]] = []
-    index = 0
-    while index < len(tokens):
-        token = tokens[index]
-        index += 1
-        if not token:
-            continue
-        if len(token) < 4:
-            raise ContinuationWorkspaceError("unexpected git porcelain entry", code="workspace_git_invalid")
-        status = token[:2]
-        path_value = token[3:]
+    for record in semantic["dirty_records"]:
+        status = str(record["status"])
+        path_value = str(record["path"])
         paths = [path_value]
-        if status[0] in {"R", "C"} or status[1] in {"R", "C"}:
-            if index >= len(tokens) or not tokens[index]:
-                raise ContinuationWorkspaceError("rename source is missing", code="workspace_git_invalid")
-            paths.append(tokens[index])
-            index += 1
+        original_path = record.get("original_path")
+        if isinstance(original_path, str) and original_path:
+            paths.append(original_path)
         for candidate in paths:
             normalized = normalize_path(candidate)
             entries.append(
@@ -159,7 +151,11 @@ def git_snapshot(root: Path) -> dict[str, Any]:
     entries.sort(key=lambda item: item["path"])
     if len(entries) > MAX_ENTRIES:
         raise ContinuationWorkspaceError("workspace manifest entry limit exceeded", code="workspace_manifest_full")
-    return {"head": head, "entries": entries}
+    return {
+        "head": head,
+        "entries": entries,
+        "stat_only_paths": list(semantic["stat_only_paths"]),
+    }
 
 
 def _entry(value: Mapping[str, Any]) -> dict[str, str]:

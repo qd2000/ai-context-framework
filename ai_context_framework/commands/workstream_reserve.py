@@ -64,8 +64,8 @@ def reserved_workspace_section(slug: str) -> str:
     return (
         "\n---\n\n## Workspace\n\n"
         f"- slug: {slug}\n"
-        "- mode: none\n"
-        "- note: Worktree is optional and is created only by a separate `acf worktree create` call.\n"
+        "- local binding authority: `acf worktree verify/list` + local registry\n"
+        "- note: machine-specific worktree path/branch/mode are intentionally not persisted as shared Markdown state.\n"
     )
 
 
@@ -496,6 +496,7 @@ def _resume(
             "applied": True,
             "reservation_commit": commit,
             "next_actions": [
+                f"Activate the reserved Workstream before execution: acf workstream set {spec['workstream_id']} --status Active",
                 f"Create an optional worktree only when needed: acf worktree create --workstream {spec['workstream_id']} --apply"
             ],
         }
@@ -593,6 +594,7 @@ def workstream_reserve_command(
             "reservation_commit": commit,
             "operation_id": operation_id,
             "next_actions": [
+                f"Activate the reserved Workstream before execution: acf workstream set {spec['workstream_id']} --status Active",
                 f"Create an optional worktree only when needed: acf worktree create --workstream {spec['workstream_id']} --apply"
             ],
         }
