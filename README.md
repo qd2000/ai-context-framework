@@ -355,6 +355,8 @@ Worktree lifecycle 的 `clean` 使用只读 **semantic Git clean**：staged、un
 
 `continuation prompt --json` 同时返回稳定的 `identity` 与 `scheduler_wrapper_contract`。外层 scheduler 的标准薄 wrapper 只固定 worktree/branch/task/workstream identity，每次唤醒重新执行 `acf continuation prompt` 并遵循当轮返回的 generic protocol，再叠加项目特有的 runtime/scientific/permission/validation 约束；不得复制一份 contention/recovery/workspace/effect 状态机。任何可能跨当前 owner/tool-call 生命周期继续写项目文件或产生非幂等副作用的 long-lived local subprocess、DevSpace session、Runtime job 或外部 job，在启动前都必须建立 deterministic durable effect/job identity，并在权威终态前保持 unresolved；无法持久识别时不得跨 owner 生命周期运行，formal recovery 继续 fail-closed。纯只读长阻塞调用不需要 writer effect，但返回后、下一次项目写入或非幂等动作前必须重新 `assert-owner`。
 
+ownerless effect recovery 有两个明确且互斥的收口路径：已经取得 durable external id 的 effect 必须继续用 `--effect-external-id` 与外部终态证据做 identity-matched reconciliation；如果 write-ahead `effect prepare` 后能够由外部 authority 明确证明 submit **从未启动**，则可在 owner-ended/forfeiture 条件下使用 `reconcile --effect-not-started --effect-terminal-status failed --effect-evidence-ref <ref>`。后一条只接受仍为 `prepared`、`external_id=null` 的记录，不能声明 completed，也不能用于 active/unknown effect。
+
 `acf continuation list [<worktree>] --json` 只读展示当前 ACF_HOME 中的 continuation identity、`task_id/workstream_id`、timing profile、每个 state 文件的 schema 与 `current / migration_available / blocked` 兼容状态；`--all-projects` 可扫描全部 path-hash namespace。已知 legacy workspace schema 使用 `acf continuation migrate ... --dry-run --json` 先生成迁移计划，并在**没有 lease record** 时显式 `--apply --reason ...`；迁移只改已声明可兼容的 state 文件并写 `last_migration.json` receipt，round/effect/coordination/reconcile/recovery 等历史文件用 byte digest 证明未被改写。未知或未来 schema 不自动猜测，继续 fail-closed；外部 scheduler 不得手工编辑 `~/.acf` JSON。
 
 ### Workstream 编号预约与可选 Worktree

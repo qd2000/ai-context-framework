@@ -183,19 +183,26 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                 args.effect_terminal_status,
                 args.effect_external_id,
                 args.effect_milestone,
+                True if args.effect_not_started else None,
             )
             effect_requested = any(value is not None for value in effect_option_values) or bool(
                 args.effect_evidence_ref or []
             )
             effect_reconciliations: list[dict[str, Any]] = []
             if effect_requested:
-                if (
-                    args.effect_key is None
-                    or args.effect_terminal_status is None
-                    or args.effect_external_id is None
-                ):
+                if args.effect_key is None or args.effect_terminal_status is None:
                     raise core.ContinuationError(
-                        "ownerless effect reconciliation requires effect key, terminal status, and external id",
+                        "ownerless effect reconciliation requires effect key and terminal status",
+                        code="effect_reconcile_incomplete",
+                    )
+                if args.effect_not_started and args.effect_external_id is not None:
+                    raise core.ContinuationError(
+                        "effect-not-started cannot be combined with an external id",
+                        code="effect_identity_conflict",
+                    )
+                if not args.effect_not_started and args.effect_external_id is None:
+                    raise core.ContinuationError(
+                        "ownerless effect reconciliation requires an external id unless effect-not-started is asserted",
                         code="effect_reconcile_incomplete",
                     )
                 effect_evidence_refs = list(
@@ -211,14 +218,19 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                             observation,
                             task_id=str(status["control"]["task_id"]),
                             logical_key=core._validate_text(args.effect_key, field="effect_key"),
-                            external_id=core._validate_text(
-                                args.effect_external_id,
-                                field="effect_external_id",
+                            external_id=(
+                                None
+                                if args.effect_not_started
+                                else core._validate_text(
+                                    args.effect_external_id,
+                                    field="effect_external_id",
+                                )
                             ),
                             terminal_status=str(args.effect_terminal_status),
                             milestone=args.effect_milestone,
                             evidence_refs=effect_evidence_refs,
                             owner_ended=bool(args.owner_ended),
+                            not_started=bool(args.effect_not_started),
                         )
                     )
                 except continuation_recovery.ContinuationRecoveryError as exc:
@@ -296,6 +308,11 @@ def register_recovery_parsers(subparsers, add_json_argument) -> None:
         "--effect-external-id",
         default=None,
         help="existing durable external identity; must exactly match the prepared effect",
+    )
+    reconcile.add_argument(
+        "--effect-not-started",
+        action="store_true",
+        help="assert that a still-prepared effect never crossed the external submission boundary; requires failed status, no external id, and external authority evidence",
     )
     reconcile.add_argument(
         "--effect-milestone",

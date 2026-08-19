@@ -9,7 +9,9 @@
 ### Release portability
 
 - 修复 WS009 semantic-Git stat-only 测试的跨平台 fixture：在验证 `eol=crlf` normalization 前先删除工作树文件，再由 Git checkout 强制重建，避免 Linux runner 因原有 LF 文件无需 checkout rewrite 而错误假设 CRLF 已出现。
-- `v0.0.3.65` tag 保持不可变；其 GitHub release run `32256066761` 在 Ubuntu full unittest 中仅因上述两条 CRLF fixture 断言失败而未进入 PyPI publish。`v0.0.3.66` 使用新的 immutable version，并要求 PR CI 的 Ubuntu/Windows × Python 3.10/3.12 matrix 与 full release gate 全绿后再发布。
+- fixture 初始内容显式写成 LF bytes，只有删除后由 Git 按 `.gitattributes eol=crlf` 重建才能满足断言，从而不再依赖宿主平台 `write_text` 的换行转换。
+- `reconcile --effect-not-started` 为 write-ahead `effect prepare` 尚未跨过外部 submit 边界的中断提供显式收口：只允许 `prepared + external_id=null + failed`，仍要求 owner-ended/forfeiture 与外部 authority evidence；已有 external id、active effect、completed 声明或证据缺失继续 fail-closed。
+- `v0.0.3.65` tag 保持不可变；其 GitHub release run `32256066761` 在 Ubuntu full unittest 中仅因上述两条 CRLF fixture 断言失败而未进入 PyPI publish。`v0.0.3.66` 使用新的 immutable version；本地 full release gate 通过后，以 GitHub Ubuntu release gate 作为跨平台发布权威，不重打 `.65`。
 
 ## v0.0.3.65 — 2026-08-19
 

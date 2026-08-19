@@ -3974,6 +3974,180 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual([challenge_id], [item["challenge_id"] for item in candidates])
         self.assertEqual("campaign-q03", reconciled["effect_reconciliations"][0]["logical_key"])
 
+    def test_ws009_ownerless_prepared_effect_can_fail_when_submit_is_proven_not_started(
+        self,
+    ) -> None:
+        """A write-ahead prepare may be abandoned only with explicit no-start evidence."""
+        init = self.init_task("WS919")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS919",
+                "--runner-id",
+                "expired-prepare-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS919",
+                *owner,
+                "--key",
+                "github-pr-validation",
+                "--kind",
+                "github-pr-validation",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        self.assertIsNone(prepared["effect"]["external_id"])
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS919",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:expired-owner-ended",
+                "--effect-key",
+                "github-pr-validation",
+                "--effect-terminal-status",
+                "failed",
+                "--effect-not-started",
+                "--effect-milestone",
+                "submit-not-started",
+                "--effect-evidence-ref",
+                "github:remote-pr-ref-absent",
+                "--reason",
+                "Remote authority proves the prepared PR submission never acquired an external identity.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"])
+        assertion = reconciled["effect_reconciliations"][0]
+        self.assertTrue(assertion["not_started"])
+        self.assertIsNone(assertion["external_id"])
+        self.assertEqual("prepared", assertion["observed_status"])
+        self.assertEqual("failed", assertion["terminal_status"])
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS919",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "replacement-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        code, effects, stderr = self.run_json(
+            ["continuation", "effect", "list", str(self.root), "--task-id", "WS919"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{effects}")
+        effect = effects["effects"][0]
+        self.assertEqual("failed", effect["status"])
+        self.assertIsNone(effect["external_id"])
+        self.assertEqual("submit-not-started", effect["milestone"])
+        self.assertIn("github:remote-pr-ref-absent", effect["evidence_refs"])
+
+    def test_ws009_effect_not_started_keeps_identity_and_terminal_claims_fail_closed(
+        self,
+    ) -> None:
+        for task_id, external_id, terminal_status, expected_error in (
+            ("WS920", "job-920", "failed", "effect_identity_conflict"),
+            ("WS921", None, "completed", "effect_not_started_status_invalid"),
+        ):
+            with self.subTest(task_id=task_id):
+                init = self.init_task(task_id)
+                state_dir = Path(str(init["state_dir"]))
+                code, claim, stderr = self.run_json(
+                    [
+                        "continuation",
+                        "claim",
+                        str(self.root),
+                        "--task-id",
+                        task_id,
+                        "--runner-id",
+                        "expired-prepare-owner",
+                    ]
+                )
+                self.assertEqual(0, code, f"{stderr}\n{claim}")
+                owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+                prepare_args = [
+                    "continuation",
+                    "effect",
+                    "prepare",
+                    str(self.root),
+                    "--task-id",
+                    task_id,
+                    *owner,
+                    "--key",
+                    "effect-under-test",
+                    "--kind",
+                    "external-job",
+                ]
+                if external_id is not None:
+                    prepare_args.extend(["--external-id", external_id])
+                code, prepared, stderr = self.run_json(prepare_args)
+                self.assertEqual(0, code, f"{stderr}\n{prepared}")
+
+                lease_path = state_dir / "lease.json"
+                lease = json.loads(lease_path.read_text(encoding="utf-8"))
+                now = continuation._now()
+                lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+                lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+                lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+                lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+                continuation._write_json(lease_path, lease)
+
+                code, rejected, _ = self.run_json(
+                    [
+                        "continuation",
+                        "reconcile",
+                        str(self.root),
+                        "--task-id",
+                        task_id,
+                        "--owner-ended",
+                        "--evidence-ref",
+                        "scheduler:owner-ended",
+                        "--effect-key",
+                        "effect-under-test",
+                        "--effect-terminal-status",
+                        terminal_status,
+                        "--effect-not-started",
+                        "--effect-evidence-ref",
+                        "authority:submit-not-started",
+                    ]
+                )
+                self.assertEqual(2, code)
+                self.assertEqual(expected_error, rejected["error_code"])
+
     def test_ws009_ownerless_effect_reconciliation_rejects_external_identity_mismatch(
         self,
     ) -> None:

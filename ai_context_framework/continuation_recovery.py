@@ -192,11 +192,12 @@ def build_effect_reconciliation(
     *,
     task_id: str,
     logical_key: str,
-    external_id: str,
+    external_id: str | None,
     terminal_status: str,
     milestone: str | None,
     evidence_refs: Sequence[str],
     owner_ended: bool,
+    not_started: bool = False,
 ) -> dict[str, Any]:
     if not owner_ended and not ownership_forfeited(observation):
         raise ContinuationRecoveryError(
@@ -232,16 +233,38 @@ def build_effect_reconciliation(
             code="effect_already_terminal",
         )
     stored_external_id = target.get("external_id")
-    if not isinstance(stored_external_id, str) or not stored_external_id.strip():
-        raise ContinuationRecoveryError(
-            "effect has no durable external identity to reconcile",
-            code="effect_identity_missing",
-        )
-    if external_id != stored_external_id:
-        raise ContinuationRecoveryError(
-            "effect external identity does not match the prepared effect",
-            code="effect_identity_conflict",
-        )
+    if not_started:
+        if observed_status != "prepared":
+            raise ContinuationRecoveryError(
+                "only a still-prepared effect can be reconciled as not started",
+                code="effect_not_started_status_invalid",
+            )
+        if terminal_status != "failed":
+            raise ContinuationRecoveryError(
+                "an effect proven not started can only be reconciled as failed",
+                code="effect_not_started_status_invalid",
+            )
+        if isinstance(stored_external_id, str) and stored_external_id.strip():
+            raise ContinuationRecoveryError(
+                "an effect with a durable external identity cannot be reconciled as not started",
+                code="effect_identity_conflict",
+            )
+        if external_id is not None:
+            raise ContinuationRecoveryError(
+                "effect-not-started cannot be combined with an external identity",
+                code="effect_identity_conflict",
+            )
+    else:
+        if not isinstance(stored_external_id, str) or not stored_external_id.strip():
+            raise ContinuationRecoveryError(
+                "effect has no durable external identity to reconcile",
+                code="effect_identity_missing",
+            )
+        if external_id != stored_external_id:
+            raise ContinuationRecoveryError(
+                "effect external identity does not match the prepared effect",
+                code="effect_identity_conflict",
+            )
     effect_digest = observation.get("effect_digest")
     if not isinstance(effect_digest, str) or not effect_digest:
         raise ContinuationRecoveryError(
@@ -251,17 +274,20 @@ def build_effect_reconciliation(
     resolved_milestone = (
         str(milestone).strip() if isinstance(milestone, str) and milestone.strip() else terminal_status
     )
-    return {
+    result = {
         "effect_id": str(target["effect_id"]),
         "logical_key": str(target["logical_key"]),
         "kind": str(target["kind"]),
-        "external_id": stored_external_id,
+        "external_id": None if not_started else stored_external_id,
         "observed_status": observed_status,
         "terminal_status": terminal_status,
         "milestone": resolved_milestone,
         "evidence_refs": refs,
         "effect_digest": effect_digest,
     }
+    if not_started:
+        result["not_started"] = True
+    return result
 
 
 def validate_effect_reconciliations(
@@ -289,7 +315,7 @@ def validate_effect_reconciliations(
             "evidence_refs",
             "effect_digest",
         }
-        if set(item) != required:
+        if not required.issubset(item) or not set(item).issubset(required | {"not_started"}):
             raise ContinuationRecoveryError("effect reconciliation assertion schema is invalid")
         logical_key = item.get("logical_key")
         if not isinstance(logical_key, str) or not logical_key.strip() or logical_key in seen:
@@ -300,7 +326,11 @@ def validate_effect_reconciliations(
             observation,
             task_id=task_id,
             logical_key=logical_key,
-            external_id=str(item.get("external_id") or ""),
+            external_id=(
+                str(item["external_id"])
+                if isinstance(item.get("external_id"), str) and str(item["external_id"]).strip()
+                else None
+            ),
             terminal_status=str(item.get("terminal_status") or ""),
             milestone=str(item.get("milestone") or ""),
             evidence_refs=(
@@ -309,6 +339,7 @@ def validate_effect_reconciliations(
                 else []
             ),
             owner_ended=owner_ended,
+            not_started=item.get("not_started") is True,
         )
         if rebuilt != item:
             raise ContinuationRecoveryError(
@@ -337,7 +368,7 @@ def apply_effect_reconciliations(
             generation=generation,
             logical_key=str(item["logical_key"]),
             status=str(item["terminal_status"]),
-            external_id=str(item["external_id"]),
+            external_id=(str(item["external_id"]) if isinstance(item.get("external_id"), str) else None),
             milestone=str(item["milestone"]),
             evidence_refs=[
                 *[str(value) for value in item["evidence_refs"]],
