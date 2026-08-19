@@ -825,6 +825,234 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(3, code)
         self.assertEqual("recovery_not_authorized", denied["error_code"])
 
+    def test_ws009_legacy_no_manifest_reviewed_wip_can_be_adopted_without_resetting_history(
+        self,
+    ) -> None:
+        init = self.init_task("WS909")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--runner-id",
+                "legacy-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--path",
+                "reviewed-wip.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        (self.root / "reviewed-wip.txt").write_text("reviewed task WIP\n", encoding="utf-8")
+        (self.root / "external-note.txt").write_text("reviewed external WIP\n", encoding="utf-8")
+
+        (state_dir / "workspace.json").unlink()
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["issued_at"] = continuation._iso(continuation._now() - timedelta(minutes=60))
+        lease["last_heartbeat_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=31)
+        )
+        lease["expires_at"] = continuation._iso(continuation._now() - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+        preserved = {
+            name: (state_dir / name).read_bytes()
+            for name in ("control.json", "state.json", "rounds.json", "lease.json")
+        }
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS909"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertIn("workspace_provenance_missing", doctor["blocked_reasons"])
+        self.assertTrue(any("workspace adopt" in action for action in doctor["next_actions"]))
+
+        code, incomplete, _ = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "adopt",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--task-owned",
+                "reviewed-wip.txt",
+                "--evidence-ref",
+                "review:reviewed-wip.txt",
+                "--reason",
+                "Reviewed legacy handoff WIP.",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("workspace_adoption_incomplete", incomplete["error_code"])
+
+        code, adopted, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "adopt",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--task-owned",
+                "reviewed-wip.txt",
+                "--baseline-external",
+                "external-note.txt",
+                "--evidence-ref",
+                "review:reviewed-wip.txt",
+                "--evidence-ref",
+                "review:external-note.txt",
+                "--reason",
+                "Reviewed legacy handoff WIP and external baseline.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{adopted}")
+        self.assertEqual("workspace_adopted", adopted["status"])
+        self.assertEqual(int(claim["generation"]), adopted["adoption"]["prior_generation"])
+        self.assertEqual(["reviewed-wip.txt"], adopted["workspace"]["task_owned_paths"])
+        self.assertEqual(["external-note.txt"], adopted["workspace"]["baseline_external_paths"])
+        self.assertEqual(
+            {"baseline_external", "task_owned"},
+            {entry["classification"] for entry in adopted["adoption"]["entries"]},
+        )
+        for entry in adopted["adoption"]["entries"]:
+            self.assertTrue(entry["evidence_refs"])
+            self.assertEqual(64, len(entry["digest"]))
+        for name, before in preserved.items():
+            self.assertEqual(before, (state_dir / name).read_bytes(), name)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--owner-ended",
+                "--evidence-ref",
+                "review:legacy-owner-ended",
+                "--reason",
+                "The old owner ended and adopted WIP remained unchanged.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertEqual("eligible", reconciled["decision"])
+        self.assertNotIn("workspace_provenance_missing", reconciled["reasons"])
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "new-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        self.assertEqual(["reviewed-wip.txt"], recovered["workspace"]["task_owned_paths"])
+        self.assertEqual(["external-note.txt"], recovered["workspace"]["baseline_external_paths"])
+
+    def test_ws009_legacy_workspace_adoption_fails_closed_on_active_owner_or_head_drift(
+        self,
+    ) -> None:
+        init = self.init_task("WS909")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--runner-id",
+                "legacy-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        (self.root / "reviewed-wip.txt").write_text("reviewed task WIP\n", encoding="utf-8")
+        (state_dir / "workspace.json").unlink()
+
+        adopt_args = [
+            "continuation",
+            "workspace",
+            "adopt",
+            str(self.root),
+            "--task-id",
+            "WS909",
+            "--task-owned",
+            "reviewed-wip.txt",
+            "--evidence-ref",
+            "review:reviewed-wip.txt",
+            "--reason",
+            "Reviewed legacy task WIP.",
+        ]
+        code, active, _ = self.run_json(adopt_args)
+        self.assertEqual(3, code)
+        self.assertEqual("workspace_adoption_owner_active", active["error_code"])
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        lease["issued_at"] = continuation._iso(continuation._now() - timedelta(minutes=60))
+        lease["last_heartbeat_at"] = continuation._iso(
+            continuation._now() - timedelta(minutes=31)
+        )
+        lease["expires_at"] = continuation._iso(continuation._now() - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+        self._git("add", "reviewed-wip.txt")
+        self._git("commit", "-m", "advance head after legacy owner")
+        (self.root / "reviewed-wip.txt").write_text("reviewed task WIP after head drift\n", encoding="utf-8")
+
+        code, drifted, _ = self.run_json(adopt_args)
+        self.assertEqual(3, code)
+        self.assertEqual("workspace_adoption_head_mismatch", drifted["error_code"])
+
+    def test_ws009_legacy_workspace_adoption_enforces_task_owned_scope(self) -> None:
+        snapshot = {
+            "head": "a" * 40,
+            "entries": [
+                {
+                    "schema_version": continuation_workspace.ENTRY_SCHEMA,
+                    "path": "docs/outside.md",
+                    "status": "??",
+                    "digest": "b" * 64,
+                }
+            ],
+        }
+        with self.assertRaises(continuation_workspace.ContinuationWorkspaceError) as raised:
+            continuation_workspace.adopt_legacy_manifest(
+                task_id="WS909",
+                prior_generation=3,
+                snapshot=snapshot,
+                task_owned_paths=["docs/outside.md"],
+                baseline_external_paths=[],
+                allowed_scopes=["src/**"],
+                candidate_paths={"docs/outside.md": ["docs/outside.md"]},
+                evidence_refs=["review:outside"],
+                reason="Reviewed path outside the bound Workstream scope.",
+                receipt_id="receipt-1",
+                now=continuation._iso(),
+            )
+        self.assertEqual("workspace_adoption_out_of_scope", raised.exception.code)
+
     def test_ws008_preexisting_unrelated_dirty_is_baseline_not_global_blocker(self) -> None:
         """WS008 target: pre-claim external dirty is preserved as baseline metadata."""
         (self.root / "manual-note.txt").write_text("manual external change\n", encoding="utf-8")

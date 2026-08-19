@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -610,6 +611,144 @@ def continuation_workspace_intent_command(args: argparse.Namespace) -> int:
     return core._guarded(args, "continuation workspace intent", operation)
 
 
+def continuation_workspace_adopt_command(args: argparse.Namespace) -> int:
+    core = _continuation()
+
+    def operation() -> dict[str, Any]:
+        root = core._workspace_root(args.path)
+        paths = core._paths(root, args.task_id)
+        with core._state_lock(paths["lock"]):
+            control = core._load_control(paths, root)
+            if paths["workspace"].exists():
+                raise core.ContinuationError(
+                    "workspace ownership manifest already exists; legacy adoption is one-time only",
+                    code="workspace_adoption_not_required",
+                    exit_code=3,
+                    next_actions=["Use `acf continuation workspace status` and the normal intent/refresh flow."],
+                )
+            lease_snapshot = core._lease_snapshot(paths, control)
+            if lease_snapshot["state"] == "invalid":
+                raise core.ContinuationError(
+                    "legacy workspace adoption requires a valid ownerless lease state",
+                    code="workspace_adoption_lease_invalid",
+                    exit_code=3,
+                )
+            if lease_snapshot["state"] == "active":
+                raise core.ContinuationError(
+                    "legacy workspace adoption cannot run while an active owner holds the task",
+                    code="workspace_adoption_owner_active",
+                    exit_code=3,
+                    next_actions=["Let the active owner finish or use the generated challenge/recovery protocol."],
+                )
+            state = core._load_state(paths)
+            snapshot = workspace_current_snapshot(root)
+            prior_generation: int
+            if lease_snapshot["state"] == "expired":
+                raw_lease = lease_snapshot.get("lease")
+                if not isinstance(raw_lease, Mapping):
+                    raise core.ContinuationError(
+                        "expired lease payload is missing",
+                        code="workspace_adoption_lease_invalid",
+                        exit_code=3,
+                    )
+                lease_head = str(raw_lease.get("head") or "")
+                if lease_head != str(snapshot["head"]):
+                    raise core.ContinuationError(
+                        "legacy workspace adoption refuses Git HEAD drift from the interrupted owner",
+                        code="workspace_adoption_head_mismatch",
+                        exit_code=3,
+                        details={"lease_head": lease_head, "current_head": snapshot["head"]},
+                        next_actions=["Reconcile the HEAD change before classifying legacy dirty paths."],
+                    )
+                generation_value = raw_lease.get("generation")
+                if isinstance(generation_value, bool) or not isinstance(generation_value, int):
+                    raise core.ContinuationError(
+                        "legacy workspace adoption requires a durable prior generation",
+                        code="workspace_adoption_generation_invalid",
+                        exit_code=3,
+                    )
+                prior_generation = generation_value
+            else:
+                if state["status"] == "running":
+                    raise core.ContinuationError(
+                        "running continuation without a lease cannot be safely adopted",
+                        code="workspace_adoption_owner_unknown",
+                        exit_code=3,
+                        next_actions=["Reconcile the missing owner identity before adopting workspace provenance."],
+                    )
+                prior_generation = int(control.get("generation", 0))
+
+            task_owned_paths = list(dict.fromkeys(args.task_owned_path or []))
+            baseline_external_paths = list(dict.fromkeys(args.baseline_external_path or []))
+            if not task_owned_paths and not baseline_external_paths:
+                raise core.ContinuationError(
+                    "legacy workspace adoption requires at least one explicit path classification",
+                    code="workspace_adoption_incomplete",
+                    exit_code=3,
+                )
+            allowed_scopes, context_root = workstream_direct_write_scopes(
+                root,
+                str(control.get("workstream_id")) if control.get("workstream_id") else None,
+            )
+            if control.get("workstream_id") and task_owned_paths and not allowed_scopes:
+                raise core.ContinuationError(
+                    "bound Workstream has no direct write scope for task-owned legacy adoption",
+                    code="workspace_adoption_out_of_scope",
+                    exit_code=3,
+                )
+            candidate_paths: dict[str, list[str]] = {}
+            try:
+                normalized_task_paths = [
+                    continuation_workspace.normalize_path(path_value)
+                    for path_value in task_owned_paths
+                ]
+                normalized_external_paths = [
+                    continuation_workspace.normalize_path(path_value)
+                    for path_value in baseline_external_paths
+                ]
+                candidate_paths = {
+                    path_value: workspace_intent_candidates(root, context_root, path_value)
+                    for path_value in normalized_task_paths
+                }
+                manifest = continuation_workspace.adopt_legacy_manifest(
+                    task_id=str(control["task_id"]),
+                    prior_generation=prior_generation,
+                    snapshot=snapshot,
+                    task_owned_paths=normalized_task_paths,
+                    baseline_external_paths=normalized_external_paths,
+                    allowed_scopes=allowed_scopes,
+                    candidate_paths=candidate_paths,
+                    evidence_refs=list(args.evidence_ref or []),
+                    reason=str(args.reason),
+                    receipt_id=str(uuid.uuid4()),
+                    now=core._iso(),
+                )
+            except continuation_workspace.ContinuationWorkspaceError as exc:
+                error = workspace_error(exc)
+                error.exit_code = 3
+                raise error from exc
+            core._write_json(paths["workspace"], manifest)
+            adoption = manifest.get("adoption_receipt")
+            next_action = (
+                "Run `acf continuation doctor`, then use formal reconcile/recover for the expired owner."
+                if lease_snapshot["state"] == "expired"
+                else "Run `acf continuation doctor` and claim the next bounded round when eligible."
+            )
+            return {
+                "status": "workspace_adopted",
+                "task_id": control["task_id"],
+                "prior_generation": prior_generation,
+                "adoption": adoption,
+                "workspace": continuation_workspace.summary(
+                    manifest,
+                    task_id=str(control["task_id"]),
+                ),
+                "next_action": next_action,
+            }
+
+    return core._guarded(args, "continuation workspace adopt", operation)
+
+
 def continuation_workspace_refresh_command(args: argparse.Namespace) -> int:
     core = _continuation()
 
@@ -690,6 +829,31 @@ def register_workspace_parsers(subparsers, add_json_argument) -> None:
     add_json_argument(intent)
     intent.set_defaults(func=continuation_workspace_intent_command)
 
+    adopt = workspace_subparsers.add_parser(
+        "adopt",
+        help="explicitly classify every reviewed dirty path for a legacy task missing a workspace manifest",
+    )
+    adopt.add_argument("path", nargs="?", type=Path)
+    adopt.add_argument("--task-id", default=None)
+    adopt.add_argument(
+        "--task-owned",
+        dest="task_owned_path",
+        action="append",
+        default=[],
+        help="reviewed changed path attributable to this continuation task; repeat per path",
+    )
+    adopt.add_argument(
+        "--baseline-external",
+        dest="baseline_external_path",
+        action="append",
+        default=[],
+        help="reviewed changed path owned outside this continuation task; repeat per path",
+    )
+    adopt.add_argument("--evidence-ref", action="append", required=True)
+    adopt.add_argument("--reason", required=True)
+    add_json_argument(adopt)
+    adopt.set_defaults(func=continuation_workspace_adopt_command)
+
     refresh = workspace_subparsers.add_parser(
         "refresh",
         help="refresh compact workspace ownership digests for the active fenced owner",
@@ -722,6 +886,7 @@ def register_configure_parser(subparsers, add_json_argument) -> None:
 
 __all__ = [
     "continuation_init_command",
+    "continuation_workspace_adopt_command",
     "continuation_workspace_intent_command",
     "continuation_workspace_refresh_command",
     "continuation_workspace_status_command",

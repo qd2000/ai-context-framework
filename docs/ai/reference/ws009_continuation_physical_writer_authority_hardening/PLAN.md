@@ -156,6 +156,8 @@ ADOPTION_MATRIX.md
 4. adoption 只创建/升级 workspace manifest，不重置 continuation state、rounds/effects/coordination，不要求为了工具迁移制造 Git commit。
 5. `doctor` 对 legacy no-manifest changed paths 给出可机器解析的 next_action，明确区分“先审阅后 adopt”与“无法确认归属则保留阻塞”，不再把 `init --force` 作为常规升级捷径。
 
+**WS009.2 implementation evidence（2026-08-19）**：已实现 `acf continuation workspace adopt` 与 workspace manifest v3 adoption receipt。adopt 只允许在无 active owner 且 manifest 缺失时执行，要求把当前全部 changed paths 显式分类为 `task_owned` / `baseline_external`，记录 status/content digest/prior generation/evidence refs；task-owned 路径受 bound Workstream direct write_scope 约束，遗漏/重叠分类、HEAD drift、active/unknown owner 继续 fail-closed。adoption 只补建 workspace provenance，不重置 control/state/round/effect/coordination/lease history，也不要求先形成 Git semantic checkpoint。deterministic regression 覆盖 successful adopt→reconcile→recover、history byte preservation、active-owner/head-drift rejection、incomplete classification 与 out-of-scope rejection；`tests.test_continuation_cli` 61/61、full unittest 480/480、`acf check template` 与 `acf check --strict` 均通过，README、Automation、template System Manual 与 dogfooding System Manual 已同步 manifest v3/adopt 契约。
+
 ### P0-D：content-identical porcelain dirty false block
 
 **现象**：`uv run acf` 刷新 tracked package metadata 的 stat/checkout 状态后，porcelain 报 `.M`，但 `git diff --quiet` 和 blob hash 证明没有 Git content change；`acf worktree verify` 仍返回 `clean=false` / `worktree_dirty`。
@@ -251,7 +253,7 @@ ADOPTION_MATRIX.md
 | 阶段 | 状态 | 目标 | 主要输出 | Gate |
 |---|---|---|---|---|
 | WS009.1 | Done | Baseline characterization and contract freeze | deterministic failing/characterization tests、problem matrix、scope/evidence、legacy/effect recovery fixtures | physical-writer、ownerless effect deadlock、legacy adoption、terminal retention、stat-only dirty、Workspace/activation UX 边界已由测试冻结 |
-| WS009.2 | Active | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract | 可证明终态 effect 能安全收口；legacy WIP 可显式 adopt；unresolved/unknown 仍阻止 recovery；generic prompt 不被 wrapper 复制；无 daemon |
+| WS009.2 | Active | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract | 可证明终态 effect 能安全收口；legacy reviewed WIP 已有显式 adopt 实现并通过 focused/full regression；unresolved/unknown 仍阻止 recovery；generic prompt 不被 wrapper 复制；无 daemon |
 | WS009.3 | Open | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | staged/untracked/real diff 不误放行；content-identical stat-only 不阻塞；只读 verify 不改 index |
 | WS009.4 | Open | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | doctor 能看到 terminal retention + Context review stale；strict 不做语义裁决 |
 | WS009.5 | Open | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | full unittest/template/strict/upgrade/release/package smoke 全绿；发布后安装态 generated prompt/doctor 兼容旧 state |
@@ -294,4 +296,4 @@ ADOPTION_MATRIX.md
 
 ## 下一步
 
-继续 WS009.2：ownerless externally-proven terminal effect reconciliation Gate 已形成候选实现与 deterministic regression。下一 Gate 实现 legacy no-manifest reviewed WIP adoption：必须显式列出并审阅 concrete paths，记录 path/status/content digest/evidence，并继续受 bound Workstream write_scope 约束；迁移过程不得要求破坏已有 continuation 历史，也不得强制先形成 Git semantic checkpoint。该 Gate 收口后再推进 generated prompt / durable writer contract / thin-wrapper 标准化。
+继续 WS009.2：ownerless externally-proven terminal effect reconciliation 与 legacy no-manifest reviewed WIP adoption 均已形成候选实现和 deterministic regression。下一 Gate 收口 generated prompt / durable physical-writer effect contract / thin-wrapper 标准化：明确 long-lived local subprocess、DevSpace、Runtime writer 均受 durable identity 规则约束，并让 `acf continuation prompt` / help / README / System Manual / Automation 的官方 wrapper contract 保持唯一 generic authority，不把 generic contention/recovery 状态机重新复制进 Scheduled Task。

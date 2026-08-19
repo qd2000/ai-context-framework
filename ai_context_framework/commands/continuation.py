@@ -922,6 +922,15 @@ def continuation_doctor_command(args: argparse.Namespace) -> int:
         result = _status(root, args.task_id)
         result["status"] = "healthy" if result["ok"] else "invalid"
         result["next_action"] = result["state"]["next_action"]
+        next_actions: list[str] = []
+        if "workspace_provenance_missing" in result["blocked_reasons"]:
+            next_actions.extend(
+                [
+                    "Review every path in workspace.unclassified_paths, then run `acf continuation workspace adopt` with an explicit `--task-owned` or `--baseline-external` classification for each path plus durable evidence refs.",
+                    "If any changed path cannot be attributed confidently, do not adopt it; preserve the worktree and keep recovery fail-closed until provenance is resolved.",
+                ]
+            )
+        result["next_actions"] = next_actions
         return result
 
     return _guarded(args, "continuation doctor", operation)
@@ -1926,6 +1935,7 @@ def register_round_effect_parsers(subparsers, add_json_argument) -> None:
 continuation_init_command = continuation_workspace_commands.continuation_init_command
 continuation_configure_command = continuation_workspace_commands.continuation_configure_command
 continuation_prompt_command = continuation_workspace_commands.continuation_prompt_command
+continuation_workspace_adopt_command = continuation_workspace_commands.continuation_workspace_adopt_command
 continuation_workspace_status_command = continuation_workspace_commands.continuation_workspace_status_command
 continuation_workspace_intent_command = continuation_workspace_commands.continuation_workspace_intent_command
 continuation_workspace_refresh_command = continuation_workspace_commands.continuation_workspace_refresh_command
@@ -1961,6 +1971,7 @@ __all__ = [
     "continuation_release_command",
     "continuation_renew_command",
     "continuation_resume_command",
+    "continuation_workspace_adopt_command",
     "continuation_workspace_intent_command",
     "continuation_workspace_refresh_command",
     "continuation_workspace_status_command",

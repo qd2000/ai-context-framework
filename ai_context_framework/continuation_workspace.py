@@ -16,10 +16,13 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
-WORKSPACE_SCHEMA = "acf.continuation.workspace.v2"
+WORKSPACE_SCHEMA = "acf.continuation.workspace.v3"
+LEGACY_WORKSPACE_SCHEMA_V2 = "acf.continuation.workspace.v2"
 LEGACY_WORKSPACE_SCHEMA = "acf.continuation.workspace.v1"
 ENTRY_SCHEMA = "acf.continuation.workspace-entry.v1"
 CONFLICT_SCHEMA = "acf.continuation.workspace-conflict.v1"
+ADOPTION_SCHEMA = "acf.continuation.workspace-adoption.v1"
+ADOPTION_ENTRY_SCHEMA = "acf.continuation.workspace-adoption-entry.v1"
 
 MAX_ENTRIES = 256
 MAX_PATH_BYTES = 1024
@@ -203,6 +206,89 @@ def _conflicts(values: Any) -> list[dict[str, str]]:
     return result
 
 
+def _evidence_refs(values: Any, *, field: str = "evidence_refs") -> list[str]:
+    if not isinstance(values, list) or not values or len(values) > MAX_ENTRIES:
+        raise ContinuationWorkspaceError(f"{field} must be a non-empty bounded list")
+    result = [_text(value, field=field, max_bytes=4096) for value in values]
+    if len(result) != len(set(result)):
+        raise ContinuationWorkspaceError(f"{field} contains duplicates")
+    return result
+
+
+def _adoption_entry(value: Mapping[str, Any]) -> dict[str, Any]:
+    record = dict(value)
+    allowed = {
+        "schema_version",
+        "path",
+        "classification",
+        "status",
+        "digest",
+        "evidence_refs",
+    }
+    if record.get("schema_version") != ADOPTION_ENTRY_SCHEMA or set(record) != allowed:
+        raise ContinuationWorkspaceError("workspace adoption entry schema is invalid")
+    classification = _text(record.get("classification"), field="classification", max_bytes=32)
+    if classification not in {"task_owned", "baseline_external"}:
+        raise ContinuationWorkspaceError("workspace adoption classification is invalid")
+    path_value = normalize_path(_text(record.get("path"), field="path"))
+    status = _text(record.get("status"), field="status", max_bytes=16)
+    digest = _text(record.get("digest"), field="digest", max_bytes=128)
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        raise ContinuationWorkspaceError("workspace adoption entry digest is invalid")
+    return {
+        "schema_version": ADOPTION_ENTRY_SCHEMA,
+        "path": path_value,
+        "classification": classification,
+        "status": status,
+        "digest": digest,
+        "evidence_refs": _evidence_refs(record.get("evidence_refs")),
+    }
+
+
+def _adoption_receipt(value: Any, *, task_id: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ContinuationWorkspaceError("workspace adoption receipt must be an object")
+    record = dict(value)
+    allowed = {
+        "schema_version",
+        "receipt_id",
+        "task_id",
+        "prior_generation",
+        "baseline_head",
+        "adopted_at",
+        "reason",
+        "entries",
+    }
+    if record.get("schema_version") != ADOPTION_SCHEMA or set(record) != allowed:
+        raise ContinuationWorkspaceError("workspace adoption receipt schema is invalid")
+    if record.get("task_id") != task_id:
+        raise ContinuationWorkspaceError("workspace adoption receipt task identity mismatch")
+    prior_generation = record.get("prior_generation")
+    if isinstance(prior_generation, bool) or not isinstance(prior_generation, int) or prior_generation < 0:
+        raise ContinuationWorkspaceError("workspace adoption prior generation is invalid")
+    entries_raw = record.get("entries")
+    if not isinstance(entries_raw, list) or not entries_raw or len(entries_raw) > MAX_ENTRIES:
+        raise ContinuationWorkspaceError("workspace adoption entries must be a non-empty bounded list")
+    entries = [_adoption_entry(item) for item in entries_raw if isinstance(item, Mapping)]
+    if len(entries) != len(entries_raw):
+        raise ContinuationWorkspaceError("workspace adoption entries contain a non-object entry")
+    paths = [entry["path"] for entry in entries]
+    if len(paths) != len(set(paths)):
+        raise ContinuationWorkspaceError("workspace adoption entries contain duplicate paths")
+    return {
+        "schema_version": ADOPTION_SCHEMA,
+        "receipt_id": _text(record.get("receipt_id"), field="receipt_id", max_bytes=128),
+        "task_id": task_id,
+        "prior_generation": prior_generation,
+        "baseline_head": _text(record.get("baseline_head"), field="baseline_head", max_bytes=128),
+        "adopted_at": _text(record.get("adopted_at"), field="adopted_at", max_bytes=128),
+        "reason": _text(record.get("reason"), field="reason", max_bytes=4096),
+        "entries": sorted(entries, key=lambda item: item["path"]),
+    }
+
+
 def _bounded(payload: Mapping[str, Any]) -> None:
     encoded = json.dumps(dict(payload), ensure_ascii=False, sort_keys=True, allow_nan=False).encode("utf-8")
     if len(encoded) > MAX_MANIFEST_BYTES:
@@ -225,7 +311,7 @@ def validate_manifest(payload: Mapping[str, Any], *, task_id: str) -> dict[str, 
     }
     if manifest.get("schema_version") == LEGACY_WORKSPACE_SCHEMA and set(manifest) == legacy_allowed:
         manifest = {
-            "schema_version": WORKSPACE_SCHEMA,
+            "schema_version": LEGACY_WORKSPACE_SCHEMA_V2,
             "task_id": manifest.get("task_id"),
             "baseline_head": manifest.get("baseline_head"),
             "generation": manifest.get("generation"),
@@ -235,6 +321,24 @@ def validate_manifest(payload: Mapping[str, Any], *, task_id: str) -> dict[str, 
             "unexpected_nonoverlap": manifest.get("unexpected_nonoverlap"),
             "conflicts": manifest.get("conflicts"),
             "last_observed_at": manifest.get("last_observed_at"),
+        }
+    v2_allowed = {
+        "schema_version",
+        "task_id",
+        "baseline_head",
+        "generation",
+        "baseline_external",
+        "write_intents",
+        "task_owned",
+        "unexpected_nonoverlap",
+        "conflicts",
+        "last_observed_at",
+    }
+    if manifest.get("schema_version") == LEGACY_WORKSPACE_SCHEMA_V2 and set(manifest) == v2_allowed:
+        manifest = {
+            **manifest,
+            "schema_version": WORKSPACE_SCHEMA,
+            "adoption_receipt": None,
         }
     allowed = {
         "schema_version",
@@ -247,6 +351,7 @@ def validate_manifest(payload: Mapping[str, Any], *, task_id: str) -> dict[str, 
         "unexpected_nonoverlap",
         "conflicts",
         "last_observed_at",
+        "adoption_receipt",
     }
     if manifest.get("schema_version") != WORKSPACE_SCHEMA or set(manifest) != allowed:
         raise ContinuationWorkspaceError("workspace manifest schema is invalid")
@@ -272,6 +377,7 @@ def validate_manifest(payload: Mapping[str, Any], *, task_id: str) -> dict[str, 
         "unexpected_nonoverlap": _entries(manifest.get("unexpected_nonoverlap"), field="unexpected_nonoverlap"),
         "conflicts": _conflicts(manifest.get("conflicts")),
         "last_observed_at": _text(manifest.get("last_observed_at"), field="last_observed_at", max_bytes=128),
+        "adoption_receipt": _adoption_receipt(manifest.get("adoption_receipt"), task_id=task_id),
     }
     _bounded(result)
     return result
@@ -289,6 +395,121 @@ def new_manifest(*, task_id: str, snapshot: Mapping[str, Any], now: str) -> dict
         "unexpected_nonoverlap": [],
         "conflicts": [],
         "last_observed_at": now,
+        "adoption_receipt": None,
+    }
+    return validate_manifest(payload, task_id=task_id)
+
+
+def adopt_legacy_manifest(
+    *,
+    task_id: str,
+    prior_generation: int,
+    snapshot: Mapping[str, Any],
+    task_owned_paths: Sequence[str],
+    baseline_external_paths: Sequence[str],
+    allowed_scopes: Sequence[str],
+    candidate_paths: Mapping[str, Sequence[str]],
+    evidence_refs: Sequence[str],
+    reason: str,
+    receipt_id: str,
+    now: str,
+) -> dict[str, Any]:
+    """Create one audited workspace manifest for reviewed pre-manifest WIP.
+
+    Adoption is intentionally explicit and complete: every currently changed
+    Git path must be classified by the caller.  It records provenance only;
+    it does not grant continuation ownership, change Git, or reset history.
+    """
+
+    if isinstance(prior_generation, bool) or not isinstance(prior_generation, int) or prior_generation < 0:
+        raise ContinuationWorkspaceError(
+            "legacy workspace adoption generation is invalid",
+            code="workspace_adoption_generation_invalid",
+        )
+    head = _text(snapshot.get("head"), field="baseline_head", max_bytes=128)
+    raw_entries = snapshot.get("entries")
+    if not isinstance(raw_entries, list) or not raw_entries:
+        raise ContinuationWorkspaceError(
+            "legacy workspace adoption requires changed Git paths",
+            code="workspace_adoption_empty",
+        )
+    observed_entries = _entries(raw_entries, field="snapshot.entries")
+    observed = _entry_map(observed_entries)
+    task_paths = [normalize_path(path_value) for path_value in task_owned_paths]
+    external_paths = [normalize_path(path_value) for path_value in baseline_external_paths]
+    selected = [*task_paths, *external_paths]
+    if not selected:
+        raise ContinuationWorkspaceError(
+            "legacy workspace adoption requires explicit path classifications",
+            code="workspace_adoption_incomplete",
+        )
+    if len(selected) != len(set(selected)):
+        raise ContinuationWorkspaceError(
+            "legacy workspace adoption path classifications overlap",
+            code="workspace_adoption_overlap",
+        )
+    for index, left in enumerate(selected):
+        for right in selected[index + 1 :]:
+            if paths_overlap(left, right):
+                raise ContinuationWorkspaceError(
+                    f"legacy workspace adoption paths overlap: {left} / {right}",
+                    code="workspace_adoption_overlap",
+                )
+    observed_paths = set(observed)
+    selected_paths = set(selected)
+    if observed_paths != selected_paths:
+        raise ContinuationWorkspaceError(
+            "legacy workspace adoption must classify every currently changed Git path exactly once",
+            code="workspace_adoption_incomplete",
+        )
+    if allowed_scopes:
+        for path_value in task_paths:
+            candidates = list(candidate_paths.get(path_value) or [path_value])
+            if not any(
+                path_matches_scope(candidate, scope)
+                for candidate in candidates
+                for scope in allowed_scopes
+            ):
+                raise ContinuationWorkspaceError(
+                    f"legacy task-owned adoption is outside Workstream write_scope: {path_value}",
+                    code="workspace_adoption_out_of_scope",
+                )
+    normalized_evidence = _evidence_refs(list(evidence_refs))
+    adopted_entries = []
+    for path_value in sorted(selected):
+        live = observed[path_value]
+        adopted_entries.append(
+            {
+                "schema_version": ADOPTION_ENTRY_SCHEMA,
+                "path": path_value,
+                "classification": "task_owned" if path_value in task_paths else "baseline_external",
+                "status": live["status"],
+                "digest": live["digest"],
+                "evidence_refs": list(normalized_evidence),
+            }
+        )
+    receipt = {
+        "schema_version": ADOPTION_SCHEMA,
+        "receipt_id": _text(receipt_id, field="receipt_id", max_bytes=128),
+        "task_id": task_id,
+        "prior_generation": prior_generation,
+        "baseline_head": head,
+        "adopted_at": _text(now, field="adopted_at", max_bytes=128),
+        "reason": _text(reason, field="reason", max_bytes=4096),
+        "entries": adopted_entries,
+    }
+    payload = {
+        "schema_version": WORKSPACE_SCHEMA,
+        "task_id": task_id,
+        "baseline_head": head,
+        "generation": prior_generation,
+        "baseline_external": [observed[path_value] for path_value in external_paths],
+        "write_intents": [],
+        "task_owned": [observed[path_value] for path_value in task_paths],
+        "unexpected_nonoverlap": [],
+        "conflicts": [],
+        "last_observed_at": now,
+        "adoption_receipt": receipt,
     }
     return validate_manifest(payload, task_id=task_id)
 
@@ -332,6 +553,7 @@ def begin_generation(
         "unexpected_nonoverlap": [],
         "conflicts": [],
         "last_observed_at": now,
+        "adoption_receipt": current.get("adoption_receipt"),
     }
     return validate_manifest(payload, task_id=task_id)
 
@@ -627,13 +849,23 @@ def summary(manifest: Mapping[str, Any], *, task_id: str) -> dict[str, Any]:
         "conflicts": list(current["conflicts"]),
         "has_conflicts": bool(current["conflicts"]),
         "last_observed_at": current["last_observed_at"],
+        "legacy_adoption_receipt_id": (
+            current["adoption_receipt"]["receipt_id"]
+            if isinstance(current.get("adoption_receipt"), Mapping)
+            else None
+        ),
     }
 
 
 __all__ = [
     "ContinuationWorkspaceError",
+    "ADOPTION_ENTRY_SCHEMA",
+    "ADOPTION_SCHEMA",
+    "ENTRY_SCHEMA",
     "LEGACY_WORKSPACE_SCHEMA",
+    "LEGACY_WORKSPACE_SCHEMA_V2",
     "WORKSPACE_SCHEMA",
+    "adopt_legacy_manifest",
     "add_intents",
     "begin_generation",
     "classify",
