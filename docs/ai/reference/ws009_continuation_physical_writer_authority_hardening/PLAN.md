@@ -260,8 +260,8 @@ ADOPTION_MATRIX.md
 |---|---|---|---|---|
 | WS009.1 | Done | Baseline characterization and contract freeze | deterministic failing/characterization tests、problem matrix、scope/evidence、legacy/effect recovery fixtures | physical-writer、ownerless effect deadlock、legacy adoption、terminal retention、stat-only dirty、Workspace/activation UX 边界已由测试冻结 |
 | WS009.2 | Done | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract、ACF_HOME/schema visibility | ownerless effect、legacy adoption、durable writer/thin-wrapper 与 P1-E discovery/migration 均完成；generation 21 full 480/480；continuation suite 65/65 |
-| WS009.3 | Active | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | staged/untracked/real diff 不误放行；content-identical stat-only 不阻塞；只读 verify 不改 index |
-| WS009.4 | Open | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | doctor 能看到 terminal retention + Context review stale；strict 不做语义裁决 |
+| WS009.3 | Done | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | semantic verify Windows dogfood clean=true with four stat-only paths；continuation baseline 自然清空；focused 62/62 + baseline cleanup 3/3 |
+| WS009.4 | Active | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | doctor 能看到 terminal retention + Context review stale；strict 不做语义裁决 |
 | WS009.5 | Open | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | full unittest/template/strict/upgrade/release/package smoke 全绿；发布后安装态 generated prompt/doctor 兼容旧 state |
 
 ## 实现约束
@@ -302,4 +302,4 @@ ADOPTION_MATRIX.md
 
 ## 下一步
 
-继续 WS009.3：实现 canonical semantic Git clean helper，让 content-identical stat-only tracked observation 不再阻塞 worktree lifecycle，同时 staged/untracked/real diff/rename/delete/type/mode/unmerged/submodule 继续严格；随后收口 reservation Workspace local-authority 描述和 Open→Active next_actions。
+继续 WS009.4：让 `review stale` 机械报告 terminal `Current_Task` / `Task_Plan` retention，并让 `doctor` 复用同一 attention-hygiene signals 汇总 terminal retention 与 Context review stale；保持 `check --strict` 不做自然语言事实裁决。实现合并后再由 primary maintenance 清理 ACF 自身旧 authority 文件。
