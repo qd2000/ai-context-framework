@@ -178,31 +178,33 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
             evidence_refs = list(dict.fromkeys(args.evidence_ref or []))[: core.MAX_LIST_ITEMS]
             for evidence_ref in evidence_refs:
                 core._validate_text(evidence_ref, field="evidence_ref")
-            effect_option_values = (
-                args.effect_key,
-                args.effect_terminal_status,
-                args.effect_external_id,
-                args.effect_milestone,
-                True if args.effect_not_started else None,
-            )
-            effect_requested = any(value is not None for value in effect_option_values) or bool(
-                args.effect_evidence_ref or []
-            )
+            effect_keys = list(args.effect_key or [])
+            effect_terminal_statuses = list(args.effect_terminal_status or [])
+            effect_external_ids = list(args.effect_external_id or [])
+            effect_milestones = list(args.effect_milestone or [])
+            effect_requested = any(
+                (effect_keys, effect_terminal_statuses, effect_external_ids, effect_milestones)
+            ) or bool(args.effect_not_started) or bool(args.effect_evidence_ref or [])
             effect_reconciliations: list[dict[str, Any]] = []
             if effect_requested:
-                if args.effect_key is None or args.effect_terminal_status is None:
+                if not effect_keys or len(effect_keys) != len(effect_terminal_statuses):
                     raise core.ContinuationError(
-                        "ownerless effect reconciliation requires effect key and terminal status",
+                        "ownerless effect reconciliation requires one terminal status for each effect key",
                         code="effect_reconcile_incomplete",
                     )
-                if args.effect_not_started and args.effect_external_id is not None:
+                if args.effect_not_started and (len(effect_keys) != 1 or effect_external_ids):
                     raise core.ContinuationError(
-                        "effect-not-started cannot be combined with an external id",
+                        "effect-not-started accepts exactly one effect key and cannot be combined with an external id",
                         code="effect_identity_conflict",
                     )
-                if not args.effect_not_started and args.effect_external_id is None:
+                if not args.effect_not_started and len(effect_external_ids) != len(effect_keys):
                     raise core.ContinuationError(
-                        "ownerless effect reconciliation requires an external id unless effect-not-started is asserted",
+                        "ownerless effect reconciliation requires one external id for each effect key unless effect-not-started is asserted",
+                        code="effect_reconcile_incomplete",
+                    )
+                if effect_milestones and len(effect_milestones) != len(effect_keys):
+                    raise core.ContinuationError(
+                        "ownerless effect reconciliation requires either no milestones or one milestone for each effect key",
                         code="effect_reconcile_incomplete",
                     )
                 effect_evidence_refs = list(
@@ -212,27 +214,28 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                     core._validate_text(evidence_ref, field="effect_evidence_ref")
                 effects = core._load_effect_journal(paths, status["control"], require_existing=True)
                 try:
-                    effect_reconciliations.append(
-                        continuation_recovery.build_effect_reconciliation(
-                            effects,
-                            observation,
-                            task_id=str(status["control"]["task_id"]),
-                            logical_key=core._validate_text(args.effect_key, field="effect_key"),
-                            external_id=(
-                                None
-                                if args.effect_not_started
-                                else core._validate_text(
-                                    args.effect_external_id,
-                                    field="effect_external_id",
-                                )
-                            ),
-                            terminal_status=str(args.effect_terminal_status),
-                            milestone=args.effect_milestone,
-                            evidence_refs=effect_evidence_refs,
-                            owner_ended=bool(args.owner_ended),
-                            not_started=bool(args.effect_not_started),
+                    for index, effect_key in enumerate(effect_keys):
+                        effect_reconciliations.append(
+                            continuation_recovery.build_effect_reconciliation(
+                                effects,
+                                observation,
+                                task_id=str(status["control"]["task_id"]),
+                                logical_key=core._validate_text(effect_key, field="effect_key"),
+                                external_id=(
+                                    None
+                                    if args.effect_not_started
+                                    else core._validate_text(
+                                        effect_external_ids[index],
+                                        field="effect_external_id",
+                                    )
+                                ),
+                                terminal_status=str(effect_terminal_statuses[index]),
+                                milestone=(effect_milestones[index] if effect_milestones else None),
+                                evidence_refs=effect_evidence_refs,
+                                owner_ended=bool(args.owner_ended),
+                                not_started=bool(args.effect_not_started),
+                            )
                         )
-                    )
                 except continuation_recovery.ContinuationRecoveryError as exc:
                     raise core.ContinuationError(str(exc), code=exc.code) from exc
             accepted_head = str(args.accept_head).strip() if args.accept_head else None
@@ -295,19 +298,22 @@ def register_recovery_parsers(subparsers, add_json_argument) -> None:
     reconcile.add_argument("--evidence-ref", action="append", default=None)
     reconcile.add_argument(
         "--effect-key",
+        action="append",
         default=None,
-        help="existing deterministic effect key to reconcile from external terminal evidence",
+        help="existing deterministic effect key to reconcile from external terminal evidence; repeat with the matching terminal-status/external-id to reconcile multiple effects atomically",
     )
     reconcile.add_argument(
         "--effect-terminal-status",
+        action="append",
         choices=tuple(sorted(continuation_rounds.TERMINAL_EFFECT_STATUSES)),
         default=None,
-        help="authoritatively observed terminal status for the existing effect",
+        help="authoritatively observed terminal status for an effect; repeat in the same order as --effect-key",
     )
     reconcile.add_argument(
         "--effect-external-id",
+        action="append",
         default=None,
-        help="existing durable external identity; must exactly match the prepared effect",
+        help="existing durable external identity; repeat in the same order as --effect-key and each value must exactly match the prepared effect",
     )
     reconcile.add_argument(
         "--effect-not-started",
@@ -316,8 +322,9 @@ def register_recovery_parsers(subparsers, add_json_argument) -> None:
     )
     reconcile.add_argument(
         "--effect-milestone",
+        action="append",
         default=None,
-        help="compact terminal milestone to record if recovery succeeds",
+        help="compact terminal milestone to record if recovery succeeds; when repeated effect keys are used, provide one milestone per key or omit milestones",
     )
     reconcile.add_argument(
         "--effect-evidence-ref",

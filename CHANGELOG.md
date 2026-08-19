@@ -11,7 +11,9 @@
 - 修复 WS009 semantic-Git stat-only 测试的跨平台 fixture：在验证 `eol=crlf` normalization 前先删除工作树文件，再由 Git checkout 强制重建，避免 Linux runner 因原有 LF 文件无需 checkout rewrite 而错误假设 CRLF 已出现。
 - fixture 初始内容显式写成 LF bytes，只有删除后由 Git 按 `.gitattributes eol=crlf` 重建才能满足断言，从而不再依赖宿主平台 `write_text` 的换行转换。
 - `reconcile --effect-not-started` 为 write-ahead `effect prepare` 尚未跨过外部 submit 边界的中断提供显式收口：只允许 `prepared + external_id=null + failed`，仍要求 owner-ended/forfeiture 与外部 authority evidence；已有 external id、active effect、completed 声明或证据缺失继续 fail-closed。
+- ownerless recovery 现在允许在同一个 `reconcile` receipt 中原子收口多个已经由外部 authority 证明 terminal 的既存 durable effects：按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，并共享本次 `--effect-evidence-ref` 集合；数量/identity 不一致继续 fail-closed。`--effect-not-started` 仍保持单 effect 专用分支。
 - 修复 Windows hosted runner 的 TEMP 8.3 short-path alias（例如 `RUNNER~1`）与 canonical long path（例如 `runneradmin`）等价性：context containment / relative-display 统一按 resolved path 判定，避免合法 Workstream/ADR 被误报为 context-root 外路径；JSON `changed_files` 与 worktree target 的测试也改为比较 canonical path，而不是把 alias 字符串拼写当成语义。
+- `scripts/minimal_smoke.py` 的最终汇总 JSON 改为 ASCII-safe escaping；即使 Windows hosted runner 的父进程 stdout 是 cp1252，也不会因为结果中包含中文/Unicode 路径或文本而在所有 smoke scenario 已执行完成后触发 `UnicodeEncodeError`。
 - `v0.0.3.65` tag 保持不可变；其 GitHub release run `32256066761` 在 Ubuntu full unittest 中仅因上述两条 CRLF fixture 断言失败而未进入 PyPI publish。`v0.0.3.66` 使用新的 immutable version；本地 full release gate 通过后，以 GitHub Ubuntu release gate 作为跨平台发布权威，不重打 `.65`。
 
 ## v0.0.3.65 — 2026-08-19

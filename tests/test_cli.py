@@ -63,6 +63,14 @@ class CliTests(unittest.TestCase):
     def json_payload(self, stdout):
         return json.loads(stdout)
 
+    def test_minimal_smoke_console_json_is_ascii_safe(self):
+        from scripts.minimal_smoke import render_json_for_console
+
+        rendered = render_json_for_console({"message": "中文路径"})
+        rendered.encode("cp1252")
+        self.assertEqual("中文路径", json.loads(rendered)["message"])
+        self.assertIn(r"\u4e2d", rendered)
+
     def assert_success_json_contract(self, payload, command=None):
         self.assertEqual(payload.get("schema_version"), 1)
         self.assertIs(payload.get("ok"), True)

@@ -30,6 +30,11 @@ def parse_json_output(stdout: str) -> dict[str, Any]:
         raise
 
 
+def render_json_for_console(payload: dict[str, Any]) -> str:
+    """Render valid JSON that remains writable through legacy Windows code pages."""
+    return json.dumps(payload, ensure_ascii=True, indent=2)
+
+
 class SmokeRunner:
     def __init__(self, acf_cmd: list[str], keep_tmp: bool) -> None:
         self.acf_cmd = acf_cmd
@@ -612,7 +617,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     result = SmokeRunner(args.acf, args.keep_tmp).run()
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(render_json_for_console(result))
     return 0 if result["ok"] else 1
 
 

@@ -3879,6 +3879,113 @@ class ContinuationCliTests(unittest.TestCase):
         )
         self.assertEqual([], after_recover["summary"]["unresolved"])
 
+    def test_ws009_ownerless_reconcile_accepts_multiple_terminal_effects_in_one_receipt(
+        self,
+    ) -> None:
+        """One stale generation may reconcile every externally terminal effect atomically."""
+        init = self.init_task("WS924")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS924",
+                "--runner-id",
+                "multi-effect-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+        for key, external_id in (("local-release", "job:release-924"), ("pr-ci", "job:ci-924")):
+            code, prepared, stderr = self.run_json(
+                [
+                    "continuation",
+                    "effect",
+                    "prepare",
+                    str(self.root),
+                    "--task-id",
+                    "WS924",
+                    *owner,
+                    "--key",
+                    key,
+                    "--kind",
+                    "external-job",
+                    "--external-id",
+                    external_id,
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{prepared}")
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS924",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:multi-effect-owner-ended",
+                "--effect-key",
+                "local-release",
+                "--effect-terminal-status",
+                "failed",
+                "--effect-external-id",
+                "job:release-924",
+                "--effect-milestone",
+                "process-ended",
+                "--effect-key",
+                "pr-ci",
+                "--effect-terminal-status",
+                "failed",
+                "--effect-external-id",
+                "job:ci-924",
+                "--effect-milestone",
+                "ci-failed",
+                "--effect-evidence-ref",
+                "authority:both-jobs-terminal",
+                "--reason",
+                "Both durable jobs are externally proven terminal.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"])
+        self.assertEqual(
+            ["local-release", "pr-ci"],
+            [item["logical_key"] for item in reconciled["effect_reconciliations"]],
+        )
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS924",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "multi-effect-replacement",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        self.assertEqual(
+            ["local-release", "pr-ci"],
+            recovered["recovery"]["effect_reconciliations"],
+        )
+
     def test_ws009_ownerless_effect_reconciliation_accepts_matching_forfeiture_challenge(
         self,
     ) -> None:
