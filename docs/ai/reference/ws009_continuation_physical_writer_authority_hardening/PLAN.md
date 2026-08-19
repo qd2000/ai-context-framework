@@ -264,13 +264,13 @@ ADOPTION_MATRIX.md
 | WS009.2 | Done | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract、ACF_HOME/schema visibility | ownerless effect、legacy adoption、durable writer/thin-wrapper 与 P1-E discovery/migration 均完成；generation 21 full 480/480；continuation suite 65/65 |
 | WS009.3 | Done | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | semantic verify Windows dogfood clean=true with four stat-only paths；continuation baseline 自然清空；focused 62/62 + baseline cleanup 3/3 |
 | WS009.4 | Done | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | terminal retention + Context review stale/missing-marker 统一进入 doctor attention hygiene；focused 6/6 + CLI 276/276 + template/strict/guard/diff-check 全绿 |
-| WS009.5 | Active | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | full unittest/template/strict/upgrade/release/package smoke 全绿；发布后安装态 generated prompt/doctor 兼容旧 state |
+| WS009.5 | Active | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | `v0.0.3.65` pre-publish full release gate 已全绿；待 PyPI/global install 与 ACF-self/FCC/AStock installed-state smoke |
 
 ## 实现约束
 
 1. 修改前使用 `acf continuation workspace intent` 声明具体文件；只写 WS009 write_scope。
 2. 已有 worktree 中无关 dirty 不 stash/reset/clean/rebase/force，也不 `git add .`；只显式 stage 已验证 scoped 文件。
-3. 当前 WS009 fresh-worktree egg-info stat-only 状态作为 dogfood evidence 保留到对应 Gate 能机械解释；不得为了“看起来 clean”直接 reset/checkout 覆盖。
+3. 当前 WS009 fresh-worktree egg-info stat-only 状态作为 dogfood evidence 保留到对应 Gate 能机械解释；不得为了“看起来 clean”直接 reset/checkout 覆盖。WS009.5 full sdist build 后 `SOURCES.txt` 出现真实内容变化，仅新增 `continuation_inventory.py`，因此已重新分类为合法 release metadata 并正式扩入 scope；其余 `dependency_links.txt` / `entry_points.txt` / `top_level.txt` 仍保持 content-identical/stat-only，不混入 release commit。
 4. Workstream authority 文件只通过 merge target / primary maintenance 收口，不在 Task Workstream 中直接写 `active/Context.md`、`Current_Task.md`、`Task_Plan.md`。
 5. CLI 对外行为变化必须同步 JSON/error_code/next_actions/help/docs/tests，并评估版本号；发布前必须重新查询 Git tag、远端 tag 与 PyPI。`v0.0.3.64` 已被远端 `release/ws009-control-plane-064` emergency control-plane release 占用，不得复用；若发布时没有更新版本，当前下一候选至少为 `v0.0.3.65`。
 6. 修改模板/默认文档契约时同步 README、template System Manual、dogfooding System Manual、Automation、packaging/upgrade 影响与测试。
@@ -304,4 +304,4 @@ ADOPTION_MATRIX.md
 
 ## 下一步
 
-进入 WS009.5：先核对已存在的远端 `v0.0.3.64` emergency control-plane release 是否成功发布并能让稳定 `acf` 读取 canonical workspace v3；随后在不复用 `.64` 的前提下运行 full upgrade/release/package gates，为当前 WS009 完整候选选择新的 immutable version，并完成 ACF-self、FCC continuation、AStock continuation 的 installed-state adoption smoke。全部证据通过后再进入 merge/archive 与 primary-maintenance authority cleanup。
+继续 WS009.5：`v0.0.3.65` 已完成 pre-publish full release gate；先形成 release-prep checkpoint，并再次核对远端 tag/PyPI 没有并发占用 `.65`。随后发布 immutable `v0.0.3.65`，升级全局稳定 ACF，验证 stable `acf continuation doctor/prompt` 可直接读取 WS009 canonical workspace v3，再完成 ACF-self、FCC continuation、AStock continuation 的 installed-state adoption smoke。全部证据通过后再进入 merge/archive 与 primary-maintenance authority cleanup。

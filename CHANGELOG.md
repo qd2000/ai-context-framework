@@ -4,6 +4,26 @@
 
 ## Unreleased
 
+## v0.0.3.65 — 2026-08-19
+
+### Continuation recovery 与 durable writer hardening
+
+- workspace manifest 升级到 v3，并新增 `acf continuation workspace adopt`：legacy pre-manifest WIP 可以在明确分类、digest/evidence 与 Workstream scope 校验后原位纳入 continuation provenance，不再要求为了迁移而强制 commit 或 `init --force`。
+- ownerless unresolved effect 支持 receipt-bound terminal observation：只有已有 durable external id、challenge forfeiture / owner 结束证据与外部终态 identity 全部匹配时，`recover` 才会原子收口 effect；unknown、identity mismatch 或 receipt drift 继续 fail-closed，不重放 submit/collect/cancel。
+- generated continuation prompt 明确 durable writer/job contract 与 thin Scheduled Task wrapper 边界；可能跨 owner 生命周期继续写项目文件或产生 non-idempotent side effect 的本地 subprocess、DevSpace session、Runtime job 必须先有可持久核对 identity。
+- 新增用户级 continuation inventory/schema compatibility 与显式 migration 可见性，保持 `ACF_HOME` 单一状态实现、history-preserving 原位迁移与 future-schema fail-closed。
+
+### Git / Workstream / attention governance
+
+- worktree 与 continuation workspace 共用 semantic Git clean：content-identical/stat-only tracked 变化不再误阻塞 verify/sync/merge/close/recovery，同时 staged、真实 unstaged、untracked、delete/rename 等内容变化仍保持安全门；只读诊断不通过隐式 index refresh 制造 clean。
+- Workstream `## Workspace` 只保留稳定 slug 与 local registry/`worktree verify|list` authority，不再持久化易漂移 `mode: none`；reserve/create 在 Open Workstream 上明确给出 Open -> Active 的 bounded next action。
+- `review stale` 新增 `current_task_terminal_retained` / `task_plan_terminal_retained`；`doctor` 统一复用这两个 terminal-retention signal 与 `context_missing_review_marker` / `context_review_stale`，仅作为 `attention_hygiene` warning + `draft_only`，不进入 `check --strict`，也不自动判断或改写自然语言事实。
+
+### 验证与兼容性
+
+- WS009 在真实 ACF/FCC dogfood 中覆盖 legacy WIP adoption、ownerless terminal effect、generation fencing、long-lived durable session、Windows stat-only false dirty、active authority drift 与 schema discovery/migration；发布前再次执行 full release gate、upgrade matrix、wheel/sdist 隔离安装 smoke 与 installed-state adoption。
+- `v0.0.3.64` 已被应急 control-plane tag 占用但未作为本次完整 WS009 release 复用；本版本使用新的 immutable `v0.0.3.65`。
+
 ## v0.0.3.63 — 2026-08-18
 
 ### Continuation 长轮次时序与统一协议
