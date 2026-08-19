@@ -4079,9 +4079,10 @@ class ContinuationCliTests(unittest.TestCase):
     def test_ws009_effect_not_started_keeps_identity_and_terminal_claims_fail_closed(
         self,
     ) -> None:
-        for task_id, external_id, terminal_status, expected_error in (
-            ("WS920", "job-920", "failed", "effect_identity_conflict"),
-            ("WS921", None, "completed", "effect_not_started_status_invalid"),
+        for task_id, external_id, current_status, terminal_status, expected_error in (
+            ("WS920", "job-920", None, "failed", "effect_identity_conflict"),
+            ("WS921", None, None, "completed", "effect_not_started_status_invalid"),
+            ("WS922", None, "active", "failed", "effect_not_started_status_invalid"),
         ):
             with self.subTest(task_id=task_id):
                 init = self.init_task(task_id)
@@ -4116,6 +4117,23 @@ class ContinuationCliTests(unittest.TestCase):
                     prepare_args.extend(["--external-id", external_id])
                 code, prepared, stderr = self.run_json(prepare_args)
                 self.assertEqual(0, code, f"{stderr}\n{prepared}")
+                if current_status is not None:
+                    code, updated, stderr = self.run_json(
+                        [
+                            "continuation",
+                            "effect",
+                            "update",
+                            str(self.root),
+                            "--task-id",
+                            task_id,
+                            *owner,
+                            "--key",
+                            "effect-under-test",
+                            "--status",
+                            current_status,
+                        ]
+                    )
+                    self.assertEqual(0, code, f"{stderr}\n{updated}")
 
                 lease_path = state_dir / "lease.json"
                 lease = json.loads(lease_path.read_text(encoding="utf-8"))
