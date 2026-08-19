@@ -13,9 +13,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
-from ai_context_framework import continuation_workspace
+from ai_context_framework import (
+    continuation_coordination,
+    continuation_inventory,
+    continuation_recovery,
+    continuation_rounds,
+    continuation_workspace,
+)
 from ai_context_framework.front_matter import split_typed_scope
 from ai_context_framework.git_support import discover_git_project
+from ai_context_framework.observability import acf_home
 from ai_context_framework.runtime_parts.archive_workstream import (
     normalize_scope_path,
     read_workstream_detail,
@@ -49,6 +56,51 @@ TIMING_PROFILES: dict[str, dict[str, int]] = {
         "stale_after_minutes": LONG_RUNNING_STALE_AFTER_MINUTES,
     },
 }
+
+
+def continuation_schema_contract() -> dict[str, dict[str, Any]]:
+    """Return the single machine-readable continuation state compatibility contract."""
+
+    core = _continuation()
+    return {
+        "control.json": {"current": [core.CONTROL_SCHEMA], "required": True},
+        "state.json": {"current": [core.STATE_SCHEMA], "required": True},
+        "lease.json": {"current": [core.LEASE_SCHEMA], "required": False},
+        "pause.json": {"current": [core.PAUSE_SCHEMA], "required": False},
+        "last_run.json": {"current": [core.RECEIPT_SCHEMA], "required": False},
+        "rounds.json": {
+            "current": [continuation_rounds.ROUND_JOURNAL_SCHEMA],
+            "required": False,
+        },
+        "effects.json": {
+            "current": [continuation_rounds.EFFECT_JOURNAL_SCHEMA],
+            "required": False,
+        },
+        "coordination.json": {
+            "current": [continuation_coordination.COORDINATION_SCHEMA],
+            "required": False,
+        },
+        "workspace.json": {
+            "current": [continuation_workspace.WORKSPACE_SCHEMA],
+            "legacy_migratable": [
+                continuation_workspace.LEGACY_WORKSPACE_SCHEMA,
+                continuation_workspace.LEGACY_WORKSPACE_SCHEMA_V2,
+            ],
+            "required": False,
+        },
+        "reconcile.json": {
+            "current": [continuation_recovery.RECONCILE_SCHEMA],
+            "required": False,
+        },
+        "last_recovery.json": {
+            "current": [continuation_recovery.RECOVERY_SCHEMA],
+            "required": False,
+        },
+        "last_migration.json": {
+            "current": [continuation_inventory.MIGRATION_RECEIPT_SCHEMA],
+            "required": False,
+        },
+    }
 
 
 def validate_timing_values(values: Mapping[str, Any]) -> dict[str, int]:
@@ -818,7 +870,163 @@ def continuation_workspace_refresh_command(args: argparse.Namespace) -> int:
     return core._guarded(args, "continuation workspace refresh", operation)
 
 
+def continuation_list_command(args: argparse.Namespace) -> int:
+    core = _continuation()
+
+    def operation() -> dict[str, Any]:
+        root: Path | None
+        if bool(args.all_projects):
+            root = None
+        else:
+            root = core._workspace_root(args.path)
+        contract = continuation_schema_contract()
+        tasks = continuation_inventory.discover_tasks(
+            acf_home(),
+            contracts=contract,
+            workspace_root=root,
+            task_id=args.task_id,
+        )
+        project_keys = sorted(
+            {str(item.get("project_key") or "") for item in tasks if item.get("project_key")}
+        )
+        return {
+            "status": "listed",
+            "scope": "all_projects" if bool(args.all_projects) else "current_project",
+            "acf_home": str(acf_home()),
+            "project_count": len(project_keys),
+            "task_count": len(tasks),
+            "schema_contract": contract,
+            "tasks": tasks,
+        }
+
+    return core._guarded(args, "continuation list", operation)
+
+
+def continuation_migrate_command(args: argparse.Namespace) -> int:
+    core = _continuation()
+
+    def operation() -> dict[str, Any]:
+        if bool(args.apply) and bool(args.dry_run):
+            raise core.ContinuationError(
+                "--apply and --dry-run are mutually exclusive",
+                code="continuation_migration_invalid",
+            )
+        root = core._workspace_root(args.path)
+        paths = core._paths(root, args.task_id)
+        with core._state_lock(paths["lock"]):
+            control = core._load_control(paths, root)
+            lease = core._lease_snapshot(paths, control)
+            if lease["state"] != "absent":
+                raise core.ContinuationError(
+                    "continuation state migration requires no lease record",
+                    code="continuation_migration_active_owner",
+                    exit_code=3,
+                    details={"lease_state": lease["state"]},
+                    next_actions=[
+                        "Finish/recover and release the continuation round before migrating state schemas."
+                    ],
+                )
+            try:
+                plan = continuation_inventory.workspace_migration_plan(
+                    paths["directory"],
+                    task_id=str(control["task_id"]),
+                )
+            except continuation_inventory.ContinuationInventoryError as exc:
+                raise core.ContinuationError(str(exc), code=exc.code, exit_code=3) from exc
+            public_plan = {key: value for key, value in plan.items() if key != "payload"}
+            if not bool(plan.get("migration_required")):
+                return {
+                    "status": "migration_not_needed",
+                    "applied": False,
+                    "task_id": control["task_id"],
+                    "workstream_id": control.get("workstream_id"),
+                    "state_dir": str(paths["directory"]),
+                    "plan": public_plan,
+                }
+            if not bool(args.apply):
+                return {
+                    "status": "migration_planned",
+                    "applied": False,
+                    "dry_run": True,
+                    "task_id": control["task_id"],
+                    "workstream_id": control.get("workstream_id"),
+                    "state_dir": str(paths["directory"]),
+                    "plan": public_plan,
+                    "next_action": "Review the plan, then rerun with --apply --reason <reason>.",
+                }
+            reason = str(args.reason or "").strip()
+            if not reason:
+                raise core.ContinuationError(
+                    "--reason is required with --apply",
+                    code="continuation_migration_invalid",
+                )
+            preserved_before = continuation_inventory.preserved_history_digests(paths["directory"])
+            payload = plan.get("payload")
+            if not isinstance(payload, Mapping):
+                raise core.ContinuationError(
+                    "migration plan did not produce a workspace payload",
+                    code="continuation_migration_invalid",
+                )
+            core._write_json(paths["workspace"], payload)
+            preserved_after = continuation_inventory.preserved_history_digests(paths["directory"])
+            if preserved_after != preserved_before:
+                raise core.ContinuationError(
+                    "continuation history changed during state migration",
+                    code="continuation_migration_history_drift",
+                    exit_code=3,
+                )
+            receipt = continuation_inventory.migration_receipt(
+                paths["directory"],
+                task_id=str(control["task_id"]),
+                workspace_root=str(root),
+                reason=reason,
+                migrated_at=core._iso(),
+                plan=plan,
+                history_digests=preserved_before,
+            )
+            receipt_path = paths["directory"] / "last_migration.json"
+            core._write_json(receipt_path, receipt)
+            return {
+                "status": "migrated",
+                "applied": True,
+                "task_id": control["task_id"],
+                "workstream_id": control.get("workstream_id"),
+                "state_dir": str(paths["directory"]),
+                "plan": public_plan,
+                "receipt_path": str(receipt_path),
+                "receipt": receipt,
+            }
+
+    return core._guarded(args, "continuation migrate", operation)
+
+
 def register_workspace_parsers(subparsers, add_json_argument) -> None:
+    list_parser = subparsers.add_parser(
+        "list",
+        help="read ACF_HOME continuation task/schema/timing compatibility without mutating state",
+    )
+    list_parser.add_argument("path", nargs="?", type=Path)
+    list_parser.add_argument("--task-id", default=None)
+    list_parser.add_argument(
+        "--all-projects",
+        action="store_true",
+        help="scan every continuation namespace under the current ACF_HOME",
+    )
+    add_json_argument(list_parser)
+    list_parser.set_defaults(func=continuation_list_command)
+
+    migrate = subparsers.add_parser(
+        "migrate",
+        help="plan or apply an explicit history-preserving migration for supported legacy state",
+    )
+    migrate.add_argument("path", nargs="?", type=Path)
+    migrate.add_argument("--task-id", default=None)
+    migrate.add_argument("--apply", action="store_true")
+    migrate.add_argument("--dry-run", action="store_true")
+    migrate.add_argument("--reason", default=None)
+    add_json_argument(migrate)
+    migrate.set_defaults(func=continuation_migrate_command)
+
     workspace = subparsers.add_parser(
         "workspace",
         help="inspect and declare bounded Git workspace ownership without editing project files",
@@ -906,6 +1114,9 @@ def register_configure_parser(subparsers, add_json_argument) -> None:
 
 
 __all__ = [
+    "continuation_list_command",
+    "continuation_migrate_command",
+    "continuation_schema_contract",
     "continuation_init_command",
     "continuation_workspace_adopt_command",
     "continuation_workspace_intent_command",

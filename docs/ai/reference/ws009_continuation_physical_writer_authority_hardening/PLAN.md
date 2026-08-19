@@ -224,6 +224,8 @@ ADOPTION_MATRIX.md
 3. state schema 升级必须向后兼容或提供显式 migration/dry-run/receipt；禁止因为 CLI 升级静默丢弃 rounds/effects/recovery history。
 4. `task_id` 与 `workstream_id` 明确分层，并在 `doctor/prompt/list` JSON 中稳定暴露，避免 WS080/WS086 这类 wrapper 错把 Workstream ID 当 continuation task-id。
 
+**WS009.2 implementation evidence（2026-08-19）**：已新增只读 `acf continuation list`，当前项目模式按 control `workspace_root` 过滤，`--all-projects` 扫描整个 ACF_HOME path-hash namespace；输出稳定暴露 `task_id/workstream_id`、control generation、timing profile 和 control/state/workspace/round/effect/coordination/reconcile/recovery 等 schema compatibility。`continuation doctor` 在可正常加载时复用同一 contract 输出 `state_compatibility`。已新增显式 `continuation migrate --dry-run/--apply --reason`，当前只迁移代码明确支持的 legacy workspace v1/v2→v3，要求无 lease record，写 `last_migration.json` receipt，并对 control/state/round/effect/coordination/reconcile/recovery/last-run 等历史文件保存 byte digest；future/unknown schema 继续 blocked。P1-E focused 4/4、完整 `tests.test_continuation_cli` 65/65、template/strict 与真实 WS009 `continuation list` dogfood 均通过。
+
 ### P1-F：Scheduled Task thin-wrapper standardization
 
 **现状**：`.63` 已经由 `acf continuation prompt` 统一生成 generic protocol，但 Scheduled Task 最外层 wrapper 仍由人工/Agent 组织，容易复制旧协议、写错 task-id，或把某个版本的 heartbeat/reconcile 规则冻结进提示词。
@@ -255,8 +257,8 @@ ADOPTION_MATRIX.md
 | 阶段 | 状态 | 目标 | 主要输出 | Gate |
 |---|---|---|---|---|
 | WS009.1 | Done | Baseline characterization and contract freeze | deterministic failing/characterization tests、problem matrix、scope/evidence、legacy/effect recovery fixtures | physical-writer、ownerless effect deadlock、legacy adoption、terminal retention、stat-only dirty、Workspace/activation UX 边界已由测试冻结 |
-| WS009.2 | Active | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract、ACF_HOME/schema visibility | 可证明终态 effect 能安全收口；legacy reviewed WIP 已有显式 adopt 实现并通过 focused/full regression；durable-writer/thin-wrapper contract 已通过 generation 21 self-hosting full 480/480；unresolved/unknown 仍阻止 recovery；generic prompt 不被 wrapper 复制；完成 P1-E discovery/migration visibility 后关闭本阶段；无 daemon |
-| WS009.3 | Open | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | staged/untracked/real diff 不误放行；content-identical stat-only 不阻塞；只读 verify 不改 index |
+| WS009.2 | Done | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract、ACF_HOME/schema visibility | ownerless effect、legacy adoption、durable writer/thin-wrapper 与 P1-E discovery/migration 均完成；generation 21 full 480/480；continuation suite 65/65 |
+| WS009.3 | Active | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | staged/untracked/real diff 不误放行；content-identical stat-only 不阻塞；只读 verify 不改 index |
 | WS009.4 | Open | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | doctor 能看到 terminal retention + Context review stale；strict 不做语义裁决 |
 | WS009.5 | Open | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | full unittest/template/strict/upgrade/release/package smoke 全绿；发布后安装态 generated prompt/doctor 兼容旧 state |
 
@@ -298,4 +300,4 @@ ADOPTION_MATRIX.md
 
 ## 下一步
 
-继续 WS009.2 的最后一个 bounded Gate：实现 P1-E 统一 ACF_HOME continuation discovery/schema/migration visibility。保持现有 canonical path-hash namespace 与 schema 单一实现，提供只读可机器发现的 project/task/schema/control-version/timing-profile/legacy-migration 状态；任何 migration 都必须显式 dry-run/receipt 并保留 round/effect/recovery history，不允许 scheduler 或人工直接修改 JSON。该 Gate 收口后进入 WS009.3 semantic-clean + lifecycle UX hardening。
+继续 WS009.3：实现 canonical semantic Git clean helper，让 content-identical stat-only tracked observation 不再阻塞 worktree lifecycle，同时 staged/untracked/real diff/rename/delete/type/mode/unmerged/submodule 继续严格；随后收口 reservation Workspace local-authority 描述和 Open→Active next_actions。

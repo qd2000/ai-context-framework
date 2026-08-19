@@ -129,6 +129,14 @@ Workspace ownership 保存在用户级 `workspace.json`，只记录 bounded path
 
 生成 prompt 同时输出当前 timing profile 与五个时序参数，并明确 scheduler interval 只是唤醒频率，不是 round/Gate 的硬截止时间。项目 Scheduled Task 不应冻结一份手写 generic recovery 状态机；wrapper 只保留固定 worktree/branch/task-id、项目特有 Runtime/科学/权限约束，每轮重新消费当前安装态 `acf continuation prompt`。
 
+## ACF_HOME schema discovery 与迁移
+
+continuation runtime state 统一位于 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；path hash 用于隔离同名仓库/不同 worktree，task_id 再作为项目 namespace 内的任务键。`ACF_HOME` 只允许整体替换根目录，项目不能复制一套私有 state 实现。
+
+`acf continuation list` 是只读 schema/discovery 入口：当前项目模式按 control 中的 `workspace_root` 精确过滤，`--all-projects` 扫描全部 namespace；输出明确区分 `task_id` 与 `workstream_id`，并报告 control generation、timing profile、control/state/workspace/round/effect/coordination/reconcile/recovery 等文件的 schema compatibility。`doctor` 在 task 可正常加载时复用同一 contract 返回 `state_compatibility`，因此升级问题不会再伪装成普通 owner/workspace 故障。
+
+schema migration 必须显式、可审计、history-preserving。当前只对代码明确支持向后兼容的 legacy workspace schema 提供 `continuation migrate --dry-run` / `--apply --reason`：apply 要求没有 lease record，只重写目标 schema 文件并写 `last_migration.json` receipt；control/state/rounds/effects/coordination/reconcile/recovery/last-run 等历史文件在 lock 内以 byte digest 证明未被改写。未知、future 或损坏 schema 不自动猜测，也不通过 `init --force` 静默抹掉历史，继续 fail-closed。
+
 ## Dogfood 可观测性与问题积累
 
 ACF 使用两层用户级日志，不要求用户把多个聊天的问题重新手工汇总：

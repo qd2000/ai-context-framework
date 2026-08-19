@@ -164,6 +164,8 @@ acf log issues --all-projects --open-only --json
 
 官方 scheduler 薄 wrapper 不保存 generic 状态机副本：固定 worktree/branch/task/workstream identity，每轮执行 `acf continuation prompt --json`，读取返回的 `identity`、`scheduler_wrapper_contract` 和 `prompt`，再补充项目特有 runtime/scientific/permission/validation 约束。可能跨当前 owner/tool-call 生命周期继续写项目文件或产生非幂等副作用的本地长进程、DevSpace session、Runtime/external job 都属于 durable effect/job contract：启动前先建立 deterministic identity，启动后记录可复用 external/job id，并在权威 terminal observation 前保持 unresolved。若无法持久识别，writer 不得跨 owner 生命周期继续运行，recovery 必须 fail-closed。纯只读长阻塞调用不要求 writer effect，但返回后、下一次项目写入或副作用前必须重新 `assert-owner`。
 
+continuation state 的 canonical 位置是 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；默认 `ACF_HOME=~/.acf`，override 只替换根目录，不改变 namespace/schema。使用 `acf continuation list <worktree> --json` 查看当前项目 task，或 `acf continuation list --all-projects --json` 只读盘点全部 project/task；输出稳定区分 `task_id` 与 `workstream_id`，并列出 control generation、timing profile、每个 state 文件 schema 以及 `current / migration_available / blocked`。已知 legacy workspace schema 用 `acf continuation migrate <worktree> --task-id <id> --dry-run --json` 先预览；确认无 active/expired lease record 后再 `--apply --reason ...`。迁移 receipt 写入 `last_migration.json`，记录 from/to schema 与 workspace digest，同时保存其余 control/state/round/effect/coordination/reconcile/recovery 历史文件的 byte digest；未知/future schema 继续 fail-closed，任何 scheduler/Agent 都不得手改这些 JSON。
+
 ### Workstream guard 模式
 
 `acf workstream guard` 检查的是“变更文件是否符合当前 Workstream 的写入范围”，不是默认独占整个工作区。多个 agent 或多个 Workstream 在同一仓库并行时，完成、ready、done 或切换状态前，优先显式传入本次要验收的文件集：

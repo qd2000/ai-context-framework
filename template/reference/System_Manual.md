@@ -404,6 +404,8 @@ acf continuation workspace refresh <worktree> --task-id WS001 --lease-id <lease_
 
 `continuation prompt --json` 还会返回可机器读取的 `identity` 与 `scheduler_wrapper_contract`，用于生成稳定的模型无关薄 wrapper；wrapper 不复制 generic 状态机。任何可能在 owner/tool-call 结束后继续写项目文件或产生非幂等副作用的 long-lived local subprocess、DevSpace session、Runtime job 或 external job，都必须在启动前通过 durable deterministic effect/job identity 进入控制面，并在可核对 terminal 状态前保持 unresolved；无法持久识别的 detached writer 不得跨 owner 生命周期运行。纯只读 blocking 调用可不建立 writer effect，但返回后、下一次写入或副作用前必须再次 `assert-owner`。
 
+continuation state 固定存放于 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；默认根目录是 `~/.acf`，`ACF_HOME` override 只替换这个根。`acf continuation list <worktree> --json` 与 `--all-projects` 只读报告 task/workstream identity、timing、control generation、各 state schema 及 compatibility。支持的 legacy workspace schema 使用 `acf continuation migrate ... --dry-run` 预览，并只在没有 lease record 时显式 `--apply --reason ...`；migration receipt 记录 schema/digest 变化和其余 history 文件的 byte digest，未知/future schema 继续 fail-closed。不要直接编辑 ACF_HOME JSON。
+
 ### Workstream guard 模式
 
 `acf workstream guard` 检查的是“变更文件是否符合当前 Workstream 的写入范围”，不是默认独占整个工作区。多个 agent 或多个 Workstream 在同一仓库并行时，完成、ready、done 或切换状态前，优先显式传入本次要验收的文件集：

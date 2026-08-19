@@ -36,6 +36,7 @@ except ImportError:  # pragma: no cover - Windows path.
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
 from ai_context_framework import (
     continuation_coordination,
+    continuation_inventory,
     continuation_recovery,
     continuation_rounds,
     continuation_workspace,
@@ -920,9 +921,25 @@ def continuation_doctor_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
         result = _status(root, args.task_id)
+        paths = _paths(root, args.task_id)
+        compatibility = continuation_inventory.inspect_task_dir(
+            paths["directory"],
+            contracts=continuation_workspace_commands.continuation_schema_contract(),
+        )
         result["status"] = "healthy" if result["ok"] else "invalid"
         result["next_action"] = result["state"]["next_action"]
+        result["state_compatibility"] = {
+            "compatibility": compatibility["compatibility"],
+            "migration_required": compatibility["migration_required"],
+            "migration_files": compatibility["migration_files"],
+            "blocked_files": compatibility["blocked_files"],
+            "schemas": compatibility["schemas"],
+        }
         next_actions: list[str] = []
+        if bool(compatibility["migration_required"]):
+            next_actions.append(
+                "Run `acf continuation migrate ... --dry-run --json` with no active lease, review the history-preserving plan, then apply it explicitly if appropriate."
+            )
         if "workspace_provenance_missing" in result["blocked_reasons"]:
             next_actions.extend(
                 [

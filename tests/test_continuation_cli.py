@@ -11,7 +11,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import acf
-from ai_context_framework import continuation_workspace
+from ai_context_framework import continuation_inventory, continuation_workspace
 from ai_context_framework.commands import continuation
 from ai_context_framework.observability import usage_log_path
 
@@ -118,6 +118,229 @@ class ContinuationCliTests(unittest.TestCase):
         ]
         self.assertTrue(any(event.get("command") == "continuation init" for event in events))
         self.assertTrue(any(event.get("command") == "continuation doctor" for event in events))
+
+    def test_list_reports_acf_home_identity_schema_and_timing_contract(self) -> None:
+        init = self.init_task()
+        code, payload, stderr = self.run_json(
+            ["continuation", "list", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{payload}")
+        self.assertEqual("current_project", payload["scope"])
+        self.assertEqual(str(Path(self._home.name).resolve()), payload["acf_home"])
+        self.assertEqual(1, payload["task_count"])
+        task = payload["tasks"][0]
+        self.assertEqual("WS900", task["task_id"])
+        self.assertIsNone(task["workstream_id"])
+        self.assertEqual(str(self.root), task["workspace_root"])
+        self.assertEqual("standard", task["timing_profile"])
+        self.assertEqual("current", task["compatibility"])
+        self.assertFalse(task["migration_required"])
+        self.assertEqual(
+            continuation_workspace.WORKSPACE_SCHEMA,
+            task["schemas"]["workspace.json"]["schema_version"],
+        )
+        self.assertEqual(
+            [continuation_workspace.WORKSPACE_SCHEMA],
+            payload["schema_contract"]["workspace.json"]["current"],
+        )
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertEqual("current", doctor["state_compatibility"]["compatibility"])
+        self.assertFalse(doctor["state_compatibility"]["migration_required"])
+        self.assertEqual(str(init["state_dir"]), str(task["state_dir"]))
+
+    def test_list_all_projects_discovers_namespaced_tasks(self) -> None:
+        self.init_task("WS900")
+        with tempfile.TemporaryDirectory() as tmp:
+            second = Path(tmp).resolve()
+            for args in (
+                ("init", "-b", "main"),
+                ("config", "user.name", "ACF Continuation Test"),
+                ("config", "user.email", "acf-continuation@example.invalid"),
+            ):
+                completed = subprocess.run(
+                    ["git", *args],
+                    cwd=second,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                self.assertEqual(0, completed.returncode, completed.stderr)
+            (second / "README.md").write_text("second\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=second, check=True)
+            subprocess.run(["git", "commit", "-m", "test: init"], cwd=second, check=True)
+            code, init, stderr = self.run_json(
+                [
+                    "continuation",
+                    "init",
+                    str(second),
+                    "--task-id",
+                    "TASK-B",
+                    "--title",
+                    "Second continuation",
+                    "--objective",
+                    "Inventory namespace coverage.",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{init}")
+
+            code, payload, stderr = self.run_json(["continuation", "list", "--all-projects"])
+            self.assertEqual(0, code, f"{stderr}\n{payload}")
+            identities = {
+                (item["task_id"], item["workspace_root"])
+                for item in payload["tasks"]
+            }
+            self.assertIn(("WS900", str(self.root)), identities)
+            self.assertIn(("TASK-B", str(second)), identities)
+            self.assertGreaterEqual(payload["project_count"], 2)
+
+    def test_migrate_upgrades_legacy_workspace_with_receipt_and_preserves_history(self) -> None:
+        init = self.init_task()
+        code, claim, stderr = self.run_json(
+            ["continuation", "claim", str(self.root), "--task-id", "WS900", "--runner-id", "runner-a"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        state_dir = Path(str(init["state_dir"]))
+        workspace_path = state_dir / "workspace.json"
+        workspace = json.loads(workspace_path.read_text(encoding="utf-8"))
+        workspace["schema_version"] = continuation_workspace.LEGACY_WORKSPACE_SCHEMA_V2
+        workspace.pop("adoption_receipt", None)
+        workspace_path.write_text(
+            json.dumps(workspace, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        preserved_names = ["control.json", "state.json", "rounds.json", "last_run.json"]
+        preserved_before = {
+            name: (state_dir / name).read_bytes()
+            for name in preserved_names
+            if (state_dir / name).exists()
+        }
+
+        code, listed, stderr = self.run_json(
+            ["continuation", "list", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{listed}")
+        task = listed["tasks"][0]
+        self.assertEqual("migration_available", task["compatibility"])
+        self.assertEqual(["workspace.json"], task["migration_files"])
+
+        workspace_before = workspace_path.read_bytes()
+        code, planned, stderr = self.run_json(
+            ["continuation", "migrate", str(self.root), "--task-id", "WS900", "--dry-run"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{planned}")
+        self.assertEqual("migration_planned", planned["status"])
+        self.assertFalse(planned["applied"])
+        self.assertEqual(workspace_before, workspace_path.read_bytes())
+
+        code, migrated, stderr = self.run_json(
+            [
+                "continuation",
+                "migrate",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--apply",
+                "--reason",
+                "test supported legacy migration",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{migrated}")
+        self.assertTrue(migrated["applied"])
+        current = json.loads(workspace_path.read_text(encoding="utf-8"))
+        self.assertEqual(continuation_workspace.WORKSPACE_SCHEMA, current["schema_version"])
+        receipt_path = Path(str(migrated["receipt_path"]))
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        self.assertEqual(continuation_inventory.MIGRATION_RECEIPT_SCHEMA, receipt["schema_version"])
+        self.assertEqual(continuation_workspace.LEGACY_WORKSPACE_SCHEMA_V2, receipt["changes"][0]["from_schema"])
+        self.assertEqual(continuation_workspace.WORKSPACE_SCHEMA, receipt["changes"][0]["to_schema"])
+        for name, before in preserved_before.items():
+            self.assertEqual(before, (state_dir / name).read_bytes(), name)
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertEqual("current", doctor["state_compatibility"]["compatibility"])
+
+    def test_migrate_refuses_active_owner_and_list_blocks_unknown_schema(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        workspace_path = state_dir / "workspace.json"
+        workspace = json.loads(workspace_path.read_text(encoding="utf-8"))
+        workspace["schema_version"] = continuation_workspace.LEGACY_WORKSPACE_SCHEMA_V2
+        workspace.pop("adoption_receipt", None)
+        workspace_path.write_text(
+            json.dumps(workspace, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        code, claim, stderr = self.run_json(
+            ["continuation", "claim", str(self.root), "--task-id", "WS900", "--runner-id", "runner-a"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, blocked, _ = self.run_json(
+            [
+                "continuation",
+                "migrate",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--apply",
+                "--reason",
+                "must be rejected while owned",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("continuation_migration_active_owner", blocked["error_code"])
+
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        workspace = json.loads(workspace_path.read_text(encoding="utf-8"))
+        workspace["schema_version"] = "acf.continuation.workspace.v999"
+        workspace_path.write_text(
+            json.dumps(workspace, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        code, listed, stderr = self.run_json(
+            ["continuation", "list", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{listed}")
+        self.assertEqual("blocked", listed["tasks"][0]["compatibility"])
+        self.assertIn("workspace.json", listed["tasks"][0]["blocked_files"])
+        code, blocked, _ = self.run_json(
+            ["continuation", "migrate", str(self.root), "--task-id", "WS900", "--dry-run"]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("continuation_migration_blocked", blocked["error_code"])
 
     def test_wrong_task_id_reports_available_continuation_tasks(self) -> None:
         self.init_task()
