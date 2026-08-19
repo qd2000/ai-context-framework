@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## v0.0.3.66 — 2026-08-19
+
+### Release portability
+
+- 修复 WS009 semantic-Git stat-only 测试的跨平台 fixture：在验证 `eol=crlf` normalization 前先删除工作树文件，再由 Git checkout 强制重建，避免 Linux runner 因原有 LF 文件无需 checkout rewrite 而错误假设 CRLF 已出现。
+- `v0.0.3.65` tag 保持不可变；其 GitHub release run `32256066761` 在 Ubuntu full unittest 中仅因上述两条 CRLF fixture 断言失败而未进入 PyPI publish。`v0.0.3.66` 使用新的 immutable version，并要求 PR CI 的 Ubuntu/Windows × Python 3.10/3.12 matrix 与 full release gate 全绿后再发布。
+
 ## v0.0.3.65 — 2026-08-19
 
 ### Continuation recovery 与 durable writer hardening
@@ -23,6 +30,7 @@
 
 - WS009 在真实 ACF/FCC dogfood 中覆盖 legacy WIP adoption、ownerless terminal effect、generation fencing、long-lived durable session、Windows stat-only false dirty、active authority drift 与 schema discovery/migration；发布前再次执行 full release gate、upgrade matrix、wheel/sdist 隔离安装 smoke 与 installed-state adoption。
 - `v0.0.3.64` 已被应急 control-plane tag 占用但未作为本次完整 WS009 release 复用；本版本使用新的 immutable `v0.0.3.65`。
+- `v0.0.3.65` 的 GitHub release run 在 Ubuntu 上暴露两条 Windows-only CRLF fixture 假设并在 publish 前失败，因此该 tag 未发布到 PyPI；修复进入 `v0.0.3.66`，不重打 `.65`。
 
 ## v0.0.3.63 — 2026-08-18
 

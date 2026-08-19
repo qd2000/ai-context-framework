@@ -626,6 +626,7 @@ class WorktreeCliTests(unittest.TestCase):
         (target / "normalized.txt").write_text("alpha\nbeta\n", encoding="utf-8")
         git(target, "add", ".gitattributes", "normalized.txt")
         git(target, "commit", "-m", "add normalized fixture")
+        (target / "normalized.txt").unlink()
         git(target, "checkout", "--", "normalized.txt")
         self.assertIn(b"\r\n", (target / "normalized.txt").read_bytes())
         (target / "normalized.txt").write_bytes(b"alpha\nbeta\n")

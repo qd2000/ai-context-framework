@@ -131,6 +131,7 @@ class WorktreeStatusTests(unittest.TestCase):
             scenario.write(scenario.primary, "normalized.txt", "alpha\nbeta\n")
             run_git(scenario.primary, "add", ".gitattributes", "normalized.txt")
             run_git(scenario.primary, "commit", "-m", "add normalized fixture")
+            (scenario.primary / "normalized.txt").unlink()
             run_git(scenario.primary, "checkout", "--", "normalized.txt")
 
             checkout_bytes = (scenario.primary / "normalized.txt").read_bytes()

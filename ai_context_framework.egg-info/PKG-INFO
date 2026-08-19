@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.65
+Version: 0.0.3.66
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.65` 是当前推荐版本。在 `v0.0.3.63` 的 fenced continuation 基础上，补齐 legacy WIP adoption、ownerless durable-effect reconciliation、workspace manifest v3 / ACF_HOME schema migration visibility、semantic Git clean、Workstream lifecycle UX 与 active attention hygiene；`acf continuation prompt` 仍是唯一 generic Scheduled Task protocol 权威，既有 continuation state 可原位读取/升级，不需要 `init --force`。
+`v0.0.3.66` 是当前推荐版本。在 `v0.0.3.63` 的 fenced continuation 基础上，补齐 legacy WIP adoption、ownerless durable-effect reconciliation、workspace manifest v3 / ACF_HOME schema migration visibility、semantic Git clean、Workstream lifecycle UX 与 active attention hygiene，并修复 stat-only normalization 回归测试在 Linux release runner 上的 CRLF fixture 假设；`acf continuation prompt` 仍是唯一 generic Scheduled Task protocol 权威，既有 continuation state 可原位读取/升级，不需要 `init --force`。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)

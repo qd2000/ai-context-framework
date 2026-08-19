@@ -264,7 +264,7 @@ ADOPTION_MATRIX.md
 | WS009.2 | Done | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract、ACF_HOME/schema visibility | ownerless effect、legacy adoption、durable writer/thin-wrapper 与 P1-E discovery/migration 均完成；generation 21 full 480/480；continuation suite 65/65 |
 | WS009.3 | Done | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | semantic verify Windows dogfood clean=true with four stat-only paths；continuation baseline 自然清空；focused 62/62 + baseline cleanup 3/3 |
 | WS009.4 | Done | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | terminal retention + Context review stale/missing-marker 统一进入 doctor attention hygiene；focused 6/6 + CLI 276/276 + template/strict/guard/diff-check 全绿 |
-| WS009.5 | Active | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | `v0.0.3.65` pre-publish full release gate 已全绿；待 PyPI/global install 与 ACF-self/FCC/AStock installed-state smoke |
+| WS009.5 | Active | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | `.65` Windows full release gate 全绿，但 GitHub run `32256066761` 在 Ubuntu 因两条 CRLF fixture 假设失败且未 publish；Lenovo stable `.65` 已验证 workspace v3；`.66` portability candidate focused 2/2 通过，待 cross-platform CI/full release/PyPI/AStock smoke |
 
 ## 实现约束
 
@@ -272,7 +272,7 @@ ADOPTION_MATRIX.md
 2. 已有 worktree 中无关 dirty 不 stash/reset/clean/rebase/force，也不 `git add .`；只显式 stage 已验证 scoped 文件。
 3. 当前 WS009 fresh-worktree egg-info stat-only 状态作为 dogfood evidence 保留到对应 Gate 能机械解释；不得为了“看起来 clean”直接 reset/checkout 覆盖。WS009.5 full sdist build 后 `SOURCES.txt` 出现真实内容变化，仅新增 `continuation_inventory.py`，因此已重新分类为合法 release metadata 并正式扩入 scope；其余 `dependency_links.txt` / `entry_points.txt` / `top_level.txt` 仍保持 content-identical/stat-only，不混入 release commit。
 4. Workstream authority 文件只通过 merge target / primary maintenance 收口，不在 Task Workstream 中直接写 `active/Context.md`、`Current_Task.md`、`Task_Plan.md`。
-5. CLI 对外行为变化必须同步 JSON/error_code/next_actions/help/docs/tests，并评估版本号；发布前必须重新查询 Git tag、远端 tag 与 PyPI。`v0.0.3.64` 已被远端 `release/ws009-control-plane-064` emergency control-plane release 占用，不得复用；若发布时没有更新版本，当前下一候选至少为 `v0.0.3.65`。
+5. CLI 对外行为变化必须同步 JSON/error_code/next_actions/help/docs/tests，并评估版本号；发布前必须重新查询 Git tag、远端 tag 与 PyPI。`v0.0.3.64` 与失败的 `v0.0.3.65` tag 都必须保持 immutable、不得复用；当前新的发布候选为 `v0.0.3.66`，发布前仍需再次 collision probe。
 6. 修改模板/默认文档契约时同步 README、template System Manual、dogfooding System Manual、Automation、packaging/upgrade 影响与测试。
 7. 每个阶段优先 focused tests；行为冻结后运行 `uv run acf check template`、`uv run acf check --strict`、`uv run python -m unittest`、`git diff --check`；release 阶段运行 full upgrade matrix + `scripts/release_check.py --mode full`。
 8. 新发现的通用 ACF/continuation/worktree dogfood 缺陷用 `acf continuation issue` 记录稳定 fingerprint；预期等待、正常 active lease、单纯业务失败不登记。
@@ -304,4 +304,4 @@ ADOPTION_MATRIX.md
 
 ## 下一步
 
-继续 WS009.5：`v0.0.3.65` 已完成 pre-publish full release gate；先形成 release-prep checkpoint，并再次核对远端 tag/PyPI 没有并发占用 `.65`。随后发布 immutable `v0.0.3.65`，升级全局稳定 ACF，验证 stable `acf continuation doctor/prompt` 可直接读取 WS009 canonical workspace v3，再完成 ACF-self、FCC continuation、AStock continuation 的 installed-state adoption smoke。全部证据通过后再进入 merge/archive 与 primary-maintenance authority cleanup。
+继续 WS009.5：`.65` tag 已由 GitHub run `32256066761` 证明在 Ubuntu full unittest 的两个 CRLF fixture 断言上失败，未进入 PyPI；其本地 full-gated wheel 已在用户临时 self-hosting override 下安装到 Lenovo，并证明 stable `acf continuation doctor/prompt` 能直接读取 WS009 canonical workspace v3，FCC WS079/080/086 legacy v2 state 也可稳定只读。现在以新的 immutable `v0.0.3.66` 修复 portability fixture：先完成 focused/full release gate，并通过 pull_request CI 的 Ubuntu/Windows × Python 3.10/3.12 matrix；随后再 tag/publish `.66`、升级 Lenovo 与 qdspc 安装态、完成 AStock continuation smoke。全部证据通过后再进入 merge/archive 与 primary-maintenance authority cleanup。
