@@ -604,7 +604,7 @@ class CliTests(unittest.TestCase):
             exit_code, stdout, stderr = self.run_cli_output(dry_args)
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertIn(str(target / "active" / "workstreams" / "WS002.md"), payload["changed_files"])
+            self.assertIn(str((target / "active" / "workstreams" / "WS002.md").resolve()), payload["changed_files"])
             self.assertFalse((target / "active" / "workstreams" / "WS002.md").exists())
 
             add_args = [
