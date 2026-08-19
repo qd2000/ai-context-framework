@@ -494,6 +494,7 @@ Renew recommendation: every {control['renew_interval_minutes']} minutes
 The scheduler interval is only a wake cadence; it is not a round/Gate deadline.
 
 Generic Scheduled Task protocol authority: this generated prompt is the only generic continuation state-machine contract. External wrappers should keep only fixed project/worktree/branch/task identity and project-specific runtime, scientific, permission, and validation constraints; do not copy or redefine the generic contention/recovery protocol.
+Thin-wrapper recipe: pin the fixed identity, invoke `acf continuation prompt` again on every scheduler wake, execute the returned protocol, then apply only project-specific runtime/scientific/permission/validation constraints. Do not freeze a copy of the contention/recovery/workspace/effect state machine in the wrapper.
 
 Continuation protocol:
 1. Do not reconstruct task state from chat history by default. Read local project plans/evidence, then run `acf continuation doctor {json.dumps(str(root))}{task_flag} --json`.
@@ -504,14 +505,34 @@ Continuation protocol:
 6. If doctor says `can_claim=true` and no active owner was observed, claim one bounded round with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`. If step 5 recovered ownership instead, use the credentials returned by `recover` and do not claim again. Keep the returned lease_id, generation, and fence_token; treat fence_token as an owner credential and do not copy it into project files or logs.
 7. Execute only the current bounded gate. Record compact runtime-neutral progress with `acf continuation progress ... --phase <phase> --milestone <compact-name> --evidence-ref <durable-ref> --json`; do not copy raw tool output or transcript history into continuation state.
 8. Inspect workspace ownership with `acf continuation workspace status ... --json`. Before modifying project files, declare the concrete paths with `acf continuation workspace intent ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --path <path> ... --json`. A bound Workstream intent must remain inside its direct write scope. Existing baseline/external dirty is protected; do not stash, reset, clean, stage, or commit it. After writes and before handoff/finalization, refresh ownership with `acf continuation workspace refresh ...` so task-owned, unrelated external, and true path conflicts are explicit.
-9. Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. Owner-protected continuation commands perform the authenticated challenge touch after validating those credentials. For long work, run `acf continuation heartbeat ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` at roughly the configured cadence and `acf continuation renew ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before the renew threshold; heartbeat proves liveness but does not extend TTL.
-10. Before executing each external/non-idempotent side effect, write its deterministic identity first with `acf continuation effect prepare ... --key <logical-key> --kind <generic-kind> --json`. Execute the side effect only when prepare returns `created=true`; `created=false` means the logical effect already exists and must be inspected/reused/reconciled rather than resubmitted. After authoritative observations, update only compact status/milestone/external-id/evidence references with `acf continuation effect update ...`. If an outcome is uncertain, stop and preserve the effect for reconciliation; never resubmit it from memory. Use `acf continuation effect list ... --json` to inspect durable effect identities.
+9. Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. Owner-protected continuation commands perform the authenticated challenge touch after validating those credentials. For long work, run `acf continuation heartbeat ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` at roughly the configured cadence and `acf continuation renew ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before the renew threshold; heartbeat proves liveness but does not extend TTL. A long-running purely read-only/blocking tool call does not need a writer effect identity, but after it returns and before the next project write or non-idempotent action, re-run `assert-owner`.
+10. Before executing each external/non-idempotent side effect, write its deterministic identity first with `acf continuation effect prepare ... --key <logical-key> --kind <generic-kind> --json`. This requirement explicitly includes any long-lived local subprocess, DevSpace session, Runtime job, or external job that may outlive the current owner/tool call and later write project files or create a non-idempotent side effect. Persist a reusable external/job identity after launch and keep the effect `prepared|active|unknown` until an authoritative terminal observation. If no durable identity can be persisted, the writer must not cross an owner lifecycle and formal recovery remains fail-closed while its termination is unproven. Execute the side effect only when prepare returns `created=true`; `created=false` means the logical effect already exists and must be inspected/reused/reconciled rather than resubmitted. After authoritative observations, update only compact status/milestone/external-id/evidence references with `acf continuation effect update ...`. If an outcome is uncertain, stop and preserve the effect for reconciliation; never resubmit it from memory. Use `acf continuation effect list ... --json` to inspect durable effect identities.
 11. Validate the bounded gate enough for safe handoff. A continuation handoff does not require a Git commit merely because the worktree is dirty; create a Git checkpoint only when the project has reached a natural semantic checkpoint. Never include unrelated external dirty in a commit.
 12. Update bounded state with `acf continuation checkpoint ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> ... --json`.
 13. Release the same lease with `acf continuation release ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. Preserved task WIP may remain uncommitted across rounds; only true workspace conflict/ambiguous provenance, identity mismatch, unresolved effect, paused/blocked state, or unknown write outcome should fail closed.
 14. If this round exposes a concrete reusable ACF/continuation/workflow defect or operational gap, record it immediately with `acf continuation issue {json.dumps(str(root))}{task_flag} --category <category> --severity <low|medium|high|critical> --text <concise issue> --evidence-ref <path-or-commit> --json`. Do not record normal active-lease no-ops, expected waits, or task-specific scientific failures as product issues.
 """
-        value = {"status": "rendered", "task_id": control["task_id"], "prompt": prompt}
+        identity = {
+            "workspace_root": str(root),
+            "branch": control["expected_branch"],
+            "task_id": control["task_id"],
+            "workstream_id": control.get("workstream_id"),
+        }
+        scheduler_wrapper_contract = {
+            "schema_version": "acf.continuation.scheduler_wrapper.v1",
+            "generic_protocol_source": "acf continuation prompt",
+            "refresh_prompt_each_run": True,
+            "identity": identity,
+            "project_constraint_classes": ["runtime", "scientific", "permission", "validation"],
+            "copy_generic_state_machine": False,
+        }
+        value = {
+            "status": "rendered",
+            "task_id": control["task_id"],
+            "identity": identity,
+            "scheduler_wrapper_contract": scheduler_wrapper_contract,
+            "prompt": prompt,
+        }
         result_holder.update(value)
         return value
 

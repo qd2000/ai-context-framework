@@ -236,6 +236,8 @@ ADOPTION_MATRIX.md
 4. wrapper 不重复 generic contention/recovery/heartbeat/workspace/effect 分支，不硬编码自然 Gate 时长，也不规定 Agent 的研究/编码步骤；Agent 仍根据 local plan/evidence 自主决定一个 bounded Gate 内的工程策略。
 5. 对 ACF 自身 self-hosting 明确 control-plane / product-under-test 分离：continuation ownership 默认由当前已安装稳定 `acf` 控制；worktree 内 `uv run acf` 用于开发/测试候选实现。只有新稳定版发布并验证安装后，后续 round 才切换 control authority，避免未提交候选代码修改自己的恢复协议。
 
+**WS009.2 implementation evidence（2026-08-19）**：`acf continuation prompt --json` 已增加稳定 `identity` 与 `scheduler_wrapper_contract`，明确 `generic_protocol_source=acf continuation prompt`、每轮必须 refresh generated prompt、wrapper 不复制 generic state machine，并把项目侧附加约束限定为 runtime/scientific/permission/validation classes。generated prompt、README、Automation、template/dogfooding System Manual 同步明确：long-lived local subprocess、DevSpace session、Runtime/external job 只要可能跨 owner/tool-call 生命周期继续写项目或产生非幂等副作用，就必须先建立 deterministic durable identity，并在权威 terminal observation 前保持 unresolved；纯只读 blocking 调用可不登记 writer effect，但返回后、下一次项目写入/副作用前必须重新 assert owner。generation 21 真实 self-hosting 中，旧 generation 20 的 `devspace-session:22254` 经用户临时授权使用候选 control-plane 形成 receipt-bound terminal observation 后完成 formal recovery；随后 generation 21 full unittest 在启动前登记 effect key、启动后绑定 `devspace-session:23114`、终态更新 completed，并通过 full unittest 480/480。该 override 只用于解除 `.63` 自举死锁，不改变最终产品默认的 stable-control-plane / product-under-test 分离边界。
+
 ### P2-A：Continuation design / Automation 文档漂移
 
 **现象**：Continuation design 仍有一处旧表述称 doctor 依据 renew interval 区分 fresh/stale，而实现和后文已使用独立 `stale_after_minutes`；Automation 的部分 release/Trusted Publishing 状态也可能落后于 v0.0.3.63 事实；Workstream Design 还保留旧式 `--depends/--read/--write/--status` 参数描述，与当前 `workstream add/reserve/stage` CLI 不完全一致。WS009 setup 中重复传 `workstream stage add --depends` 时 argparse 只保留最后一个值，说明文档必须明确 stage dependency 是一个可解析摘要字符串，而不是暗示该参数可重复。
@@ -253,7 +255,7 @@ ADOPTION_MATRIX.md
 | 阶段 | 状态 | 目标 | 主要输出 | Gate |
 |---|---|---|---|---|
 | WS009.1 | Done | Baseline characterization and contract freeze | deterministic failing/characterization tests、problem matrix、scope/evidence、legacy/effect recovery fixtures | physical-writer、ownerless effect deadlock、legacy adoption、terminal retention、stat-only dirty、Workspace/activation UX 边界已由测试冻结 |
-| WS009.2 | Active | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract | 可证明终态 effect 能安全收口；legacy reviewed WIP 已有显式 adopt 实现并通过 focused/full regression；unresolved/unknown 仍阻止 recovery；generic prompt 不被 wrapper 复制；无 daemon |
+| WS009.2 | Active | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract、ACF_HOME/schema visibility | 可证明终态 effect 能安全收口；legacy reviewed WIP 已有显式 adopt 实现并通过 focused/full regression；durable-writer/thin-wrapper contract 已通过 generation 21 self-hosting full 480/480；unresolved/unknown 仍阻止 recovery；generic prompt 不被 wrapper 复制；完成 P1-E discovery/migration visibility 后关闭本阶段；无 daemon |
 | WS009.3 | Open | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | staged/untracked/real diff 不误放行；content-identical stat-only 不阻塞；只读 verify 不改 index |
 | WS009.4 | Open | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | doctor 能看到 terminal retention + Context review stale；strict 不做语义裁决 |
 | WS009.5 | Open | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | full unittest/template/strict/upgrade/release/package smoke 全绿；发布后安装态 generated prompt/doctor 兼容旧 state |
@@ -296,4 +298,4 @@ ADOPTION_MATRIX.md
 
 ## 下一步
 
-继续 WS009.2：ownerless externally-proven terminal effect reconciliation 与 legacy no-manifest reviewed WIP adoption 均已形成候选实现和 deterministic regression。下一 Gate 收口 generated prompt / durable physical-writer effect contract / thin-wrapper 标准化：明确 long-lived local subprocess、DevSpace、Runtime writer 均受 durable identity 规则约束，并让 `acf continuation prompt` / help / README / System Manual / Automation 的官方 wrapper contract 保持唯一 generic authority，不把 generic contention/recovery 状态机重新复制进 Scheduled Task。
+继续 WS009.2 的最后一个 bounded Gate：实现 P1-E 统一 ACF_HOME continuation discovery/schema/migration visibility。保持现有 canonical path-hash namespace 与 schema 单一实现，提供只读可机器发现的 project/task/schema/control-version/timing-profile/legacy-migration 状态；任何 migration 都必须显式 dry-run/receipt 并保留 round/effect/recovery history，不允许 scheduler 或人工直接修改 JSON。该 Gate 收口后进入 WS009.3 semantic-clean + lifecycle UX hardening。
