@@ -502,6 +502,18 @@ def review_current_task_stale(root: Path, days: int, today_value: date) -> list[
     if not path.exists():
         return []
     status = extract_current_task_status(path) or ""
+    if status == "Done":
+        return [
+            stale_item(
+                root,
+                path,
+                "current_task",
+                "current_task_terminal_retained",
+                "Current_Task is Done but remains retained as non-empty active authority.",
+                "Archive or clear the terminal Current_Task after reviewing its completion evidence.",
+                status=status,
+            )
+        ]
     if status != "Active":
         return []
     text = read_text(path)
@@ -558,6 +570,18 @@ def review_task_plan_stale(root: Path) -> list[dict[str, object]]:
 
     terminal_statuses = {"Done", "Skipped", "Superseded"}
     unfinished = [row for row in rows if row.get("状态") not in terminal_statuses]
+    if status == "Done":
+        items.append(
+            stale_item(
+                root,
+                path,
+                "task_plan",
+                "task_plan_terminal_retained",
+                "Task_Plan is Done but remains retained as non-empty active authority.",
+                "Archive or clear the terminal Task_Plan after reviewing its completion evidence.",
+                status=status,
+            )
+        )
     if status == "Done" and unfinished:
         items.append(
             stale_item(

@@ -736,8 +736,38 @@ def doctor_context_process_evidence(lines: Sequence[str]) -> list[str]:
     return []
 
 
-def collect_attention_hygiene_doctor_findings(root: Path) -> list[dict[str, object]]:
+def collect_attention_hygiene_doctor_findings(
+    root: Path,
+    today_value: date,
+) -> list[dict[str, object]]:
     findings: list[dict[str, object]] = []
+    surfaced_stale_signals = {
+        "current_task_terminal_retained",
+        "task_plan_terminal_retained",
+        "context_missing_review_marker",
+        "context_review_stale",
+    }
+    for item in collect_review_stale_items(root, DEFAULT_STALE_DAYS, today_value):
+        signal = str(item.get("signal") or "")
+        if signal not in surfaced_stale_signals:
+            continue
+        path = str(item.get("path") or "")
+        reason = str(item.get("reason") or signal)
+        action = str(item.get("suggested_action") or "Review this attention-hygiene signal.")
+        findings.append(
+            doctor_finding(
+                signal,
+                "warning",
+                "attention_hygiene",
+                reason,
+                path,
+                [path],
+                [{"path": path, "detail": reason}],
+                "draft_only",
+                False,
+                [action],
+            )
+        )
     context_path = root / "active" / "Context.md"
     if context_path.exists():
         text = read_text(context_path)
@@ -803,7 +833,7 @@ def collect_doctor_findings(root: Path, today: date | None = None) -> list[dict[
     findings.extend(data_findings)
     findings.extend(source_findings)
     findings.extend(collect_data_lineage_doctor_findings(root, data_findings))
-    findings.extend(collect_attention_hygiene_doctor_findings(root))
+    findings.extend(collect_attention_hygiene_doctor_findings(root, _today))
     return findings
 
 

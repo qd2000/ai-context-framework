@@ -192,6 +192,8 @@ ADOPTION_MATRIX.md
 3. ACF 自身在 WS009 合并后的 primary maintenance 中移除/改写易漂移的“当前版本 = x.y.z”重复事实，改为引用 canonical release/version authority（README + `ai_context_framework/version.py`/发布元数据），并刷新 Context review marker。
 4. 真实项目如果没有 canonical version 对象，不增加任何额外负担。
 
+**WS009.4 implementation evidence（2026-08-19）**：`review stale` 已机械报告 `current_task_terminal_retained` / `task_plan_terminal_retained`，`doctor` 直接复用这两个 terminal-retention signals 与 `context_missing_review_marker` / `context_review_stale`，统一输出 `attention_hygiene` warning + `draft_only`，不进入 `check --strict`，也不自动改写自然语言事实。focused attention/doctor regression 6/6；完整 `tests.test_cli` 276/276；`acf check template`、`acf check --strict`、`git diff --check` 与 WS009 file-scoped guard 全部通过。generation 24 的 stale owner 先由 timed-out challenge + reconcile receipt `3ff4a15a-0e99-4eb0-8260-f581852c17d6` 证明可恢复，再在用户临时 self-hosting override 下通过候选 control-plane formal recover 到 generation 25；未手工编辑 ACF_HOME JSON。
+
 ### P1-C：Workstream Workspace section 与本地 runtime authority 漂移
 
 **现象**：reserve 时 Markdown 写 `mode: none`；create 后 local registry 已有 worktree，但 Markdown 不更新。
@@ -261,8 +263,8 @@ ADOPTION_MATRIX.md
 | WS009.1 | Done | Baseline characterization and contract freeze | deterministic failing/characterization tests、problem matrix、scope/evidence、legacy/effect recovery fixtures | physical-writer、ownerless effect deadlock、legacy adoption、terminal retention、stat-only dirty、Workspace/activation UX 边界已由测试冻结 |
 | WS009.2 | Done | Continuation recovery/effect/prompt hardening | effect reconciliation、legacy adoption、generated prompt + durable effect/job contract + thin-wrapper contract、ACF_HOME/schema visibility | ownerless effect、legacy adoption、durable writer/thin-wrapper 与 P1-E discovery/migration 均完成；generation 21 full 480/480；continuation suite 65/65 |
 | WS009.3 | Done | Worktree semantic-clean and lifecycle UX hardening | canonical clean helper、stat-only diagnostics、Workspace section/next_actions fixes | semantic verify Windows dogfood clean=true with four stat-only paths；continuation baseline 自然清空；focused 62/62 + baseline cleanup 3/3 |
-| WS009.4 | Active | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | doctor 能看到 terminal retention + Context review stale；strict 不做语义裁决 |
-| WS009.5 | Open | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | full unittest/template/strict/upgrade/release/package smoke 全绿；发布后安装态 generated prompt/doctor 兼容旧 state |
+| WS009.4 | Done | Active attention and authority-drift hardening | review/doctor findings、dogfood authority cleanup plan、docs drift fixes | terminal retention + Context review stale/missing-marker 统一进入 doctor attention hygiene；focused 6/6 + CLI 276/276 + template/strict/guard/diff-check 全绿 |
+| WS009.5 | Active | Full regression, release and adoption | version bump、release_check、package/PyPI、global install、self/FCC/AStock smoke、merge/archive | full unittest/template/strict/upgrade/release/package smoke 全绿；发布后安装态 generated prompt/doctor 兼容旧 state |
 
 ## 实现约束
 
@@ -270,7 +272,7 @@ ADOPTION_MATRIX.md
 2. 已有 worktree 中无关 dirty 不 stash/reset/clean/rebase/force，也不 `git add .`；只显式 stage 已验证 scoped 文件。
 3. 当前 WS009 fresh-worktree egg-info stat-only 状态作为 dogfood evidence 保留到对应 Gate 能机械解释；不得为了“看起来 clean”直接 reset/checkout 覆盖。
 4. Workstream authority 文件只通过 merge target / primary maintenance 收口，不在 Task Workstream 中直接写 `active/Context.md`、`Current_Task.md`、`Task_Plan.md`。
-5. CLI 对外行为变化必须同步 JSON/error_code/next_actions/help/docs/tests，并评估版本号；预计需要下一个稳定版本（若 `.63` 后无并行版本，则候选 `v0.0.3.64`），最终版本以发布时主线事实为准。
+5. CLI 对外行为变化必须同步 JSON/error_code/next_actions/help/docs/tests，并评估版本号；发布前必须重新查询 Git tag、远端 tag 与 PyPI。`v0.0.3.64` 已被远端 `release/ws009-control-plane-064` emergency control-plane release 占用，不得复用；若发布时没有更新版本，当前下一候选至少为 `v0.0.3.65`。
 6. 修改模板/默认文档契约时同步 README、template System Manual、dogfooding System Manual、Automation、packaging/upgrade 影响与测试。
 7. 每个阶段优先 focused tests；行为冻结后运行 `uv run acf check template`、`uv run acf check --strict`、`uv run python -m unittest`、`git diff --check`；release 阶段运行 full upgrade matrix + `scripts/release_check.py --mode full`。
 8. 新发现的通用 ACF/continuation/worktree dogfood 缺陷用 `acf continuation issue` 记录稳定 fingerprint；预期等待、正常 active lease、单纯业务失败不登记。
@@ -302,4 +304,4 @@ ADOPTION_MATRIX.md
 
 ## 下一步
 
-继续 WS009.4：让 `review stale` 机械报告 terminal `Current_Task` / `Task_Plan` retention，并让 `doctor` 复用同一 attention-hygiene signals 汇总 terminal retention 与 Context review stale；保持 `check --strict` 不做自然语言事实裁决。实现合并后再由 primary maintenance 清理 ACF 自身旧 authority 文件。
+进入 WS009.5：先核对已存在的远端 `v0.0.3.64` emergency control-plane release 是否成功发布并能让稳定 `acf` 读取 canonical workspace v3；随后在不复用 `.64` 的前提下运行 full upgrade/release/package gates，为当前 WS009 完整候选选择新的 immutable version，并完成 ACF-self、FCC continuation、AStock continuation 的 installed-state adoption smoke。全部证据通过后再进入 merge/archive 与 primary-maintenance authority cleanup。

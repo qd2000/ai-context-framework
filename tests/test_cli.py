@@ -3350,13 +3350,20 @@ class CliTests(unittest.TestCase):
             drifted = Path(tmp) / "drifted"
             self.run_cli(["init", str(clean), "--profile", "minimal"])
             self.run_cli(["init", str(drifted), "--profile", "minimal"])
+            for target in (clean, drifted):
+                context_path = target / "active" / "Context.md"
+                context_path.write_text(
+                    context_path.read_text(encoding="utf-8")
+                    + "\n\n## 审阅标记\n\n- Last reviewed: 2026-05-31\n",
+                    encoding="utf-8",
+                )
             self.run_cli(["plan", "init", str(drifted), "--title", "Large task", "--goal", "Goal"])
             self.run_cli(["plan", "add-task", str(drifted), "--id", "T001", "--title", "Finished"])
             self.run_cli(["plan", "set-task", str(drifted), "--id", "T001", "--status", "Done", "--evidence", "done"])
             self.run_cli(["plan", "focus", str(drifted), "--id", "T001"])
 
             exit_code, stdout, stderr = self.run_cli_output(
-                ["doctor", "--projects", str(clean), str(drifted), "--json"]
+                ["doctor", "--projects", str(clean), str(drifted), "--today", "2026-05-31", "--json"]
             )
 
             self.assertEqual(exit_code, 0, stderr)
@@ -3617,6 +3624,12 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
             self.run_cli(["init", str(target), "--profile", "minimal"])
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8")
+                + "\n\n## 审阅标记\n\n- Last reviewed: 2026-05-31\n",
+                encoding="utf-8",
+            )
             report_path = target / "worklog" / "doctor-reports" / "2026-05-31.md"
 
             exit_code, stdout, stderr = self.run_cli_output(
@@ -3683,6 +3696,12 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
             self.run_cli(["init", str(target), "--profile", "minimal"])
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8")
+                + "\n\n## 审阅标记\n\n- Last reviewed: 2026-05-31\n",
+                encoding="utf-8",
+            )
             draft_path = target / "worklog" / "writeback-drafts" / "2026-05-31-doctor.md"
 
             exit_code, stdout, stderr = self.run_cli_output(
@@ -6329,7 +6348,21 @@ This records a reusable write-safety pattern instead of a current task fact.
                 payload["next_actions"],
             )
 
-    def test_review_stale_characterizes_terminal_active_authority_retention_gap(self):
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--today", "2026-05-05", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            doctor_payload = self.json_payload(stdout)
+            finding = next(
+                item
+                for item in doctor_payload["findings"]
+                if item["code"] == "context_missing_review_marker"
+            )
+            self.assertEqual(finding["domain"], "attention_hygiene")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+            self.assertFalse(finding["safe_to_apply"])
+
+    def test_review_stale_reports_terminal_active_authority_retention(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
             self.run_cli(["init", str(target), "--profile", "minimal"])
@@ -6360,16 +6393,17 @@ This records a reusable write-safety pattern instead of a current task fact.
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
             signals = {item["signal"] for item in payload["stale_items"]}
-            self.assertNotIn("current_task_terminal_retained", signals)
-            self.assertNotIn("task_plan_terminal_retained", signals)
-            self.assertFalse(
-                any(
-                    item["path"] in {"active/Current_Task.md", "active/Task_Plan.md"}
-                    for item in payload["stale_items"]
-                )
+            self.assertEqual(
+                signals,
+                {"current_task_terminal_retained", "task_plan_terminal_retained"},
             )
+            by_signal = {item["signal"]: item for item in payload["stale_items"]}
+            self.assertEqual(by_signal["current_task_terminal_retained"]["path"], "active/Current_Task.md")
+            self.assertEqual(by_signal["current_task_terminal_retained"]["status"], "Done")
+            self.assertEqual(by_signal["task_plan_terminal_retained"]["path"], "active/Task_Plan.md")
+            self.assertEqual(by_signal["task_plan_terminal_retained"]["status"], "Done")
 
-    def test_doctor_characterizes_terminal_authority_and_context_review_gap(self):
+    def test_doctor_reuses_terminal_authority_and_context_review_signals(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
             self.run_cli(["init", str(target), "--profile", "minimal"])
@@ -6411,10 +6445,30 @@ This records a reusable write-safety pattern instead of a current task fact.
             doctor_payload = self.json_payload(stdout)
             self.assert_success_json_contract(doctor_payload, "doctor")
             finding_codes = {finding["code"] for finding in doctor_payload["findings"]}
-            self.assertNotIn("current_task_terminal_retained", finding_codes)
-            self.assertNotIn("task_plan_terminal_retained", finding_codes)
-            self.assertNotIn("context_review_stale", finding_codes)
-            self.assertEqual(doctor_payload["summary"]["findings_total"], 0)
+            self.assertEqual(
+                finding_codes,
+                {
+                    "current_task_terminal_retained",
+                    "task_plan_terminal_retained",
+                    "context_review_stale",
+                },
+            )
+            self.assertEqual(doctor_payload["summary"]["findings_total"], 3)
+            for finding in doctor_payload["findings"]:
+                self.assertEqual(finding["severity"], "warning")
+                self.assertEqual(finding["domain"], "attention_hygiene")
+                self.assertEqual(finding["repair_mode"], "draft_only")
+                self.assertFalse(finding["safe_to_apply"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["check", str(target), "--strict", "--json"]
+            )
+            self.assertIn(exit_code, {0, 1}, stderr)
+            check_payload = json.loads(stdout)
+            strict_output = json.dumps(check_payload, ensure_ascii=False)
+            self.assertNotIn("current_task_terminal_retained", strict_output)
+            self.assertNotIn("task_plan_terminal_retained", strict_output)
+            self.assertNotIn("context_review_stale", strict_output)
 
     def test_review_stale_reports_mechanical_attention_signals(self):
         with tempfile.TemporaryDirectory() as tmp:

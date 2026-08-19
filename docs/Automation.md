@@ -33,7 +33,7 @@
 - `writeback draft`：把会话结束回写建议保存到 `worklog/writeback-drafts/`，生成可审阅草案，不直接修改权威上下文文件。
 - `edit section get|replace|append`：读取、替换或追加上下文根目录内 Markdown 文件的指定 section body。
 - `edit table upsert`：按 key column 更新或追加上下文根目录内 Markdown 表格行。
-- `doctor`：面向人和 AI 的健康诊断入口，复用 `check` 并报告跨文件生命周期漂移、终态 Workstream authority scope 残留、generated index 漂移、attention hygiene 和本地数据副本证据信号；`--fix safe` 只执行确定性低风险修复，`--report` 和 `--draft-semantic` 生成可审阅产物，`--projects` 支持多项目只读诊断。
+- `doctor`：面向人和 AI 的健康诊断入口，复用 `check` 并报告跨文件生命周期漂移、终态 Workstream authority scope 残留、generated index 漂移、attention hygiene 和本地数据副本证据信号。attention hygiene 直接复用 `review stale` 的 terminal Current_Task/Task_Plan retention 与 Context review marker/stale signals；这些结果保持 warning / draft-only，不进入 `check --strict`，也不自动判断自然语言事实真假。`--fix safe` 只执行确定性低风险修复，`--report` 和 `--draft-semantic` 生成可审阅产物，`--projects` 支持多项目只读诊断。
 - `workstream reserve`：在 primary branch 上通过预约锁、跨 active/archive/Git/journal 编号扫描和 reservation-path 冲突校验，创建唯一 WS 占位提交；使用 Git 的路径限定提交保留其他 agent 的 staged/unstaged/untracked 修改，只阻断 detail/index 自身或其父子路径发生碰撞；它不创建 branch/worktree，原 `workstream add` 不加载 Git 生命周期。
 - `worktree create|attach|verify|list|audit|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|resume`：供 AI 选择调用的可选 Git 生命周期。merge 固定使用临时 integration worktree，primary 只做 collision-aware fast-forward promotion；operation journal 记录候选、检查、artifact、等待、重规划、冲突现场和 promotion。短时锁、路径状态和 HEAD 推进有限重试；冲突或检查失败保留 integration worktree供 resume；ignored/untracked 结果通过 handoff manifest 分类和摘要验证；close 与 merge 共用 lifecycle 锁并支持文件占用退避和部分成功恢复。
 
