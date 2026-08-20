@@ -19,9 +19,10 @@ EFFECT_JOURNAL_SCHEMA = "acf.continuation.effect-journal.v1"
 EFFECT_RECORD_SCHEMA = "acf.continuation.effect.v1"
 
 MAX_ROUNDS = 16
-MAX_EFFECTS = 64
+MAX_EFFECTS = 256
 MAX_EVIDENCE_REFS = 32
 MAX_JOURNAL_BYTES = 64 * 1024
+MAX_EFFECT_JOURNAL_BYTES = 256 * 1024
 MAX_KEY_BYTES = 256
 MAX_VALUE_BYTES = 2048
 
@@ -126,14 +127,14 @@ def _append_refs(existing: Iterable[str], additions: Iterable[str]) -> list[str]
     return result
 
 
-def _bounded(payload: Mapping[str, Any]) -> None:
+def _bounded(payload: Mapping[str, Any], *, max_bytes: int = MAX_JOURNAL_BYTES) -> None:
     try:
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise ContinuationRoundError("journal is not JSON serializable", code="journal_invalid") from exc
-    if len(encoded) > MAX_JOURNAL_BYTES:
+    if len(encoded) > max_bytes:
         raise ContinuationRoundError(
-            f"journal exceeds {MAX_JOURNAL_BYTES} bytes",
+            f"journal exceeds {max_bytes} bytes",
             code="journal_full",
         )
 
@@ -302,7 +303,7 @@ def validate_effect_journal(payload: Mapping[str, Any], *, task_id: str) -> dict
             }
         )
     result = {"schema_version": EFFECT_JOURNAL_SCHEMA, "task_id": expected_task, "effects": effects}
-    _bounded(result)
+    _bounded(result, max_bytes=MAX_EFFECT_JOURNAL_BYTES)
     return result
 
 
@@ -582,6 +583,7 @@ def latest_round(journal: Mapping[str, Any], *, task_id: str) -> dict[str, Any] 
 __all__ = [
     "EFFECT_JOURNAL_SCHEMA",
     "EFFECT_STATUSES",
+    "MAX_EFFECT_JOURNAL_BYTES",
     "MAX_EFFECTS",
     "MAX_ROUNDS",
     "ROUND_JOURNAL_SCHEMA",

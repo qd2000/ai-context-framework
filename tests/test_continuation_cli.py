@@ -3163,6 +3163,66 @@ class ContinuationCliTests(unittest.TestCase):
         rounds = json.loads((state_dir / "rounds.json").read_text(encoding="utf-8"))
         self.assertEqual("released", rounds["rounds"][-1]["phase"])
 
+    def test_ws009_effect_journal_accepts_more_than_64_terminal_identities(self) -> None:
+        task_id = "WS900"
+        journal = continuation_rounds.empty_effect_journal(task_id)
+        now = continuation._iso()
+        for index in range(64):
+            logical_key = f"terminal-{index}"
+            journal, _, created = continuation_rounds.prepare_effect(
+                journal,
+                task_id=task_id,
+                generation=1,
+                logical_key=logical_key,
+                kind="test-effect",
+                external_id=None,
+                milestone=None,
+                evidence_refs=[],
+                now=now,
+            )
+            self.assertTrue(created)
+            journal, _ = continuation_rounds.update_effect(
+                journal,
+                task_id=task_id,
+                generation=1,
+                logical_key=logical_key,
+                status="completed",
+                external_id=None,
+                milestone="terminal",
+                evidence_refs=[],
+                now=now,
+            )
+
+        journal, effect, created = continuation_rounds.prepare_effect(
+            journal,
+            task_id=task_id,
+            generation=2,
+            logical_key="terminal-64",
+            kind="test-effect",
+            external_id=None,
+            milestone=None,
+            evidence_refs=[],
+            now=now,
+        )
+        self.assertTrue(created)
+        self.assertEqual("terminal-64", effect["logical_key"])
+        self.assertEqual(65, len(journal["effects"]))
+
+        journal, first_effect, created = continuation_rounds.prepare_effect(
+            journal,
+            task_id=task_id,
+            generation=2,
+            logical_key="terminal-0",
+            kind="test-effect",
+            external_id=None,
+            milestone=None,
+            evidence_refs=[],
+            now=now,
+        )
+        self.assertFalse(created)
+        self.assertEqual("completed", first_effect["status"])
+        self.assertEqual(65, len(journal["effects"]))
+
     def test_expired_running_round_with_effects_requires_reconciliation_before_reclaim(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
