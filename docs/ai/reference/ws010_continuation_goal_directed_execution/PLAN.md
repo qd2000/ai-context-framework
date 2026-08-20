@@ -2,7 +2,7 @@
 
 ## 状态
 
-Active
+ReadyToMerge
 
 ## 一句话目标
 
@@ -93,7 +93,7 @@ generated prompt 只允许把任务停止或转入终态解释为以下四类：
 |---|---|---|---|---|
 | WS010.1 | Done | 冻结目标导向执行政策、硬停止条件和项目专用约束槽 | 本 PLAN、Scheduled Task wrapper | 已进入实现与回归 |
 | WS010.2 | Done | 实现 prompt/contract，补 focused tests 和同步文档 | prompt tests 2/2；continuation suite 74/74；full unittest 496/496；template/strict check；file-scoped guard；exact-head release gate | 已发布并安装 v0.0.3.68 |
-| WS010.3 | Active | 使用 WS010 Scheduled Task 持续 dogfood，完成 installed-state adoption 与收口 | PyPI v0.0.3.68；全局安装态 prompt contract；真实 Scheduled Task activation；continuation rounds/state | 再完成至少一轮 fresh activation 复核后，合并/归档并将薄 wrapper 迁移到其他四个开发任务 |
+| WS010.3 | ReadyToMerge | 使用 WS010 Scheduled Task 持续 dogfood，完成 installed-state adoption 与收口 | PyPI v0.0.3.68；全局安装态 prompt contract；generation 4 + generation 5 两轮独立 fresh Scheduled Task activation；continuation rounds/state | 执行 WS010 merge/archive closeout；随后按迁移清单更新其他四个开发任务的外层 Scheduled Task wrapper |
 
 ## 验收标准
 
@@ -118,4 +118,4 @@ generated prompt 只允许把任务停止或转入终态解释为以下四类：
 
 ## 当前下一步
 
-v0.0.3.68 已发布到 PyPI 并升级为全局稳定控制面；WS010 continuation 已初始化，小时级 Scheduled Task 已启用。当前只剩 WS010.3 的真实 fresh-activation dogfood 与收口：每轮都重新消费安装态 `acf continuation prompt`，确认一次 activation 能在同一有效 ownership 下连续推进多个安全步骤，而不会在测试、commit、checkpoint 或单个 Gate 后提前退出。完成至少两轮独立 fresh activation 的一致行为证据后，执行 merge/archive closeout，并按 `SCHEDULED_TASK_PROMPT.md` 的迁移清单应用到其他四个开发任务。
+v0.0.3.68 已发布到 PyPI 并升级为全局稳定控制面；WS010 continuation 已初始化，小时级 Scheduled Task 已启用。generation 4 与 generation 5 已完成两轮相互独立的 fresh activation：两轮均重新消费安装态 `acf continuation prompt`，获取新 ownership 后连续推进多个安全步骤，没有在测试、commit、checkpoint 或单个 Gate 后提前退出。WS010.3 的真实 dogfood 验收证据已经满足，当前进入 merge/archive closeout；合并后按 `SCHEDULED_TASK_PROMPT.md` 的迁移清单准备更新 AStockT_AI 项目自动推进、FCC WS079、WS080、WS086 四个开发任务的薄 wrapper。

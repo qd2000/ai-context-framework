@@ -94,3 +94,16 @@
 4. 保留显式 worktree/branch 身份校验、禁止重复 worktree、禁止覆盖无关 dirty、显式 stage scoped files、禁止 `git add .` 与 destructive Git 快捷操作。
 5. 保留 `goal_directed_continuous` 行为：一个测试、commit、checkpoint 或 Gate 完成后继续选择下一项安全有价值工作；只有 generated prompt 的四类任务级硬停止条件允许结束整个任务。
 6. 首次迁移后至少观察一轮真实 Scheduled Task fresh activation；若发现新的通用缺陷，用该任务自己的 `acf continuation issue` 记录，不在 wrapper 中临时复制第二套恢复状态机。
+
+### 当前四个迁移对象
+
+WS010 完成两轮 fresh dogfood 后，下一批只迁移外层 wrapper，不重建任务、worktree、branch 或 continuation state：
+
+| 目标任务 | 保留的项目专用约束 | 需要移除/替换的旧控制语义 |
+|---|---|---|
+| AStockT_AI 项目自动推进 | 主 checkout / 动态 Workstream 选择、交易安全边界、数据与消息面研究约束 | “一次触发只推进一个 bounded Gate”以及任何把 Gate 完成当作本轮结束的表述 |
+| FCC WS079 | 固定 worktree/branch、PetroSim Runtime contract、授权节点 `W10P726-3-lenovo` / `W10P726-4-lenovo` | “一个 Scheduled Task 轮次推进一个 bounded capability Gate”作为工作量上限的表述 |
+| FCC WS080 | 固定 worktree/branch、source-first 科学边界、PetroSim Runtime contract、授权节点 `W10P726-lenovo` / `W10P726-2-lenovo` | “一个轮次完成一个 research / implementation Gate”作为主动结束条件的表述 |
+| FCC WS086 | 固定 worktree/branch、LM/TR 科学合同、PetroSim Runtime contract、固定节点池 `S2017W170-S2017W189` | “每轮推进一个 bounded optimization / validation Gate”作为工作量边界的表述 |
+
+四个 wrapper 都应保留各自现有的科学、Runtime、节点、权限和安全硬约束，但把 generic continuation 执行政策完全交给每轮重新生成的安装态 `acf continuation prompt`。迁移后不在 wrapper 中再维护 claim/contention/recovery/workspace/effect 的副本。
