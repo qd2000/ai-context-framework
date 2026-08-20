@@ -54,6 +54,9 @@
 | 2026-08-05 | workstream | WS006 | active/workstreams/WS006.md | `archive/workstreams/WS006.md` | Done | ACF v0.0.3.55 global-first progressive disclosure released to production and validated in FCC. |
 | 2026-08-17 | workstream | WS007 | active/workstreams/WS007.md | `archive/workstreams/WS007.md` | Done | Merged to master as 1ac7c87; completion evidence recorded and post-merge strict verification passed. |
 | 2026-08-18 | workstream | WS008 | active/workstreams/WS008.md | `archive/workstreams/WS008.md` | Done | Merged to master at 157daf9; v0.0.3.63 released to PyPI, installed on lenovo and qdspc, and four-project generated-protocol adoption verified. |
+| 2026-08-20 | Plan | ACF Worktree 临时合并工作树、并发恢复与结果迁移 | active/Task_Plan.md | `archive/plans/2026-08-20-acf-worktree-临时合并工作树-并发恢复与结果迁移.md` | Archived | WS009 post-merge primary maintenance: archive terminal retained Task_Plan after v0.0.3.66 release. |
+| 2026-08-20 | Task | 完成 ACF Worktree 临时合并、并发恢复与结果迁移能力 | active/Current_Task.md | `archive/tasks/2026-08-20-完成-acf-worktree-临时合并-并发恢复与结果迁移能力.md` | Archived | WS009 post-merge primary maintenance: archive terminal retained Current_Task after v0.0.3.66 release. |
+| 2026-08-20 | workstream | WS009 | active/workstreams/WS009.md | `archive/workstreams/WS009.md` | Done | WS009 completed: merged to master 42370e49, v0.0.3.66 published, Lenovo/FCC/qdspc/AStock adoption green, primary authority cleanup complete. |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |

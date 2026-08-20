@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Active
+Inactive
 
-说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Active
 
 | ID    | 状态   | 标题                         | Owner   | 写入范围                                                                                                                                                                                                                                                                                                                                                                                                      | 依赖                  | 输出物                              | 详情                                                  |
 | ----- | ---- | -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------- | --------------------------------------------------- |
-| WS009 | ReadyToMerge | Continuation physical-writer and authority-drift hardening | codex | assigned: active/workstreams/WS009.md, shared: active/Workstreams.md, assigned: ai_context_framework/continuation_workspace.py, assigned: ai_context_framework/continuation_rounds.py, assigned: ai_context_framework/continuation_recovery.py, assigned: ai_context_framework/commands/continuation_workspace.py, assigned: ai_context_framework/commands/continuation_recovery.py, assigned: ai_context_framework/commands/review_audit_curate.py, assigned: ai_context_framework/commands/doctor.py, assigned: ai_context_framework/commands/status_check.py, assigned: tests/test_continuation_cli.py, assigned: tests/test_cli.py, shared: README.md, shared: CHANGELOG.md, shared: template/reference/System_Manual.md, shared: docs/**, shared: pyproject.toml, shared: ai_context_framework/version.py, shared: uv.lock, assigned: ai_context_framework/git_support.py, assigned: ai_context_framework/worktree_status.py, assigned: ai_context_framework/worktree_service.py, assigned: ai_context_framework/commands/worktree.py, assigned: tests/test_worktree_status.py, assigned: tests/test_worktree_cli.py, assigned: tests/test_worktree_resilient_merge.py, assigned: ai_context_framework/runtime_parts/doctor.py, assigned: ai_context_framework/runtime_parts/knowledge_review.py, assigned: ai_context_framework/commands/workstream_reserve.py, assigned: ai_context_framework/commands/continuation.py, assigned: ai_context_framework/continuation_inventory.py, shared: ai_context_framework.egg-info/PKG-INFO, shared: ai_context_framework.egg-info/SOURCES.txt, assigned: ai_context_framework/paths.py, assigned: ai_context_framework/runtime_parts/check.py, assigned: scripts/minimal_smoke.py |  | Physical-writer contract and failure injection; active-authority drift findings and cleanup path; synchronized docs/tests/release evidence. | active/workstreams/WS009.md |
+| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |
 
 ---
 

@@ -38,7 +38,7 @@ WS009 self-hosting 使用 control-plane / product-under-test 分离：
 
 任务目标与动态变更：
 
-- `docs/ai/active/workstreams/WS009.md` 与 `PLAN.md` 是 WS009 问题清单、优先级、阶段、技术边界和成功标准的持久权威；本 wrapper 只保存最小 mission guardrail，不复制完整问题矩阵。
+- `docs/ai/archive/workstreams/WS009.md` 与 `PLAN.md` 是已完成 WS009 的问题清单、阶段、技术边界和成功标准的持久历史权威；本 wrapper 现仅作为已归档的 thin-wrapper dogfood fixture 保留，不再用于启动新的 WS009 执行轮次。
 - 当前 WS009 mission 包括：legacy pre-manifest dirty WIP adoption、ownerless externally-proven effect reconciliation、post-recovery physical-writer safety、semantic Git clean / stat-only false dirty、active attention/authority drift、Workstream/worktree lifecycle UX、ACF_HOME/state schema 可升级性、thin-wrapper 标准化以及最终 release/adoption。
 - 每轮重新读取最新 PLAN/current_stage/state.next_action。若较新的 PLAN/current_stage 已改变，而 continuation next_action 陈旧，取得合法 ownership 后先按 generated protocol 更新 bounded checkpoint/next_action，再执行新的有效 Gate；不得机械执行陈旧 next_action。
 - 用户对当前 WS 的目标、优先级或技术路线进行调整时，应优先更新 PLAN，并在必要时调整 stage、scope 和 continuation next_action。除非固定 identity 或官方 thin-wrapper contract 本身变化，否则不需要修改 Scheduled Task。

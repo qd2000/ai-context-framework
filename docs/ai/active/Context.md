@@ -8,8 +8,8 @@
 
 ## 审阅标记
 
-- Last reviewed: 2026-07-30
-- Review scope: 文件级；同步 Workstream guard 文档契约、旧项目迁移修复和 v0.0.3.53 稳定版版本事实。
+- Last reviewed: 2026-08-20
+- Review scope: 文件级；收口 WS009 continuation hardening/release adoption，并移除易漂移的固定版本号副本。
 
 ---
 
@@ -53,7 +53,7 @@ Dogfooding MVP / 框架稳定化。
 
 1. 本仓库维护模型无关、Markdown-first 的 AI 上下文管理框架；核心产品源是 `template/`，真实 dogfooding 实例是 `docs/ai/`。
 2. `acf` 是主要面向 AI 的上下文维护 CLI；它负责确定性检查、生成、结构化编辑、归档、草案和审计，不替代人的事实判断，也不扩展为通用 Markdown 编辑器或常驻 runtime。
-3. 当前版本事实为 `v0.0.3.57`：`acf --version`、`pyproject.toml`、`uv.lock` 和本地包元数据应保持同步。
+3. 当前发布版本不在 Context 中复制固定数字；以 `README.md`、`ai_context_framework/version.py`、`pyproject.toml`、`uv.lock` 与正式发布元数据为版本权威，安装态用 `acf --version` 验证。
 4. 本仓库使用 uv Python 环境，Python 版本约束为 `>=3.10`；运行项目 Python 或 CLI 时优先使用 `uv run python ...` 和 `uv run acf ...`。
 5. `docs/ai/` 当前应保持 `uv run acf check --strict` 通过；CLI 或模板行为变更后还应运行 `uv run acf check template`、`uv run python -m unittest`，必要时运行 upgrade matrix。
 
@@ -71,7 +71,7 @@ Dogfooding MVP / 框架稳定化。
 
 ### 当前进展与未完成项
 
-1. 当前阶段处在 P2 收尾和阶段 6「事实与注意力治理」深化之间；WS002 模块化拆分、WS003 Workstream-first 上下文治理、WS004 旧项目升级审计和 Workstream guard 文档/迁移修复均已完成，`v0.0.3.53` 是当前推荐正式使用稳定版本。
+1. 当前阶段处在 P2 收尾和阶段 6「事实与注意力治理」深化之间；WS002 模块化拆分、WS003 Workstream-first 上下文治理、WS004 旧项目升级审计、Workstream guard 文档/迁移修复以及 WS009 continuation physical-writer / authority-drift hardening 均已完成；推荐稳定版本以 canonical release/version authority 为准。
 2. 当前无活跃计划；[active/Task_Plan.md](Task_Plan.md) 为 Empty。
 3. 当前无活跃任务；[active/Current_Task.md](Current_Task.md) 为 Empty。
 4. Knowledge / ADR / Archive sync 的 generated marker 设计已落地 [reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)；通用 marker helper、`acf knowledge sync` MVP、`acf decisions sync` MVP 和 `acf archive sync` MVP 已实现。
@@ -209,5 +209,5 @@ Dogfooding MVP / 框架稳定化。
 
 ## 上次更新
 
-- 日期：2026-07-30
-- 更新原因：同步 Workstream guard 文档契约、旧项目迁移修复和 `v0.0.3.53` 当前稳定版本事实。
+- 日期：2026-08-20
+- 更新原因：WS009 发布/adoption/merge 完成后执行 primary authority maintenance；归档旧 terminal Task/Plan，并将易漂移的固定版本事实改为引用 canonical release/version authority。
