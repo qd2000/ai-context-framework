@@ -5256,7 +5256,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(lease["head"], blocked["details"]["lease_head"])
         self.assertEqual(self._git("rev-parse", "HEAD").stdout.strip(), blocked["details"]["current_head"])
 
-    def test_prompt_is_local_first_and_contains_full_round_protocol(self) -> None:
+    def test_prompt_is_local_first_and_contains_goal_directed_protocol(self) -> None:
         self.init_task()
         code, payload, stderr = self.run_json(
             ["continuation", "prompt", str(self.root), "--task-id", "WS900"]
@@ -5278,15 +5278,70 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertTrue(wrapper["refresh_prompt_each_run"])
         self.assertFalse(wrapper["copy_generic_state_machine"])
         self.assertEqual(
-            ["runtime", "scientific", "permission", "validation"],
+            [
+                "tooling",
+                "runtime",
+                "resource",
+                "permission",
+                "security",
+                "scientific",
+                "validation",
+                "issue_reporting",
+            ],
             wrapper["project_constraint_classes"],
         )
         self.assertEqual(identity, wrapper["identity"])
+        self.assertTrue(wrapper["project_specific_constraints_slot"]["required"])
+        policy = payload["execution_policy"]
+        self.assertEqual("acf.continuation.execution_policy.v1", policy["schema_version"])
+        self.assertEqual("goal_directed_continuous", policy["mode"])
+        self.assertEqual("ownership_write_and_effect_risk_only", policy["bounded_scope"])
+        self.assertTrue(policy["agent_selects_work_scope"])
+        self.assertTrue(policy["continue_while_safe_useful"])
+        self.assertFalse(policy["checkpoint_is_stop"])
+        self.assertFalse(policy["commit_is_stop"])
+        self.assertFalse(policy["gate_completion_is_stop"])
+        self.assertFalse(policy["unchanged_failed_action_may_repeat"])
+        self.assertEqual(
+            [
+                "objective_completed",
+                "user_paused",
+                "human_input_required",
+                "project_access_unavailable",
+            ],
+            [item["id"] for item in policy["hard_stop_conditions"]],
+        )
+        project_context = payload["project_context"]
+        self.assertEqual(["docs/ai/active/Task_Plan.md"], project_context["plan_refs"])
+        self.assertEqual(
+            [
+                "Use the configured fixed Git worktree and branch.",
+                "Treat local project state as authoritative; do not reconstruct state from chat history by default.",
+                "Do not repeat an uncertain non-idempotent operation.",
+                "Finish runner-owned writes with the project-required checkpoint; preserve unrelated external dirty state.",
+            ],
+            project_context["constraints"],
+        )
+        self.assertTrue(project_context["wrapper_constraint_slot"]["required"])
+        self.assertEqual("bootstrap", payload["current"]["stage"])
+        self.assertEqual("ready", payload["current"]["status"])
+        self.assertEqual("Run gate one.", payload["current"]["next_action"])
         self.assertIn("Do not reconstruct task state from chat history", prompt)
         self.assertIn("acf continuation doctor", prompt)
         self.assertIn("only generic continuation state-machine contract", prompt)
         self.assertIn("Thin-wrapper recipe", prompt)
         self.assertIn("invoke `acf continuation prompt` again on every scheduler wake", prompt)
+        self.assertIn("Goal-directed continuous execution policy", prompt)
+        self.assertIn("It does not limit how much useful work", prompt)
+        self.assertIn("The Agent chooses the most effective work scope", prompt)
+        self.assertIn("A checkpoint only persists progress", prompt)
+        self.assertIn("A Git commit only records a natural semantic checkpoint", prompt)
+        self.assertIn("Task-level hard-stop conditions are limited to exactly these four cases", prompt)
+        self.assertIn("such as DevSpace", prompt)
+        self.assertIn("resource/VM/node", prompt)
+        self.assertIn("issue-reporting constraints", prompt)
+        self.assertNotIn("Execute only the current bounded gate", prompt)
+        self.assertNotIn("If reconcile remains blocked, stop without modifying the worktree", prompt)
         self.assertIn("acf continuation coordination attempt", prompt)
         self.assertIn("acf continuation coordination status", prompt)
         self.assertIn("ACF continuation challenge pending", prompt)
@@ -5312,6 +5367,83 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertIn("acf continuation recover", prompt)
         self.assertIn("acf continuation renew", prompt)
         self.assertIn("acf continuation release", prompt)
+
+    def test_prompt_renders_project_constraints_and_additional_plan_refs(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+
+        code, checkpoint, stderr = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--constraint",
+                "Use only approved Runtime nodes VM3 and VM4.",
+                "--constraint",
+                "Record reusable ACF defects with continuation issue.",
+                "--plan-ref",
+                "docs/ai/reference/Runtime_Rules.md",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{checkpoint}")
+
+        code, payload, stderr = self.run_json(
+            ["continuation", "prompt", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{payload}")
+        project_context = payload["project_context"]
+        self.assertEqual(
+            [
+                "docs/ai/active/Task_Plan.md",
+                "docs/ai/reference/Runtime_Rules.md",
+            ],
+            project_context["plan_refs"],
+        )
+        self.assertEqual(
+            [
+                "Use the configured fixed Git worktree and branch.",
+                "Treat local project state as authoritative; do not reconstruct state from chat history by default.",
+                "Do not repeat an uncertain non-idempotent operation.",
+                "Finish runner-owned writes with the project-required checkpoint; preserve unrelated external dirty state.",
+                "Use only approved Runtime nodes VM3 and VM4.",
+                "Record reusable ACF defects with continuation issue.",
+            ],
+            project_context["constraints"],
+        )
+        prompt = str(payload["prompt"])
+        self.assertIn("docs/ai/reference/Runtime_Rules.md", prompt)
+        self.assertIn("Use only approved Runtime nodes VM3 and VM4.", prompt)
+        self.assertIn("Record reusable ACF defects with continuation issue.", prompt)
+
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
 
     def test_state_rejects_raw_history_fields(self) -> None:
         payload = {

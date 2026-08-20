@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+## v0.0.3.68 — 2026-08-20
+
+### Goal-directed continuous execution prompt
+
+- `acf continuation prompt` 不再要求 Agent “只执行当前 bounded Gate”。bounded 现在明确只约束 ownership、写入范围、外部副作用和恢复风险，不限制一次有效 activation 可连续完成的子任务、测试、修复、commit、checkpoint 或 Gate 数量。
+- generated prompt 明确 stage/next_action 是恢复入口而不是唯一微任务；Agent 根据总体目标、本地计划、约束和证据自主决定工作范围、顺序、实现策略和验证深度。checkpoint 只保存进度，Git commit 只形成自然语义检查点，Gate 完成只进入下一次判断，均不构成 release 或退出理由。
+- 安全拒绝只阻止具体不安全的 claim、写入、恢复或副作用动作；Agent 应继续安全诊断、证据核查、issue 记录、规划、测试或其他不冲突工作。没有输入、证据、环境或策略变化时，不允许原样重复同一个失败动作。
+- 任务级硬停止条件固定为四类：总体目标真正完成；用户明确暂停；需要新的人工授权、凭据或不可替代决策；配置的项目访问工具或连接（例如 DevSpace）经合理重连仍不可用。另一个 owner 正在推进、durable external job 等待、具体动作 fail-closed 或平台 activation 接近边界，只能形成让行、等待或可恢复 handoff，不得擅自把 mission 标为 paused、blocked_human 或 done。
+- `continuation prompt --json` 新增稳定 `current`、`execution_policy` 和 `project_context`。`project_context` 渲染 state 中的 `plan_refs`、`constraints`，并通过 `scheduler_wrapper_contract.project_specific_constraints_slot` 预留 tooling、Runtime、resource/VM/node、permission、security、scientific、validation 和 issue-reporting 项目专用约束；外层薄 wrapper 仍不得复制 generic continuation 状态机。
+
 ## v0.0.3.67 — 2026-08-20
 
 ### Worktree close semantic-clean bridge

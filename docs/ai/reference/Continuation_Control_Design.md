@@ -125,9 +125,15 @@ Workspace ownership 保存在用户级 `workspace.json`，只记录 bounded path
 
 显式 `--task-id` 指向不存在的 continuation task 时，CLI 返回 `continuation_task_not_found`，并在 `details.available_tasks` 给出当前 worktree 已配置的 task id，避免 AI 把 task-id 拼写错误误判为 control 文件损坏。
 
-标准 `acf continuation prompt` 是唯一 generic Scheduled Task protocol 权威：它包含 attempt/challenge、普通命令只读 probe、authenticated owner response、timeout-to-forfeiture、formal preemption/recover、workspace ownership、effect identity、heartbeat/renew、checkpoint/release 与 issue 记录协议。外部 wrapper 不再复制这些状态机细节，只保留固定 project/worktree/branch/task identity 和项目特有 Runtime/科学/权限/验收约束。prompt 同时要求只有发现具体、可复用、证据支持的产品或工作流问题时才调用 `acf continuation issue`；active lease no-op、正常等待、业务模型未收敛等预期状态不得当作产品 issue。
+标准 `acf continuation prompt` 是唯一 generic Scheduled Task protocol 权威：它包含 attempt/challenge、普通命令只读 probe、authenticated owner response、timeout-to-forfeiture、formal preemption/recover、workspace ownership、effect identity、heartbeat/renew、checkpoint/release 与 issue 记录协议。外部 wrapper 不再复制这些状态机细节，只保留固定 project/worktree/branch/task identity 和项目特有约束。prompt 同时要求只有发现具体、可复用、证据支持的产品或工作流问题时才调用 `acf continuation issue`；active lease no-op、正常等待、业务模型未收敛等预期状态不得当作产品 issue。
 
-生成 prompt 同时输出当前 timing profile 与五个时序参数，并明确 scheduler interval 只是唤醒频率，不是 round/Gate 的硬截止时间。项目 Scheduled Task 不应冻结一份手写 generic recovery 状态机；wrapper 只保留固定 worktree/branch/task-id、项目特有 Runtime/科学/权限约束，每轮重新消费当前安装态 `acf continuation prompt`。
+generated prompt 使用 goal-directed continuous execution，而不是把 bounded Gate 当成 Agent 工作量限制：bounded 只约束 ownership、写入范围、外部副作用和恢复风险；当前 stage/next_action 是恢复入口，不是唯一允许完成的微任务。Agent 在有效 ownership 内自主决定工作范围、执行顺序、实现策略和验证深度，可以连续完成多个子任务、测试、commit、checkpoint 和 Gate。checkpoint 只保存进度，Git commit 只形成自然语义检查点，Gate 完成只进入下一次判断；只要仍有安全、非重复且有价值的工作，就不得把这些事件当成 release 或退出理由。某个动作被 fail-closed 只禁止该动作，Agent 应继续安全诊断、证据核查、issue 记录、规划、测试或其他不冲突工作。
+
+任务级硬停止条件固定为四类：总体目标真正完成；用户明确暂停；需要新的人工授权、凭据或不可替代决策；配置的项目访问工具或连接（例如 DevSpace）经合理重连仍不可用。另一个 authenticated owner 正在推进、durable external job 正在等待、某个动作被安全拒绝或当前平台 activation 接近边界，都只构成让行、等待或可恢复交接，不得擅自把 mission 标记为 paused、blocked_human 或 done。
+
+`continuation prompt --json` 稳定暴露 `identity`、`current`、`execution_policy`、`project_context` 和 `scheduler_wrapper_contract`。`project_context` 包含 state 中的 `plan_refs`、`constraints`，并定义外层 wrapper 的项目专用约束槽；该槽用于 tooling、Runtime、resource/VM/node、permission、security、scientific、validation 和 issue-reporting 规则。不同项目可填入完全不同的约束，但不得把 generic continuation 状态机复制进 wrapper。
+
+生成 prompt 同时输出当前 timing profile 与五个时序参数，并明确 scheduler interval 只是唤醒频率，不是工作量或 Gate 的硬截止时间。项目 Scheduled Task 不应冻结一份手写 generic recovery 状态机；wrapper 只保留固定 worktree/branch/task-id、每轮 prompt 入口和项目专用约束，每轮重新消费当前安装态 `acf continuation prompt`。
 
 ## ACF_HOME schema discovery 与迁移
 
@@ -158,7 +164,7 @@ acf log projects --json
 
 ## 固定小时调度与租约
 
-外部 Scheduled Task 可以固定每小时一次，无需由 ACF 动态改时间。租约不是调度器，而是本地并发安全门；单轮 Gate 可以自然持续 1-2 小时或更久，只需按当前 timing 做 heartbeat/renew，不因下一次 scheduler 唤醒而人为结束：
+外部 Scheduled Task 可以固定每小时一次，无需由 ACF 动态改时间。租约不是调度器，而是本地并发安全门；一次 activation 可以在同一有效 lease 中连续推进多个自然完整工作步骤，只需按当前 timing 做 heartbeat/renew，不因完成一个 Gate、测试、commit 或 checkpoint，也不因下一次 scheduler 唤醒而人为结束：
 
 ```text
 每小时触发
@@ -167,13 +173,13 @@ doctor
     ↓
 coordination attempt
     ├─ active owner → contender + open/join challenge → 不写 worktree
-    │      ├─ owner authenticated touch → owner_active → contender stop
+    │      ├─ owner authenticated touch → owner_active → contender 只让行重复 writer activation，mission 继续
     │      ├─ owner release → owner_released → 重新 doctor/attempt
     │      └─ challenge timeout → ownership_forfeiture_candidate → formal reconcile
     ├─ stale/legacy-unknown 且无 challenge forfeiture evidence → reconcile；必须显式 owner-ended evidence
     ├─ expired running + effect records → effect_reconciliation_required → reconcile
     ├─ paused/reconciling/真实 workspace conflict → no-op
-    └─ no owner + can_claim=true → claim → 单轮执行
+    └─ no owner + can_claim=true → claim → 持续推进总体目标，真正交接时再 release
 ```
 
 因此本地 worktree 不依赖外部平台未文档化的并发、顺延或重试语义保证单写者。
