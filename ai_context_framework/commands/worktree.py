@@ -84,16 +84,16 @@ def _create_target(args: argparse.Namespace, project):
     kind = getattr(args, "kind", None)
     slug = getattr(args, "slug", None)
     if workstream_id:
-        target, _info = resolve_workstream_target(
+        target, info = resolve_workstream_target(
             project,
             workstream_id,
             slug_override=slug,
         )
-        return target
+        return target, info
     if kind:
         if not slug:
             raise SystemExit("worktree_slug_required: --kind requires --slug")
-        return resolve_non_workstream_target(project, kind, slug)
+        return resolve_non_workstream_target(project, kind, slug), None
     raise SystemExit("worktree_target_required: pass --workstream or --kind")
 
 
@@ -109,7 +109,14 @@ def _existing_target(args: argparse.Namespace, project):
 
 def worktree_create_command(args: argparse.Namespace) -> int:
     project = _project(args)
-    target = _create_target(args, project)
+    target, workstream_info = _create_target(args, project)
+    activation_actions = (
+        [
+            f"Activate the Workstream before execution: acf workstream set {workstream_info.workstream_id} --status Active"
+        ]
+        if workstream_info is not None and workstream_info.status == "Open"
+        else []
+    )
     plan = plan_create(project, target)
     if not args.apply:
         return _emit(
@@ -120,7 +127,8 @@ def worktree_create_command(args: argparse.Namespace) -> int:
                 "applied": False,
                 "ok": True,
                 "next_actions": [
-                    "Review the plan and rerun with --apply to create or resume the worktree."
+                    "Review the plan and rerun with --apply to create or resume the worktree.",
+                    *activation_actions,
                 ],
             },
         )
@@ -132,7 +140,7 @@ def worktree_create_command(args: argparse.Namespace) -> int:
     return _emit(
         args,
         "worktree create",
-        {**result, "applied": True, "ok": True},
+        {**result, "applied": True, "ok": True, "next_actions": activation_actions},
     )
 
 

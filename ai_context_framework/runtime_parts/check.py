@@ -57,7 +57,7 @@ def check_decisions(root: Path, errors: list[str]) -> None:
             continue
         adr_status = extract_heading_value(resolved, "## 状态")
         if adr_status and not is_placeholder(adr_status) and adr_status != status:
-            rel_adr = resolved.relative_to(root).as_posix()
+            rel_adr = relative_display_path(resolved, root)
             errors.append(
                 "reference/Decisions_Index.md: status mismatch for "
                 f"{decision_id} ({status}) vs {rel_adr} ({adr_status})"
@@ -761,6 +761,7 @@ def check_context(path: Path, profile: str, strict: bool) -> CheckResult:
         return CheckResult([f"context directory does not exist: {path}"], [])
     if not path.is_dir():
         return CheckResult([f"context path is not a directory: {path}"], [])
+    path = path.resolve()
 
     for dirname in required_dirs(profile):
         if not (path / dirname).is_dir():

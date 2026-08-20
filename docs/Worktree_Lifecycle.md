@@ -31,6 +31,12 @@ AI 不需要一次读取全部实现细节。推荐按任务逐步披露：
 | 已有 WS，任务长期、并行、多提交或需独立合并 | `acf worktree create --workstream WSNNN --apply --json` | 已存在 | 是 |
 | 已有 WS，但任务可直接在现有执行位置完成 | 不调用 `acf worktree create` | 已存在 | 否 |
 | 短期 bugfix / investigation / docs / maintenance | `acf worktree create --kind <kind> --slug <slug> --apply --json` | 否 | 是 |
+
+## Semantic clean 与本地绑定权威
+
+`acf worktree verify/list/sync/merge/close` 不把 porcelain 的每个 `M` 都等价为真实内容 dirty。统一 semantic-clean helper 在 `GIT_OPTIONAL_LOCKS=0` 下只读检查：staged、untracked、真实 unstaged diff、rename/delete/type/mode/unmerged/submodule 始终阻塞需要 clean 的 lifecycle；只有普通 tracked unstaged `M` 且 Git 规范化 diff 为空时作为 `stat_only_paths` 诊断，不修改 index、不要求 reset/checkout。continuation workspace observation 复用同一语义，避免同一路径在 worktree 与 continuation 两套控制面得到不同结论。
+
+Workstream Markdown 的 `## Workspace` 只保存稳定 `slug` 和本地绑定权威说明。实际机器路径、branch、mode 以 `acf worktree verify/list` 与 Git-common-dir local registry 为准，不写回共享 Markdown。`workstream reserve` 仍创建 Open Workstream；它和 `worktree create` 都会在 next_actions 中明确提示执行前显式 `acf workstream set WSxxx --status Active`，不会偷偷 auto-activate。
 | 已有标准 worktree 需要纳入 ACF | `acf worktree attach ... --apply --json` | 可选 | 绑定已有 |
 | 状态不确定或怀疑错误仓库 | 先运行 `acf worktree audit --json` 和 `verify` | 不改变 | 不改变 |
 

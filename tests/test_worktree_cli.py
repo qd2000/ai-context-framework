@@ -270,7 +270,8 @@ class WorktreeCliTests(unittest.TestCase):
         text = detail.read_text(encoding="utf-8")
         self.assertIn("## Workspace", text)
         self.assertIn("- slug: reserved-task", text)
-        self.assertIn("- mode: none", text)
+        self.assertNotIn("- mode: none", text)
+        self.assertIn("- local binding authority: `acf worktree verify/list` + local registry", text)
         changed = git(repo, "show", "--format=", "--name-only", "HEAD").stdout.splitlines()
         self.assertEqual(
             sorted(line for line in changed if line),
@@ -281,6 +282,57 @@ class WorktreeCliTests(unittest.TestCase):
         )
         self.assertEqual(len(list_worktrees(repo)), 1)
         self.assertFalse(git(repo, "branch", "--list", "codex/ws001-reserved-task").stdout.strip())
+
+    def test_reserve_workspace_markdown_uses_local_registry_as_runtime_authority(self):
+        _root, repo, context = self.make_repo()
+        reserved = self.reserve(context, slug="workspace-authority-drift")
+        workstream_id = reserved["id"]
+        detail = context / "active" / "workstreams" / f"{workstream_id}.md"
+
+        before_create = detail.read_text(encoding="utf-8")
+        self.assertNotIn("- mode: none", before_create)
+        self.assertIn("local binding authority", before_create)
+        created = self.create_ws_worktree(context, workstream_id)
+        self.assertEqual(created["status"], "created")
+        self.assertTrue(read_registry(git_common_dir(repo), workstream_id))
+
+        post_create_text = detail.read_text(encoding="utf-8")
+        self.assertNotIn("- mode: none", post_create_text)
+        self.assertIn("local binding authority", post_create_text)
+        self.assertNotIn(str(created["target"]["path"]), post_create_text)
+
+    def test_reserve_and_create_open_workstream_include_activation_next_action(self):
+        _root, _repo, context = self.make_repo()
+        reserved = self.reserve(context, slug="open-activation-gap")
+        workstream_id = reserved["id"]
+        detail = context / "active" / "workstreams" / f"{workstream_id}.md"
+        activation_command = f"workstream set {workstream_id}"
+
+        self.assertIn("status: Open", detail.read_text(encoding="utf-8"))
+        self.assertTrue(
+            any(
+                activation_command in action and "--status Active" in action
+                for action in reserved["next_actions"]
+            )
+        )
+
+        created = self.create_ws_worktree(context, workstream_id)
+        self.assertTrue(
+            any(
+                activation_command in action and "--status Active" in action
+                for action in created["next_actions"]
+            )
+        )
+        target = Path(created["target"]["path"])
+        target_context = target / "docs" / "ai"
+        code, payload, _stderr = self.json_cli(
+            ["status", str(target_context), "--workstream", workstream_id], cwd=target
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(payload["selection_error_code"], "selection_invalid")
+        self.assertTrue(
+            any("workstream_not_active" in error for error in payload["selection_errors"])
+        )
 
     def test_reserve_shared_scope_supplies_serial_merge_contract(self):
         _root, _repo, context = self.make_repo()
@@ -563,6 +615,38 @@ class WorktreeCliTests(unittest.TestCase):
         code, audited, stderr = self.json_cli(["worktree", "audit", str(context)])
         self.assertEqual(code, 0, stderr)
         self.assertTrue(audited["ok"])
+
+    def test_worktree_verify_treats_content_identical_stat_only_as_clean(self):
+        _root, repo, context = self.make_repo()
+        reserved = self.reserve(context, slug="semantic-clean")
+        created = self.create_ws_worktree(context, reserved["id"])
+        target = Path(created["target"]["path"])
+        git(repo, "config", "core.autocrlf", "true")
+        (target / ".gitattributes").write_text("normalized.txt text eol=crlf\n", encoding="utf-8")
+        (target / "normalized.txt").write_bytes(b"alpha\nbeta\n")
+        git(target, "add", ".gitattributes", "normalized.txt")
+        git(target, "commit", "-m", "add normalized fixture")
+        (target / "normalized.txt").unlink()
+        git(target, "checkout", "--", "normalized.txt")
+        self.assertIn(b"\r\n", (target / "normalized.txt").read_bytes())
+        (target / "normalized.txt").write_bytes(b"alpha\nbeta\n")
+        index_path = Path(
+            git(target, "rev-parse", "--path-format=absolute", "--git-path", "index")
+            .stdout.strip()
+        )
+        index_before = index_path.read_bytes()
+
+        code, verified, stderr = self.json_cli(
+            ["worktree", "verify", str(context), "--workstream", reserved["id"]]
+        )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertTrue(verified["ok"])
+        self.assertTrue(verified["clean"])
+        self.assertIn("normalized.txt", verified["stat_only_paths"])
+        self.assertIn("worktree_stat_only", verified["warnings"])
+        self.assertNotIn("worktree_dirty", verified["warnings"])
+        self.assertEqual(index_before, index_path.read_bytes())
 
     def test_attach_requires_standard_name_and_correct_common_dir(self):
         _root, repo, context = self.make_repo()
@@ -1229,7 +1313,7 @@ class WorktreeCliTests(unittest.TestCase):
         reserved = self.reserve(context, slug="configured-task")
         created = self.create_ws_worktree(context, reserved["id"])
         self.assertEqual(created["target"]["branch"], "agent/ws001-configured-task")
-        self.assertTrue(Path(created["target"]["path"]).is_relative_to(custom_root))
+        self.assertTrue(Path(created["target"]["path"]).resolve().is_relative_to(custom_root.resolve()))
         project = discover_git_project(context)
         self.assertEqual(project.config.primary_dirty_policy, "require_clean")
         self.assertEqual(project.config.artifact_cache_patterns, ("**/__pycache__/*.pyc",))

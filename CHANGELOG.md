@@ -4,6 +4,42 @@
 
 ## Unreleased
 
+## v0.0.3.66 — 2026-08-19
+
+### Release portability
+
+- 修复 WS009 semantic-Git stat-only 测试的跨平台 fixture：在验证 `eol=crlf` normalization 前先删除工作树文件，再由 Git checkout 强制重建，避免 Linux runner 因原有 LF 文件无需 checkout rewrite 而错误假设 CRLF 已出现。
+- fixture 初始内容显式写成 LF bytes，只有删除后由 Git 按 `.gitattributes eol=crlf` 重建才能满足断言，从而不再依赖宿主平台 `write_text` 的换行转换。
+- `reconcile --effect-not-started` 为 write-ahead `effect prepare` 尚未跨过外部 submit 边界的中断提供显式收口：只允许 `prepared + external_id=null + failed`，仍要求 owner-ended/forfeiture 与外部 authority evidence；已有 external id、active effect、completed 声明或证据缺失继续 fail-closed。
+- ownerless recovery 现在允许在同一个 `reconcile` receipt 中原子收口多个已经由外部 authority 证明 terminal 的既存 durable effects：按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，并共享本次 `--effect-evidence-ref` 集合；数量/identity 不一致继续 fail-closed。`--effect-not-started` 仍保持单 effect 专用分支。
+- 修复 Windows hosted runner 的 TEMP 8.3 short-path alias（例如 `RUNNER~1`）与 canonical long path（例如 `runneradmin`）等价性：context containment / relative-display 统一按 resolved path 判定，避免合法 Workstream/ADR 被误报为 context-root 外路径；JSON `changed_files` 与 worktree target 的测试也改为比较 canonical path，而不是把 alias 字符串拼写当成语义。
+- `scripts/minimal_smoke.py` 的最终汇总 JSON 改为 ASCII-safe escaping；即使 Windows hosted runner 的父进程 stdout 是 cp1252，也不会因为结果中包含中文/Unicode 路径或文本而在所有 smoke scenario 已执行完成后触发 `UnicodeEncodeError`。
+- continuation round journal 达到 16 条上限时，现在会把已经带 `ended_at` 的 recovery-superseded `reconciling` round 视为可安全裁剪历史，与 `released` round 一样为下一 generation 腾出 bounded journal 空间；仍在运行、没有 `ended_at` 的 reconciling round 不会被裁剪，避免长期多次 formal recovery 后出现 `round_journal_full` 自锁。
+- 新增 fenced-owner `continuation workspace reclassify`：durable writer 已权威结束后，如果审阅确认某个启动前漏报的真实产出当前处于 `unexpected_nonoverlap`，可以携带 durable evidence 与 reason 显式归入 `task_owned`，或明确保护为 `baseline_external`；命令不能接管已有 conflict/非 unexpected 路径，task-owned 仍受 Workstream direct write scope 约束，来源不确定继续 fail-closed。
+- long-running continuation 的 durable effect journal 仍保持硬边界与完整 logical-key 防重放历史，但记录上限由 64 提升到 256、effect-journal 字节上限同步提升到 256 KiB；不会通过删除 terminal effect 来腾容量。该调整直接解除 WS080 已真实达到 64/64 terminal effects、`unresolved=[]` 后仍无法 `effect prepare` 的 `effect_journal_full` 自锁，同时继续由记录数和序列化字节数双重 fail-closed。
+- `v0.0.3.65` tag 保持不可变；其 GitHub release run `32256066761` 在 Ubuntu full unittest 中仅因上述两条 CRLF fixture 断言失败而未进入 PyPI publish。`v0.0.3.66` 使用新的 immutable version；本地 full release gate 通过后，以 GitHub Ubuntu release gate 作为跨平台发布权威，不重打 `.65`。
+
+## v0.0.3.65 — 2026-08-19
+
+### Continuation recovery 与 durable writer hardening
+
+- workspace manifest 升级到 v3，并新增 `acf continuation workspace adopt`：legacy pre-manifest WIP 可以在明确分类、digest/evidence 与 Workstream scope 校验后原位纳入 continuation provenance，不再要求为了迁移而强制 commit 或 `init --force`。
+- ownerless unresolved effect 支持 receipt-bound terminal observation：只有已有 durable external id、challenge forfeiture / owner 结束证据与外部终态 identity 全部匹配时，`recover` 才会原子收口 effect；unknown、identity mismatch 或 receipt drift 继续 fail-closed，不重放 submit/collect/cancel。
+- generated continuation prompt 明确 durable writer/job contract 与 thin Scheduled Task wrapper 边界；可能跨 owner 生命周期继续写项目文件或产生 non-idempotent side effect 的本地 subprocess、DevSpace session、Runtime job 必须先有可持久核对 identity。
+- 新增用户级 continuation inventory/schema compatibility 与显式 migration 可见性，保持 `ACF_HOME` 单一状态实现、history-preserving 原位迁移与 future-schema fail-closed。
+
+### Git / Workstream / attention governance
+
+- worktree 与 continuation workspace 共用 semantic Git clean：content-identical/stat-only tracked 变化不再误阻塞 verify/sync/merge/close/recovery，同时 staged、真实 unstaged、untracked、delete/rename 等内容变化仍保持安全门；只读诊断不通过隐式 index refresh 制造 clean。
+- Workstream `## Workspace` 只保留稳定 slug 与 local registry/`worktree verify|list` authority，不再持久化易漂移 `mode: none`；reserve/create 在 Open Workstream 上明确给出 Open -> Active 的 bounded next action。
+- `review stale` 新增 `current_task_terminal_retained` / `task_plan_terminal_retained`；`doctor` 统一复用这两个 terminal-retention signal 与 `context_missing_review_marker` / `context_review_stale`，仅作为 `attention_hygiene` warning + `draft_only`，不进入 `check --strict`，也不自动判断或改写自然语言事实。
+
+### 验证与兼容性
+
+- WS009 在真实 ACF/FCC dogfood 中覆盖 legacy WIP adoption、ownerless terminal effect、generation fencing、long-lived durable session、Windows stat-only false dirty、active authority drift 与 schema discovery/migration；发布前再次执行 full release gate、upgrade matrix、wheel/sdist 隔离安装 smoke 与 installed-state adoption。
+- `v0.0.3.64` 已被应急 control-plane tag 占用但未作为本次完整 WS009 release 复用；本版本使用新的 immutable `v0.0.3.65`。
+- `v0.0.3.65` 的 GitHub release run 在 Ubuntu 上暴露两条 Windows-only CRLF fixture 假设并在 publish 前失败，因此该 tag 未发布到 PyPI；修复进入 `v0.0.3.66`，不重打 `.65`。
+
 ## v0.0.3.63 — 2026-08-18
 
 ### Continuation 长轮次时序与统一协议

@@ -9,12 +9,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
-from ai_context_framework import continuation_workspace
+from ai_context_framework import (
+    continuation_coordination,
+    continuation_inventory,
+    continuation_recovery,
+    continuation_rounds,
+    continuation_workspace,
+)
 from ai_context_framework.front_matter import split_typed_scope
 from ai_context_framework.git_support import discover_git_project
+from ai_context_framework.observability import acf_home
 from ai_context_framework.runtime_parts.archive_workstream import (
     normalize_scope_path,
     read_workstream_detail,
@@ -48,6 +56,51 @@ TIMING_PROFILES: dict[str, dict[str, int]] = {
         "stale_after_minutes": LONG_RUNNING_STALE_AFTER_MINUTES,
     },
 }
+
+
+def continuation_schema_contract() -> dict[str, dict[str, Any]]:
+    """Return the single machine-readable continuation state compatibility contract."""
+
+    core = _continuation()
+    return {
+        "control.json": {"current": [core.CONTROL_SCHEMA], "required": True},
+        "state.json": {"current": [core.STATE_SCHEMA], "required": True},
+        "lease.json": {"current": [core.LEASE_SCHEMA], "required": False},
+        "pause.json": {"current": [core.PAUSE_SCHEMA], "required": False},
+        "last_run.json": {"current": [core.RECEIPT_SCHEMA], "required": False},
+        "rounds.json": {
+            "current": [continuation_rounds.ROUND_JOURNAL_SCHEMA],
+            "required": False,
+        },
+        "effects.json": {
+            "current": [continuation_rounds.EFFECT_JOURNAL_SCHEMA],
+            "required": False,
+        },
+        "coordination.json": {
+            "current": [continuation_coordination.COORDINATION_SCHEMA],
+            "required": False,
+        },
+        "workspace.json": {
+            "current": [continuation_workspace.WORKSPACE_SCHEMA],
+            "legacy_migratable": [
+                continuation_workspace.LEGACY_WORKSPACE_SCHEMA,
+                continuation_workspace.LEGACY_WORKSPACE_SCHEMA_V2,
+            ],
+            "required": False,
+        },
+        "reconcile.json": {
+            "current": [continuation_recovery.RECONCILE_SCHEMA],
+            "required": False,
+        },
+        "last_recovery.json": {
+            "current": [continuation_recovery.RECOVERY_SCHEMA],
+            "required": False,
+        },
+        "last_migration.json": {
+            "current": [continuation_inventory.MIGRATION_RECEIPT_SCHEMA],
+            "required": False,
+        },
+    }
 
 
 def validate_timing_values(values: Mapping[str, Any]) -> dict[str, int]:
@@ -493,6 +546,7 @@ Renew recommendation: every {control['renew_interval_minutes']} minutes
 The scheduler interval is only a wake cadence; it is not a round/Gate deadline.
 
 Generic Scheduled Task protocol authority: this generated prompt is the only generic continuation state-machine contract. External wrappers should keep only fixed project/worktree/branch/task identity and project-specific runtime, scientific, permission, and validation constraints; do not copy or redefine the generic contention/recovery protocol.
+Thin-wrapper recipe: pin the fixed identity, invoke `acf continuation prompt` again on every scheduler wake, execute the returned protocol, then apply only project-specific runtime/scientific/permission/validation constraints. Do not freeze a copy of the contention/recovery/workspace/effect state machine in the wrapper.
 
 Continuation protocol:
 1. Do not reconstruct task state from chat history by default. Read local project plans/evidence, then run `acf continuation doctor {json.dumps(str(root))}{task_flag} --json`.
@@ -502,15 +556,35 @@ Continuation protocol:
 5. If a challenge deadline passes without authenticated owner activity, `timed_out` / `ownership_forfeiture_candidate` only forfeits the old generation's ownership claim; it does not prove the Agent is dead and does not grant the contender write access. Run `acf continuation reconcile ... --json` and preserve all workspace/HEAD/effect/identity checks. A matching timed-out challenge can supply the ownership-forfeiture evidence for that generation; stale/orphan recovery without such challenge evidence still requires explicit durable owner-ended evidence. Record an eligible receipt only after every remaining blocker is resolved, accepting an advanced HEAD only when explicitly verified, then run `acf continuation recover ... --reconcile-id <receipt_id> --runner-id <runner> --json`. If reconcile remains blocked, stop without modifying the worktree.
 6. If doctor says `can_claim=true` and no active owner was observed, claim one bounded round with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`. If step 5 recovered ownership instead, use the credentials returned by `recover` and do not claim again. Keep the returned lease_id, generation, and fence_token; treat fence_token as an owner credential and do not copy it into project files or logs.
 7. Execute only the current bounded gate. Record compact runtime-neutral progress with `acf continuation progress ... --phase <phase> --milestone <compact-name> --evidence-ref <durable-ref> --json`; do not copy raw tool output or transcript history into continuation state.
-8. Inspect workspace ownership with `acf continuation workspace status ... --json`. Before modifying project files, declare the concrete paths with `acf continuation workspace intent ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --path <path> ... --json`. A bound Workstream intent must remain inside its direct write scope. Existing baseline/external dirty is protected; do not stash, reset, clean, stage, or commit it. After writes and before handoff/finalization, refresh ownership with `acf continuation workspace refresh ...` so task-owned, unrelated external, and true path conflicts are explicit.
-9. Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. Owner-protected continuation commands perform the authenticated challenge touch after validating those credentials. For long work, run `acf continuation heartbeat ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` at roughly the configured cadence and `acf continuation renew ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before the renew threshold; heartbeat proves liveness but does not extend TTL.
-10. Before executing each external/non-idempotent side effect, write its deterministic identity first with `acf continuation effect prepare ... --key <logical-key> --kind <generic-kind> --json`. Execute the side effect only when prepare returns `created=true`; `created=false` means the logical effect already exists and must be inspected/reused/reconciled rather than resubmitted. After authoritative observations, update only compact status/milestone/external-id/evidence references with `acf continuation effect update ...`. If an outcome is uncertain, stop and preserve the effect for reconciliation; never resubmit it from memory. Use `acf continuation effect list ... --json` to inspect durable effect identities.
+8. Inspect workspace ownership with `acf continuation workspace status ... --json`. Before modifying project files, declare the concrete paths with `acf continuation workspace intent ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --path <path> ... --json`. A bound Workstream intent must remain inside its direct write scope. Existing baseline/external dirty is protected; do not stash, reset, clean, stage, or commit it. If a durable writer finishes with a reviewed in-scope output that was not declared before launch and is therefore `unexpected_nonoverlap`, do not silently claim it: the fenced owner may use `workspace reclassify --task-owned <path> --evidence-ref <durable-ref> --reason <review>` only after proving provenance; uncertain output remains external/fail-closed. After writes and before handoff/finalization, refresh ownership with `acf continuation workspace refresh ...` so task-owned, unrelated external, and true path conflicts are explicit.
+9. Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. Owner-protected continuation commands perform the authenticated challenge touch after validating those credentials. For long work, run `acf continuation heartbeat ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` at roughly the configured cadence and `acf continuation renew ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before the renew threshold; heartbeat proves liveness but does not extend TTL. A long-running purely read-only/blocking tool call does not need a writer effect identity, but after it returns and before the next project write or non-idempotent action, re-run `assert-owner`.
+10. Before executing each external/non-idempotent side effect, write its deterministic identity first with `acf continuation effect prepare ... --key <logical-key> --kind <generic-kind> --json`. This requirement explicitly includes any long-lived local subprocess, DevSpace session, Runtime job, or external job that may outlive the current owner/tool call and later write project files or create a non-idempotent side effect. Persist a reusable external/job identity after launch and keep the effect `prepared|active|unknown` until an authoritative terminal observation. If no durable identity can be persisted, the writer must not cross an owner lifecycle and formal recovery remains fail-closed while its termination is unproven. Execute the side effect only when prepare returns `created=true`; `created=false` means the logical effect already exists and must be inspected/reused/reconciled rather than resubmitted. After authoritative observations, update only compact status/milestone/external-id/evidence references with `acf continuation effect update ...`. If an outcome is uncertain, stop and preserve the effect for reconciliation; never resubmit it from memory. Use `acf continuation effect list ... --json` to inspect durable effect identities.
 11. Validate the bounded gate enough for safe handoff. A continuation handoff does not require a Git commit merely because the worktree is dirty; create a Git checkpoint only when the project has reached a natural semantic checkpoint. Never include unrelated external dirty in a commit.
 12. Update bounded state with `acf continuation checkpoint ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> ... --json`.
 13. Release the same lease with `acf continuation release ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. Preserved task WIP may remain uncommitted across rounds; only true workspace conflict/ambiguous provenance, identity mismatch, unresolved effect, paused/blocked state, or unknown write outcome should fail closed.
 14. If this round exposes a concrete reusable ACF/continuation/workflow defect or operational gap, record it immediately with `acf continuation issue {json.dumps(str(root))}{task_flag} --category <category> --severity <low|medium|high|critical> --text <concise issue> --evidence-ref <path-or-commit> --json`. Do not record normal active-lease no-ops, expected waits, or task-specific scientific failures as product issues.
 """
-        value = {"status": "rendered", "task_id": control["task_id"], "prompt": prompt}
+        identity = {
+            "workspace_root": str(root),
+            "branch": control["expected_branch"],
+            "task_id": control["task_id"],
+            "workstream_id": control.get("workstream_id"),
+        }
+        scheduler_wrapper_contract = {
+            "schema_version": "acf.continuation.scheduler_wrapper.v1",
+            "generic_protocol_source": "acf continuation prompt",
+            "refresh_prompt_each_run": True,
+            "identity": identity,
+            "project_constraint_classes": ["runtime", "scientific", "permission", "validation"],
+            "copy_generic_state_machine": False,
+        }
+        value = {
+            "status": "rendered",
+            "task_id": control["task_id"],
+            "identity": identity,
+            "scheduler_wrapper_contract": scheduler_wrapper_contract,
+            "prompt": prompt,
+        }
         result_holder.update(value)
         return value
 
@@ -610,6 +684,233 @@ def continuation_workspace_intent_command(args: argparse.Namespace) -> int:
     return core._guarded(args, "continuation workspace intent", operation)
 
 
+def continuation_workspace_reclassify_command(args: argparse.Namespace) -> int:
+    core = _continuation()
+
+    def operation() -> dict[str, Any]:
+        root = core._workspace_root(args.path)
+        paths = core._paths(root, args.task_id)
+        with core._state_lock(paths["lock"]):
+            control = core._load_control(paths, root)
+            lease_snapshot = core._lease_snapshot(paths, control)
+            lease = core._assert_lease_owner_with_activity(
+                paths,
+                control,
+                lease_snapshot,
+                lease_id=args.lease_id,
+                fence_token=args.fence_token,
+                generation=args.generation,
+            )
+            generation = core._require_fenced_generation(lease)
+            manifest = load_workspace_manifest(paths, control, require_existing=True)
+            assert manifest is not None
+            if int(manifest["generation"]) != generation:
+                raise core.ContinuationError(
+                    "workspace manifest generation does not match active owner",
+                    code="workspace_generation_mismatch",
+                    exit_code=3,
+                )
+            raw_task_paths = list(dict.fromkeys(args.task_owned_path or []))
+            raw_external_paths = list(dict.fromkeys(args.baseline_external_path or []))
+            if not raw_task_paths and not raw_external_paths:
+                raise core.ContinuationError(
+                    "workspace reclassification requires at least one explicit path",
+                    code="workspace_reclassification_incomplete",
+                )
+            try:
+                task_paths = [
+                    continuation_workspace.normalize_path(path_value)
+                    for path_value in raw_task_paths
+                ]
+                external_paths = [
+                    continuation_workspace.normalize_path(path_value)
+                    for path_value in raw_external_paths
+                ]
+            except continuation_workspace.ContinuationWorkspaceError as exc:
+                raise workspace_error(exc) from exc
+            allowed_scopes, context_root = workstream_direct_write_scopes(
+                root,
+                str(control.get("workstream_id")) if control.get("workstream_id") else None,
+            )
+            if control.get("workstream_id") and task_paths and not allowed_scopes:
+                raise core.ContinuationError(
+                    "bound Workstream has no direct write scope for task-owned workspace reclassification",
+                    code="workspace_reclassification_out_of_scope",
+                    exit_code=3,
+                )
+            candidate_paths = {
+                path_value: workspace_intent_candidates(root, context_root, path_value)
+                for path_value in task_paths
+            }
+            try:
+                manifest, review = continuation_workspace.reclassify_unexpected(
+                    manifest,
+                    task_id=str(control["task_id"]),
+                    snapshot=workspace_current_snapshot(root),
+                    task_owned_paths=task_paths,
+                    baseline_external_paths=external_paths,
+                    allowed_scopes=allowed_scopes,
+                    candidate_paths=candidate_paths,
+                    evidence_refs=list(args.evidence_ref or []),
+                    reason=str(args.reason),
+                    now=core._iso(),
+                )
+            except continuation_workspace.ContinuationWorkspaceError as exc:
+                error = workspace_error(exc)
+                error.exit_code = 3
+                raise error from exc
+            core._write_json(paths["workspace"], manifest)
+            return {
+                "status": "workspace_reclassified",
+                "generation": generation,
+                "review": review,
+                "workspace": continuation_workspace.summary(
+                    manifest,
+                    task_id=str(control["task_id"]),
+                ),
+            }
+
+    return core._guarded(args, "continuation workspace reclassify", operation)
+
+
+def continuation_workspace_adopt_command(args: argparse.Namespace) -> int:
+    core = _continuation()
+
+    def operation() -> dict[str, Any]:
+        root = core._workspace_root(args.path)
+        paths = core._paths(root, args.task_id)
+        with core._state_lock(paths["lock"]):
+            control = core._load_control(paths, root)
+            if paths["workspace"].exists():
+                raise core.ContinuationError(
+                    "workspace ownership manifest already exists; legacy adoption is one-time only",
+                    code="workspace_adoption_not_required",
+                    exit_code=3,
+                    next_actions=["Use `acf continuation workspace status` and the normal intent/refresh flow."],
+                )
+            lease_snapshot = core._lease_snapshot(paths, control)
+            if lease_snapshot["state"] == "invalid":
+                raise core.ContinuationError(
+                    "legacy workspace adoption requires a valid ownerless lease state",
+                    code="workspace_adoption_lease_invalid",
+                    exit_code=3,
+                )
+            if lease_snapshot["state"] == "active":
+                raise core.ContinuationError(
+                    "legacy workspace adoption cannot run while an active owner holds the task",
+                    code="workspace_adoption_owner_active",
+                    exit_code=3,
+                    next_actions=["Let the active owner finish or use the generated challenge/recovery protocol."],
+                )
+            state = core._load_state(paths)
+            snapshot = workspace_current_snapshot(root)
+            prior_generation: int
+            if lease_snapshot["state"] == "expired":
+                raw_lease = lease_snapshot.get("lease")
+                if not isinstance(raw_lease, Mapping):
+                    raise core.ContinuationError(
+                        "expired lease payload is missing",
+                        code="workspace_adoption_lease_invalid",
+                        exit_code=3,
+                    )
+                lease_head = str(raw_lease.get("head") or "")
+                if lease_head != str(snapshot["head"]):
+                    raise core.ContinuationError(
+                        "legacy workspace adoption refuses Git HEAD drift from the interrupted owner",
+                        code="workspace_adoption_head_mismatch",
+                        exit_code=3,
+                        details={"lease_head": lease_head, "current_head": snapshot["head"]},
+                        next_actions=["Reconcile the HEAD change before classifying legacy dirty paths."],
+                    )
+                generation_value = raw_lease.get("generation")
+                if isinstance(generation_value, bool) or not isinstance(generation_value, int):
+                    raise core.ContinuationError(
+                        "legacy workspace adoption requires a durable prior generation",
+                        code="workspace_adoption_generation_invalid",
+                        exit_code=3,
+                    )
+                prior_generation = generation_value
+            else:
+                if state["status"] == "running":
+                    raise core.ContinuationError(
+                        "running continuation without a lease cannot be safely adopted",
+                        code="workspace_adoption_owner_unknown",
+                        exit_code=3,
+                        next_actions=["Reconcile the missing owner identity before adopting workspace provenance."],
+                    )
+                prior_generation = int(control.get("generation", 0))
+
+            task_owned_paths = list(dict.fromkeys(args.task_owned_path or []))
+            baseline_external_paths = list(dict.fromkeys(args.baseline_external_path or []))
+            if not task_owned_paths and not baseline_external_paths:
+                raise core.ContinuationError(
+                    "legacy workspace adoption requires at least one explicit path classification",
+                    code="workspace_adoption_incomplete",
+                    exit_code=3,
+                )
+            allowed_scopes, context_root = workstream_direct_write_scopes(
+                root,
+                str(control.get("workstream_id")) if control.get("workstream_id") else None,
+            )
+            if control.get("workstream_id") and task_owned_paths and not allowed_scopes:
+                raise core.ContinuationError(
+                    "bound Workstream has no direct write scope for task-owned legacy adoption",
+                    code="workspace_adoption_out_of_scope",
+                    exit_code=3,
+                )
+            candidate_paths: dict[str, list[str]] = {}
+            try:
+                normalized_task_paths = [
+                    continuation_workspace.normalize_path(path_value)
+                    for path_value in task_owned_paths
+                ]
+                normalized_external_paths = [
+                    continuation_workspace.normalize_path(path_value)
+                    for path_value in baseline_external_paths
+                ]
+                candidate_paths = {
+                    path_value: workspace_intent_candidates(root, context_root, path_value)
+                    for path_value in normalized_task_paths
+                }
+                manifest = continuation_workspace.adopt_legacy_manifest(
+                    task_id=str(control["task_id"]),
+                    prior_generation=prior_generation,
+                    snapshot=snapshot,
+                    task_owned_paths=normalized_task_paths,
+                    baseline_external_paths=normalized_external_paths,
+                    allowed_scopes=allowed_scopes,
+                    candidate_paths=candidate_paths,
+                    evidence_refs=list(args.evidence_ref or []),
+                    reason=str(args.reason),
+                    receipt_id=str(uuid.uuid4()),
+                    now=core._iso(),
+                )
+            except continuation_workspace.ContinuationWorkspaceError as exc:
+                error = workspace_error(exc)
+                error.exit_code = 3
+                raise error from exc
+            core._write_json(paths["workspace"], manifest)
+            adoption = manifest.get("adoption_receipt")
+            next_action = (
+                "Run `acf continuation doctor`, then use formal reconcile/recover for the expired owner."
+                if lease_snapshot["state"] == "expired"
+                else "Run `acf continuation doctor` and claim the next bounded round when eligible."
+            )
+            return {
+                "status": "workspace_adopted",
+                "task_id": control["task_id"],
+                "prior_generation": prior_generation,
+                "adoption": adoption,
+                "workspace": continuation_workspace.summary(
+                    manifest,
+                    task_id=str(control["task_id"]),
+                ),
+                "next_action": next_action,
+            }
+
+    return core._guarded(args, "continuation workspace adopt", operation)
+
+
 def continuation_workspace_refresh_command(args: argparse.Namespace) -> int:
     core = _continuation()
 
@@ -658,7 +959,163 @@ def continuation_workspace_refresh_command(args: argparse.Namespace) -> int:
     return core._guarded(args, "continuation workspace refresh", operation)
 
 
+def continuation_list_command(args: argparse.Namespace) -> int:
+    core = _continuation()
+
+    def operation() -> dict[str, Any]:
+        root: Path | None
+        if bool(args.all_projects):
+            root = None
+        else:
+            root = core._workspace_root(args.path)
+        contract = continuation_schema_contract()
+        tasks = continuation_inventory.discover_tasks(
+            acf_home(),
+            contracts=contract,
+            workspace_root=root,
+            task_id=args.task_id,
+        )
+        project_keys = sorted(
+            {str(item.get("project_key") or "") for item in tasks if item.get("project_key")}
+        )
+        return {
+            "status": "listed",
+            "scope": "all_projects" if bool(args.all_projects) else "current_project",
+            "acf_home": str(acf_home()),
+            "project_count": len(project_keys),
+            "task_count": len(tasks),
+            "schema_contract": contract,
+            "tasks": tasks,
+        }
+
+    return core._guarded(args, "continuation list", operation)
+
+
+def continuation_migrate_command(args: argparse.Namespace) -> int:
+    core = _continuation()
+
+    def operation() -> dict[str, Any]:
+        if bool(args.apply) and bool(args.dry_run):
+            raise core.ContinuationError(
+                "--apply and --dry-run are mutually exclusive",
+                code="continuation_migration_invalid",
+            )
+        root = core._workspace_root(args.path)
+        paths = core._paths(root, args.task_id)
+        with core._state_lock(paths["lock"]):
+            control = core._load_control(paths, root)
+            lease = core._lease_snapshot(paths, control)
+            if lease["state"] != "absent":
+                raise core.ContinuationError(
+                    "continuation state migration requires no lease record",
+                    code="continuation_migration_active_owner",
+                    exit_code=3,
+                    details={"lease_state": lease["state"]},
+                    next_actions=[
+                        "Finish/recover and release the continuation round before migrating state schemas."
+                    ],
+                )
+            try:
+                plan = continuation_inventory.workspace_migration_plan(
+                    paths["directory"],
+                    task_id=str(control["task_id"]),
+                )
+            except continuation_inventory.ContinuationInventoryError as exc:
+                raise core.ContinuationError(str(exc), code=exc.code, exit_code=3) from exc
+            public_plan = {key: value for key, value in plan.items() if key != "payload"}
+            if not bool(plan.get("migration_required")):
+                return {
+                    "status": "migration_not_needed",
+                    "applied": False,
+                    "task_id": control["task_id"],
+                    "workstream_id": control.get("workstream_id"),
+                    "state_dir": str(paths["directory"]),
+                    "plan": public_plan,
+                }
+            if not bool(args.apply):
+                return {
+                    "status": "migration_planned",
+                    "applied": False,
+                    "dry_run": True,
+                    "task_id": control["task_id"],
+                    "workstream_id": control.get("workstream_id"),
+                    "state_dir": str(paths["directory"]),
+                    "plan": public_plan,
+                    "next_action": "Review the plan, then rerun with --apply --reason <reason>.",
+                }
+            reason = str(args.reason or "").strip()
+            if not reason:
+                raise core.ContinuationError(
+                    "--reason is required with --apply",
+                    code="continuation_migration_invalid",
+                )
+            preserved_before = continuation_inventory.preserved_history_digests(paths["directory"])
+            payload = plan.get("payload")
+            if not isinstance(payload, Mapping):
+                raise core.ContinuationError(
+                    "migration plan did not produce a workspace payload",
+                    code="continuation_migration_invalid",
+                )
+            core._write_json(paths["workspace"], payload)
+            preserved_after = continuation_inventory.preserved_history_digests(paths["directory"])
+            if preserved_after != preserved_before:
+                raise core.ContinuationError(
+                    "continuation history changed during state migration",
+                    code="continuation_migration_history_drift",
+                    exit_code=3,
+                )
+            receipt = continuation_inventory.migration_receipt(
+                paths["directory"],
+                task_id=str(control["task_id"]),
+                workspace_root=str(root),
+                reason=reason,
+                migrated_at=core._iso(),
+                plan=plan,
+                history_digests=preserved_before,
+            )
+            receipt_path = paths["directory"] / "last_migration.json"
+            core._write_json(receipt_path, receipt)
+            return {
+                "status": "migrated",
+                "applied": True,
+                "task_id": control["task_id"],
+                "workstream_id": control.get("workstream_id"),
+                "state_dir": str(paths["directory"]),
+                "plan": public_plan,
+                "receipt_path": str(receipt_path),
+                "receipt": receipt,
+            }
+
+    return core._guarded(args, "continuation migrate", operation)
+
+
 def register_workspace_parsers(subparsers, add_json_argument) -> None:
+    list_parser = subparsers.add_parser(
+        "list",
+        help="read ACF_HOME continuation task/schema/timing compatibility without mutating state",
+    )
+    list_parser.add_argument("path", nargs="?", type=Path)
+    list_parser.add_argument("--task-id", default=None)
+    list_parser.add_argument(
+        "--all-projects",
+        action="store_true",
+        help="scan every continuation namespace under the current ACF_HOME",
+    )
+    add_json_argument(list_parser)
+    list_parser.set_defaults(func=continuation_list_command)
+
+    migrate = subparsers.add_parser(
+        "migrate",
+        help="plan or apply an explicit history-preserving migration for supported legacy state",
+    )
+    migrate.add_argument("path", nargs="?", type=Path)
+    migrate.add_argument("--task-id", default=None)
+    migrate.add_argument("--apply", action="store_true")
+    migrate.add_argument("--dry-run", action="store_true")
+    migrate.add_argument("--reason", default=None)
+    add_json_argument(migrate)
+    migrate.set_defaults(func=continuation_migrate_command)
+
     workspace = subparsers.add_parser(
         "workspace",
         help="inspect and declare bounded Git workspace ownership without editing project files",
@@ -689,6 +1146,59 @@ def register_workspace_parsers(subparsers, add_json_argument) -> None:
     intent.add_argument("--path", dest="intent_path", action="append", required=True)
     add_json_argument(intent)
     intent.set_defaults(func=continuation_workspace_intent_command)
+
+    reclassify = workspace_subparsers.add_parser(
+        "reclassify",
+        help="evidence-review unexpected dirty paths into task-owned or protected external ownership",
+    )
+    reclassify.add_argument("path", nargs="?", type=Path)
+    reclassify.add_argument("--task-id", default=None)
+    reclassify.add_argument("--lease-id", required=True)
+    reclassify.add_argument("--generation", type=int, default=None)
+    reclassify.add_argument("--fence-token", default=None)
+    reclassify.add_argument(
+        "--task-owned",
+        dest="task_owned_path",
+        action="append",
+        default=[],
+        help="reviewed unexpected path attributable to this task; repeat per path",
+    )
+    reclassify.add_argument(
+        "--baseline-external",
+        dest="baseline_external_path",
+        action="append",
+        default=[],
+        help="reviewed unexpected path confirmed external to this task; repeat per path",
+    )
+    reclassify.add_argument("--evidence-ref", action="append", required=True)
+    reclassify.add_argument("--reason", required=True)
+    add_json_argument(reclassify)
+    reclassify.set_defaults(func=continuation_workspace_reclassify_command)
+
+    adopt = workspace_subparsers.add_parser(
+        "adopt",
+        help="explicitly classify every reviewed dirty path for a legacy task missing a workspace manifest",
+    )
+    adopt.add_argument("path", nargs="?", type=Path)
+    adopt.add_argument("--task-id", default=None)
+    adopt.add_argument(
+        "--task-owned",
+        dest="task_owned_path",
+        action="append",
+        default=[],
+        help="reviewed changed path attributable to this continuation task; repeat per path",
+    )
+    adopt.add_argument(
+        "--baseline-external",
+        dest="baseline_external_path",
+        action="append",
+        default=[],
+        help="reviewed changed path owned outside this continuation task; repeat per path",
+    )
+    adopt.add_argument("--evidence-ref", action="append", required=True)
+    adopt.add_argument("--reason", required=True)
+    add_json_argument(adopt)
+    adopt.set_defaults(func=continuation_workspace_adopt_command)
 
     refresh = workspace_subparsers.add_parser(
         "refresh",
@@ -721,8 +1231,13 @@ def register_configure_parser(subparsers, add_json_argument) -> None:
 
 
 __all__ = [
+    "continuation_list_command",
+    "continuation_migrate_command",
+    "continuation_schema_contract",
     "continuation_init_command",
+    "continuation_workspace_adopt_command",
     "continuation_workspace_intent_command",
+    "continuation_workspace_reclassify_command",
     "continuation_workspace_refresh_command",
     "continuation_workspace_status_command",
     "load_workspace_manifest",

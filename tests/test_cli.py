@@ -63,6 +63,14 @@ class CliTests(unittest.TestCase):
     def json_payload(self, stdout):
         return json.loads(stdout)
 
+    def test_minimal_smoke_console_json_is_ascii_safe(self):
+        from scripts.minimal_smoke import render_json_for_console
+
+        rendered = render_json_for_console({"message": "中文路径"})
+        rendered.encode("cp1252")
+        self.assertEqual("中文路径", json.loads(rendered)["message"])
+        self.assertIn(r"\u4e2d", rendered)
+
     def assert_success_json_contract(self, payload, command=None):
         self.assertEqual(payload.get("schema_version"), 1)
         self.assertIs(payload.get("ok"), True)
@@ -604,7 +612,7 @@ class CliTests(unittest.TestCase):
             exit_code, stdout, stderr = self.run_cli_output(dry_args)
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertIn(str(target / "active" / "workstreams" / "WS002.md"), payload["changed_files"])
+            self.assertIn(str((target / "active" / "workstreams" / "WS002.md").resolve()), payload["changed_files"])
             self.assertFalse((target / "active" / "workstreams" / "WS002.md").exists())
 
             add_args = [
@@ -794,7 +802,7 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertIn(str(detail_path), payload["changed_files"])
+            self.assertIn(str(detail_path.resolve()), payload["changed_files"])
             self.assertNotIn("候选摘要", detail_path.read_text(encoding="utf-8"))
 
             exit_code, stdout, stderr = self.run_cli_output(
@@ -1111,7 +1119,7 @@ class CliTests(unittest.TestCase):
                 ]
             )
             self.assertEqual(exit_code, 0, stderr)
-            self.assertIn(str(detail_path), json.loads(stdout)["changed_files"])
+            self.assertIn(str(detail_path.resolve()), json.loads(stdout)["changed_files"])
             self.assertNotIn("新的发现", detail_path.read_text(encoding="utf-8"))
 
             exit_code, stdout, stderr = self.run_cli_output(
@@ -1205,7 +1213,7 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertIn(str(detail_path), payload["changed_files"])
+            self.assertIn(str(detail_path.resolve()), payload["changed_files"])
             self.assertTrue(payload["warnings"])
             self.assertNotIn("reference/Architecture.md", detail_path.read_text(encoding="utf-8"))
 
@@ -1650,7 +1658,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertEqual(payload["changed_files"], [str(index_path)])
+            self.assertEqual(payload["changed_files"], [str(index_path.resolve())])
             self.assertIn("| WS002 | Open | WS002 |", payload["preview"]["content"])
             self.assertEqual(index_path.read_text(encoding="utf-8"), drifted)
 
@@ -1671,7 +1679,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertEqual(payload["changed_files"], [str(index_path)])
+            self.assertEqual(payload["changed_files"], [str(index_path.resolve())])
             synced = index_path.read_text(encoding="utf-8")
             self.assertIn("| WS002 | Open | WS002 | detail owner |", synced)
             self.assertTrue(payload["check"]["ok"])
@@ -1699,7 +1707,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertEqual(payload["changed_files"], [str(index_path)])
+            self.assertEqual(payload["changed_files"], [str(index_path.resolve())])
             self.assertIn("| WS999 | Open | 未索引 | 主 agent | owned: active/workstreams/WS999.md | 无。 | 待补充。 | active/workstreams/WS999.md |", index_path.read_text(encoding="utf-8"))
             self.assertTrue(payload["check"]["ok"])
 
@@ -1928,7 +1936,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0, stderr)
             payload = json.loads(stdout)
-            self.assertEqual(payload["changed_files"], [str(detail_path)])
+            self.assertEqual(payload["changed_files"], [str(detail_path.resolve())])
             self.assertIn("| WS004.2 | Pending | pct10 formal Morris |", detail_path.read_text(encoding="utf-8"))
             self.assertEqual((target / "active" / "Current_Task.md").read_text(encoding="utf-8"), current_task_before)
             self.assertEqual((target / "active" / "Context.md").read_text(encoding="utf-8"), context_before)
@@ -3350,13 +3358,20 @@ class CliTests(unittest.TestCase):
             drifted = Path(tmp) / "drifted"
             self.run_cli(["init", str(clean), "--profile", "minimal"])
             self.run_cli(["init", str(drifted), "--profile", "minimal"])
+            for target in (clean, drifted):
+                context_path = target / "active" / "Context.md"
+                context_path.write_text(
+                    context_path.read_text(encoding="utf-8")
+                    + "\n\n## 审阅标记\n\n- Last reviewed: 2026-05-31\n",
+                    encoding="utf-8",
+                )
             self.run_cli(["plan", "init", str(drifted), "--title", "Large task", "--goal", "Goal"])
             self.run_cli(["plan", "add-task", str(drifted), "--id", "T001", "--title", "Finished"])
             self.run_cli(["plan", "set-task", str(drifted), "--id", "T001", "--status", "Done", "--evidence", "done"])
             self.run_cli(["plan", "focus", str(drifted), "--id", "T001"])
 
             exit_code, stdout, stderr = self.run_cli_output(
-                ["doctor", "--projects", str(clean), str(drifted), "--json"]
+                ["doctor", "--projects", str(clean), str(drifted), "--today", "2026-05-31", "--json"]
             )
 
             self.assertEqual(exit_code, 0, stderr)
@@ -3617,6 +3632,12 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
             self.run_cli(["init", str(target), "--profile", "minimal"])
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8")
+                + "\n\n## 审阅标记\n\n- Last reviewed: 2026-05-31\n",
+                encoding="utf-8",
+            )
             report_path = target / "worklog" / "doctor-reports" / "2026-05-31.md"
 
             exit_code, stdout, stderr = self.run_cli_output(
@@ -3683,6 +3704,12 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
             self.run_cli(["init", str(target), "--profile", "minimal"])
+            context_path = target / "active" / "Context.md"
+            context_path.write_text(
+                context_path.read_text(encoding="utf-8")
+                + "\n\n## 审阅标记\n\n- Last reviewed: 2026-05-31\n",
+                encoding="utf-8",
+            )
             draft_path = target / "worklog" / "writeback-drafts" / "2026-05-31-doctor.md"
 
             exit_code, stdout, stderr = self.run_cli_output(
@@ -6328,6 +6355,128 @@ This records a reusable write-safety pattern instead of a current task fact.
                 "Review active/Context.md current facts and refresh the review marker if still accurate.",
                 payload["next_actions"],
             )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--today", "2026-05-05", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            doctor_payload = self.json_payload(stdout)
+            finding = next(
+                item
+                for item in doctor_payload["findings"]
+                if item["code"] == "context_missing_review_marker"
+            )
+            self.assertEqual(finding["domain"], "attention_hygiene")
+            self.assertEqual(finding["repair_mode"], "draft_only")
+            self.assertFalse(finding["safe_to_apply"])
+
+    def test_review_stale_reports_terminal_active_authority_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nDone\n\n"
+                "## 任务名称\n\nCompleted task retained in active authority.\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Task_Plan.md").write_text(
+                "## 大任务状态\n\nDone\n\n"
+                "## 当前焦点\n\n无。\n\n"
+                "## 子任务\n\n"
+                "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| T001 | Done | Completed | 无。 | 无。 | done | 已完成 |\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Context.md").write_text(
+                "## 审阅标记\n\n- Last reviewed: 2026-05-05\n\n"
+                "## 当前有效事实\n\n- Fact.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["review", "stale", str(target), "--today", "2026-05-05", "--days", "14", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            signals = {item["signal"] for item in payload["stale_items"]}
+            self.assertEqual(
+                signals,
+                {"current_task_terminal_retained", "task_plan_terminal_retained"},
+            )
+            by_signal = {item["signal"]: item for item in payload["stale_items"]}
+            self.assertEqual(by_signal["current_task_terminal_retained"]["path"], "active/Current_Task.md")
+            self.assertEqual(by_signal["current_task_terminal_retained"]["status"], "Done")
+            self.assertEqual(by_signal["task_plan_terminal_retained"]["path"], "active/Task_Plan.md")
+            self.assertEqual(by_signal["task_plan_terminal_retained"]["status"], "Done")
+
+    def test_doctor_reuses_terminal_authority_and_context_review_signals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            (target / "active" / "Current_Task.md").write_text(
+                "## 当前任务状态\n\nDone\n\n"
+                "## 任务名称\n\nCompleted task retained in active authority.\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Task_Plan.md").write_text(
+                "## 大任务状态\n\nDone\n\n"
+                "## 当前焦点\n\n无。\n\n"
+                "## 子任务\n\n"
+                "| ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |\n"
+                "|---|---|---|---|---|---|---|\n"
+                "| T001 | Done | Completed | 无。 | 无。 | done | 已完成 |\n",
+                encoding="utf-8",
+            )
+            (target / "active" / "Context.md").write_text(
+                "## 审阅标记\n\n- Last reviewed: 2026-04-01\n\n"
+                "## 当前有效事实\n\n- Fact.\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["review", "stale", str(target), "--today", "2026-05-05", "--days", "14", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            review_payload = json.loads(stdout)
+            self.assertIn(
+                "context_review_stale",
+                {item["signal"] for item in review_payload["stale_items"]},
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["doctor", str(target), "--today", "2026-05-05", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            doctor_payload = self.json_payload(stdout)
+            self.assert_success_json_contract(doctor_payload, "doctor")
+            finding_codes = {finding["code"] for finding in doctor_payload["findings"]}
+            self.assertEqual(
+                finding_codes,
+                {
+                    "current_task_terminal_retained",
+                    "task_plan_terminal_retained",
+                    "context_review_stale",
+                },
+            )
+            self.assertEqual(doctor_payload["summary"]["findings_total"], 3)
+            for finding in doctor_payload["findings"]:
+                self.assertEqual(finding["severity"], "warning")
+                self.assertEqual(finding["domain"], "attention_hygiene")
+                self.assertEqual(finding["repair_mode"], "draft_only")
+                self.assertFalse(finding["safe_to_apply"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["check", str(target), "--strict", "--json"]
+            )
+            self.assertIn(exit_code, {0, 1}, stderr)
+            check_payload = json.loads(stdout)
+            strict_output = json.dumps(check_payload, ensure_ascii=False)
+            self.assertNotIn("current_task_terminal_retained", strict_output)
+            self.assertNotIn("task_plan_terminal_retained", strict_output)
+            self.assertNotIn("context_review_stale", strict_output)
 
     def test_review_stale_reports_mechanical_attention_signals(self):
         with tempfile.TemporaryDirectory() as tmp:

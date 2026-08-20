@@ -36,6 +36,7 @@ except ImportError:  # pragma: no cover - Windows path.
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
 from ai_context_framework import (
     continuation_coordination,
+    continuation_inventory,
     continuation_recovery,
     continuation_rounds,
     continuation_workspace,
@@ -920,8 +921,33 @@ def continuation_doctor_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
         result = _status(root, args.task_id)
+        paths = _paths(root, args.task_id)
+        compatibility = continuation_inventory.inspect_task_dir(
+            paths["directory"],
+            contracts=continuation_workspace_commands.continuation_schema_contract(),
+        )
         result["status"] = "healthy" if result["ok"] else "invalid"
         result["next_action"] = result["state"]["next_action"]
+        result["state_compatibility"] = {
+            "compatibility": compatibility["compatibility"],
+            "migration_required": compatibility["migration_required"],
+            "migration_files": compatibility["migration_files"],
+            "blocked_files": compatibility["blocked_files"],
+            "schemas": compatibility["schemas"],
+        }
+        next_actions: list[str] = []
+        if bool(compatibility["migration_required"]):
+            next_actions.append(
+                "Run `acf continuation migrate ... --dry-run --json` with no active lease, review the history-preserving plan, then apply it explicitly if appropriate."
+            )
+        if "workspace_provenance_missing" in result["blocked_reasons"]:
+            next_actions.extend(
+                [
+                    "Review every path in workspace.unclassified_paths, then run `acf continuation workspace adopt` with an explicit `--task-owned` or `--baseline-external` classification for each path plus durable evidence refs.",
+                    "If any changed path cannot be attributed confidently, do not adopt it; preserve the worktree and keep recovery fail-closed until provenance is resolved.",
+                ]
+            )
+        result["next_actions"] = next_actions
         return result
 
     return _guarded(args, "continuation doctor", operation)
@@ -1299,37 +1325,19 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
         paths = _paths(root, args.task_id)
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
-            try:
-                receipt = continuation_recovery.validate_reconcile_receipt(
-                    _read_json(paths["reconcile"], label="reconcile")
-                )
-            except continuation_recovery.ContinuationRecoveryError as exc:
-                raise ContinuationError(str(exc), code=exc.code) from exc
-            if receipt["task_id"] != control["task_id"]:
-                raise ContinuationError("reconcile receipt task mismatch", code="reconcile_invalid")
-            if receipt["receipt_id"] != args.reconcile_id:
-                raise ContinuationError(
-                    "reconcile receipt id does not match",
-                    code="reconcile_mismatch",
-                    exit_code=3,
-                )
-            if receipt["decision"] != "eligible":
-                raise ContinuationError(
-                    "reconcile receipt does not authorize recovery",
-                    code="recovery_not_authorized",
-                    exit_code=3,
-                    details={"reasons": receipt["reasons"]},
-                )
-
-            status, observation = continuation_recovery_commands.reconcile_observation(root, args.task_id)
-            if dict(receipt["observation"]) != observation:
-                raise ContinuationError(
-                    "continuation state changed after reconciliation",
-                    code="reconciliation_stale",
-                    exit_code=3,
-                    details={"recorded": receipt["observation"], "current": observation},
-                    next_actions=["Run `acf continuation reconcile` again against the current state."],
-                )
+            (
+                receipt,
+                status,
+                observation,
+                effect_journal,
+                effect_reconciliations,
+            ) = continuation_recovery_commands.validate_recovery_inputs(
+                root,
+                paths,
+                control,
+                task_id=args.task_id,
+                reconcile_id=str(args.reconcile_id),
+            )
             assertions = receipt["assertions"]
             owner_ended = assertions.get("owner_ended") is True
             accepted_head = assertions.get("accepted_head")
@@ -1339,6 +1347,7 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 owner_ended=owner_ended,
                 accepted_head=str(accepted_head) if accepted_head is not None else None,
                 evidence_refs=[str(value) for value in receipt["evidence_refs"]],
+                effect_reconciliations=effect_reconciliations,
             )
             if decision != "eligible":
                 raise ContinuationError(
@@ -1370,6 +1379,17 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 generation=generation,
                 ttl_minutes=ttl,
                 now=now,
+            )
+
+            reconciled_effect_journal, reconciled_effects = (
+                continuation_recovery_commands.apply_recovery_effect_reconciliations(
+                    effect_journal,
+                    task_id=str(control["task_id"]),
+                    generation=generation,
+                    reconciliations=effect_reconciliations,
+                    reconcile_id=str(receipt["receipt_id"]),
+                    now=_iso(now),
+                )
             )
 
             workspace_snapshot = continuation_workspace_commands.workspace_current_snapshot(root)
@@ -1492,6 +1512,8 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 "runner_id": lease["runner_id"],
                 "head": status["git"]["head"],
                 "effect_digest": observation["effect_digest"],
+                "reconciled_effect_digest": continuation_recovery.json_digest(reconciled_effect_journal),
+                "effect_reconciliations": [str(effect["logical_key"]) for effect in reconciled_effects],
                 "workspace_digest": workspace_summary["manifest_digest"],
                 "coordination_digest": observation["coordination_digest"],
                 "challenge_resolution": challenge_resolution,
@@ -1499,6 +1521,8 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
             _write_json(paths["control"], control)
             _write_json(paths["lease"], lease)
             _write_json(paths["rounds"], round_journal)
+            if effect_reconciliations:
+                _write_json(paths["effects"], reconciled_effect_journal)
             _write_json(paths["workspace"], workspace_manifest)
             _write_state(paths["state"], state)
             if challenge_resolution is not None:
@@ -1928,6 +1952,7 @@ def register_round_effect_parsers(subparsers, add_json_argument) -> None:
 continuation_init_command = continuation_workspace_commands.continuation_init_command
 continuation_configure_command = continuation_workspace_commands.continuation_configure_command
 continuation_prompt_command = continuation_workspace_commands.continuation_prompt_command
+continuation_workspace_adopt_command = continuation_workspace_commands.continuation_workspace_adopt_command
 continuation_workspace_status_command = continuation_workspace_commands.continuation_workspace_status_command
 continuation_workspace_intent_command = continuation_workspace_commands.continuation_workspace_intent_command
 continuation_workspace_refresh_command = continuation_workspace_commands.continuation_workspace_refresh_command
@@ -1963,6 +1988,7 @@ __all__ = [
     "continuation_release_command",
     "continuation_renew_command",
     "continuation_resume_command",
+    "continuation_workspace_adopt_command",
     "continuation_workspace_intent_command",
     "continuation_workspace_refresh_command",
     "continuation_workspace_status_command",
