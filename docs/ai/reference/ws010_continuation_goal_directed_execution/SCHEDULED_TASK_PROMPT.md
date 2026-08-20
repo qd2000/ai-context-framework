@@ -29,11 +29,11 @@
 
 `acf continuation doctor "D:\PROJECT\Tools\ai-context-framework_worktrees\ws010-continuation-goal-directed-execution" --task-id WS010 --json`
 
-在 WS010 新版本发布并安装前，使用 worktree 候选实现只读生成本轮协议：
+当前稳定基线已是 v0.0.3.68，因此每轮直接使用全局安装态生成本轮协议：
 
-`uv run acf continuation prompt "D:\PROJECT\Tools\ai-context-framework_worktrees\ws010-continuation-goal-directed-execution" --task-id WS010 --json`
+`acf continuation prompt "D:\PROJECT\Tools\ai-context-framework_worktrees\ws010-continuation-goal-directed-execution" --task-id WS010 --json`
 
-候选 `uv run acf continuation prompt` 只负责渲染 product-under-test prompt；所有 claim、coordination、heartbeat、renew、workspace、effect、checkpoint、release、reconcile 和 recover 写控制命令仍使用当前已安装稳定 `acf`。新稳定版本发布并完成安装态验证后，将上述 prompt 命令切换为全局 `acf continuation prompt`。
+如果 WS010 后续再次产生尚未发布的新候选实现，worktree 内 `uv run acf continuation prompt` 只允许用于只读渲染 product-under-test prompt 和隔离测试；所有 claim、coordination、heartbeat、renew、workspace、effect、checkpoint、release、reconcile 和 recover 写控制命令继续使用当前已安装稳定 `acf`，直到更新版本完成发布和安装态验证。
 
 严格执行本轮返回的 generated prompt。它是 generic continuation 执行政策和安全协议的唯一权威。完成一个子任务、测试、commit、checkpoint 或 Gate 不构成停止理由；只要仍存在安全、非重复且有价值的下一步，就继续推进总体目标，Agent 自主决定本次工作范围和执行顺序。
 
@@ -83,3 +83,14 @@
 4. ACF self-hosting 特有的 stable-control-plane / product-under-test 条款应删除或替换为目标项目自己的约束。
 
 不得把 generic continuation 状态机复制进外层 Scheduled Task。
+
+## 迁移到其他开发任务的最小清单
+
+迁移时只做参数化替换，不复制 WS010 self-hosting 细节：
+
+1. 固定目标任务自己的 project/worktree/branch/workstream/task-id/PLAN，并保留“每轮重新调用安装态 `acf continuation prompt`”这一唯一 generic 协议入口。
+2. 删除 WS010 专有的 stable-control-plane / product-under-test 条款；仅在目标任务本身也是 ACF self-hosting 时保留同类隔离规则。
+3. 把目标任务真正需要的 DevSpace、Runtime、VM/节点、主机、权限、安全、科学/工程验收、发布和 issue-reporting 规则填入“项目专用约束”，不要把这些约束塞进通用 ACF prompt。
+4. 保留显式 worktree/branch 身份校验、禁止重复 worktree、禁止覆盖无关 dirty、显式 stage scoped files、禁止 `git add .` 与 destructive Git 快捷操作。
+5. 保留 `goal_directed_continuous` 行为：一个测试、commit、checkpoint 或 Gate 完成后继续选择下一项安全有价值工作；只有 generated prompt 的四类任务级硬停止条件允许结束整个任务。
+6. 首次迁移后至少观察一轮真实 Scheduled Task fresh activation；若发现新的通用缺陷，用该任务自己的 `acf continuation issue` 记录，不在 wrapper 中临时复制第二套恢复状态机。

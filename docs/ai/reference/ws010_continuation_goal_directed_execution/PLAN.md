@@ -91,9 +91,9 @@ generated prompt 只允许把任务停止或转入终态解释为以下四类：
 
 | ID | 状态 | 内容 | 证据 | 下一步 |
 |---|---|---|---|---|
-| WS010.1 | Active | 冻结目标导向执行政策、硬停止条件和项目专用约束槽 | 本 PLAN、Scheduled Task wrapper | 修改 generated prompt 和 JSON contract |
-| WS010.2 | Open | 实现 prompt/contract，补 focused tests 和同步文档 | targeted tests、template/strict check | self-hosted candidate prompt dogfood |
-| WS010.3 | Open | 使用 WS010 Scheduled Task 持续 dogfood，完成回归、发布和 installed-state adoption | continuation state、issues、tests、release evidence | 应用到其他四个开发任务 |
+| WS010.1 | Done | 冻结目标导向执行政策、硬停止条件和项目专用约束槽 | 本 PLAN、Scheduled Task wrapper | 已进入实现与回归 |
+| WS010.2 | Done | 实现 prompt/contract，补 focused tests 和同步文档 | prompt tests 2/2；continuation suite 74/74；full unittest 496/496；template/strict check；file-scoped guard；exact-head release gate | 已发布并安装 v0.0.3.68 |
+| WS010.3 | Active | 使用 WS010 Scheduled Task 持续 dogfood，完成 installed-state adoption 与收口 | PyPI v0.0.3.68；全局安装态 prompt contract；真实 Scheduled Task activation；continuation rounds/state | 再完成至少一轮 fresh activation 复核后，合并/归档并将薄 wrapper 迁移到其他四个开发任务 |
 
 ## 验收标准
 
@@ -118,4 +118,4 @@ generated prompt 只允许把任务停止或转入终态解释为以下四类：
 
 ## 当前下一步
 
-实现 generated prompt 与 JSON contract 的最小修改，补 focused tests；随后初始化 WS010 continuation state，并使用本文件旁的 `SCHEDULED_TASK_PROMPT.md` 进行 self-hosted dogfood。
+v0.0.3.68 已发布到 PyPI 并升级为全局稳定控制面；WS010 continuation 已初始化，小时级 Scheduled Task 已启用。当前只剩 WS010.3 的真实 fresh-activation dogfood 与收口：每轮都重新消费安装态 `acf continuation prompt`，确认一次 activation 能在同一有效 ownership 下连续推进多个安全步骤，而不会在测试、commit、checkpoint 或单个 Gate 后提前退出。完成至少两轮独立 fresh activation 的一致行为证据后，执行 merge/archive closeout，并按 `SCHEDULED_TASK_PROMPT.md` 的迁移清单应用到其他四个开发任务。
