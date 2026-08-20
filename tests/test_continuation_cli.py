@@ -11,7 +11,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import acf
-from ai_context_framework import continuation_inventory, continuation_workspace
+from ai_context_framework import continuation_inventory, continuation_rounds, continuation_workspace
 from ai_context_framework.commands import continuation
 from ai_context_framework.observability import usage_log_path
 
@@ -5100,6 +5100,42 @@ class ContinuationCliTests(unittest.TestCase):
         nested["evidence_refs"] = [{"path": "result.json", "tool_output": "raw"}]
         with self.assertRaises(continuation.ContinuationError):
             continuation._validate_state(nested)
+
+    def test_round_journal_prunes_terminal_recovery_rounds_at_capacity(self) -> None:
+        journal = continuation_rounds.empty_round_journal("WS900")
+        for generation in range(1, continuation_rounds.MAX_ROUNDS + 1):
+            lease_id = f"lease-{generation}"
+            journal, _ = continuation_rounds.begin_round(
+                journal,
+                task_id="WS900",
+                generation=generation,
+                lease_id=lease_id,
+                runner_id=f"runner-{generation}",
+                now=f"2026-08-19T{generation % 24:02d}:00:00Z",
+            )
+            journal, _ = continuation_rounds.finish_round(
+                journal,
+                task_id="WS900",
+                generation=generation,
+                lease_id=lease_id,
+                reconciling=True,
+                milestone="superseded_by_recovery",
+                evidence_refs=[f"reconcile:{generation}"],
+                now=f"2026-08-19T{generation % 24:02d}:01:00Z",
+            )
+
+        journal, record = continuation_rounds.begin_round(
+            journal,
+            task_id="WS900",
+            generation=continuation_rounds.MAX_ROUNDS + 1,
+            lease_id="lease-next",
+            runner_id="runner-next",
+            now="2026-08-20T00:00:00Z",
+        )
+
+        self.assertEqual(continuation_rounds.MAX_ROUNDS, len(journal["rounds"]))
+        self.assertEqual(2, journal["rounds"][0]["generation"])
+        self.assertEqual(continuation_rounds.MAX_ROUNDS + 1, record["generation"])
 
 
 if __name__ == "__main__":

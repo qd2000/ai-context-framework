@@ -321,7 +321,15 @@ def begin_round(
         raise ContinuationRoundError("round generation already exists", code="round_generation_conflict")
     rounds = list(current["rounds"])
     if len(rounds) >= MAX_ROUNDS:
-        removable = next((index for index, record in enumerate(rounds) if record["phase"] == "released"), None)
+        removable = next(
+            (
+                index
+                for index, record in enumerate(rounds)
+                if record["phase"] == "released"
+                or (record["phase"] == "reconciling" and record["ended_at"] is not None)
+            ),
+            None,
+        )
         if removable is None:
             raise ContinuationRoundError("round journal has no safely prunable entry", code="round_journal_full")
         rounds.pop(removable)
