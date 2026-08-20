@@ -15,6 +15,7 @@
 - 修复 Windows hosted runner 的 TEMP 8.3 short-path alias（例如 `RUNNER~1`）与 canonical long path（例如 `runneradmin`）等价性：context containment / relative-display 统一按 resolved path 判定，避免合法 Workstream/ADR 被误报为 context-root 外路径；JSON `changed_files` 与 worktree target 的测试也改为比较 canonical path，而不是把 alias 字符串拼写当成语义。
 - `scripts/minimal_smoke.py` 的最终汇总 JSON 改为 ASCII-safe escaping；即使 Windows hosted runner 的父进程 stdout 是 cp1252，也不会因为结果中包含中文/Unicode 路径或文本而在所有 smoke scenario 已执行完成后触发 `UnicodeEncodeError`。
 - continuation round journal 达到 16 条上限时，现在会把已经带 `ended_at` 的 recovery-superseded `reconciling` round 视为可安全裁剪历史，与 `released` round 一样为下一 generation 腾出 bounded journal 空间；仍在运行、没有 `ended_at` 的 reconciling round 不会被裁剪，避免长期多次 formal recovery 后出现 `round_journal_full` 自锁。
+- 新增 fenced-owner `continuation workspace reclassify`：durable writer 已权威结束后，如果审阅确认某个启动前漏报的真实产出当前处于 `unexpected_nonoverlap`，可以携带 durable evidence 与 reason 显式归入 `task_owned`，或明确保护为 `baseline_external`；命令不能接管已有 conflict/非 unexpected 路径，task-owned 仍受 Workstream direct write scope 约束，来源不确定继续 fail-closed。
 - `v0.0.3.65` tag 保持不可变；其 GitHub release run `32256066761` 在 Ubuntu full unittest 中仅因上述两条 CRLF fixture 断言失败而未进入 PyPI publish。`v0.0.3.66` 使用新的 immutable version；本地 full release gate 通过后，以 GitHub Ubuntu release gate 作为跨平台发布权威，不重打 `.65`。
 
 ## v0.0.3.65 — 2026-08-19

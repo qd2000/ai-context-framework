@@ -25,6 +25,8 @@ ENTRY_SCHEMA = "acf.continuation.workspace-entry.v1"
 CONFLICT_SCHEMA = "acf.continuation.workspace-conflict.v1"
 ADOPTION_SCHEMA = "acf.continuation.workspace-adoption.v1"
 ADOPTION_ENTRY_SCHEMA = "acf.continuation.workspace-adoption-entry.v1"
+RECLASSIFICATION_SCHEMA = "acf.continuation.workspace-reclassification.v1"
+RECLASSIFICATION_ENTRY_SCHEMA = "acf.continuation.workspace-reclassification-entry.v1"
 
 MAX_ENTRIES = 256
 MAX_PATH_BYTES = 1024
@@ -508,6 +510,134 @@ def adopt_legacy_manifest(
         "adoption_receipt": receipt,
     }
     return validate_manifest(payload, task_id=task_id)
+
+
+def reclassify_unexpected(
+    manifest: Mapping[str, Any],
+    *,
+    task_id: str,
+    snapshot: Mapping[str, Any],
+    task_owned_paths: Sequence[str],
+    baseline_external_paths: Sequence[str],
+    allowed_scopes: Sequence[str],
+    candidate_paths: Mapping[str, Sequence[str]],
+    evidence_refs: Sequence[str],
+    reason: str,
+    now: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Explicitly reclassify reviewed unexpected dirty output for one fenced owner.
+
+    This is intentionally narrower than legacy adoption: it may only move
+    paths that are currently classified as ``unexpected_nonoverlap``.  The
+    caller must supply durable evidence and an explicit destination ownership
+    class.  Task-owned reclassification also records write intent so the
+    fenced owner can safely consume, modify, commit, or remove the reviewed
+    output without turning the next refresh into a provenance conflict.
+    """
+
+    current = classify(manifest, task_id=task_id, snapshot=snapshot, now=now)
+    if current["conflicts"]:
+        raise ContinuationWorkspaceError(
+            "workspace contains ambiguous/conflicting dirty state",
+            code="workspace_conflict",
+        )
+    task_paths = [normalize_path(path_value) for path_value in task_owned_paths]
+    external_paths = [normalize_path(path_value) for path_value in baseline_external_paths]
+    selected = [*task_paths, *external_paths]
+    if not selected:
+        raise ContinuationWorkspaceError(
+            "workspace reclassification requires explicit reviewed paths",
+            code="workspace_reclassification_incomplete",
+        )
+    if len(selected) != len(set(selected)):
+        raise ContinuationWorkspaceError(
+            "workspace reclassification path classifications overlap",
+            code="workspace_reclassification_overlap",
+        )
+    for index, left in enumerate(selected):
+        for right in selected[index + 1 :]:
+            if paths_overlap(left, right):
+                raise ContinuationWorkspaceError(
+                    f"workspace reclassification paths overlap: {left} / {right}",
+                    code="workspace_reclassification_overlap",
+                )
+
+    unexpected = _entry_map(current["unexpected_nonoverlap"])
+    missing = [path_value for path_value in selected if path_value not in unexpected]
+    if missing:
+        raise ContinuationWorkspaceError(
+            "workspace reclassification only accepts current unexpected_nonoverlap paths: "
+            + ", ".join(sorted(missing)),
+            code="workspace_reclassification_not_unexpected",
+        )
+    if allowed_scopes:
+        for path_value in task_paths:
+            candidates = list(candidate_paths.get(path_value) or [path_value])
+            if not any(
+                path_matches_scope(candidate, scope)
+                for candidate in candidates
+                for scope in allowed_scopes
+            ):
+                raise ContinuationWorkspaceError(
+                    f"task-owned workspace reclassification is outside Workstream write_scope: {path_value}",
+                    code="workspace_reclassification_out_of_scope",
+                )
+
+    normalized_evidence = _evidence_refs(list(evidence_refs))
+    if not normalized_evidence:
+        raise ContinuationWorkspaceError(
+            "workspace reclassification requires durable evidence",
+            code="workspace_reclassification_evidence_required",
+        )
+    normalized_reason = _text(reason, field="reason", max_bytes=4096)
+    normalized_now = _text(now, field="reviewed_at", max_bytes=128)
+
+    baseline_external = _entry_map(current["baseline_external"])
+    task_owned = _entry_map(current["task_owned"])
+    intents = list(current["write_intents"])
+    review_entries: list[dict[str, Any]] = []
+    for path_value in sorted(selected):
+        live = unexpected[path_value]
+        classification = "task_owned" if path_value in task_paths else "baseline_external"
+        if classification == "task_owned":
+            task_owned[path_value] = live
+            if path_value not in intents:
+                intents.append(path_value)
+        else:
+            baseline_external[path_value] = live
+        review_entries.append(
+            {
+                "schema_version": RECLASSIFICATION_ENTRY_SCHEMA,
+                "path": path_value,
+                "classification": classification,
+                "status": live["status"],
+                "digest": live["digest"],
+            }
+        )
+
+    payload = {
+        **current,
+        "baseline_external": list(baseline_external.values()),
+        "write_intents": sorted(set(intents)),
+        "task_owned": list(task_owned.values()),
+        "unexpected_nonoverlap": [
+            entry
+            for entry in current["unexpected_nonoverlap"]
+            if entry["path"] not in set(selected)
+        ],
+        "last_observed_at": normalized_now,
+    }
+    reviewed = {
+        "schema_version": RECLASSIFICATION_SCHEMA,
+        "task_id": task_id,
+        "generation": int(current["generation"]),
+        "reviewed_at": normalized_now,
+        "reason": normalized_reason,
+        "evidence_refs": normalized_evidence,
+        "entries": review_entries,
+    }
+    _bounded(reviewed)
+    return validate_manifest(payload, task_id=task_id), reviewed
 
 
 def begin_generation(

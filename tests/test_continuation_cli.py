@@ -1884,6 +1884,184 @@ class ContinuationCliTests(unittest.TestCase):
             )
         self.assertEqual("workspace_intent_out_of_scope", raised.exception.code)
 
+    def test_ws009_reviewed_unexpected_writer_output_can_be_reclassified_task_owned(self) -> None:
+        manifest = continuation_workspace.new_manifest(
+            task_id="WS908",
+            snapshot={"head": "a" * 40, "entries": []},
+            now=continuation._iso(),
+        )
+        manifest = continuation_workspace.begin_generation(
+            manifest,
+            task_id="WS908",
+            generation=1,
+            snapshot={"head": "a" * 40, "entries": []},
+            now=continuation._iso(),
+        )
+        writer_entry = {
+            "schema_version": continuation_workspace.ENTRY_SCHEMA,
+            "path": "release-metadata.txt",
+            "status": " M",
+            "digest": "b" * 64,
+        }
+        manifest = continuation_workspace.classify(
+            manifest,
+            task_id="WS908",
+            snapshot={"head": "a" * 40, "entries": [writer_entry]},
+            now=continuation._iso(),
+        )
+        self.assertEqual(
+            ["release-metadata.txt"],
+            continuation_workspace.summary(manifest, task_id="WS908")["unexpected_nonoverlap_paths"],
+        )
+
+        reclassified, review = continuation_workspace.reclassify_unexpected(
+            manifest,
+            task_id="WS908",
+            snapshot={"head": "a" * 40, "entries": [writer_entry]},
+            task_owned_paths=["release-metadata.txt"],
+            baseline_external_paths=[],
+            allowed_scopes=["release-metadata.txt"],
+            candidate_paths={"release-metadata.txt": ["release-metadata.txt"]},
+            evidence_refs=["effect:release-job:terminal"],
+            reason="Reviewed output from the terminal durable release writer.",
+            now=continuation._iso(),
+        )
+        summary = continuation_workspace.summary(reclassified, task_id="WS908")
+        self.assertEqual(["release-metadata.txt"], summary["task_owned_paths"])
+        self.assertEqual(["release-metadata.txt"], summary["write_intent_paths"])
+        self.assertEqual([], summary["unexpected_nonoverlap_paths"])
+        self.assertEqual("task_owned", review["entries"][0]["classification"])
+        self.assertEqual(["effect:release-job:terminal"], review["evidence_refs"])
+
+        externalized, external_review = continuation_workspace.reclassify_unexpected(
+            manifest,
+            task_id="WS908",
+            snapshot={"head": "a" * 40, "entries": [writer_entry]},
+            task_owned_paths=[],
+            baseline_external_paths=["release-metadata.txt"],
+            allowed_scopes=[],
+            candidate_paths={},
+            evidence_refs=["review:confirmed-external"],
+            reason="Reviewed writer output belongs outside this task.",
+            now=continuation._iso(),
+        )
+        external_summary = continuation_workspace.summary(externalized, task_id="WS908")
+        self.assertEqual(["release-metadata.txt"], external_summary["baseline_external_paths"])
+        self.assertEqual([], external_summary["task_owned_paths"])
+        self.assertEqual([], external_summary["write_intent_paths"])
+        self.assertEqual("baseline_external", external_review["entries"][0]["classification"])
+
+        with self.assertRaises(continuation_workspace.ContinuationWorkspaceError) as raised:
+            continuation_workspace.reclassify_unexpected(
+                manifest,
+                task_id="WS908",
+                snapshot={"head": "a" * 40, "entries": [writer_entry]},
+                task_owned_paths=["release-metadata.txt"],
+                baseline_external_paths=[],
+                allowed_scopes=["src/**"],
+                candidate_paths={"release-metadata.txt": ["release-metadata.txt"]},
+                evidence_refs=["effect:release-job:terminal"],
+                reason="Reviewed output outside the allowed scope.",
+                now=continuation._iso(),
+            )
+        self.assertEqual("workspace_reclassification_out_of_scope", raised.exception.code)
+
+    def test_ws009_fenced_owner_reclassifies_reviewed_unexpected_writer_output(self) -> None:
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "writer-recovery-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        output = self.root / "release-metadata.txt"
+        output.write_text("generated v1\n", encoding="utf-8")
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertEqual(
+            ["release-metadata.txt"],
+            doctor["workspace"]["unexpected_nonoverlap_paths"],
+        )
+        code, blocked, _ = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--path",
+                "release-metadata.txt",
+            ]
+        )
+        self.assertEqual(2, code)
+        self.assertEqual("workspace_intent_conflict", blocked["error_code"])
+
+        code, reclassified, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "reclassify",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--task-owned",
+                "release-metadata.txt",
+                "--evidence-ref",
+                "effect:release-job:terminal",
+                "--reason",
+                "Reviewed output from the terminal durable release writer.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reclassified}")
+        self.assertEqual("workspace_reclassified", reclassified["status"])
+        self.assertEqual(
+            ["release-metadata.txt"],
+            reclassified["workspace"]["task_owned_paths"],
+        )
+        self.assertEqual(
+            ["release-metadata.txt"],
+            reclassified["workspace"]["write_intent_paths"],
+        )
+        self.assertEqual([], reclassified["workspace"]["unexpected_nonoverlap_paths"])
+        self.assertEqual(
+            ["effect:release-job:terminal"],
+            reclassified["review"]["evidence_refs"],
+        )
+
+        output.write_text("generated v2\n", encoding="utf-8")
+        code, refreshed, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "refresh",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{refreshed}")
+        self.assertEqual(["release-metadata.txt"], refreshed["workspace"]["task_owned_paths"])
+        self.assertEqual([], refreshed["workspace"]["conflicts"])
+
     def test_ws008_coordination_attempt_without_owner_is_only_claim_candidate(self) -> None:
         init = self.init_task("WS908")
         state_dir = Path(str(init["state_dir"]))
