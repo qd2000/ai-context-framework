@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## v0.0.3.67 — 2026-08-20
+
+### Worktree close semantic-clean bridge
+
+- 修复 `acf worktree close` 的最后一跳语义不一致：ACF 已把 content-identical tracked `M` 识别为 `stat_only_paths` / semantic-clean 后，原生 `git worktree remove` 仍可能按 porcelain dirty 拒绝，旧实现会把这个确定性拒绝误当文件占用重试直至 `worktree_close_timeout`。
+- close 现在仍先用 canonical semantic-clean 严格拒绝 staged、真实 unstaged、untracked、rename/delete/type/mode/unmerged/submodule 等真实 dirty；只有已经证明 semantic-clean 且存在 `stat_only_paths` 时，内部才给 `git worktree remove` 加 `--force` 作为 raw-Git 兼容桥。branch 仍只用安全 `-d`，artifact handoff 仍必须先 verified，不扩大强制删除权限。
+
 ## v0.0.3.66 — 2026-08-19
 
 ### Release portability

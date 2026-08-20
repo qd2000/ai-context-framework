@@ -488,6 +488,62 @@ class ResilientMergeCliTests(unittest.TestCase):
             )
         self.assertTrue(result["removed"])
         self.assertEqual(result["attempts"], 2)
+        self.assertFalse(result["semantic_force"])
+        self.assertEqual(result["stat_only_paths"], [])
+
+    def test_close_semantic_clean_bridge_uses_force_only_after_clean_preflight(self):
+        self.commit_source("feature.txt", "feature\n")
+        self.mark_ready()
+        code, payload, stderr = self.merge()
+        self.assertEqual(code, 0, (stderr, payload))
+        project = discover_git_project(self.context)
+        target = target_from_registry(project, workstream_id=self.reserved["id"])
+        import ai_context_framework.worktree_service as service
+
+        original = service.run_git
+        remove_argv: list[tuple[str, ...]] = []
+
+        def raw_git_requires_force(cwd, args, *, check=True, env=None):
+            if tuple(args[:2]) == ("worktree", "remove"):
+                remove_argv.append(tuple(args))
+                if "--force" not in args:
+                    return GitCommandResult(
+                        argv=("git", *tuple(args)),
+                        cwd=str(cwd),
+                        returncode=128,
+                        stdout="",
+                        stderr="contains modified or untracked files, use --force to delete it",
+                    )
+            return original(cwd, args, check=check, env=env)
+
+        semantic_clean = {
+            "clean": True,
+            "dirty_records": [],
+            "dirty_paths": [],
+            "stat_only_paths": ["ai_context_framework.egg-info/top_level.txt"],
+        }
+        with (
+            patch("ai_context_framework.worktree_service.semantic_status", return_value=semantic_clean),
+            patch("ai_context_framework.worktree_service.run_git", side_effect=raw_git_requires_force),
+        ):
+            result = _close_remove_worktree_with_retry(
+                project,
+                target,
+                timeout_seconds=0,
+                policy=MergeRetryPolicy(
+                    initial_delay_seconds=0.01,
+                    max_delay_seconds=0.01,
+                    jitter_ratio=0,
+                ),
+            )
+        self.assertTrue(result["removed"])
+        self.assertTrue(result["semantic_force"])
+        self.assertEqual(
+            result["stat_only_paths"],
+            ["ai_context_framework.egg-info/top_level.txt"],
+        )
+        self.assertTrue(remove_argv)
+        self.assertIn("--force", remove_argv[-1])
 
     def test_close_partial_success_resumes_same_operation(self):
         self.commit_source("feature.txt", "feature\n")

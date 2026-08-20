@@ -254,9 +254,9 @@ acf worktree close --workstream WS081 --json
 acf worktree close --workstream WS081 --wait-timeout 120 --apply --json
 ```
 
-关闭前必须证明 branch 已合入 primary、来源 worktree clean，且 artifact handoff 已完成。执行顺序仍为 worktree remove、已合并分支安全删除和 registry 更新，但每一步进入同一 operation journal，并与 merge 共用来源 lifecycle 锁。Windows 文件占用会有限退避；部分成功后使用同一 operation ID resume。
+关闭前必须证明 branch 已合入 primary、来源 worktree **semantic-clean**，且 artifact handoff 已完成。执行顺序仍为 worktree remove、已合并分支安全删除和 registry 更新，但每一步进入同一 operation journal，并与 merge 共用来源 lifecycle 锁。Windows 文件占用会有限退避；部分成功后使用同一 operation ID resume。
 
-不使用 `--force` 或 `branch -D`。重复关闭返回 `already_closed`。
+真实 staged/unstaged/untracked/conflict 一律在 remove 前拒绝；branch 始终只用 `branch -d`，不使用 `branch -D`。当且仅当 canonical semantic-clean helper 已证明没有真实 dirty、但仍存在 content-identical `stat_only_paths` 时，close 可内部调用 `git worktree remove --force` 绕过 Git porcelain/raw remove 对 stat-only 的假 dirty 拒绝。这个 `--force` 只是已证明 semantic-clean 后的兼容桥，不改变 close 的安全门。重复关闭返回 `already_closed`。
 
 ## Journal、registry 与锁
 
@@ -283,10 +283,11 @@ git reset
 git clean
 git rebase
 git branch -D
-git worktree remove --force
 git push
 自动解决冲突
 覆盖既有目录
 ```
+
+`git worktree remove --force` 只有上述 semantic-clean + `stat_only_paths` close bridge 这一条内部例外；ACF 不会用它绕过真实 dirty 或未完成 artifact handoff。
 
 所有写命令默认 plan-only，AI 选择执行时显式传入 `--apply`。出现不确定状态时保留 journal 和现有文件，返回稳定 error_code，由 AI 或用户审阅后决定下一步。

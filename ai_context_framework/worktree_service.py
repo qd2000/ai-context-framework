@@ -1096,15 +1096,29 @@ def _close_remove_worktree_with_retry(
             if target.path.exists():
                 raise SystemExit(f"orphan_target_path: {target.path}")
             return {"removed": False, "attempts": attempt, "errors": errors}
-        if not is_clean(record.path):
+        status = semantic_status(record.path)
+        if not status["clean"]:
             raise SystemExit(f"worktree_dirty: {record.path}")
+        stat_only_paths = [str(value) for value in status["stat_only_paths"]]
+        remove_args: tuple[str, ...] = (
+            "worktree",
+            "remove",
+            *(('--force',) if stat_only_paths else ()),
+            str(target.path),
+        )
         result = run_git(
             project.repo_root,
-            ("worktree", "remove", str(target.path)),
+            remove_args,
             check=False,
         )
         if result.returncode == 0:
-            return {"removed": True, "attempts": attempt + 1, "errors": errors}
+            return {
+                "removed": True,
+                "attempts": attempt + 1,
+                "errors": errors,
+                "semantic_force": bool(stat_only_paths),
+                "stat_only_paths": stat_only_paths,
+            }
         errors.append(result.stderr.strip() or result.stdout.strip())
         elapsed = time.monotonic() - started
         if elapsed >= timeout_seconds:
