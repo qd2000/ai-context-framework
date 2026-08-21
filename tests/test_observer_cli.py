@@ -6,16 +6,22 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 import acf
 from ai_context_framework.observer import (
     OBSERVER_CURRENT_SCHEMA,
     OBSERVER_LOCK_SCHEMA,
     OBSERVER_MACHINE_STATE_SCHEMA,
+    build_alert_lifecycle_events,
     capture_project_workstreams,
     capture_project_worktrees,
+    derive_snapshot_alerts,
+    observer_data_age,
     observer_paths,
+    refresh_history_index,
     resolve_observer_project,
+    rotate_jsonl_monthly,
 )
 from ai_context_framework.observability import usage_project_dir
 from ai_context_framework.git_support import discover_git_project, write_registry
@@ -209,8 +215,10 @@ class ObserverCliTests(unittest.TestCase):
             self.assertTrue(paths["current"].is_file())
             self.assertTrue(paths["timeline"].is_file())
             self.assertTrue(paths["observations"].is_file())
+            self.assertTrue(paths["alerts"].is_file())
             self.assertTrue(paths["runs"].is_file())
             self.assertTrue(paths["status"].is_file())
+            self.assertTrue(paths["history_index"].is_file())
             current = json.loads(paths["current"].read_text(encoding="utf-8"))
             self.assertEqual(current["schema_version"], OBSERVER_CURRENT_SCHEMA)
             self.assertEqual(current["snapshot_consistency"]["state"], "stable")
@@ -250,7 +258,7 @@ class ObserverCliTests(unittest.TestCase):
                 "schema_version": OBSERVER_LOCK_SCHEMA,
                 "project_id": observer_project.project_id,
                 "run_id": "other-run",
-                "pid": 123,
+                "pid": os.getpid(),
                 "started_at": "2026-08-21T00:00:00Z",
             }
             paths["lock"].write_text(json.dumps(lock_payload), encoding="utf-8")
@@ -264,6 +272,137 @@ class ObserverCliTests(unittest.TestCase):
             self.assertEqual(payload["lock_owner"]["run_id"], "other-run")
             self.assertEqual(json.loads(paths["lock"].read_text(encoding="utf-8"))["run_id"], "other-run")
             self.assertFalse(paths["current"].exists())
+
+    def test_confidently_abandoned_observer_lock_is_recovered_and_audited(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            observer_project = resolve_observer_project(project)
+            paths = observer_paths(observer_project)
+            paths["lock"].parent.mkdir(parents=True, exist_ok=True)
+            paths["lock"].write_text(
+                json.dumps(
+                    {
+                        "schema_version": OBSERVER_LOCK_SCHEMA,
+                        "project_id": observer_project.project_id,
+                        "run_id": "abandoned-run",
+                        "pid": 2147483647,
+                        "started_at": "2020-01-01T00:00:00Z",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("ai_context_framework.observer._process_is_alive", return_value=False):
+                exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["run"]["stale_lock_recovered"])
+            self.assertEqual(payload["run"]["recovered_lock_owner"]["run_id"], "abandoned-run")
+            self.assertFalse(paths["lock"].exists())
+            self.assertTrue(paths["current"].is_file())
+
+    def test_monthly_rotation_is_lossless_idempotent_and_indexed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            observer_project = resolve_observer_project(project)
+            paths = observer_paths(observer_project)
+            paths["timeline"].parent.mkdir(parents=True, exist_ok=True)
+            old_event = {
+                "event_id": "event-old",
+                "observed_at": "2020-01-15T00:00:00Z",
+                "kind": "workstream_discovered",
+            }
+            current_event = {
+                "event_id": "event-current",
+                "observed_at": "2020-02-15T00:00:00Z",
+                "kind": "workstream_status_changed",
+            }
+            paths["timeline"].write_text(
+                json.dumps(old_event) + "\n" + json.dumps(current_event) + "\n",
+                encoding="utf-8",
+            )
+
+            first = rotate_jsonl_monthly(
+                paths["timeline"],
+                paths["history"],
+                stream_name="timeline",
+                timestamp_field="observed_at",
+                id_field="event_id",
+                current_month="2020-02",
+            )
+            second = rotate_jsonl_monthly(
+                paths["timeline"],
+                paths["history"],
+                stream_name="timeline",
+                timestamp_field="observed_at",
+                id_field="event_id",
+                current_month="2020-02",
+            )
+            index = refresh_history_index(observer_project)
+
+            self.assertEqual(first[0]["records_moved"], 1)
+            self.assertEqual(second, [])
+            live_rows = [json.loads(line) for line in paths["timeline"].read_text(encoding="utf-8").splitlines() if line]
+            shard = paths["history"] / "timeline" / "2020-01.jsonl"
+            shard_rows = [json.loads(line) for line in shard.read_text(encoding="utf-8").splitlines() if line]
+            self.assertEqual([row["event_id"] for row in live_rows], ["event-current"])
+            self.assertEqual([row["event_id"] for row in shard_rows], ["event-old"])
+            self.assertEqual(index["shard_count"], 1)
+            self.assertEqual(index["record_count"], 1)
+            self.assertTrue(paths["history_index"].is_file())
+
+    def test_data_age_uses_observed_run_cadence_instead_of_assuming_scheduler_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            paths = observer_paths(resolve_observer_project(project))
+            paths["runs"].parent.mkdir(parents=True, exist_ok=True)
+            runs = [
+                {"run_id": "r1", "status": "success", "started_at": "2020-01-01T00:00:00Z"},
+                {"run_id": "r2", "status": "success", "started_at": "2020-01-01T01:00:00Z"},
+                {"run_id": "r3", "status": "success", "started_at": "2020-01-01T02:00:00Z"},
+            ]
+            paths["runs"].write_text("".join(json.dumps(row) + "\n" for row in runs), encoding="utf-8")
+            current = {"observed_at": "2020-01-01T02:00:00Z"}
+
+            age = observer_data_age(current, paths["runs"])
+
+            self.assertEqual(age["expected_interval_seconds"], 3600.0)
+            self.assertEqual(age["cadence_sample_count"], 2)
+            self.assertEqual(age["stale_after_seconds"], 7200.0)
+            self.assertEqual(age["critical_after_seconds"], 21600.0)
+            self.assertEqual(age["state"], "critical")
+
+    def test_snapshot_alert_lifecycle_opens_and_resolves_machine_alerts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            observer_project = resolve_observer_project(project)
+            base = {
+                "revision": 1,
+                "observed_at": "2026-08-21T00:00:00Z",
+                "snapshot_consistency": {"state": "unstable"},
+                "workstreams": [],
+                "continuations": [],
+                "worktrees": [],
+            }
+            current = dict(base)
+            current["alerts"] = derive_snapshot_alerts(observer_project, current)
+            opened = build_alert_lifecycle_events(observer_project, None, current)
+
+            self.assertEqual(len(current["alerts"]), 1)
+            self.assertEqual(current["alerts"][0]["severity"], "critical")
+            self.assertEqual(opened[0]["kind"], "opened")
+
+            resolved_snapshot = {
+                **base,
+                "revision": 2,
+                "observed_at": "2026-08-21T01:00:00Z",
+                "snapshot_consistency": {"state": "stable"},
+                "alerts": [],
+            }
+            resolved = build_alert_lifecycle_events(observer_project, current, resolved_snapshot)
+            self.assertEqual(len(resolved), 1)
+            self.assertEqual(resolved[0]["kind"], "resolved")
 
     def test_status_after_snapshot_reports_self_health(self):
         with tempfile.TemporaryDirectory() as tmp:

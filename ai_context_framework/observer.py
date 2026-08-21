@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import statistics
 import time
 import uuid
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from ai_context_framework.git_support import (
 )
 from ai_context_framework.observability import acf_home, atomic_write_text, usage_project_dir
 from ai_context_framework.paths import discover_context, resolve_status_location, slugify_project_name
+from ai_context_framework.version import VERSION
 from ai_context_framework.worktree_status import capture_git_worktree_snapshot
 
 
@@ -41,6 +43,13 @@ OBSERVER_WORKTREE_SCHEMA = "acf.observer.worktree.v1"
 OBSERVER_WORKSTREAM_SCHEMA = "acf.observer.workstream.v1"
 OBSERVER_CONTINUATION_SCHEMA = "acf.observer.continuation.v1"
 OBSERVER_MACHINE_STATE_SCHEMA = "acf.observer.machine-state.v1"
+OBSERVER_ALERT_SCHEMA = "acf.observer.alert.v1"
+OBSERVER_ALERT_EVENT_SCHEMA = "acf.observer.alert-event.v1"
+OBSERVER_HISTORY_INDEX_SCHEMA = "acf.observer.history-index.v1"
+
+OBSERVER_LOCK_RECLAIM_GRACE_SECONDS = 60
+OBSERVER_MIN_STALE_WINDOW_SECONDS = 2 * 60 * 60
+OBSERVER_MIN_CRITICAL_WINDOW_SECONDS = 6 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -138,6 +147,8 @@ def observer_paths(project: ObserverProject) -> dict[str, Path]:
         "status": root / "observer_status.json",
         "lock": root / "lock.json",
         "dashboard": root / "dashboard.html",
+        "history": root / "history",
+        "history_index": root / "history" / "index.json",
     }
 
 
@@ -149,6 +160,38 @@ def _read_json_object(path: Path) -> dict[str, object] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
+
+
+def _read_jsonl_objects(path: Path) -> list[dict[str, object]]:
+    if not path.is_file():
+        return []
+    rows: list[dict[str, object]] = []
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(value, dict):
+                    rows.append(value)
+    except OSError:
+        return []
+    return rows
+
+
+def _parse_utc_iso(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def write_json_atomic(path: Path, payload: dict[str, object]) -> None:
@@ -206,7 +249,212 @@ def append_jsonl_unique(path: Path, payload: dict[str, object], *, id_field: str
     return True
 
 
-def acquire_observer_lock(project: ObserverProject, run_id: str) -> Path:
+def _record_month(payload: dict[str, object], timestamp_field: str) -> str | None:
+    parsed = _parse_utc_iso(payload.get(timestamp_field))
+    if parsed is None:
+        return None
+    return f"{parsed.year:04d}-{parsed.month:02d}"
+
+
+def rotate_jsonl_monthly(
+    path: Path,
+    history_root: Path,
+    *,
+    stream_name: str,
+    timestamp_field: str,
+    id_field: str,
+    current_month: str | None = None,
+) -> list[dict[str, object]]:
+    """Move completed-month JSONL records to lossless history shards.
+
+    Invalid/unknown records are deliberately retained in the live file rather
+    than discarded.  Shard appends are idempotent by stable record ID, so a
+    crash after appending a shard but before rewriting the live file can be
+    retried without duplication or data loss.
+    """
+
+    if not path.is_file():
+        return []
+    current_month = current_month or utc_now_iso()[:7]
+    try:
+        raw_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    except OSError:
+        return []
+    retained: list[str] = []
+    partitions: dict[str, list[dict[str, object]]] = {}
+    for raw_line in raw_lines:
+        normalized_line = raw_line if raw_line.endswith(("\n", "\r")) else raw_line + "\n"
+        if not raw_line.strip():
+            retained.append(normalized_line)
+            continue
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError:
+            retained.append(normalized_line)
+            continue
+        if not isinstance(payload, dict):
+            retained.append(normalized_line)
+            continue
+        month = _record_month(payload, timestamp_field)
+        raw_id = payload.get(id_field)
+        if month is None or month >= current_month or not isinstance(raw_id, str) or not raw_id:
+            retained.append(normalized_line)
+            continue
+        partitions.setdefault(month, []).append(payload)
+
+    if not partitions:
+        return []
+
+    rotations: list[dict[str, object]] = []
+    for month, payloads in sorted(partitions.items()):
+        shard_path = history_root / stream_name / f"{month}.jsonl"
+        appended = 0
+        for payload in payloads:
+            if append_jsonl_unique(shard_path, payload, id_field=id_field):
+                appended += 1
+        rotations.append(
+            {
+                "stream": stream_name,
+                "month": month,
+                "shard_path": str(shard_path),
+                "records_moved": len(payloads),
+                "records_appended": appended,
+            }
+        )
+    atomic_write_text(path, "".join(retained))
+    return rotations
+
+
+def refresh_history_index(project: ObserverProject) -> dict[str, object]:
+    paths = observer_paths(project)
+    history_root = paths["history"]
+    shards: list[dict[str, object]] = []
+    if history_root.is_dir():
+        for shard_path in sorted(history_root.glob("*/*.jsonl")):
+            rows = _read_jsonl_objects(shard_path)
+            timestamps: list[str] = []
+            for row in rows:
+                for field in ("observed_at", "started_at", "finished_at"):
+                    value = row.get(field)
+                    if isinstance(value, str) and _parse_utc_iso(value) is not None:
+                        timestamps.append(value)
+                        break
+            shards.append(
+                {
+                    "stream": shard_path.parent.name,
+                    "month": shard_path.stem,
+                    "path": shard_path.relative_to(project.observer_dir).as_posix(),
+                    "record_count": len(rows),
+                    "first_at": min(timestamps) if timestamps else None,
+                    "last_at": max(timestamps) if timestamps else None,
+                }
+            )
+    payload = {
+        "schema_version": OBSERVER_HISTORY_INDEX_SCHEMA,
+        "project_id": project.project_id,
+        "generated_at": utc_now_iso(),
+        "shard_count": len(shards),
+        "record_count": sum(int(row["record_count"]) for row in shards),
+        "shards": shards,
+    }
+    write_json_atomic(paths["history_index"], payload)
+    return payload
+
+
+def rotate_observer_history(project: ObserverProject) -> list[dict[str, object]]:
+    paths = observer_paths(project)
+    stream_specs = (
+        ("timeline", "timeline", "observed_at", "event_id"),
+        ("observations", "observations", "observed_at", "observation_id"),
+        ("alerts", "alerts", "observed_at", "alert_event_id"),
+        ("runs", "runs", "started_at", "run_id"),
+    )
+    rotations: list[dict[str, object]] = []
+    for path_key_name, stream_name, timestamp_field, id_field in stream_specs:
+        rotations.extend(
+            rotate_jsonl_monthly(
+                paths[path_key_name],
+                paths["history"],
+                stream_name=stream_name,
+                timestamp_field=timestamp_field,
+                id_field=id_field,
+            )
+        )
+    # Keep an explicit zero-shard index from the first successful Observer
+    # run.  Consumers can then distinguish "history initialized but not yet
+    # rotated" from "history feature absent/unknown" without probing files.
+    refresh_history_index(project)
+    return rotations
+
+
+def _process_is_alive(pid: object) -> bool | None:
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+    if pid == os.getpid():
+        return True
+    if os.name == "nt":
+        # Querying process state through Win32 is read-only.  Avoid
+        # ``os.kill(pid, 0)`` on Windows because its semantics are not the
+        # POSIX liveness probe and may terminate a process for non-console
+        # signal values.
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            process_query_limited_information = 0x1000
+            still_active = 259
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+            kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+            if not handle:
+                error = ctypes.get_last_error()
+                if error in {87, 1168}:  # invalid parameter / not found
+                    return False
+                if error == 5:  # access denied: fail closed
+                    return None
+                return False
+            try:
+                exit_code = wintypes.DWORD()
+                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    return None
+                return exit_code.value == still_active
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return None
+    except OSError:
+        return None
+    return True
+
+
+def _lock_age_seconds(owner: dict[str, object] | None) -> float | None:
+    if not owner:
+        return None
+    started = _parse_utc_iso(owner.get("started_at"))
+    if started is None:
+        return None
+    return max(0.0, (datetime.now(timezone.utc) - started).total_seconds())
+
+
+def _lock_is_confidently_abandoned(owner: dict[str, object] | None) -> bool:
+    age = _lock_age_seconds(owner)
+    if age is None or age < OBSERVER_LOCK_RECLAIM_GRACE_SECONDS:
+        return False
+    return _process_is_alive(owner.get("pid")) is False
+
+
+def acquire_observer_lock(project: ObserverProject, run_id: str) -> tuple[Path, dict[str, object] | None]:
     paths = observer_paths(project)
     lock_path = paths["lock"]
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,10 +465,29 @@ def acquire_observer_lock(project: ObserverProject, run_id: str) -> Path:
         "pid": os.getpid(),
         "started_at": utc_now_iso(),
     }
-    try:
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as exc:
-        raise ObserverLockedError(lock_path, _read_json_object(lock_path)) from exc
+    recovered_owner: dict[str, object] | None = None
+    for _attempt in range(2):
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError as exc:
+            owner = _read_json_object(lock_path)
+            if not _lock_is_confidently_abandoned(owner):
+                raise ObserverLockedError(lock_path, owner) from exc
+            quarantine = lock_path.with_name(f".{lock_path.name}.abandoned-{run_id}")
+            try:
+                os.replace(lock_path, quarantine)
+            except FileNotFoundError:
+                continue
+            except OSError as replace_exc:
+                raise ObserverLockedError(lock_path, owner) from replace_exc
+            recovered_owner = owner
+            try:
+                quarantine.unlink()
+            except OSError:
+                pass
+    else:
+        raise ObserverLockedError(lock_path, _read_json_object(lock_path))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
@@ -235,7 +502,7 @@ def acquire_observer_lock(project: ObserverProject, run_id: str) -> Path:
         except OSError:
             pass
         raise
-    return lock_path
+    return lock_path, recovered_owner
 
 
 def release_observer_lock(lock_path: Path, run_id: str) -> None:
@@ -741,6 +1008,194 @@ def enrich_workstream_machine_states(
     return enriched
 
 
+def derive_snapshot_alerts(project: ObserverProject, snapshot: dict[str, object]) -> list[dict[str, object]]:
+    observed_at = str(snapshot.get("observed_at") or utc_now_iso())
+    alerts: list[dict[str, object]] = []
+
+    def add_alert(
+        *,
+        alert_key: str,
+        severity: str,
+        title: str,
+        explanation: str,
+        canonical_identity: dict[str, object],
+        provenance: list[dict[str, object]],
+    ) -> None:
+        alerts.append(
+            {
+                "schema_version": OBSERVER_ALERT_SCHEMA,
+                "project_id": project.project_id,
+                "alert_key": alert_key,
+                "severity": severity,
+                "status": "active",
+                "title": title,
+                "explanation": explanation,
+                "canonical_identity": canonical_identity,
+                "observed_at": observed_at,
+                "provenance": provenance,
+            }
+        )
+
+    consistency = snapshot.get("snapshot_consistency")
+    if isinstance(consistency, dict) and consistency.get("state") == "unstable":
+        add_alert(
+            alert_key="project:snapshot-consistency-unstable",
+            severity="critical",
+            title="项目状态无法获得稳定一致快照",
+            explanation="连续多次读取期间项目事实仍持续变化，本次快照只能作为部分一致观察，不能据此生成高置信度新结论。",
+            canonical_identity={"type": "project", "id": project.project_id},
+            provenance=[
+                {
+                    "source": "snapshot_consistency",
+                    "first_fingerprint": consistency.get("first_fingerprint"),
+                    "second_fingerprint": consistency.get("second_fingerprint"),
+                    "final_fingerprint": consistency.get("final_fingerprint"),
+                }
+            ],
+        )
+
+    for row in snapshot.get("workstreams") or []:
+        if not isinstance(row, dict):
+            continue
+        workstream_id = str(row.get("id") or "unknown")
+        if row.get("source_consistency") == "divergent":
+            add_alert(
+                alert_key=f"workstream:{workstream_id}:source-divergent",
+                severity="critical",
+                title=f"{workstream_id} 的权威来源出现不一致",
+                explanation="同一 Workstream 的项目级来源在标题、状态、关注度或目标上存在冲突；在来源重新一致前不应把其中任一版本当作确定语义事实。",
+                canonical_identity={"type": "workstream", "id": workstream_id},
+                provenance=[
+                    {
+                        "source": "workstream_sources",
+                        "source_paths": [
+                            item.get("detail_path")
+                            for item in row.get("sources") or []
+                            if isinstance(item, dict)
+                        ],
+                    }
+                ],
+            )
+
+    for row in snapshot.get("continuations") or []:
+        if not isinstance(row, dict):
+            continue
+        effects = row.get("effects") if isinstance(row.get("effects"), dict) else {}
+        unresolved = int(effects.get("unresolved_count") or 0)
+        if unresolved <= 0:
+            continue
+        task_id = str(row.get("task_id") or "unknown")
+        add_alert(
+            alert_key=f"continuation:{task_id}:unresolved-effects",
+            severity="critical",
+            title=f"{task_id} 存在未终结外部副作用",
+            explanation=f"检测到 {unresolved} 个 prepared/active/unknown effect。该状态需要依赖持久化外部身份与权威终态证据处理，Observer 只报告而不执行恢复。",
+            canonical_identity={
+                "type": "continuation",
+                "task_id": task_id,
+                "workstream_id": row.get("workstream_id"),
+            },
+            provenance=[
+                {
+                    "source": "continuation_effect_summary",
+                    "source_dir": row.get("source_dir"),
+                    "status_counts": effects.get("status_counts") or {},
+                }
+            ],
+        )
+
+    for row in snapshot.get("worktrees") or []:
+        if not isinstance(row, dict) or not row.get("read_error"):
+            continue
+        add_alert(
+            alert_key=f"worktree:{path_key(str(row.get('path') or 'unknown'))}:read-error",
+            severity="warning",
+            title="部分项目 Worktree 无法完成状态读取",
+            explanation="Observer 保留了该 Worktree 的基础身份，但无法获得完整 Git 状态；本次项目视图可能缺少该工作区的最新事实。",
+            canonical_identity={"type": "worktree", "path": row.get("path")},
+            provenance=[{"source": "git_worktree_snapshot", "error": row.get("read_error")}],
+        )
+
+    severity_order = {"critical": 0, "warning": 1, "info": 2}
+    alerts.sort(key=lambda row: (severity_order.get(str(row.get("severity")), 9), str(row.get("alert_key"))))
+    return alerts
+
+
+def _alert_index(snapshot: dict[str, object] | None) -> dict[str, dict[str, object]]:
+    if not snapshot:
+        return {}
+    rows = snapshot.get("alerts")
+    if not isinstance(rows, list):
+        return {}
+    result: dict[str, dict[str, object]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = row.get("alert_key")
+        if isinstance(key, str) and key:
+            result[key] = row
+    return result
+
+
+def build_alert_lifecycle_events(
+    project: ObserverProject,
+    previous: dict[str, object] | None,
+    current: dict[str, object],
+) -> list[dict[str, object]]:
+    observed_at = str(current.get("observed_at") or utc_now_iso())
+    previous_alerts = _alert_index(previous)
+    current_alerts = _alert_index(current)
+    if previous is not None and isinstance(previous.get("revision"), int):
+        occurrence_anchor = f"revision:{previous['revision']}"
+    elif previous and previous.get("observed_at"):
+        occurrence_anchor = f"observed_at:{previous['observed_at']}"
+    else:
+        occurrence_anchor = "__observer_bootstrap__"
+    events: list[dict[str, object]] = []
+    for alert_key in sorted(set(previous_alerts) | set(current_alerts)):
+        before = previous_alerts.get(alert_key)
+        after = current_alerts.get(alert_key)
+        if before is None and after is not None:
+            kind = "opened"
+        elif before is not None and after is None:
+            kind = "resolved"
+        elif before is not None and after is not None:
+            comparable_before = {key: before.get(key) for key in ("severity", "title", "explanation", "canonical_identity")}
+            comparable_after = {key: after.get(key) for key in ("severity", "title", "explanation", "canonical_identity")}
+            if comparable_before == comparable_after:
+                continue
+            kind = "updated"
+        else:
+            continue
+        identity_payload = {
+            "occurrence_anchor": occurrence_anchor,
+            "alert_key": alert_key,
+            "kind": kind,
+            "before": before,
+            "after": after,
+        }
+        source = after or before or {}
+        events.append(
+            {
+                "schema_version": OBSERVER_ALERT_EVENT_SCHEMA,
+                "project_id": project.project_id,
+                "alert_event_id": _stable_id("alert", identity_payload),
+                "observed_at": observed_at,
+                "occurrence_anchor": occurrence_anchor,
+                "kind": kind,
+                "alert_key": alert_key,
+                "severity": source.get("severity"),
+                "title": source.get("title"),
+                "explanation": source.get("explanation"),
+                "canonical_identity": source.get("canonical_identity"),
+                "before": before,
+                "after": after,
+                "provenance": source.get("provenance") or [],
+            }
+        )
+    return events
+
+
 def _stable_id(prefix: str, payload: dict[str, object]) -> str:
     text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:20]
@@ -1183,7 +1638,7 @@ def build_observer_snapshot(
     worktrees = list(final.get("worktrees") or [])
     workstreams = list(final.get("workstreams") or [])
     continuations = list(final.get("continuations") or [])
-    return {
+    snapshot = {
         "schema_version": OBSERVER_CURRENT_SCHEMA,
         "project_id": project.project_id,
         "revision": previous_revision + 1,
@@ -1209,6 +1664,8 @@ def build_observer_snapshot(
             "note": "Semantic Workstream interpretation is populated by a later Observer stage.",
         },
     }
+    snapshot["alerts"] = derive_snapshot_alerts(project, snapshot)
+    return snapshot
 
 
 def _status_payload(
@@ -1225,6 +1682,7 @@ def _status_payload(
     return {
         "schema_version": OBSERVER_STATUS_SCHEMA,
         "project_id": project.project_id,
+        "acf_version": VERSION,
         "last_started": last_started,
         "last_success": last_success,
         "last_failure": last_failure,
@@ -1235,12 +1693,70 @@ def _status_payload(
     }
 
 
+def _estimate_observer_cadence_seconds(runs_path: Path) -> tuple[float | None, int]:
+    successful_times: list[datetime] = []
+    for row in _read_jsonl_objects(runs_path):
+        if row.get("status") != "success":
+            continue
+        parsed = _parse_utc_iso(row.get("started_at"))
+        if parsed is not None:
+            successful_times.append(parsed)
+    successful_times = sorted(successful_times)[-9:]
+    intervals = [
+        (right - left).total_seconds()
+        for left, right in zip(successful_times, successful_times[1:])
+        if (right - left).total_seconds() > 0
+    ]
+    if len(intervals) < 2:
+        return None, len(intervals)
+    return float(statistics.median(intervals)), len(intervals)
+
+
+def observer_data_age(current: dict[str, object] | None, runs_path: Path) -> dict[str, object]:
+    if current is None:
+        return {
+            "state": "missing",
+            "age_seconds": None,
+            "observed_at": None,
+            "expected_interval_seconds": None,
+            "cadence_sample_count": 0,
+            "stale_after_seconds": None,
+            "critical_after_seconds": None,
+        }
+    observed = _parse_utc_iso(current.get("observed_at"))
+    age_seconds = max(0.0, (datetime.now(timezone.utc) - observed).total_seconds()) if observed else None
+    expected_interval, sample_count = _estimate_observer_cadence_seconds(runs_path)
+    stale_after: float | None = None
+    critical_after: float | None = None
+    freshness = "unknown"
+    if age_seconds is None:
+        freshness = "unknown"
+    elif expected_interval is not None:
+        stale_after = max(OBSERVER_MIN_STALE_WINDOW_SECONDS, expected_interval * 2)
+        critical_after = max(OBSERVER_MIN_CRITICAL_WINDOW_SECONDS, expected_interval * 6)
+        if age_seconds > critical_after:
+            freshness = "critical"
+        elif age_seconds > stale_after:
+            freshness = "stale"
+        else:
+            freshness = "fresh"
+    return {
+        "state": freshness,
+        "age_seconds": round(age_seconds, 3) if age_seconds is not None else None,
+        "observed_at": current.get("observed_at"),
+        "expected_interval_seconds": round(expected_interval, 3) if expected_interval is not None else None,
+        "cadence_sample_count": sample_count,
+        "stale_after_seconds": round(stale_after, 3) if stale_after is not None else None,
+        "critical_after_seconds": round(critical_after, 3) if critical_after is not None else None,
+    }
+
+
 def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
     run_id = str(uuid.uuid4())
     started_at = utc_now_iso()
     started = time.perf_counter()
     paths = observer_paths(project)
-    lock_path = acquire_observer_lock(project, run_id)
+    lock_path, recovered_lock_owner = acquire_observer_lock(project, run_id)
     try:
         try:
             previous_current = _read_json_object(paths["current"])
@@ -1254,6 +1770,7 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
             ensure_jsonl_file(paths["observations"])
             ensure_jsonl_file(paths["alerts"])
             ensure_jsonl_file(paths["runs"])
+            rotations = rotate_observer_history(project)
             events = build_meaningful_events(project, previous_current, current)
             appended_event_count = 0
             for event in events:
@@ -1267,6 +1784,11 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
                     observation,
                     id_field="observation_id",
                 )
+            alert_events = build_alert_lifecycle_events(project, previous_current, current)
+            appended_alert_event_count = 0
+            for alert_event in alert_events:
+                if append_jsonl_unique(paths["alerts"], alert_event, id_field="alert_event_id"):
+                    appended_alert_event_count += 1
             finished_at = utc_now_iso()
             duration_ms = int((time.perf_counter() - started) * 1000)
             run = {
@@ -1280,7 +1802,11 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
                 "worktrees_scanned": len(current.get("worktrees") or []),
                 "snapshot_consistency": (current.get("snapshot_consistency") or {}).get("state"),
                 "meaningful_event_count": appended_event_count,
+                "alert_event_count": appended_alert_event_count,
                 "observation_recorded": observation_recorded,
+                "history_rotation_count": sum(int(item.get("records_moved") or 0) for item in rotations),
+                "stale_lock_recovered": recovered_lock_owner is not None,
+                "recovered_lock_owner": recovered_lock_owner,
                 "duration_ms": duration_ms,
             }
             previous_status = _read_json_object(paths["status"]) or {}
@@ -1337,6 +1863,25 @@ def observer_status(project: ObserverProject) -> dict[str, object]:
     current = _read_json_object(paths["current"])
     status = _read_json_object(paths["status"])
     lock = _read_json_object(paths["lock"])
+    history_index = _read_json_object(paths["history_index"])
+    data_age = observer_data_age(current, paths["runs"])
+    self_health_alerts: list[dict[str, object]] = []
+    if data_age.get("state") in {"stale", "critical"}:
+        severity = "critical" if data_age.get("state") == "critical" else "warning"
+        self_health_alerts.append(
+            {
+                "schema_version": OBSERVER_ALERT_SCHEMA,
+                "project_id": project.project_id,
+                "alert_key": "observer:data-age",
+                "severity": severity,
+                "status": "active",
+                "title": "Observer 数据已明显陈旧" if severity == "critical" else "Observer 数据更新时间超出常规节奏",
+                "explanation": "该提示来自 Observer 自身运行历史推断的常规刷新节奏；项目本身可能仍在变化，请不要把旧 Dashboard 当作当前实时状态。",
+                "canonical_identity": {"type": "observer", "project_id": project.project_id},
+                "observed_at": utc_now_iso(),
+                "provenance": [{"source": "observer_data_age", **data_age}],
+            }
+        )
     return {
         "project": project.to_payload(),
         "observer_dir": str(project.observer_dir),
@@ -1347,7 +1892,11 @@ def observer_status(project: ObserverProject) -> dict[str, object]:
         "timeline_path": str(paths["timeline"]),
         "observations_path": str(paths["observations"]),
         "dashboard_path": str(paths["dashboard"]),
+        "history_index_path": str(paths["history_index"]),
         "lock": lock,
         "current": current,
         "self_health": status,
+        "data_age": data_age,
+        "self_health_alerts": self_health_alerts,
+        "history_index": history_index,
     }
