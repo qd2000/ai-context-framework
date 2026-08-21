@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Inactive
+Active
 
-说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Inactive
 
 | ID    | 状态   | 标题                         | Owner   | 写入范围                                                                                                                                                                                                                                                                                                                                                                                                      | 依赖                  | 输出物                              | 详情                                                  |
 | ----- | ---- | -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------- | --------------------------------------------------- |
-| WS011 | Open | Project Observer 与自治可观测性 | ChatGPT | assigned: ai_context_framework/observer.py, assigned: ai_context_framework/commands/observer.py, assigned: ai_context_framework/runtime.py, assigned: tests/test_observer_cli.py, assigned: scripts/minimal_smoke.py, assigned: docs/Automation.md, assigned: README.md, assigned: docs/ai/reference/System_Manual.md, assigned: template/reference/System_Manual.md, assigned: docs/ai/reference/ws011_project_observer/**, assigned: CHANGELOG.md | 无。 | 通用 Project Observer CLI、稳定 schema/history/semantic 模型、自包含静态 Dashboard、ACF 自 dogfood 证据与最终发布。 | active/workstreams/WS011.md |
+| WS011 | Active | Project Observer 与自治可观测性 | ChatGPT | assigned: ai_context_framework/observer.py, assigned: ai_context_framework/commands/observer.py, assigned: ai_context_framework/runtime.py, assigned: tests/test_observer_cli.py, assigned: scripts/minimal_smoke.py, assigned: docs/Automation.md, assigned: README.md, assigned: docs/ai/reference/System_Manual.md, assigned: template/reference/System_Manual.md, assigned: docs/ai/reference/ws011_project_observer/**, assigned: CHANGELOG.md |  | 通用 Project Observer CLI、稳定 schema/history/semantic 模型、自包含静态 Dashboard、ACF 自 dogfood 证据与最终发布。 | active/workstreams/WS011.md |
 
 ---
 
