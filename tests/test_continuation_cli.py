@@ -817,6 +817,142 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(["dirty.txt"], inherited["workspace"]["task_owned_paths"])
         self.assertEqual(["dirty.txt"], inherited["workspace"]["write_intent_paths"])
 
+    def test_tracked_unstaged_task_owned_wip_release_does_not_false_drift(self) -> None:
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--path",
+                "README.md",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        (self.root / "README.md").write_text("continuation updated\n", encoding="utf-8")
+
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        self.assertEqual(["README.md"], released["workspace"]["task_owned_paths"])
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertTrue(doctor["can_claim"], doctor)
+        self.assertNotIn("workspace_conflict", doctor["blocked_reasons"])
+        self.assertEqual([], doctor["workspace"]["conflicts"])
+        self.assertEqual(["README.md"], doctor["workspace"]["task_owned_paths"])
+
+    def test_legacy_raw_porcelain_digest_is_healed_without_accepting_content_drift(self) -> None:
+        init = self.init_task("WS908")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--path",
+                "README.md",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        (self.root / "README.md").write_text("legacy handoff\n", encoding="utf-8")
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+
+        workspace_path = state_dir / "workspace.json"
+        workspace = json.loads(workspace_path.read_text(encoding="utf-8"))
+        self.assertEqual("M", workspace["task_owned"][0]["status"])
+        workspace["task_owned"][0]["digest"] = continuation_workspace._entry_digest(
+            self.root, "README.md", " M"
+        )
+        workspace_path.write_text(
+            json.dumps(workspace, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertTrue(doctor["can_claim"], doctor)
+        self.assertEqual([], doctor["workspace"]["conflicts"])
+
+        code, inherited, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{inherited}")
+        healed = json.loads(workspace_path.read_text(encoding="utf-8"))
+        live = continuation_workspace.git_snapshot(self.root)["entries"][0]
+        self.assertEqual(live["digest"], healed["task_owned"][0]["digest"])
+
     def test_task_owned_wip_can_cross_multiple_generations_without_commit(self) -> None:
         self.init_task("WS908")
         code, claim, stderr = self.run_json(
