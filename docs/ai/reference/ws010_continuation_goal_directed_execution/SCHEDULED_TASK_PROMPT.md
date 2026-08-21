@@ -1,8 +1,8 @@
 # WS010 Standard Scheduled Task Wrapper
 
-本文件是 WS010 可直接复制到外部 Scheduled Task 的薄 wrapper，也是后续其他 ACF continuation 自动任务的模板样本。
+本文件保留 WS010 当时用于真实 dogfood 的 Scheduled Task wrapper，属于历史设计样本，不再作为当前 ACF scheduler wrapper 的 canonical 模板直接复制。
 
-它只固定执行身份、每次 scheduler wake 的 dynamic prompt 入口和项目专用约束；不复制 generic claim、contention、workspace、effect、reconcile 或 recover 状态机，也不为 scheduler wake 人为定义“本轮收口”或汇报终点。
+当前产品合同已经从当时的“thin wrapper”演进为 **sufficient high-salience bootstrap wrapper**：外层 Scheduled Task 必须完整携带 existing-workspace/connector 打开语义、稳定 ACF 升级与兼容迁移、authority refresh、generated default plan 的执行方式、owner 用户可见披露以及项目专用 Runtime/resource/permission/security/scientific/validation/issue-reporting 约束；generic claim/challenge/reconcile/workspace/effect/fencing 状态机仍不得复制。当前权威见 `docs/ai/reference/Continuation_Control_Design.md` 与 System Manual。
 
 ---
 
@@ -73,9 +73,11 @@ final response 会结束当前 execution session。不要为了汇报进展、�
 
 ---
 
-## 通用模板预留
+## 历史迁移说明
 
-将本 wrapper 迁移到其他项目时，只替换：
+以下内容记录 WS010 当时向其他项目迁移的思路，仅用于理解历史演进；不要把本节作为当前 wrapper 生成模板。当前 wrapper 应按 `.72` sufficient bootstrap contract 重新组织，并使用 `acf continuation prompt --runner-id <runner> --json` 获取 state-conditioned generic protocol。
+
+WS010 当时迁移时替换：
 
 1. DevSpace/connector；
 2. project/worktree/branch/workstream/task-id/PLAN 固定身份；
@@ -84,7 +86,7 @@ final response 会结束当前 execution session。不要为了汇报进展、�
 
 不得把 generic continuation 状态机复制进外层 Scheduled Task。
 
-## 迁移到其他开发任务的最小清单
+## 当时迁移到其他开发任务的最小清单
 
 迁移时只做参数化替换，不复制 WS010 self-hosting 细节：
 
