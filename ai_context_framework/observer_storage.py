@@ -12,6 +12,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -23,12 +24,13 @@ OBSERVER_LOCK_SCHEMA = "acf.observer.lock.v1"
 OBSERVER_SEMANTIC_SCHEMA = "acf.observer.semantic.v1"
 OBSERVER_INTERPRETATION_SCHEMA = "acf.observer.interpretation.v1"
 OBSERVER_GLOSSARY_SCHEMA = "acf.observer.glossary.v1"
+OBSERVER_DASHBOARD_SCHEMA = "acf.observer.dashboard.v1"
 OBSERVER_LOCK_RECLAIM_GRACE_SECONDS = 60
 OBSERVER_SEMANTIC_CONFIDENCE = {"authoritative", "high", "medium", "low"}
 SEMANTIC_SENSITIVE_VALUE_RE = re.compile(
     r"(?i)(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|"
     r"\b(?:api[_ -]?key|password|passwd|fence[_ -]?token|credential|access[_ -]?token|"
-    r"refresh[_ -]?token|license[_ -]?key|private[_ -]?key)\b\s*[:=]\s*\S+|"
+    r"refresh[_ -]?token|token|license(?:[_ -]?key)?|private[_ -]?key)\b\s*[:=]\s*\S+|"
     r"\bsk-[A-Za-z0-9_-]{20,})"
 )
 
@@ -103,12 +105,6 @@ def semantic_source_projection(
                 "round_phase": latest.get("phase"),
                 "round_milestone": latest.get("milestone"),
                 "round_evidence_refs": list(latest.get("evidence_refs") or []),
-                "effect_status_counts": (row.get("effects") or {}).get("status_counts")
-                if isinstance(row.get("effects"), dict)
-                else {},
-                "unresolved_effect_count": (row.get("effects") or {}).get("unresolved_count")
-                if isinstance(row.get("effects"), dict)
-                else 0,
             }
         )
     related.sort(key=lambda row: (str(row.get("task_id") or ""), str(row.get("stage") or "")))
@@ -362,6 +358,398 @@ def set_glossary_term(
     }
     write_json_atomic(observer_paths(project)["glossary"], payload)
     return payload, True
+
+
+_DASHBOARD_SECRET_KEYS = {
+    "fence_token",
+    "fence_token_hash",
+    "lease_id",
+    "password",
+    "passwd",
+    "api_key",
+    "access_token",
+    "refresh_token",
+    "token",
+    "private_key",
+    "credential",
+    "credentials",
+    "license_key",
+    "license",
+}
+
+
+def sanitize_observer_payload(value: object) -> object:
+    """Remove credential-like material before persisting or rendering Observer data."""
+
+    if isinstance(value, dict):
+        cleaned: dict[str, object] = {}
+        for raw_key, raw_value in value.items():
+            key = str(raw_key)
+            normalized = key.casefold().replace("-", "_").replace(" ", "_")
+            if normalized in _DASHBOARD_SECRET_KEYS or "secret" in normalized:
+                cleaned[key] = "[redacted]"
+            else:
+                cleaned[key] = sanitize_observer_payload(raw_value)
+        return cleaned
+    if isinstance(value, list):
+        return [sanitize_observer_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return [sanitize_observer_payload(item) for item in value]
+    if isinstance(value, str) and SEMANTIC_SENSITIVE_VALUE_RE.search(value):
+        return "[redacted]"
+    return value
+
+
+# Backward-compatible local alias for renderer call sites.  Observer state and
+# HTML now share one sanitization contract so secrets cannot enter structured
+# runtime state and later leak through another presentation layer.
+sanitize_dashboard_payload = sanitize_observer_payload
+
+
+def _html_text(value: object, fallback: str = "—") -> str:
+    if value is None or value == "":
+        return fallback
+    return escape(str(value), quote=True)
+
+
+def _health_rank(value: object) -> int:
+    return {"critical": 3, "warning": 2, "healthy": 1}.get(str(value or "").casefold(), 0)
+
+
+def _overall_health(current: dict[str, object], self_health_alerts: list[dict[str, object]]) -> str:
+    candidates: list[str] = []
+    for alert in list(current.get("alerts") or []) + self_health_alerts:
+        if isinstance(alert, dict):
+            severity = str(alert.get("severity") or "")
+            if severity == "critical":
+                candidates.append("critical")
+            elif severity == "warning":
+                candidates.append("warning")
+    for workstream in current.get("workstreams") or []:
+        if not isinstance(workstream, dict):
+            continue
+        machine = workstream.get("machine_state") if isinstance(workstream.get("machine_state"), dict) else {}
+        candidates.append(str(machine.get("health") or ""))
+    return max(candidates, key=_health_rank, default="healthy")
+
+
+def _state_badge(kind: str, value: object) -> str:
+    raw = str(value or "unknown")
+    normalized = raw.casefold()
+    if kind == "health":
+        tone = normalized if normalized in {"healthy", "warning", "critical"} else "muted"
+    elif kind == "execution":
+        tone = "active" if normalized in {"running", "active"} else "warning" if "wait" in normalized else "muted"
+    elif kind == "progress":
+        tone = "healthy" if normalized == "advancing" else "warning" if normalized in {"slow", "regressing"} else "muted"
+    else:
+        tone = "muted"
+    labels = {
+        "healthy": "健康",
+        "warning": "关注",
+        "critical": "严重",
+        "running": "运行中",
+        "waiting_external": "等待外部结果",
+        "idle": "空闲",
+        "blocked": "阻塞",
+        "done": "完成",
+        "advancing": "推进中",
+        "unchanged": "无新增",
+        "slow": "推进较慢",
+        "regressing": "回退",
+        "unknown": "尚未判定",
+    }
+    icon = {"critical": "●", "warning": "▲", "healthy": "●", "active": "●", "muted": "○"}[tone]
+    label = labels.get(normalized, raw)
+    return f'<span class="badge tone-{tone}"><span aria-hidden="true">{icon}</span> {_html_text(label)}</span>'
+
+
+def _dashboard_alert_html(alert: dict[str, object]) -> str:
+    severity = str(alert.get("severity") or "info").casefold()
+    tone = severity if severity in {"critical", "warning"} else "active"
+    icon = "●" if severity == "critical" else "▲" if severity == "warning" else "●"
+    title = _html_text(alert.get("title") or alert.get("alert_key") or "Observer 提示")
+    explanation = _html_text(alert.get("explanation"))
+    return (
+        f'<article class="alert tone-border-{tone}" data-health="{escape(tone)}">'
+        f'<div class="alert-title"><span class="tone-text-{tone}" aria-hidden="true">{icon}</span> {title}</div>'
+        f'<div class="muted">{_html_text(severity.upper())}</div>'
+        f'<p>{explanation}</p>'
+        "</article>"
+    )
+
+
+def _continuation_for_workstream(current: dict[str, object], workstream_id: str) -> dict[str, object] | None:
+    for row in current.get("continuations") or []:
+        if isinstance(row, dict) and row.get("workstream_id") == workstream_id:
+            return row
+    return None
+
+
+def _worktree_for_workstream(current: dict[str, object], workstream: dict[str, object]) -> dict[str, object] | None:
+    selected = workstream.get("selected_source")
+    for row in current.get("worktrees") or []:
+        if isinstance(row, dict) and row.get("path") == selected:
+            return row
+    registry = workstream.get("registry") if isinstance(workstream.get("registry"), dict) else {}
+    registry_path = registry.get("path")
+    for row in current.get("worktrees") or []:
+        if isinstance(row, dict) and row.get("path") == registry_path:
+            return row
+    return None
+
+
+def _workstream_card_html(current: dict[str, object], row: dict[str, object]) -> str:
+    workstream_id = str(row.get("id") or "unknown")
+    machine = row.get("machine_state") if isinstance(row.get("machine_state"), dict) else {}
+    semantic = row.get("semantic") if isinstance(row.get("semantic"), dict) else {}
+    semantic_status = str(semantic.get("status") or "not_interpreted")
+    interpretation = semantic.get("interpretation") if isinstance(semantic.get("interpretation"), dict) else {}
+    usable_semantic = semantic_status == "current" and bool(interpretation)
+    human_title = interpretation.get("human_title") if usable_semantic else row.get("title")
+    confidence = interpretation.get("confidence") if usable_semantic else None
+    confidence_notice = interpretation.get("confidence_notice") if usable_semantic else None
+    search_parts = [
+        workstream_id,
+        str(row.get("title") or ""),
+        str(human_title or ""),
+        str(row.get("goal") or ""),
+        str(interpretation.get("current_focus") or ""),
+        str(interpretation.get("why_now") or ""),
+        str(interpretation.get("next_step") or ""),
+    ]
+    continuation = _continuation_for_workstream(current, workstream_id) or {}
+    worktree = _worktree_for_workstream(current, row) or {}
+    related_proof = interpretation.get("recent_proof") if usable_semantic else []
+    proof_html = "".join(f"<li>{_html_text(item)}</li>" for item in (related_proof or []))
+    if not proof_html:
+        proof_html = "<li class=\"muted\">当前尚无已确认的人类语义进展解释。</li>"
+    semantic_notice = ""
+    if semantic_status == "stale":
+        semantic_notice = '<div class="semantic-notice tone-border-warning"><strong>▲ 语义解释已陈旧</strong>：底层项目事实已变化，以下主视图不会继续把旧解释当作当前事实。</div>'
+    elif semantic_status != "current":
+        semantic_notice = '<div class="semantic-notice"><strong>○ 尚未生成当前语义解释</strong>：暂时仅展示机器事实与 canonical identity。</div>'
+    elif confidence_notice:
+        semantic_notice = f'<div class="semantic-notice tone-border-warning"><strong>▲ {_html_text(confidence_notice)}</strong>：该解释置信度为 {_html_text(confidence)}，请同时核对 canonical identity 与 provenance。</div>'
+    current_focus = interpretation.get("current_focus") if usable_semantic else continuation.get("next_action") or row.get("goal")
+    why_now = interpretation.get("why_now") if usable_semantic else "当前语义解释尚未与最新事实绑定；请以机器状态和项目计划为准。"
+    implication = interpretation.get("implication") if usable_semantic else "Observer 不会从缺失解释中推造项目结论。"
+    next_step = interpretation.get("next_step") if usable_semantic else continuation.get("next_action") or "等待项目事实提供明确下一步。"
+    provenance = interpretation.get("provenance") if usable_semantic else []
+    provenance_html = "".join(
+        f"<li><code>{_html_text(item.get('ref'))}</code></li>" for item in provenance if isinstance(item, dict)
+    ) or "<li class=\"muted\">暂无语义 provenance。</li>"
+    source_fingerprint = semantic.get("source_fingerprint")
+    lease = continuation.get("lease") if isinstance(continuation.get("lease"), dict) else {}
+    liveness = lease.get("liveness") if isinstance(lease.get("liveness"), dict) else {}
+    effects = continuation.get("effects") if isinstance(continuation.get("effects"), dict) else {}
+    search_value = escape(" ".join(search_parts).casefold(), quote=True)
+    health_value = escape(str(machine.get("health") or "unknown").casefold(), quote=True)
+    return f"""
+<article class="workstream-card" data-search="{search_value}" data-health="{health_value}">
+  <header class="card-header">
+    <div>
+      <h3>{_html_text(human_title)}</h3>
+      <div class="canonical"><code>{_html_text(workstream_id)}</code> · 原始名称：{_html_text(row.get('title'))}</div>
+    </div>
+    <div class="badge-row">{_state_badge('execution', machine.get('execution'))}{_state_badge('progress', machine.get('progress'))}{_state_badge('health', machine.get('health'))}</div>
+  </header>
+  {semantic_notice}
+  <div class="logic-grid">
+    <section><h4>当前在解决什么</h4><p>{_html_text(current_focus)}</p></section>
+    <section><h4>为什么现在做</h4><p>{_html_text(why_now)}</p></section>
+    <section><h4>最近证明 / 排除 / 改变</h4><ul>{proof_html}</ul></section>
+    <section><h4>这些结果意味着什么</h4><p>{_html_text(implication)}</p></section>
+    <section class="span-two"><h4>下一步为什么这样走</h4><p>{_html_text(next_step)}</p></section>
+  </div>
+  <details>
+    <summary>技术详情与 provenance</summary>
+    <div class="technical-grid">
+      <div><span class="muted">Canonical status</span><br><code>{_html_text(row.get('status'))}</code></div>
+      <div><span class="muted">Branch / HEAD</span><br><code>{_html_text(worktree.get('branch'))}</code><br><code>{_html_text(worktree.get('head'))}</code></div>
+      <div><span class="muted">Continuation stage</span><br><code>{_html_text(continuation.get('stage'))}</code></div>
+      <div><span class="muted">Owner liveness</span><br><code>{_html_text(liveness.get('state'))}</code></div>
+      <div><span class="muted">Unresolved effects</span><br><code>{_html_text(effects.get('unresolved_count'), '0')}</code></div>
+      <div><span class="muted">Semantic confidence / version</span><br><code>{_html_text(confidence)}</code> / <code>{_html_text(semantic.get('interpretation_version'), '0')}</code></div>
+      <div class="span-two"><span class="muted">Worktree</span><br><code class="breakable">{_html_text(worktree.get('path'))}</code></div>
+      <div class="span-two"><span class="muted">Semantic source fingerprint</span><br><code class="breakable">{_html_text(source_fingerprint)}</code></div>
+    </div>
+    <h4>Provenance</h4><ul>{provenance_html}</ul>
+  </details>
+</article>"""
+
+
+def _timeline_html(machine_events: list[dict[str, object]], interpretations: list[dict[str, object]]) -> str:
+    combined: list[tuple[datetime, str]] = []
+    kind_labels = {
+        "workstream_discovered": "发现 Workstream",
+        "workstream_status_changed": "Workstream 状态变化",
+        "workstream_execution_changed": "执行状态变化",
+        "workstream_health_changed": "健康状态变化",
+        "continuation_discovered": "发现 continuation",
+        "continuation_stage_changed": "阶段推进",
+        "continuation_status_changed": "续跑状态变化",
+        "continuation_next_action_changed": "下一步发生变化",
+        "continuation_round_phase_changed": "执行阶段变化",
+        "worktree_head_changed": "Git HEAD 推进",
+    }
+    for row in machine_events[-80:]:
+        when = _parse_utc_iso(row.get("observed_at")) or datetime.min.replace(tzinfo=timezone.utc)
+        kind = str(row.get("kind") or "project_event")
+        identity = row.get("canonical_identity") if isinstance(row.get("canonical_identity"), dict) else {}
+        identity_text = identity.get("id") or identity.get("task_id") or identity.get("path") or "project"
+        before = row.get("before")
+        after = row.get("after")
+        body = (
+            f'<article class="timeline-item"><time>{_html_text(row.get("observed_at"))}</time>'
+            f'<div><strong>{_html_text(kind_labels.get(kind, kind))}</strong> · <code>{_html_text(identity_text)}</code>'
+            f'<p class="muted">{_html_text(before)} → {_html_text(after)}</p></div></article>'
+        )
+        combined.append((when, body))
+    for row in interpretations[-40:]:
+        when = _parse_utc_iso(row.get("interpreted_at")) or datetime.min.replace(tzinfo=timezone.utc)
+        proofs = row.get("recent_proof") if isinstance(row.get("recent_proof"), list) else []
+        proof_text = "；".join(str(item) for item in proofs[:2])
+        body = (
+            f'<article class="timeline-item semantic-event"><time>{_html_text(row.get("interpreted_at"))}</time>'
+            f'<div><strong>语义解释更新 v{_html_text(row.get("interpretation_version"))}</strong> · '
+            f'<code>{_html_text(row.get("workstream_id"))}</code>'
+            f'<p>{_html_text(row.get("human_title"))}</p><p class="muted">{_html_text(proof_text)}</p></div></article>'
+        )
+        combined.append((when, body))
+    combined.sort(key=lambda pair: pair[0], reverse=True)
+    return "".join(body for _when, body in combined[:60]) or '<p class="muted">暂无 meaningful progress event。</p>'
+
+
+def render_dashboard_html(
+    project: Any,
+    *,
+    current: dict[str, object],
+    status: dict[str, object],
+    machine_events: list[dict[str, object]],
+    interpretations: list[dict[str, object]],
+    glossary: dict[str, object],
+    self_health_alerts: list[dict[str, object]] | None = None,
+) -> str:
+    """Render a self-contained, file://-safe Dashboard with no external assets."""
+
+    safe_current = sanitize_dashboard_payload(current)
+    safe_status = sanitize_dashboard_payload(status)
+    safe_events = sanitize_dashboard_payload(machine_events)
+    safe_interpretations = sanitize_dashboard_payload(interpretations)
+    safe_glossary = sanitize_dashboard_payload(glossary)
+    safe_self_alerts = sanitize_dashboard_payload(self_health_alerts or [])
+    if not isinstance(safe_current, dict) or not isinstance(safe_status, dict):
+        raise ValueError("dashboard requires object current/status payloads")
+    workstreams = [row for row in safe_current.get("workstreams") or [] if isinstance(row, dict)]
+    alerts = [row for row in safe_current.get("alerts") or [] if isinstance(row, dict)]
+    self_alerts = [row for row in safe_self_alerts if isinstance(row, dict)] if isinstance(safe_self_alerts, list) else []
+    all_alerts = self_alerts + alerts
+    overall = _overall_health(safe_current, self_alerts)
+    current_data_age = safe_status.get("data_age") if isinstance(safe_status.get("data_age"), dict) else {}
+    active_count = sum(1 for row in workstreams if str(row.get("status") or "").casefold() in {"active", "blocked", "merging", "readytomerge"})
+    cards = "".join(_workstream_card_html(safe_current, row) for row in workstreams)
+    alerts_html = "".join(_dashboard_alert_html(row) for row in all_alerts) or '<p class="muted">当前没有需要关注的 Alert。</p>'
+    timeline = _timeline_html(
+        safe_events if isinstance(safe_events, list) else [],
+        safe_interpretations if isinstance(safe_interpretations, list) else [],
+    )
+    latest_proof: list[str] = []
+    for row in workstreams:
+        semantic = row.get("semantic") if isinstance(row.get("semantic"), dict) else {}
+        interpretation = semantic.get("interpretation") if semantic.get("status") == "current" and isinstance(semantic.get("interpretation"), dict) else {}
+        for proof in interpretation.get("recent_proof") or []:
+            if isinstance(proof, str) and proof not in latest_proof:
+                latest_proof.append(proof)
+    latest_html = "".join(f"<li>{_html_text(item)}</li>" for item in latest_proof[:4]) or '<li class="muted">尚无当前语义层确认的重大进展。</li>'
+    glossary_terms = safe_glossary.get("terms") if isinstance(safe_glossary, dict) and isinstance(safe_glossary.get("terms"), dict) else {}
+    glossary_html = "".join(
+        f'<article class="glossary-item" data-search="{escape((str(term)+" "+str(entry.get("human_term") or "")+" "+str(entry.get("explanation") or "")).casefold(), quote=True)}">'
+        f'<strong><code>{_html_text(term)}</code> → {_html_text(entry.get("human_term"))}</strong>'
+        f'<p>{_html_text(entry.get("explanation"))}</p><span class="muted">confidence: {_html_text(entry.get("confidence"))}</span></article>'
+        for term, entry in sorted(glossary_terms.items()) if isinstance(entry, dict)
+    ) or '<p class="muted">暂无 glossary 条目。</p>'
+    embedded = {
+        "schema_version": OBSERVER_DASHBOARD_SCHEMA,
+        "project": sanitize_dashboard_payload({"project_id": project.project_id, "canonical_root": str(project.canonical_root)}),
+        "current": safe_current,
+        "self_health": safe_status,
+        "timeline": safe_events,
+        "interpretations": safe_interpretations,
+        "glossary": safe_glossary,
+    }
+    embedded_json = json.dumps(embedded, ensure_ascii=False, sort_keys=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    health_icon = "●" if overall == "critical" else "▲" if overall == "warning" else "●"
+    health_label = {"critical": "严重", "warning": "需要关注", "healthy": "健康"}.get(overall, overall)
+    title = f"{project.canonical_root.name} · Project Observer"
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{_html_text(title)}</title>
+<style>
+:root{{--bg:#f6f8fb;--surface:#fff;--text:#1d2433;--muted:#667085;--line:#d9dee8;--blue:#1769d2;--blue-bg:#eef5ff;--green:#16784a;--green-bg:#edf9f2;--amber:#9a6700;--amber-bg:#fff8df;--red:#b42318;--red-bg:#fff0ee;--gray-bg:#f2f4f7;--shadow:0 1px 2px rgba(16,24,40,.06)}}
+*{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.62 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}} a{{color:var(--blue)}} code{{font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#344054}} .page{{max-width:1280px;margin:auto;padding:24px}} h1{{font-size:24px;line-height:1.25;margin:0 0 4px}} h2{{font-size:19px;margin:0 0 14px}} h3{{font-size:17px;margin:0}} h4{{font-size:14px;margin:0 0 6px}} p{{margin:6px 0 12px}} ul{{margin:6px 0 12px;padding-left:20px}} .muted{{color:var(--muted)}} .canonical{{color:var(--muted);font-size:13px;margin-top:4px}} .top{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px}} .summary-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 22px}} .metric,.panel,.workstream-card{{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}} .metric{{padding:14px}} .metric strong{{display:block;font-size:18px;margin-top:3px}} .panel{{padding:18px;margin:0 0 18px}} .toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}} input,select{{font:inherit;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;min-height:38px}} input{{flex:1;min-width:220px}} .workstream-list{{display:grid;gap:14px}} .workstream-card{{padding:18px}} .card-header{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .badge-row{{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}} .badge{{display:inline-flex;align-items:center;gap:4px;border:1px solid currentColor;border-radius:999px;padding:2px 8px;font-size:12.5px;white-space:nowrap}} .tone-critical,.tone-text-critical{{color:var(--red)}} .tone-warning,.tone-text-warning{{color:var(--amber)}} .tone-healthy{{color:var(--green)}} .tone-active{{color:var(--blue)}} .tone-muted{{color:var(--muted)}} .tone-border-critical{{border-left:4px solid var(--red)!important}} .tone-border-warning{{border-left:4px solid var(--amber)!important}} .tone-border-active{{border-left:4px solid var(--blue)!important}} .semantic-notice{{background:var(--gray-bg);border-radius:8px;padding:9px 11px;margin:12px 0;font-size:13px}} .logic-grid,.technical-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;margin-top:14px}} .logic-grid section{{border-top:1px solid var(--line);padding-top:10px}} .span-two{{grid-column:1/-1}} details{{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}} summary{{cursor:pointer;font-weight:600;color:#344054}} .breakable{{word-break:break-all}} .alert{{border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:9px 0;background:#fff}} .alert-title{{font-weight:700}} .timeline-item{{display:grid;grid-template-columns:160px 1fr;gap:14px;border-left:2px solid var(--line);padding:5px 0 14px 14px;margin-left:5px}} .timeline-item time{{font-size:12.5px;color:var(--muted)}} .semantic-event{{border-left-color:var(--blue)}} .glossary-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .glossary-item{{border:1px solid var(--line);border-radius:8px;padding:12px}} .hidden{{display:none!important}} .empty{{padding:18px;color:var(--muted);text-align:center}} footer{{color:var(--muted);font-size:12.5px;padding:6px 0 20px}}
+@media(max-width:760px){{.page{{padding:14px}}.top,.card-header{{display:block}}.summary-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.logic-grid,.technical-grid,.glossary-grid{{grid-template-columns:1fr}}.span-two{{grid-column:auto}}.badge-row{{justify-content:flex-start;margin-top:10px}}.timeline-item{{grid-template-columns:1fr;gap:2px}}}}
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="top"><div><h1>{_html_text(title)}</h1><div class="muted">最后观察：{_html_text(safe_current.get('observed_at'))} · 数据状态：{_html_text(current_data_age.get('state'))}</div></div><div class="badge tone-{_html_text(overall)}"><span aria-hidden="true">{health_icon}</span> Overall Health：{_html_text(health_label)}</div></header>
+  <section class="summary-grid" aria-label="项目总览">
+    <div class="metric"><span class="muted">Active Workstreams</span><strong>{active_count}</strong></div>
+    <div class="metric"><span class="muted">当前 Alerts</span><strong>{len(all_alerts)}</strong></div>
+    <div class="metric"><span class="muted">Observer data age</span><strong>{_html_text(current_data_age.get('state'))}</strong></div>
+    <div class="metric"><span class="muted">Semantic coverage</span><strong>{_html_text((safe_current.get('semantic') or {}).get('status') if isinstance(safe_current.get('semantic'),dict) else None)}</strong></div>
+  </section>
+  <section class="panel"><h2>最近重大进展</h2><ul>{latest_html}</ul></section>
+  <section class="panel" id="alerts"><h2>当前 Alerts</h2>{alerts_html}</section>
+  <section class="panel"><h2>Workstreams</h2><div class="toolbar"><input id="search" type="search" placeholder="搜索 Workstream、canonical term、目标或下一步" aria-label="搜索"><select id="health-filter" aria-label="按健康状态筛选"><option value="all">全部健康状态</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="healthy">Healthy</option></select></div><div class="workstream-list" id="workstreams">{cards or '<p class="empty">当前没有 Workstream。</p>'}</div></section>
+  <section class="panel"><h2>Meaningful Timeline</h2><div id="timeline">{timeline}</div></section>
+  <section class="panel"><h2>Semantic Glossary</h2><div class="glossary-grid" id="glossary">{glossary_html}</div></section>
+  <footer>Observer 只解释本地事实，不参与 Writer control plane。Dashboard 为静态自包含文件，不需要 HTTP 服务。</footer>
+</main>
+<script id="observer-data" type="application/json">{embedded_json}</script>
+<script>
+(()=>{{const search=document.getElementById('search'),health=document.getElementById('health-filter');const apply=()=>{{const q=(search.value||'').trim().toLowerCase(),h=health.value;document.querySelectorAll('.workstream-card').forEach(card=>{{const text=card.dataset.search||'',okQ=!q||text.includes(q),okH=h==='all'||card.dataset.health===h;card.classList.toggle('hidden',!(okQ&&okH));}});document.querySelectorAll('.glossary-item').forEach(item=>item.classList.toggle('hidden',!!q&&!(item.dataset.search||'').includes(q)));}};search.addEventListener('input',apply);health.addEventListener('change',apply);}})();
+</script>
+</body></html>"""
+
+
+def write_dashboard(
+    project: Any,
+    *,
+    current: dict[str, object],
+    status: dict[str, object],
+    machine_events: list[dict[str, object]],
+    interpretations: list[dict[str, object]],
+    glossary: dict[str, object],
+    self_health_alerts: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    html = render_dashboard_html(
+        project,
+        current=current,
+        status=status,
+        machine_events=machine_events,
+        interpretations=interpretations,
+        glossary=glossary,
+        self_health_alerts=self_health_alerts,
+    )
+    if "<!doctype html>" not in html.casefold() or "observer-data" not in html:
+        raise ValueError("dashboard render validation failed")
+    if SEMANTIC_SENSITIVE_VALUE_RE.search(html):
+        raise ValueError("dashboard render contains credential-like material")
+    path = observer_paths(project)["dashboard"]
+    atomic_write_text(path, html)
+    return {
+        "schema_version": OBSERVER_DASHBOARD_SCHEMA,
+        "status": "success",
+        "rendered_at": utc_now_iso(),
+        "path": str(path),
+        "size_bytes": len(html.encode("utf-8")),
+        "content_digest": _stable_digest(html),
+    }
 
 
 def _read_json_object(path: Path) -> dict[str, object] | None:

@@ -34,6 +34,7 @@ from ai_context_framework.observer import (
 )
 from ai_context_framework.observability import usage_project_dir
 from ai_context_framework.git_support import discover_git_project, write_registry
+from ai_context_framework.observer_storage import semantic_source_fingerprint
 
 
 class ObserverCliTests(unittest.TestCase):
@@ -228,6 +229,7 @@ class ObserverCliTests(unittest.TestCase):
             self.assertTrue(paths["runs"].is_file())
             self.assertTrue(paths["status"].is_file())
             self.assertTrue(paths["history_index"].is_file())
+            self.assertTrue(paths["dashboard"].is_file())
             current = json.loads(paths["current"].read_text(encoding="utf-8"))
             self.assertEqual(current["schema_version"], OBSERVER_CURRENT_SCHEMA)
             self.assertEqual(current["snapshot_consistency"]["state"], "stable")
@@ -241,6 +243,74 @@ class ObserverCliTests(unittest.TestCase):
             )
             after = sorted(path.relative_to(project).as_posix() for path in project.rglob("*"))
             self.assertEqual(after, before)
+
+    def test_dashboard_is_self_contained_file_safe_and_secret_safe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, context = self.make_project(Path(tmp))
+            detail_dir = context / "active" / "workstreams"
+            detail_dir.mkdir(parents=True, exist_ok=True)
+            (detail_dir / "WS123.md").write_text(
+                "---\n"
+                "id: WS123\n"
+                "type: Task\n"
+                "status: Active\n"
+                "attention: Now\n"
+                "owner: agent\n"
+                "title: Observer dashboard task\n"
+                "---\n"
+                "# WS123\n\n"
+                "## 目标\n\n"
+                "验证 dashboard；password=super-secret-value；token=another-secret-value。\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            serialized = json.dumps(payload["snapshot"], ensure_ascii=False)
+            self.assertNotIn("super-secret-value", serialized)
+            self.assertNotIn("another-secret-value", serialized)
+            self.assertIn("[redacted]", serialized)
+            paths = observer_paths(resolve_observer_project(project))
+            current_text = paths["current"].read_text(encoding="utf-8")
+            html = paths["dashboard"].read_text(encoding="utf-8")
+            self.assertNotIn("super-secret-value", current_text)
+            self.assertNotIn("another-secret-value", current_text)
+            self.assertNotIn("super-secret-value", html)
+            self.assertNotIn("another-secret-value", html)
+            self.assertTrue(html.lower().startswith("<!doctype html>"))
+            self.assertIn('type="application/json"', html)
+            self.assertIn("observer-data", html)
+            self.assertIn("tone-critical", html)
+            self.assertIn("Overall Health", html)
+            self.assertIn("h1{font-size:24px", html)
+            self.assertIn("h3{font-size:17px", html)
+            self.assertNotIn("http://", html)
+            self.assertNotIn("https://", html)
+            self.assertNotIn("fetch(", html)
+            status = json.loads(paths["status"].read_text(encoding="utf-8"))
+            self.assertEqual(status["dashboard"]["status"], "success")
+
+    def test_dashboard_render_failure_preserves_last_good_file_and_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            observer_project = resolve_observer_project(project)
+            paths = observer_paths(observer_project)
+            paths["dashboard"].parent.mkdir(parents=True, exist_ok=True)
+            paths["dashboard"].write_text("LAST GOOD DASHBOARD", encoding="utf-8")
+
+            with patch("ai_context_framework.observer.write_dashboard", side_effect=RuntimeError("render boom")):
+                exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["run"]["dashboard_render_status"], "failed")
+            self.assertEqual(paths["dashboard"].read_text(encoding="utf-8"), "LAST GOOD DASHBOARD")
+            status_payload = observer_status(observer_project)
+            self.assertEqual(status_payload["self_health"]["dashboard"]["status"], "failed")
+            alert_keys = {row["alert_key"] for row in status_payload["self_health_alerts"]}
+            self.assertIn("observer:dashboard-render-failed", alert_keys)
 
     def test_repeated_snapshot_appends_liveness_without_copying_current_snapshots(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -713,6 +783,33 @@ class ObserverCliTests(unittest.TestCase):
             self.assertNotEqual(exit_code, 0)
             mismatch = json.loads(stdout)
             self.assertEqual(mismatch["error_code"], "observer_semantic_source_changed")
+
+    def test_semantic_source_fingerprint_ignores_transient_effect_counts_when_health_meaning_is_unchanged(self):
+        workstream = {
+            "id": "WS123",
+            "title": "Semantic task",
+            "status": "Active",
+            "attention": "Now",
+            "goal": "Explain progress",
+            "source_consistency": "consistent",
+            "machine_state": {"execution": "running", "health": "healthy", "health_reasons": ["no_machine_warning_detected"]},
+        }
+        base = {
+            "task_id": "WS123",
+            "workstream_id": "WS123",
+            "stage": "C04",
+            "status": "running",
+            "next_action": "Continue",
+            "objective": "Explain progress",
+            "latest_round": {"phase": "claimed", "milestone": "claimed", "evidence_refs": []},
+        }
+        before = {**base, "effects": {"status_counts": {"completed": 2}, "unresolved_count": 0}}
+        during = {**base, "effects": {"status_counts": {"completed": 2, "prepared": 1}, "unresolved_count": 1}}
+
+        self.assertEqual(
+            semantic_source_fingerprint(workstream, [before]),
+            semantic_source_fingerprint(workstream, [during]),
+        )
 
     def test_glossary_set_is_user_level_and_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:

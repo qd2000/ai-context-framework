@@ -30,8 +30,9 @@ from ai_context_framework.observer_storage import (
     ObserverLockedError, _continuation_lease_liveness, _parse_utc_iso, _read_json_object,
     _read_jsonl_objects, acquire_observer_lock, append_jsonl, append_jsonl_unique,
     attach_semantic_interpretations, ensure_jsonl_file, observer_lock_health, observer_paths,
-    read_observer_history_stream, refresh_history_index, release_observer_lock, rotate_jsonl_monthly,
-    rotate_observer_history, utc_now_iso, write_json_atomic,
+    read_glossary, read_observer_history_stream, refresh_history_index, release_observer_lock,
+    rotate_jsonl_monthly, rotate_observer_history, sanitize_observer_payload, utc_now_iso,
+    write_dashboard, write_json_atomic,
 )
 from ai_context_framework.paths import discover_context, resolve_status_location, slugify_project_name
 from ai_context_framework.version import VERSION
@@ -1511,7 +1512,10 @@ def build_observer_snapshot(
         "semantic": semantic_summary,
     }
     snapshot["alerts"] = derive_snapshot_alerts(project, snapshot)
-    return snapshot
+    sanitized = sanitize_observer_payload(snapshot)
+    if not isinstance(sanitized, dict):
+        raise TypeError("Observer snapshot sanitization must preserve object shape")
+    return sanitized
 
 
 def _status_payload(
@@ -1696,6 +1700,26 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
                 data_age=data_age,
             )
             write_json_atomic(paths["current"], current)
+            try:
+                dashboard = write_dashboard(
+                    project,
+                    current=current,
+                    status=status,
+                    machine_events=read_observer_history_stream(project, "timeline"),
+                    interpretations=read_observer_history_stream(project, "interpretations"),
+                    glossary=read_glossary(project),
+                )
+                status["dashboard"] = dashboard
+                run["dashboard_render_status"] = "success"
+            except Exception as dashboard_exc:
+                status["dashboard"] = {
+                    "status": "failed",
+                    "failed_at": utc_now_iso(),
+                    "path": str(paths["dashboard"]),
+                    "error": str(dashboard_exc),
+                }
+                run["dashboard_render_status"] = "failed"
+                run["dashboard_render_error"] = str(dashboard_exc)
             append_jsonl(paths["runs"], run)
             # The rotation pass happens before this run's new records are
             # appended. Refresh the index after the append so consumers see a
@@ -1793,6 +1817,22 @@ def observer_status(project: ObserverProject) -> dict[str, object]:
                             "errors": status.get("errors") or [],
                         }
                     ],
+                }
+            )
+        dashboard = status.get("dashboard") if isinstance(status.get("dashboard"), dict) else {}
+        if dashboard.get("status") == "failed":
+            self_health_alerts.append(
+                {
+                    "schema_version": OBSERVER_ALERT_SCHEMA,
+                    "project_id": project.project_id,
+                    "alert_key": "observer:dashboard-render-failed",
+                    "severity": "warning",
+                    "status": "active",
+                    "title": "Observer Dashboard 最近一次渲染失败",
+                    "explanation": "结构化 Observer state 已保留；上一份有效 Dashboard 未被半写覆盖。请以 current/status 为事实，并修复 renderer 后重新生成静态 HTML。",
+                    "canonical_identity": {"type": "observer", "project_id": project.project_id},
+                    "observed_at": utc_now_iso(),
+                    "provenance": [{"source": "observer_status.dashboard", **dashboard}],
                 }
             )
     if lock_health.get("state") == "abandoned":
