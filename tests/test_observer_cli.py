@@ -638,6 +638,131 @@ class ObserverCliTests(unittest.TestCase):
             self.assertEqual(expired_alerts[0]["severity"], "critical")
             self.assertEqual(expired_alerts[0]["provenance"][0]["reason"], "continuation_lease_expired")
 
+    def test_semantic_interpretation_is_versioned_bound_to_facts_and_stale_after_fact_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, context = self.make_project(Path(tmp))
+            detail_dir = context / "active" / "workstreams"
+            detail_dir.mkdir(parents=True, exist_ok=True)
+            detail = detail_dir / "WS123.md"
+            detail.write_text(
+                "---\n"
+                "id: WS123\n"
+                "type: Task\n"
+                "status: Active\n"
+                "attention: Now\n"
+                "owner: agent\n"
+                "title: Semantic task\n"
+                "---\n"
+                "# WS123\n\n"
+                "## 目标\n\n"
+                "把机器事实解释成人类进展。\n",
+                encoding="utf-8",
+            )
+            exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--dry-run", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            source = json.loads(stdout)["snapshot"]["workstreams"][0]["semantic"]["source_fingerprint"]
+            args = [
+                "observer", "interpret", str(project),
+                "--workstream", "WS123",
+                "--source-fingerprint", source,
+                "--human-title", "语义观察任务",
+                "--current-focus", "建立可审计的人类进展解释。",
+                "--why-now", "机器状态已经稳定，下一步必须验证语义层不会覆盖事实。",
+                "--recent-proof", "Observer snapshot 已能稳定读取 Workstream。",
+                "--implication", "可以在不修改项目事实源的前提下增加解释缓存。",
+                "--next-step", "验证解释版本、来源绑定和陈旧检测。",
+                "--confidence", "low",
+                "--provenance", "docs/ai/active/workstreams/WS123.md",
+            ]
+            exit_code, stdout, stderr = self.run_cli(args + ["--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            applied = json.loads(stdout)
+            self.assertTrue(applied["changed"])
+            self.assertEqual(applied["interpretation"]["interpretation_version"], 1)
+            self.assertNotIn("progress_percent", applied["interpretation"])
+
+            exit_code, stdout, stderr = self.run_cli(args + ["--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertFalse(json.loads(stdout)["changed"])
+            project_model = resolve_observer_project(project)
+            history = Path(observer_paths(project_model)["interpretations"]).read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(history), 1)
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "history", str(project), "--stream", "interpretations", "--limit", "10", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            history_payload = json.loads(stdout)
+            self.assertEqual(history_payload["total_count"], 1)
+            self.assertEqual(history_payload["records"][0]["event_kind"], "semantic_interpretation_updated")
+
+            exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--dry-run", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            semantic = json.loads(stdout)["snapshot"]["workstreams"][0]["semantic"]
+            self.assertEqual(semantic["status"], "current")
+            self.assertEqual(semantic["interpretation"]["human_title"], "语义观察任务")
+            self.assertEqual(semantic["interpretation"]["confidence"], "low")
+            self.assertEqual(semantic["interpretation"]["confidence_notice"], "暂译/当前理解")
+
+            detail.write_text(detail.read_text(encoding="utf-8").replace("status: Active", "status: Blocked"), encoding="utf-8")
+            exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--dry-run", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            changed_semantic = json.loads(stdout)["snapshot"]["workstreams"][0]["semantic"]
+            self.assertEqual(changed_semantic["status"], "stale")
+            self.assertNotEqual(changed_semantic["source_fingerprint"], source)
+            exit_code, stdout, _stderr = self.run_cli(args + ["--json"])
+            self.assertNotEqual(exit_code, 0)
+            mismatch = json.loads(stdout)
+            self.assertEqual(mismatch["error_code"], "observer_semantic_source_changed")
+
+    def test_glossary_set_is_user_level_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            args = [
+                "observer", "glossary-set", str(project),
+                "--term", "LM/TR",
+                "--human-term", "LM/信赖域优化",
+                "--explanation", "利用局部模型和信赖域约束优化步长的方法。",
+                "--confidence", "high",
+                "--provenance", "docs/ai/reference/optimization.md",
+                "--json",
+            ]
+            exit_code, stdout, stderr = self.run_cli(args)
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["changed"])
+            self.assertEqual(payload["glossary"]["terms"]["LM/TR"]["human_term"], "LM/信赖域优化")
+            exit_code, stdout, stderr = self.run_cli(args)
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertFalse(json.loads(stdout)["changed"])
+            exit_code, stdout, stderr = self.run_cli(["observer", "glossary", str(project), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            glossary_payload = json.loads(stdout)
+            self.assertEqual(glossary_payload["term_count"], 1)
+            self.assertEqual(glossary_payload["glossary"]["terms"]["LM/TR"]["canonical_term"], "LM/TR")
+            project_model = resolve_observer_project(project)
+            self.assertTrue(observer_paths(project_model)["glossary"].is_file())
+            self.assertTrue(observer_paths(project_model)["glossary"].is_relative_to(Path(os.environ["ACF_HOME"])))
+
+    def test_semantic_write_refuses_credential_like_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            exit_code, stdout, _stderr = self.run_cli(
+                [
+                    "observer", "glossary-set", str(project),
+                    "--term", "unsafe",
+                    "--human-term", "unsafe",
+                    "--explanation", "password=super-secret-value",
+                    "--confidence", "low",
+                    "--provenance", "test",
+                    "--json",
+                ]
+            )
+            self.assertNotEqual(exit_code, 0)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["error_code"], "observer_sensitive_value_refused")
+            project_model = resolve_observer_project(project)
+            self.assertFalse(observer_paths(project_model)["glossary"].exists())
+
     def test_status_after_snapshot_reports_self_health(self):
         with tempfile.TemporaryDirectory() as tmp:
             project, _context = self.make_project(Path(tmp))

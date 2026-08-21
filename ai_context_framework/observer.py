@@ -27,8 +27,11 @@ from ai_context_framework.git_support import (
 )
 from ai_context_framework.observability import acf_home, atomic_write_text, usage_project_dir
 from ai_context_framework.observer_storage import (
-    ObserverLockedError, acquire_observer_lock, observer_lock_health, read_observer_history_stream,
-    refresh_history_index, release_observer_lock, rotate_jsonl_monthly, rotate_observer_history,
+    ObserverLockedError, _continuation_lease_liveness, _parse_utc_iso, _read_json_object,
+    _read_jsonl_objects, acquire_observer_lock, append_jsonl, append_jsonl_unique,
+    attach_semantic_interpretations, ensure_jsonl_file, observer_lock_health, observer_paths,
+    read_observer_history_stream, refresh_history_index, release_observer_lock, rotate_jsonl_monthly,
+    rotate_observer_history, utc_now_iso, write_json_atomic,
 )
 from ai_context_framework.paths import discover_context, resolve_status_location, slugify_project_name
 from ai_context_framework.version import VERSION
@@ -72,10 +75,6 @@ class ObserverProject:
             "observer_dir": str(self.observer_dir),
             "git_managed": self.git_managed,
         }
-
-
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def observer_project_id(project_root: Path) -> str:
@@ -127,170 +126,6 @@ def resolve_observer_project(path: Path | None = None) -> ObserverProject:
         observer_dir=observer_project_dir(canonical_root),
         git_managed=git_managed,
     )
-
-
-def observer_paths(project: ObserverProject) -> dict[str, Path]:
-    root = project.observer_dir
-    return {
-        "root": root,
-        "current": root / "state" / "current.json",
-        "timeline": root / "state" / "timeline.jsonl",
-        "observations": root / "state" / "observations.jsonl",
-        "alerts": root / "state" / "alerts.jsonl",
-        "runs": root / "state" / "runs.jsonl",
-        "status": root / "observer_status.json",
-        "lock": root / "lock.json",
-        "dashboard": root / "dashboard.html",
-        "history": root / "history",
-        "history_index": root / "history" / "index.json",
-    }
-
-
-def _read_json_object(path: Path) -> dict[str, object] | None:
-    if not path.is_file():
-        return None
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return value if isinstance(value, dict) else None
-
-
-def _read_jsonl_objects(path: Path) -> list[dict[str, object]]:
-    if not path.is_file():
-        return []
-    rows: list[dict[str, object]] = []
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                try:
-                    value = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(value, dict):
-                    rows.append(value)
-    except OSError:
-        return []
-    return rows
-
-
-def _parse_utc_iso(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
-def _continuation_lease_liveness(
-    lease: dict[str, object] | None,
-    control: dict[str, object],
-) -> dict[str, object]:
-    if not lease:
-        return {
-            "state": "absent",
-            "heartbeat_age_seconds": None,
-            "expires_at": None,
-            "stale_after_seconds": None,
-        }
-    now = datetime.now(timezone.utc)
-    expires = _parse_utc_iso(lease.get("expires_at"))
-    heartbeat = _parse_utc_iso(lease.get("last_heartbeat_at")) or _parse_utc_iso(lease.get("issued_at"))
-    stale_after_minutes = control.get("stale_after_minutes")
-    stale_after_seconds = (
-        float(stale_after_minutes) * 60
-        if isinstance(stale_after_minutes, (int, float)) and stale_after_minutes > 0
-        else None
-    )
-    heartbeat_age = max(0.0, (now - heartbeat).total_seconds()) if heartbeat is not None else None
-    if expires is not None and now >= expires:
-        state = "expired"
-    elif stale_after_seconds is not None and heartbeat_age is not None and heartbeat_age > stale_after_seconds:
-        state = "stale"
-    elif heartbeat is not None:
-        state = "fresh"
-    else:
-        state = "unknown"
-    return {
-        "state": state,
-        "heartbeat_age_seconds": round(heartbeat_age, 3) if heartbeat_age is not None else None,
-        "expires_at": lease.get("expires_at"),
-        "stale_after_seconds": stale_after_seconds,
-    }
-
-
-def write_json_atomic(path: Path, payload: dict[str, object]) -> None:
-    atomic_write_text(
-        path,
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-    )
-
-
-def append_jsonl(path: Path, payload: dict[str, object]) -> None:
-    """Atomically append one JSONL record while preserving interrupted tails.
-
-    Observer streams are rotated monthly, so rewriting the bounded live shard
-    is an acceptable trade-off for crash safety.  If a previous process died
-    after leaving a partial final line, keep those bytes as an isolated invalid
-    line instead of concatenating the next valid record onto them.  Readers
-    already skip invalid JSONL rows, while the original bytes remain available
-    for diagnosis rather than being silently deleted.
-    """
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    if existing and not existing.endswith(("\n", "\r")):
-        existing += "\n"
-    line = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
-    atomic_write_text(path, existing + line)
-
-
-def ensure_jsonl_file(path: Path) -> None:
-    if path.exists():
-        return
-    atomic_write_text(path, "")
-
-
-def _jsonl_contains_id(path: Path, *, field: str, value: str) -> bool:
-    if not path.is_file():
-        return False
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                try:
-                    payload = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(payload, dict) and payload.get(field) == value:
-                    return True
-    except OSError:
-        return False
-    return False
-
-
-def append_jsonl_unique(path: Path, payload: dict[str, object], *, id_field: str) -> bool:
-    raw_id = payload.get(id_field)
-    if not isinstance(raw_id, str) or not raw_id:
-        raise ValueError(f"{id_field} must be a non-empty string")
-    if _jsonl_contains_id(path, field=id_field, value=raw_id):
-        return False
-    append_jsonl(path, payload)
-    return True
-
-
-def _record_month(payload: dict[str, object], timestamp_field: str) -> str | None:
-    parsed = _parse_utc_iso(payload.get(timestamp_field))
-    if parsed is None:
-        return None
-    return f"{parsed.year:04d}-{parsed.month:02d}"
 
 
 def _worktree_payload(path: Path, *, listed_head: str | None, listed_branch: str | None) -> dict[str, object]:
@@ -1653,6 +1488,7 @@ def build_observer_snapshot(
     worktrees = list(final.get("worktrees") or [])
     workstreams = list(final.get("workstreams") or [])
     continuations = list(final.get("continuations") or [])
+    workstreams, semantic_summary = attach_semantic_interpretations(project, workstreams, continuations)
     snapshot = {
         "schema_version": OBSERVER_CURRENT_SCHEMA,
         "project_id": project.project_id,
@@ -1672,12 +1508,7 @@ def build_observer_snapshot(
         "continuation_count": len(continuations),
         "continuations": continuations,
         "alerts": [],
-        "semantic": {
-            "schema_version": "acf.observer.semantic.v1",
-            "interpretation_version": 1,
-            "status": "not_interpreted",
-            "note": "Semantic Workstream interpretation is populated by a later Observer stage.",
-        },
+        "semantic": semantic_summary,
     }
     snapshot["alerts"] = derive_snapshot_alerts(project, snapshot)
     return snapshot

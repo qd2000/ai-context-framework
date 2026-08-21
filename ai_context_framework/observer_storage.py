@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,7 +20,17 @@ from ai_context_framework.observability import atomic_write_text
 
 OBSERVER_HISTORY_INDEX_SCHEMA = "acf.observer.history-index.v1"
 OBSERVER_LOCK_SCHEMA = "acf.observer.lock.v1"
+OBSERVER_SEMANTIC_SCHEMA = "acf.observer.semantic.v1"
+OBSERVER_INTERPRETATION_SCHEMA = "acf.observer.interpretation.v1"
+OBSERVER_GLOSSARY_SCHEMA = "acf.observer.glossary.v1"
 OBSERVER_LOCK_RECLAIM_GRACE_SECONDS = 60
+OBSERVER_SEMANTIC_CONFIDENCE = {"authoritative", "high", "medium", "low"}
+SEMANTIC_SENSITIVE_VALUE_RE = re.compile(
+    r"(?i)(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|"
+    r"\b(?:api[_ -]?key|password|passwd|fence[_ -]?token|credential|access[_ -]?token|"
+    r"refresh[_ -]?token|license[_ -]?key|private[_ -]?key)\b\s*[:=]\s*\S+|"
+    r"\bsk-[A-Za-z0-9_-]{20,})"
+)
 
 
 class ObserverLockedError(RuntimeError):
@@ -47,7 +58,310 @@ def observer_paths(project: Any) -> dict[str, Path]:
         "dashboard": root / "dashboard.html",
         "history": root / "history",
         "history_index": root / "history" / "index.json",
+        "semantic": root / "semantic",
+        "interpretations": root / "semantic" / "interpretations.jsonl",
+        "glossary": root / "semantic" / "glossary.json",
+        "workstreams": root / "workstreams",
     }
+
+
+def semantic_workstream_path(project: Any, workstream_id: str) -> Path:
+    return observer_paths(project)["workstreams"] / workstream_id / "current.json"
+
+
+def _stable_digest(payload: object) -> str:
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    import hashlib
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def semantic_source_projection(
+    workstream: dict[str, object],
+    continuations: list[dict[str, object]],
+) -> dict[str, object]:
+    """Return stable facts that an interpretation is allowed to explain.
+
+    Volatile owner heartbeats are deliberately excluded.  Stage, status,
+    next action, machine health class, and durable round milestone/evidence
+    remain because changes to those facts can invalidate a human narrative.
+    """
+
+    workstream_id = str(workstream.get("id") or "")
+    related: list[dict[str, object]] = []
+    for row in continuations:
+        if row.get("workstream_id") != workstream_id:
+            continue
+        latest = row.get("latest_round") if isinstance(row.get("latest_round"), dict) else {}
+        related.append(
+            {
+                "task_id": row.get("task_id"),
+                "stage": row.get("stage"),
+                "status": row.get("status"),
+                "next_action": row.get("next_action"),
+                "objective": row.get("objective"),
+                "round_phase": latest.get("phase"),
+                "round_milestone": latest.get("milestone"),
+                "round_evidence_refs": list(latest.get("evidence_refs") or []),
+                "effect_status_counts": (row.get("effects") or {}).get("status_counts")
+                if isinstance(row.get("effects"), dict)
+                else {},
+                "unresolved_effect_count": (row.get("effects") or {}).get("unresolved_count")
+                if isinstance(row.get("effects"), dict)
+                else 0,
+            }
+        )
+    related.sort(key=lambda row: (str(row.get("task_id") or ""), str(row.get("stage") or "")))
+    machine = workstream.get("machine_state") if isinstance(workstream.get("machine_state"), dict) else {}
+    return {
+        "workstream": {
+            "id": workstream.get("id"),
+            "title": workstream.get("title"),
+            "status": workstream.get("status"),
+            "attention": workstream.get("attention"),
+            "goal": workstream.get("goal"),
+            "source_consistency": workstream.get("source_consistency"),
+            "execution": machine.get("execution"),
+            "health": machine.get("health"),
+            "health_reasons": list(machine.get("health_reasons") or []),
+        },
+        "continuations": related,
+    }
+
+
+def semantic_source_fingerprint(
+    workstream: dict[str, object],
+    continuations: list[dict[str, object]],
+) -> str:
+    return _stable_digest(semantic_source_projection(workstream, continuations))
+
+
+def semantic_interpretation_status(
+    project: Any,
+    workstream: dict[str, object],
+    continuations: list[dict[str, object]],
+) -> dict[str, object]:
+    workstream_id = str(workstream.get("id") or "")
+    source_fingerprint = semantic_source_fingerprint(workstream, continuations)
+    current = _read_json_object(semantic_workstream_path(project, workstream_id))
+    if current is None:
+        return {
+            "schema_version": OBSERVER_SEMANTIC_SCHEMA,
+            "status": "not_interpreted",
+            "source_fingerprint": source_fingerprint,
+            "interpretation_version": 0,
+            "interpretation": None,
+        }
+    current_source = current.get("source_fingerprint")
+    status = "current" if current_source == source_fingerprint else "stale"
+    return {
+        "schema_version": OBSERVER_SEMANTIC_SCHEMA,
+        "status": status,
+        "source_fingerprint": source_fingerprint,
+        "interpretation_version": current.get("interpretation_version") or 0,
+        "interpretation": current,
+    }
+
+
+def attach_semantic_interpretations(
+    project: Any,
+    workstreams: list[dict[str, object]],
+    continuations: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    enriched: list[dict[str, object]] = []
+    counts = {"current": 0, "stale": 0, "not_interpreted": 0}
+    for workstream in workstreams:
+        item = dict(workstream)
+        semantic = semantic_interpretation_status(project, item, continuations)
+        status = str(semantic.get("status") or "not_interpreted")
+        counts[status] = counts.get(status, 0) + 1
+        item["semantic"] = semantic
+        enriched.append(item)
+    overall = "current" if counts["current"] and not counts["stale"] and not counts["not_interpreted"] else "partial"
+    if not workstreams:
+        overall = "empty"
+    elif counts["current"] == 0 and counts["stale"] == 0:
+        overall = "not_interpreted"
+    glossary = read_glossary(project)
+    return enriched, {
+        "schema_version": OBSERVER_SEMANTIC_SCHEMA,
+        "status": overall,
+        "workstream_counts": counts,
+        "glossary_term_count": len(glossary.get("terms") or {}),
+    }
+
+
+class SemanticSourceMismatch(RuntimeError):
+    def __init__(self, expected: str, current: str):
+        self.expected = expected
+        self.current = current
+        super().__init__("observer_semantic_source_changed")
+
+
+class SemanticSensitiveValueError(ValueError):
+    pass
+
+
+def _validate_semantic_text(value: str, field: str) -> str:
+    cleaned = value.strip()
+    if SEMANTIC_SENSITIVE_VALUE_RE.search(cleaned):
+        raise SemanticSensitiveValueError(f"sensitive credential-like value refused in {field}")
+    return cleaned
+
+
+def _confidence_notice(confidence: str) -> str | None:
+    if confidence == "low":
+        return "暂译/当前理解"
+    if confidence == "medium":
+        return "当前理解"
+    return None
+
+
+def apply_semantic_interpretation(
+    project: Any,
+    *,
+    workstream: dict[str, object],
+    continuations: list[dict[str, object]],
+    expected_source_fingerprint: str,
+    human_title: str,
+    current_focus: str,
+    why_now: str,
+    recent_proof: list[str],
+    implication: str,
+    next_step: str,
+    confidence: str,
+    provenance_refs: list[str],
+) -> tuple[dict[str, object], bool]:
+    """Persist one versioned human interpretation against an exact fact set."""
+
+    confidence = confidence.strip().casefold()
+    if confidence not in OBSERVER_SEMANTIC_CONFIDENCE:
+        raise ValueError(f"invalid semantic confidence: {confidence}")
+    source_fingerprint = semantic_source_fingerprint(workstream, continuations)
+    if expected_source_fingerprint != source_fingerprint:
+        raise SemanticSourceMismatch(expected_source_fingerprint, source_fingerprint)
+    workstream_id = str(workstream.get("id") or "")
+    if not workstream_id:
+        raise ValueError("semantic interpretation requires a Workstream id")
+    fields = {
+        "human_title": _validate_semantic_text(human_title, "human_title"),
+        "current_focus": _validate_semantic_text(current_focus, "current_focus"),
+        "why_now": _validate_semantic_text(why_now, "why_now"),
+        "recent_proof": [_validate_semantic_text(item, "recent_proof") for item in recent_proof if item.strip()],
+        "implication": _validate_semantic_text(implication, "implication"),
+        "next_step": _validate_semantic_text(next_step, "next_step"),
+        "confidence": confidence,
+        "confidence_notice": _confidence_notice(confidence),
+        "provenance": [
+            {"ref": _validate_semantic_text(item, "provenance")}
+            for item in provenance_refs
+            if item.strip()
+        ],
+    }
+    for name in ("human_title", "current_focus", "why_now", "implication", "next_step"):
+        if not fields[name]:
+            raise ValueError(f"semantic interpretation requires {name}")
+    if not fields["recent_proof"]:
+        raise ValueError("semantic interpretation requires at least one recent_proof")
+    if not fields["provenance"]:
+        raise ValueError("semantic interpretation requires at least one provenance reference")
+    current_path = semantic_workstream_path(project, workstream_id)
+    previous = _read_json_object(current_path)
+    comparable = {
+        "source_fingerprint": source_fingerprint,
+        "canonical_identity": {
+            "type": "workstream",
+            "id": workstream_id,
+            "title": workstream.get("title"),
+        },
+        **fields,
+    }
+    previous_comparable = None
+    if previous:
+        previous_comparable = {
+            key: previous.get(key)
+            for key in comparable
+        }
+    if previous_comparable == comparable:
+        return previous, False
+    previous_version = int(previous.get("interpretation_version") or 0) if previous else 0
+    interpreted_at = utc_now_iso()
+    payload = {
+        "schema_version": OBSERVER_INTERPRETATION_SCHEMA,
+        "project_id": project.project_id,
+        "workstream_id": workstream_id,
+        "interpretation_version": previous_version + 1,
+        "interpreted_at": interpreted_at,
+        **comparable,
+    }
+    history_identity = {
+        "workstream_id": workstream_id,
+        "interpretation_version": payload["interpretation_version"],
+        "source_fingerprint": source_fingerprint,
+        "content": fields,
+    }
+    payload["interpretation_id"] = f"semantic-{_stable_digest(history_identity)[:20]}"
+    payload["event_kind"] = "semantic_interpretation_updated"
+    payload["previous_interpretation_id"] = previous.get("interpretation_id") if previous else None
+    write_json_atomic(current_path, payload)
+    append_jsonl_unique(observer_paths(project)["interpretations"], payload, id_field="interpretation_id")
+    return payload, True
+
+
+def read_glossary(project: Any) -> dict[str, object]:
+    payload = _read_json_object(observer_paths(project)["glossary"])
+    if payload is not None:
+        return payload
+    return {
+        "schema_version": OBSERVER_GLOSSARY_SCHEMA,
+        "project_id": project.project_id,
+        "updated_at": None,
+        "terms": {},
+    }
+
+
+def set_glossary_term(
+    project: Any,
+    *,
+    term: str,
+    human_term: str,
+    explanation: str,
+    confidence: str,
+    provenance_refs: list[str],
+) -> tuple[dict[str, object], bool]:
+    confidence = confidence.strip().casefold()
+    if confidence not in OBSERVER_SEMANTIC_CONFIDENCE:
+        raise ValueError(f"invalid semantic confidence: {confidence}")
+    term = _validate_semantic_text(term, "term")
+    human_term = _validate_semantic_text(human_term, "human_term")
+    explanation = _validate_semantic_text(explanation, "explanation")
+    if not term or not human_term or not explanation:
+        raise ValueError("glossary term, human term, and explanation are required")
+    glossary = read_glossary(project)
+    terms = dict(glossary.get("terms") or {})
+    next_entry = {
+        "canonical_term": term,
+        "human_term": human_term,
+        "explanation": explanation,
+        "confidence": confidence,
+        "confidence_notice": _confidence_notice(confidence),
+        "provenance": [
+            {"ref": _validate_semantic_text(item, "provenance")}
+            for item in provenance_refs
+            if item.strip()
+        ],
+    }
+    if terms.get(term) == next_entry:
+        return glossary, False
+    terms[term] = next_entry
+    payload = {
+        "schema_version": OBSERVER_GLOSSARY_SCHEMA,
+        "project_id": project.project_id,
+        "updated_at": utc_now_iso(),
+        "terms": dict(sorted(terms.items())),
+    }
+    write_json_atomic(observer_paths(project)["glossary"], payload)
+    return payload, True
 
 
 def _read_json_object(path: Path) -> dict[str, object] | None:
@@ -282,6 +596,7 @@ def refresh_history_index(project: Any) -> dict[str, object]:
         ("observations", "observations", "observed_at"),
         ("alerts", "alerts", "observed_at"),
         ("runs", "runs", "started_at"),
+        ("interpretations", "interpretations", "interpreted_at"),
     ):
         rows = _read_jsonl_objects(paths[path_key_name])
         timestamps = [
@@ -322,6 +637,7 @@ def read_observer_history_stream(project: Any, stream_name: str) -> list[dict[st
         "observations": ("observations", "observation_id", "observed_at"),
         "alerts": ("alerts", "alert_event_id", "observed_at"),
         "runs": ("runs", "run_id", "started_at"),
+        "interpretations": ("interpretations", "interpretation_id", "interpreted_at"),
     }
     if stream_name not in specs:
         raise ValueError(f"unknown observer history stream: {stream_name}")
@@ -356,6 +672,7 @@ def rotate_observer_history(project: Any) -> list[dict[str, object]]:
         ("observations", "observations", "observed_at", "observation_id"),
         ("alerts", "alerts", "observed_at", "alert_event_id"),
         ("runs", "runs", "started_at", "run_id"),
+        ("interpretations", "interpretations", "interpreted_at", "interpretation_id"),
     )
     rotations: list[dict[str, object]] = []
     for path_key_name, stream_name, timestamp_field, id_field in stream_specs:
