@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## v0.0.3.69 — 2026-08-21
+
 ### Project Observer
 
 - 新增项目级 `acf observer` 开发态主链路：`status`、`snapshot`、`interpret`、`glossary-set`、`glossary`、`history`。一个项目一个 Global Observer，同项目 primary checkout 与注册 worktree 统一观察；Observer 只写用户级 `~/.acf/projects/<project-id>/observer/`，不参与 continuation Writer 控制。

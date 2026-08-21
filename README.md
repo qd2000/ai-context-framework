@@ -4,9 +4,9 @@
 
 ## 当前推荐版本
 
-`v0.0.3.68` 是当前推荐版本。`acf continuation prompt` 现在采用 goal-directed continuous execution：bounded 只约束 ownership、写入、副作用和恢复风险，不限制一次 activation 的工作量；stage/next_action 只是恢复入口，Agent 自主决定工作范围；子任务、测试、commit、checkpoint 或 Gate 完成都不是停止理由。JSON 同时暴露 `current`、`execution_policy`、`project_context` 和项目专用约束槽，供统一 Scheduled Task 薄 wrapper 填入 DevSpace、Runtime、VM/节点、权限、安全、验证和 issue 记录规则。
+`v0.0.3.69` 是当前推荐版本。`acf continuation prompt` 现在采用 goal-directed continuous execution：bounded 只约束 ownership、写入、副作用和恢复风险，不限制一次 activation 的工作量；stage/next_action 只是恢复入口，Agent 自主决定工作范围；子任务、测试、commit、checkpoint 或 Gate 完成都不是停止理由。JSON 同时暴露 `current`、`execution_policy`、`project_context` 和项目专用约束槽，供统一 Scheduled Task 薄 wrapper 填入 DevSpace、Runtime、VM/节点、权限、安全、验证和 issue 记录规则。
 
-当前 `master` 之后的开发分支正在 dogfood Project Observer；本节的 `acf observer ...` 文档描述下一发布候选，不表示稳定 `v0.0.3.68` 已包含该命令。Observer 必须先在 ACF 自身开发态连续验证并通过 release gate，之后才会进入 PyPI/全局稳定安装。
+`v0.0.3.69` 首次正式包含 Project Observer。该能力已经先在 ACF 自身开发态连续 dogfood，并通过一致性、历史、自健康、语义解释、静态 Dashboard、受控异常场景、wheel/sdist 安装态 smoke 和发布 Gate；Observer 仍保持 read broad / write narrow / control none，不替代 continuation Writer 控制面。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)

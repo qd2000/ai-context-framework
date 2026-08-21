@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.68
+Version: 0.0.3.69
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -372,6 +372,8 @@ Worktree lifecycle 的 `clean` 使用只读 **semantic Git clean**：staged、un
 `continuation prompt --json` 同时返回稳定的 `identity`、`current`、`execution_policy`、`project_context` 与 `scheduler_wrapper_contract`。`execution_policy` 明确 goal-directed continuous 模式、Agent 自主工作范围、checkpoint/commit/Gate 非停止语义和四类任务级硬停止条件；`project_context` 暴露 continuation state 中的 `plan_refs`、`constraints` 以及外层 wrapper 必须填写的项目专用约束槽。标准薄 wrapper 只固定 worktree/branch/task/workstream identity，每次唤醒重新执行 `acf continuation prompt` 并遵循当轮返回的 generic protocol，再叠加 tooling、Runtime、resource/VM/node、permission、security、scientific、validation 和 issue-reporting 约束；不得复制一份 contention/recovery/workspace/effect 状态机。任何可能跨当前 owner/tool-call 生命周期继续写项目文件或产生非幂等副作用的 long-lived local subprocess、DevSpace session、Runtime job 或外部 job，在启动前都必须建立 deterministic durable effect/job identity，并在权威终态前保持 unresolved；无法持久识别时不得跨 owner 生命周期运行，formal recovery 继续 fail-closed。纯只读长阻塞调用不需要 writer effect，但返回后、下一次项目写入或非幂等动作前必须重新 `assert-owner`。
 
 `continuation workspace reclassify` 是 active fenced owner 的窄恢复工具，不是事后泛化的 `workspace intent`：durable writer 已结束后，如果某个启动前漏报的真实产出当前被分类为 `unexpected_nonoverlap`，只有在来源已审阅且提供 durable `--evidence-ref` 与 `--reason` 时，才能显式用 `--task-owned <path>` 纳入任务，或用 `--baseline-external <path>` 继续保护为外部修改。task-owned reclassification 仍受 bound Workstream direct write scope 约束；已有 conflict、非 unexpected 路径、重叠分类、scope 越界、证据缺失或来源不确定都继续 fail-closed。
+
+普通 `baseline_external` 默认仍不可 stage/commit。只有当前 authenticated runner 刚通过 `acf workstream scope-add|merge-request|ready|merge-start|done` 为绑定 Workstream 生成 `docs/ai/active/Workstreams.md` 与 `docs/ai/active/workstreams/` 下当前绑定 Workstream 的 detail 文件时，允许在 lifecycle/merge 边界审阅 exact diff 与 durable ACF command evidence 后，将**仅这两个确定性 control-plane 文件**形成独立 checkpoint。它不扩展普通 Task authority write_scope，也不允许把第三个 baseline/external path 带入提交。
 
 ownerless effect recovery 有两个明确且互斥的收口路径：已经取得 durable external id 的 effect 必须继续用 `--effect-external-id` 与外部终态证据做 identity-matched reconciliation；同一 stale generation 若有多个此类 externally-proven terminal effects，可按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，由一个 receipt 原子收口全部 assertions，并共享本次 `--effect-evidence-ref` 集合。若 write-ahead `effect prepare` 后能够由外部 authority 明确证明 submit **从未启动**，则可在 owner-ended/forfeiture 条件下使用 `reconcile --effect-not-started --effect-terminal-status failed --effect-evidence-ref <ref>`；该 no-start 分支仍只接受单个 `prepared`、`external_id=null` 记录，不能声明 completed，也不能用于 active/unknown effect。
 
