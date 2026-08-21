@@ -527,9 +527,37 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
         paths = core._paths(root, args.task_id)
         control = core._load_control(paths, root)
         state = core._load_state(paths)
+        round_snapshot, effect_snapshot = core._journal_snapshot(paths, control)
         task_flag = f" --task-id {json.dumps(control['task_id'])}"
         plan_refs = list(state.get("plan_refs") or [])
         constraints = list(state.get("constraints") or [])
+
+        effect_summary = effect_snapshot.get("summary")
+        if not isinstance(effect_summary, dict):
+            effect_summary = {}
+        effect_by_status = effect_summary.get("by_status")
+        if not isinstance(effect_by_status, dict):
+            effect_by_status = {}
+        unresolved_effects = effect_summary.get("unresolved")
+        if not isinstance(unresolved_effects, list):
+            unresolved_effects = []
+        resume_context = {
+            "source": "persisted_state",
+            "authority": "recovery_hint_only",
+            "requires_local_authority_refresh": True,
+            "may_lag_newer_project_effect_or_external_authority": True,
+            "state_updated_at": state.get("updated_at"),
+            "round_journal": {
+                "state": round_snapshot.get("state"),
+                "count": round_snapshot.get("count", 0),
+            },
+            "effect_journal": {
+                "state": effect_snapshot.get("state"),
+                "total": effect_summary.get("total", 0),
+                "by_status": dict(effect_by_status),
+                "unresolved_count": len(unresolved_effects),
+            },
+        }
 
         def render_items(values: list[Any], *, empty: str) -> str:
             if not values:
@@ -580,8 +608,14 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "gate_completion_is_stop": False,
             "final_response_is_terminal": True,
             "final_response_requires_session_end_reason": True,
+            "session_end_requires_no_safe_useful_work": True,
             "progress_report_is_session_end_reason": False,
             "elapsed_time_is_session_end_reason": False,
+            "startup_probe_is_session_end_reason": False,
+            "active_owner_is_session_end_reason": False,
+            "contender_continues_safe_read_only_when_available": True,
+            "resume_hint_is_live_authority": False,
+            "resume_hint_requires_authority_refresh": True,
             "timing_is_execution_duration_target": False,
             "platform_boundary_requires_explicit_signal": True,
             "release_is_default_end_step": False,
@@ -622,7 +656,9 @@ Resume context:
 - Current status: {state['status']}
 - Resume hint: {state['next_action']}
 
+The stage/status/resume hint above are compact persisted recovery metadata, not live authority. They may lag newer Git/project evidence, continuation effects, Runtime state, or other external authority. Before acting on the resume hint, refresh local authority with `acf continuation doctor`, inspect the effect journal when relevant, and perform the project-specific evidence/Runtime checks required by the wrapper. Newer authoritative evidence supersedes the hint; never replay an already-observed side effect merely because the hint is old.
 The resume hint is only an entry point recovered from persisted state. It is not a work quota, the only task allowed now, or a stopping boundary.
+Render-time continuation journal summary: rounds={resume_context['round_journal']['count']}; effects={resume_context['effect_journal']['total']}; unresolved_effects={resume_context['effect_journal']['unresolved_count']}; effect_statuses={json.dumps(resume_context['effect_journal']['by_status'], ensure_ascii=False, sort_keys=True)}.
 
 Project plan references:
 {render_items(plan_refs, empty="No plan reference is currently recorded.")}
@@ -642,6 +678,7 @@ Continuous execution contract:
 - Checkpoints persist progress, commits record natural semantic checkpoints, and Gates open the next decision. They are not session-end signals.
 - A final assistant response ends the current execution session. Do not produce one merely to report progress, summarize completed work, or create a neat stopping point. If the overall objective remains open and safe, non-repetitive, valuable work can continue now, keep using tools and continue the task.
 - Elapsed time, tool-call count, perceived context length, the number of completed steps, successful tests, commits, checkpoints, Gates, or a desire to update the user are not session-end reasons.
+- Startup probes such as `prompt`, `doctor`, `coordination attempt`, or `coordination status` are evidence-gathering steps, not session-end reasons by themselves.
 - A safety refusal blocks only the specific unsafe claim, write, recovery, or side effect. Continue safe diagnosis, evidence review, issue recording, planning, testing, or other non-conflicting work when available.
 - Do not repeat an unchanged failed action when no input, evidence, environment, or strategy has changed. Diagnose, narrow the reproduction, change conditions, choose another approach, or wait for an explicit external state change.
 
@@ -660,6 +697,7 @@ Startup and ownership:
 
 Contention and recovery:
 - If another owner exists, the attempt becomes a contender and opens or joins the challenge for that owner generation. Do not impersonate the owner or modify protected project files. Safe non-conflicting read-only work may continue.
+- Another fresh authenticated owner is not, by itself, a session-end reason. After becoming a contender, continue safe useful read-only authority/evidence refresh when available; do not jump directly from owner detection to a final response.
 - `ACF continuation challenge pending` from ordinary project-locatable ACF commands is only an informational probe. Inspect with `acf continuation coordination status {json.dumps(str(root))}{task_flag} --json`; ordinary commands do not ACK a challenge or grant ownership.
 - A valid owner-protected continuation command authenticated by lease_id + generation + fence_token resolves a pending challenge as `owner_active`; normal release resolves it as `owner_released`.
 - Challenge timeout / `ownership_forfeiture_candidate` forfeits only the old ownership claim; it does not grant write access or prove the old process ended. Use formal `acf continuation reconcile ... --json` and `acf continuation recover ... --reconcile-id <receipt_id> --runner-id <runner> --json` with workspace/HEAD/effect/identity evidence. Reuse credentials returned by recover rather than claiming again.
@@ -690,6 +728,7 @@ Progress and checkpoints:
 
 Actual handoff or session end:
 - Continue is the default while the objective is open and safe, useful work can be done now. Another authenticated owner, a durable external wait, or a fail-closed action justifies handoff only when it actually leaves no safe, useful, non-conflicting work available now.
+- A contender may end the current session only after safe useful non-conflicting work has actually been exhausted, or when an explicit task-level hard stop or platform termination signal applies. State that concrete session-end reason in the final response.
 - Do not guess a platform boundary. Treat it as real only when the platform, system, or tool provides an explicit signal that the current execution is about to terminate; elapsed time, perceived context usage, completed work, or a subjective sense that it is time to wrap up are not such signals.
 - If the current execution session really must end, preserve accurate resumable state and a concrete next action. Do not mark the mission paused, blocked_human, or done unless one of the four task-level hard-stop conditions actually applies.
 - If this runner owns a live lease and the session is actually ending, refresh/checkpoint as useful and release with `acf continuation release ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before final response. Release is not a default final step and is not triggered by progress reporting, commits, checkpoints, tests, or Gates.
@@ -721,6 +760,7 @@ Reusable product issues:
                 "status": state["status"],
                 "next_action": state["next_action"],
             },
+            "resume_context": resume_context,
             "execution_policy": execution_policy,
             "project_context": project_context,
             "scheduler_wrapper_contract": scheduler_wrapper_contract,
