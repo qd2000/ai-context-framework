@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import statistics
 import time
 import uuid
@@ -27,6 +26,10 @@ from ai_context_framework.git_support import (
     path_key,
 )
 from ai_context_framework.observability import acf_home, atomic_write_text, usage_project_dir
+from ai_context_framework.observer_storage import (
+    ObserverLockedError, acquire_observer_lock, observer_lock_health, read_observer_history_stream,
+    refresh_history_index, release_observer_lock, rotate_jsonl_monthly, rotate_observer_history,
+)
 from ai_context_framework.paths import discover_context, resolve_status_location, slugify_project_name
 from ai_context_framework.version import VERSION
 from ai_context_framework.worktree_status import capture_git_worktree_snapshot
@@ -45,13 +48,11 @@ OBSERVER_CONTINUATION_SCHEMA = "acf.observer.continuation.v1"
 OBSERVER_MACHINE_STATE_SCHEMA = "acf.observer.machine-state.v1"
 OBSERVER_ALERT_SCHEMA = "acf.observer.alert.v1"
 OBSERVER_ALERT_EVENT_SCHEMA = "acf.observer.alert-event.v1"
-OBSERVER_HISTORY_INDEX_SCHEMA = "acf.observer.history-index.v1"
-
-OBSERVER_LOCK_RECLAIM_GRACE_SECONDS = 60
 OBSERVER_MIN_STALE_WINDOW_SECONDS = 2 * 60 * 60
 OBSERVER_MIN_CRITICAL_WINDOW_SECONDS = 6 * 60 * 60
-
-
+OBSERVER_FIRST_UNCHANGED_MILESTONE_SECONDS = 6 * 60 * 60
+OBSERVER_SECOND_UNCHANGED_MILESTONE_SECONDS = 12 * 60 * 60
+OBSERVER_DAILY_UNCHANGED_MILESTONE_SECONDS = 24 * 60 * 60
 @dataclass(frozen=True)
 class ObserverProject:
     project_id: str
@@ -71,13 +72,6 @@ class ObserverProject:
             "observer_dir": str(self.observer_dir),
             "git_managed": self.git_managed,
         }
-
-
-class ObserverLockedError(RuntimeError):
-    def __init__(self, path: Path, owner: dict[str, object] | None = None):
-        self.path = path
-        self.owner = owner or {}
-        super().__init__(f"observer_locked: {path}")
 
 
 def utc_now_iso() -> str:
@@ -194,6 +188,43 @@ def _parse_utc_iso(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _continuation_lease_liveness(
+    lease: dict[str, object] | None,
+    control: dict[str, object],
+) -> dict[str, object]:
+    if not lease:
+        return {
+            "state": "absent",
+            "heartbeat_age_seconds": None,
+            "expires_at": None,
+            "stale_after_seconds": None,
+        }
+    now = datetime.now(timezone.utc)
+    expires = _parse_utc_iso(lease.get("expires_at"))
+    heartbeat = _parse_utc_iso(lease.get("last_heartbeat_at")) or _parse_utc_iso(lease.get("issued_at"))
+    stale_after_minutes = control.get("stale_after_minutes")
+    stale_after_seconds = (
+        float(stale_after_minutes) * 60
+        if isinstance(stale_after_minutes, (int, float)) and stale_after_minutes > 0
+        else None
+    )
+    heartbeat_age = max(0.0, (now - heartbeat).total_seconds()) if heartbeat is not None else None
+    if expires is not None and now >= expires:
+        state = "expired"
+    elif stale_after_seconds is not None and heartbeat_age is not None and heartbeat_age > stale_after_seconds:
+        state = "stale"
+    elif heartbeat is not None:
+        state = "fresh"
+    else:
+        state = "unknown"
+    return {
+        "state": state,
+        "heartbeat_age_seconds": round(heartbeat_age, 3) if heartbeat_age is not None else None,
+        "expires_at": lease.get("expires_at"),
+        "stale_after_seconds": stale_after_seconds,
+    }
+
+
 def write_json_atomic(path: Path, payload: dict[str, object]) -> None:
     atomic_write_text(
         path,
@@ -202,16 +233,22 @@ def write_json_atomic(path: Path, payload: dict[str, object]) -> None:
 
 
 def append_jsonl(path: Path, payload: dict[str, object]) -> None:
+    """Atomically append one JSONL record while preserving interrupted tails.
+
+    Observer streams are rotated monthly, so rewriting the bounded live shard
+    is an acceptable trade-off for crash safety.  If a previous process died
+    after leaving a partial final line, keep those bytes as an isolated invalid
+    line instead of concatenating the next valid record onto them.  Readers
+    already skip invalid JSONL rows, while the original bytes remain available
+    for diagnosis rather than being silently deleted.
+    """
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
-        handle.flush()
-        try:
-            os.fsync(handle.fileno())
-        except OSError:
-            # Some virtual filesystems do not support fsync; the append remains
-            # valid and the Observer lock still prevents concurrent writers.
-            pass
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    if existing and not existing.endswith(("\n", "\r")):
+        existing += "\n"
+    line = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
+    atomic_write_text(path, existing + line)
 
 
 def ensure_jsonl_file(path: Path) -> None:
@@ -254,265 +291,6 @@ def _record_month(payload: dict[str, object], timestamp_field: str) -> str | Non
     if parsed is None:
         return None
     return f"{parsed.year:04d}-{parsed.month:02d}"
-
-
-def rotate_jsonl_monthly(
-    path: Path,
-    history_root: Path,
-    *,
-    stream_name: str,
-    timestamp_field: str,
-    id_field: str,
-    current_month: str | None = None,
-) -> list[dict[str, object]]:
-    """Move completed-month JSONL records to lossless history shards.
-
-    Invalid/unknown records are deliberately retained in the live file rather
-    than discarded.  Shard appends are idempotent by stable record ID, so a
-    crash after appending a shard but before rewriting the live file can be
-    retried without duplication or data loss.
-    """
-
-    if not path.is_file():
-        return []
-    current_month = current_month or utc_now_iso()[:7]
-    try:
-        raw_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-    except OSError:
-        return []
-    retained: list[str] = []
-    partitions: dict[str, list[dict[str, object]]] = {}
-    for raw_line in raw_lines:
-        normalized_line = raw_line if raw_line.endswith(("\n", "\r")) else raw_line + "\n"
-        if not raw_line.strip():
-            retained.append(normalized_line)
-            continue
-        try:
-            payload = json.loads(raw_line)
-        except json.JSONDecodeError:
-            retained.append(normalized_line)
-            continue
-        if not isinstance(payload, dict):
-            retained.append(normalized_line)
-            continue
-        month = _record_month(payload, timestamp_field)
-        raw_id = payload.get(id_field)
-        if month is None or month >= current_month or not isinstance(raw_id, str) or not raw_id:
-            retained.append(normalized_line)
-            continue
-        partitions.setdefault(month, []).append(payload)
-
-    if not partitions:
-        return []
-
-    rotations: list[dict[str, object]] = []
-    for month, payloads in sorted(partitions.items()):
-        shard_path = history_root / stream_name / f"{month}.jsonl"
-        appended = 0
-        for payload in payloads:
-            if append_jsonl_unique(shard_path, payload, id_field=id_field):
-                appended += 1
-        rotations.append(
-            {
-                "stream": stream_name,
-                "month": month,
-                "shard_path": str(shard_path),
-                "records_moved": len(payloads),
-                "records_appended": appended,
-            }
-        )
-    atomic_write_text(path, "".join(retained))
-    return rotations
-
-
-def refresh_history_index(project: ObserverProject) -> dict[str, object]:
-    paths = observer_paths(project)
-    history_root = paths["history"]
-    shards: list[dict[str, object]] = []
-    if history_root.is_dir():
-        for shard_path in sorted(history_root.glob("*/*.jsonl")):
-            rows = _read_jsonl_objects(shard_path)
-            timestamps: list[str] = []
-            for row in rows:
-                for field in ("observed_at", "started_at", "finished_at"):
-                    value = row.get(field)
-                    if isinstance(value, str) and _parse_utc_iso(value) is not None:
-                        timestamps.append(value)
-                        break
-            shards.append(
-                {
-                    "stream": shard_path.parent.name,
-                    "month": shard_path.stem,
-                    "path": shard_path.relative_to(project.observer_dir).as_posix(),
-                    "record_count": len(rows),
-                    "first_at": min(timestamps) if timestamps else None,
-                    "last_at": max(timestamps) if timestamps else None,
-                }
-            )
-    payload = {
-        "schema_version": OBSERVER_HISTORY_INDEX_SCHEMA,
-        "project_id": project.project_id,
-        "generated_at": utc_now_iso(),
-        "shard_count": len(shards),
-        "record_count": sum(int(row["record_count"]) for row in shards),
-        "shards": shards,
-    }
-    write_json_atomic(paths["history_index"], payload)
-    return payload
-
-
-def rotate_observer_history(project: ObserverProject) -> list[dict[str, object]]:
-    paths = observer_paths(project)
-    stream_specs = (
-        ("timeline", "timeline", "observed_at", "event_id"),
-        ("observations", "observations", "observed_at", "observation_id"),
-        ("alerts", "alerts", "observed_at", "alert_event_id"),
-        ("runs", "runs", "started_at", "run_id"),
-    )
-    rotations: list[dict[str, object]] = []
-    for path_key_name, stream_name, timestamp_field, id_field in stream_specs:
-        rotations.extend(
-            rotate_jsonl_monthly(
-                paths[path_key_name],
-                paths["history"],
-                stream_name=stream_name,
-                timestamp_field=timestamp_field,
-                id_field=id_field,
-            )
-        )
-    # Keep an explicit zero-shard index from the first successful Observer
-    # run.  Consumers can then distinguish "history initialized but not yet
-    # rotated" from "history feature absent/unknown" without probing files.
-    refresh_history_index(project)
-    return rotations
-
-
-def _process_is_alive(pid: object) -> bool | None:
-    if not isinstance(pid, int) or pid <= 0:
-        return None
-    if pid == os.getpid():
-        return True
-    if os.name == "nt":
-        # Querying process state through Win32 is read-only.  Avoid
-        # ``os.kill(pid, 0)`` on Windows because its semantics are not the
-        # POSIX liveness probe and may terminate a process for non-console
-        # signal values.
-        try:
-            import ctypes
-            from ctypes import wintypes
-
-            process_query_limited_information = 0x1000
-            still_active = 259
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-            kernel32.OpenProcess.restype = wintypes.HANDLE
-            kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-            kernel32.GetExitCodeProcess.restype = wintypes.BOOL
-            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-            kernel32.CloseHandle.restype = wintypes.BOOL
-            handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
-            if not handle:
-                error = ctypes.get_last_error()
-                if error in {87, 1168}:  # invalid parameter / not found
-                    return False
-                if error == 5:  # access denied: fail closed
-                    return None
-                return False
-            try:
-                exit_code = wintypes.DWORD()
-                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-                    return None
-                return exit_code.value == still_active
-            finally:
-                kernel32.CloseHandle(handle)
-        except Exception:
-            return None
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return None
-    except OSError:
-        return None
-    return True
-
-
-def _lock_age_seconds(owner: dict[str, object] | None) -> float | None:
-    if not owner:
-        return None
-    started = _parse_utc_iso(owner.get("started_at"))
-    if started is None:
-        return None
-    return max(0.0, (datetime.now(timezone.utc) - started).total_seconds())
-
-
-def _lock_is_confidently_abandoned(owner: dict[str, object] | None) -> bool:
-    age = _lock_age_seconds(owner)
-    if age is None or age < OBSERVER_LOCK_RECLAIM_GRACE_SECONDS:
-        return False
-    return _process_is_alive(owner.get("pid")) is False
-
-
-def acquire_observer_lock(project: ObserverProject, run_id: str) -> tuple[Path, dict[str, object] | None]:
-    paths = observer_paths(project)
-    lock_path = paths["lock"]
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "schema_version": OBSERVER_LOCK_SCHEMA,
-        "project_id": project.project_id,
-        "run_id": run_id,
-        "pid": os.getpid(),
-        "started_at": utc_now_iso(),
-    }
-    recovered_owner: dict[str, object] | None = None
-    for _attempt in range(2):
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            break
-        except FileExistsError as exc:
-            owner = _read_json_object(lock_path)
-            if not _lock_is_confidently_abandoned(owner):
-                raise ObserverLockedError(lock_path, owner) from exc
-            quarantine = lock_path.with_name(f".{lock_path.name}.abandoned-{run_id}")
-            try:
-                os.replace(lock_path, quarantine)
-            except FileNotFoundError:
-                continue
-            except OSError as replace_exc:
-                raise ObserverLockedError(lock_path, owner) from replace_exc
-            recovered_owner = owner
-            try:
-                quarantine.unlink()
-            except OSError:
-                pass
-    else:
-        raise ObserverLockedError(lock_path, _read_json_object(lock_path))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-            handle.flush()
-            try:
-                os.fsync(handle.fileno())
-            except OSError:
-                pass
-    except Exception:
-        try:
-            lock_path.unlink()
-        except OSError:
-            pass
-        raise
-    return lock_path, recovered_owner
-
-
-def release_observer_lock(lock_path: Path, run_id: str) -> None:
-    current = _read_json_object(lock_path)
-    if current is not None and current.get("run_id") != run_id:
-        return
-    try:
-        lock_path.unlink()
-    except FileNotFoundError:
-        return
 
 
 def _worktree_payload(path: Path, *, listed_head: str | None, listed_branch: str | None) -> dict[str, object]:
@@ -826,6 +604,7 @@ def _read_safe_continuation_task(task_dir: Path, workspace_root: Path) -> dict[s
                     unresolved_effect_count += 1
     lease_summary: dict[str, object] | None = None
     if lease:
+        lease_liveness = _continuation_lease_liveness(lease, control)
         lease_summary = {
             "present": True,
             "runner_id": lease.get("runner_id"),
@@ -836,6 +615,7 @@ def _read_safe_continuation_task(task_dir: Path, workspace_root: Path) -> dict[s
             "last_renew_at": lease.get("last_renew_at"),
             "branch": lease.get("branch"),
             "head": lease.get("head"),
+            "liveness": lease_liveness,
         }
     latest_round: dict[str, object] | None = None
     if rounds:
@@ -922,6 +702,77 @@ def _continuations_for_workstream(
     return rows
 
 
+def _continuation_effect_risk(row: dict[str, object]) -> dict[str, object]:
+    effects = row.get("effects") if isinstance(row.get("effects"), dict) else {}
+    counts = effects.get("status_counts") if isinstance(effects.get("status_counts"), dict) else {}
+    prepared = int(counts.get("prepared") or 0)
+    active = int(counts.get("active") or 0)
+    unknown = int(counts.get("unknown") or 0)
+    unresolved = prepared + active + unknown
+    lease = row.get("lease") if isinstance(row.get("lease"), dict) else {}
+    liveness = lease.get("liveness") if isinstance(lease.get("liveness"), dict) else {}
+    lease_state = str(liveness.get("state") or ("absent" if not lease.get("present") else "unknown"))
+    if unknown:
+        severity = "critical"
+        reason = "effect_outcome_unknown"
+    elif active and lease_state != "fresh":
+        severity = "critical"
+        reason = "active_effect_without_fresh_owner"
+    elif prepared and lease_state != "fresh":
+        severity = "warning"
+        reason = "prepared_effect_without_fresh_owner"
+    else:
+        severity = "none"
+        reason = "effects_in_flight_under_fresh_owner" if unresolved else "no_unresolved_effects"
+    return {
+        "severity": severity,
+        "reason": reason,
+        "unresolved_count": unresolved,
+        "prepared_count": prepared,
+        "active_count": active,
+        "unknown_count": unknown,
+        "lease_liveness": lease_state,
+    }
+
+
+def _continuation_liveness_risk(row: dict[str, object]) -> dict[str, object]:
+    """Classify continuation owner liveness without attempting recovery."""
+
+    status = str(row.get("status") or "").casefold()
+    latest_round = row.get("latest_round") if isinstance(row.get("latest_round"), dict) else {}
+    phase = str(latest_round.get("phase") or "")
+    lease = row.get("lease") if isinstance(row.get("lease"), dict) else {}
+    present = bool(lease.get("present"))
+    liveness = lease.get("liveness") if isinstance(lease.get("liveness"), dict) else {}
+    lease_state = str(liveness.get("state") or ("unknown" if present else "absent"))
+    if status != "running":
+        severity = "none"
+        reason = "continuation_not_running"
+    elif phase == "waiting_external":
+        severity = "none"
+        reason = "waiting_external_does_not_require_fresh_writer"
+    elif lease_state == "expired":
+        severity = "critical"
+        reason = "continuation_lease_expired"
+    elif lease_state == "stale":
+        severity = "warning"
+        reason = "continuation_owner_stale"
+    elif lease_state in {"absent", "unknown"}:
+        severity = "warning"
+        reason = "continuation_running_without_fresh_lease"
+    else:
+        severity = "none"
+        reason = "continuation_owner_fresh"
+    return {
+        "severity": severity,
+        "reason": reason,
+        "lease_liveness": lease_state,
+        "heartbeat_age_seconds": liveness.get("heartbeat_age_seconds"),
+        "stale_after_seconds": liveness.get("stale_after_seconds"),
+        "expires_at": liveness.get("expires_at") or lease.get("expires_at"),
+    }
+
+
 def _workstream_machine_state(
     workstream: dict[str, object],
     continuations: list[dict[str, object]],
@@ -973,14 +824,23 @@ def _workstream_machine_state(
     if workstream.get("source_consistency") == "divergent":
         health = "warning"
         health_reasons.append("workstream_sources_divergent")
-    unresolved_effects = sum(
-        int((row.get("effects") or {}).get("unresolved_count") or 0)
-        for row in related
-        if isinstance(row.get("effects"), dict)
-    )
-    if unresolved_effects:
+    liveness_risks = [_continuation_liveness_risk(row) for row in related]
+    effect_risks = [_continuation_effect_risk(row) for row in related]
+    unresolved_effects = sum(int(risk.get("unresolved_count") or 0) for risk in effect_risks)
+    critical_liveness_risks = [risk for risk in liveness_risks if risk.get("severity") == "critical"]
+    warning_liveness_risks = [risk for risk in liveness_risks if risk.get("severity") == "warning"]
+    critical_effect_risks = [risk for risk in effect_risks if risk.get("severity") == "critical"]
+    warning_effect_risks = [risk for risk in effect_risks if risk.get("severity") == "warning"]
+    if critical_liveness_risks or critical_effect_risks:
+        health = "critical"
+        health_reasons.extend(str(risk.get("reason")) for risk in critical_liveness_risks)
+        health_reasons.extend(str(risk.get("reason")) for risk in critical_effect_risks)
+    elif warning_liveness_risks or warning_effect_risks:
         health = "warning"
-        health_reasons.append(f"unresolved_effects:{unresolved_effects}")
+        health_reasons.extend(str(risk.get("reason")) for risk in warning_liveness_risks)
+        health_reasons.extend(str(risk.get("reason")) for risk in warning_effect_risks)
+    elif unresolved_effects:
+        signals.append(f"effects_in_flight:{unresolved_effects}")
     if not health_reasons:
         health_reasons.append("no_machine_warning_detected")
 
@@ -1080,16 +940,51 @@ def derive_snapshot_alerts(project: ObserverProject, snapshot: dict[str, object]
     for row in snapshot.get("continuations") or []:
         if not isinstance(row, dict):
             continue
-        effects = row.get("effects") if isinstance(row.get("effects"), dict) else {}
-        unresolved = int(effects.get("unresolved_count") or 0)
-        if unresolved <= 0:
-            continue
         task_id = str(row.get("task_id") or "unknown")
+        liveness_risk = _continuation_liveness_risk(row)
+        liveness_severity = str(liveness_risk.get("severity") or "none")
+        if liveness_severity != "none":
+            if liveness_risk.get("reason") == "continuation_lease_expired":
+                title = f"{task_id} 的 continuation lease 已过期"
+                explanation = "任务仍标记为 running，但当前 owner lease 已经过期。Observer 只报告该控制面不一致，不执行 challenge、reconcile 或 recovery。"
+            elif liveness_risk.get("reason") == "continuation_owner_stale":
+                title = f"{task_id} 的 continuation owner 已超过新鲜度阈值"
+                explanation = "任务仍标记为 running，但最近 heartbeat 已超过 stale threshold。该状态需要由 continuation contention/recovery 协议处理，Observer 本身不接管。"
+            else:
+                title = f"{task_id} 正在运行但缺少可确认的新鲜 owner lease"
+                explanation = "continuation state 标记为 running，但 Observer 无法确认 fresh lease。应由 continuation 控制面判断 ownership；Observer 只保留告警。"
+            add_alert(
+                alert_key=f"continuation:{task_id}:owner-liveness",
+                severity=liveness_severity,
+                title=title,
+                explanation=explanation,
+                canonical_identity={
+                    "type": "continuation",
+                    "task_id": task_id,
+                    "workstream_id": row.get("workstream_id"),
+                },
+                provenance=[{"source": "continuation_lease_liveness", **liveness_risk}],
+            )
+        effects = row.get("effects") if isinstance(row.get("effects"), dict) else {}
+        risk = _continuation_effect_risk(row)
+        unresolved = int(risk.get("unresolved_count") or 0)
+        severity = str(risk.get("severity") or "none")
+        if unresolved <= 0 or severity == "none":
+            continue
+        if risk.get("reason") == "effect_outcome_unknown":
+            title = f"{task_id} 存在结果未知的外部副作用"
+            explanation = "检测到 unknown effect；在获得外部权威终态前不能安全假定成功、失败或重新提交，Observer 只报告而不执行恢复。"
+        elif risk.get("reason") == "active_effect_without_fresh_owner":
+            title = f"{task_id} 存在失去新鲜 owner 保护的活动副作用"
+            explanation = "检测到 active effect，但当前 continuation lease 已不再 fresh。该外部动作可能仍在运行，需要持久化外部身份与权威终态证据进行恢复判断。"
+        else:
+            title = f"{task_id} 存在未由新鲜 owner 保护的待执行副作用"
+            explanation = "检测到 prepared effect，但当前 continuation lease 已不再 fresh。需要先确认该动作是否真正越过外部提交边界，再决定恢复或终止。"
         add_alert(
             alert_key=f"continuation:{task_id}:unresolved-effects",
-            severity="critical",
-            title=f"{task_id} 存在未终结外部副作用",
-            explanation=f"检测到 {unresolved} 个 prepared/active/unknown effect。该状态需要依赖持久化外部身份与权威终态证据处理，Observer 只报告而不执行恢复。",
+            severity=severity,
+            title=title,
+            explanation=explanation,
             canonical_identity={
                 "type": "continuation",
                 "task_id": task_id,
@@ -1100,6 +995,8 @@ def derive_snapshot_alerts(project: ObserverProject, snapshot: dict[str, object]
                     "source": "continuation_effect_summary",
                     "source_dir": row.get("source_dir"),
                     "status_counts": effects.get("status_counts") or {},
+                    "lease_liveness": risk.get("lease_liveness"),
+                    "risk_reason": risk.get("reason"),
                 }
             ],
         )
@@ -1603,6 +1500,105 @@ def build_observation_record(
     }
 
 
+def _unchanged_milestone_seconds(elapsed_seconds: float) -> int | None:
+    if elapsed_seconds < OBSERVER_FIRST_UNCHANGED_MILESTONE_SECONDS:
+        return None
+    if elapsed_seconds < OBSERVER_SECOND_UNCHANGED_MILESTONE_SECONDS:
+        return OBSERVER_FIRST_UNCHANGED_MILESTONE_SECONDS
+    if elapsed_seconds < OBSERVER_DAILY_UNCHANGED_MILESTONE_SECONDS:
+        return OBSERVER_SECOND_UNCHANGED_MILESTONE_SECONDS
+    complete_days = max(1, int(elapsed_seconds // OBSERVER_DAILY_UNCHANGED_MILESTONE_SECONDS))
+    return complete_days * OBSERVER_DAILY_UNCHANGED_MILESTONE_SECONDS
+
+
+def build_unchanged_milestone_observation(
+    project: ObserverProject,
+    current: dict[str, object],
+) -> dict[str, object] | None:
+    """Record sparse liveness milestones when project meaning is unchanged.
+
+    This deliberately does not copy the full snapshot every hour.  The first
+    unchanged milestone is emitted after six hours, the second after twelve,
+    and then once per completed day.  Each milestone is anchored to the last
+    observation that represented a real project-state change, so retries are
+    idempotent even when history has already rotated.
+    """
+
+    rows = read_observer_history_stream(project, "observations")
+    meaningful = [row for row in rows if row.get("observation_kind") != "unchanged_milestone"]
+    if not meaningful:
+        return None
+    anchor = meaningful[-1]
+    anchor_at = _parse_utc_iso(anchor.get("observed_at"))
+    current_at = _parse_utc_iso(current.get("observed_at"))
+    if anchor_at is None or current_at is None or current_at <= anchor_at:
+        return None
+    current_fingerprint = _observation_fingerprint(current) or ""
+    if anchor.get("current_fingerprint") != current_fingerprint:
+        return None
+    elapsed_seconds = (current_at - anchor_at).total_seconds()
+    milestone_seconds = _unchanged_milestone_seconds(elapsed_seconds)
+    if milestone_seconds is None:
+        return None
+    anchor_id = str(anchor.get("observation_id") or "")
+    for row in rows:
+        if (
+            row.get("observation_kind") == "unchanged_milestone"
+            and row.get("anchor_observation_id") == anchor_id
+            and row.get("milestone_seconds") == milestone_seconds
+        ):
+            return None
+
+    workstreams = _workstream_index(current)
+    identity_payload = {
+        "project_id": project.project_id,
+        "anchor_observation_id": anchor_id,
+        "current_fingerprint": current_fingerprint,
+        "milestone_seconds": milestone_seconds,
+    }
+    return {
+        "schema_version": OBSERVER_OBSERVATION_SCHEMA,
+        "project_id": project.project_id,
+        "observation_id": _stable_id("observation", identity_payload),
+        "observation_kind": "unchanged_milestone",
+        "observed_at": str(current.get("observed_at") or utc_now_iso()),
+        "anchor_observation_id": anchor_id,
+        "anchor_observed_at": anchor.get("observed_at"),
+        "milestone_seconds": milestone_seconds,
+        "unchanged_for_seconds": int(elapsed_seconds),
+        "current_fingerprint": current_fingerprint,
+        "previous_fingerprint": current_fingerprint,
+        "source_snapshot_fingerprint": (
+            (current.get("snapshot_consistency") or {}).get("final_fingerprint")
+            if isinstance(current.get("snapshot_consistency"), dict)
+            else None
+        ),
+        "meaningful_event_ids": [],
+        "workstream_states": {
+            workstream_id: {
+                "status": row.get("status"),
+                "execution": (row.get("machine_state") or {}).get("execution")
+                if isinstance(row.get("machine_state"), dict)
+                else None,
+                "progress": "unchanged",
+                "health": (row.get("machine_state") or {}).get("health")
+                if isinstance(row.get("machine_state"), dict)
+                else None,
+            }
+            for workstream_id, row in sorted(workstreams.items())
+        },
+        "provenance": [
+            {
+                "source": "observer_unchanged_milestone",
+                "anchor_observation_id": anchor_id,
+                "anchor_observed_at": anchor.get("observed_at"),
+                "milestone_seconds": milestone_seconds,
+            }
+        ],
+        "semantic_interpretation_version": 0,
+    }
+
+
 def _capture_project_facts(project: ObserverProject) -> dict[str, object]:
     worktrees = capture_project_worktrees(project)
     workstreams = capture_project_workstreams(project, worktrees)
@@ -1615,8 +1611,27 @@ def _capture_project_facts(project: ObserverProject) -> dict[str, object]:
     }
 
 
+def _consistency_projection(value: object) -> object:
+    """Remove derived wall-clock fields from source-fact consistency checks."""
+
+    if isinstance(value, dict):
+        return {
+            key: _consistency_projection(item)
+            for key, item in value.items()
+            if key not in {"heartbeat_age_seconds"}
+        }
+    if isinstance(value, list):
+        return [_consistency_projection(item) for item in value]
+    return value
+
+
 def _stable_fingerprint(facts: dict[str, object]) -> str:
-    text = json.dumps(facts, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    text = json.dumps(
+        _consistency_projection(facts),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -1676,8 +1691,10 @@ def _status_payload(
     last_failure: str | None,
     last_duration_ms: int | None,
     last_run_id: str | None,
+    last_run_status: str | None,
     worktrees_scanned: int,
     errors: list[str],
+    data_age: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "schema_version": OBSERVER_STATUS_SCHEMA,
@@ -1688,16 +1705,31 @@ def _status_payload(
         "last_failure": last_failure,
         "last_duration_ms": last_duration_ms,
         "last_run_id": last_run_id,
+        "last_run_status": last_run_status,
         "worktrees_scanned": worktrees_scanned,
         "errors": errors,
+        "data_age": data_age,
     }
 
 
-def _estimate_observer_cadence_seconds(runs_path: Path) -> tuple[float | None, int]:
+def _estimate_observer_cadence_seconds(
+    runs_path: Path,
+    history_root: Path | None = None,
+) -> tuple[float | None, int]:
     successful_times: list[datetime] = []
-    for row in _read_jsonl_objects(runs_path):
+    rows = _read_jsonl_objects(runs_path)
+    if history_root is not None:
+        for shard_path in sorted((history_root / "runs").glob("*.jsonl")):
+            rows.extend(_read_jsonl_objects(shard_path))
+    seen_run_ids: set[str] = set()
+    for row in rows:
         if row.get("status") != "success":
             continue
+        run_id = row.get("run_id")
+        if isinstance(run_id, str) and run_id:
+            if run_id in seen_run_ids:
+                continue
+            seen_run_ids.add(run_id)
         parsed = _parse_utc_iso(row.get("started_at"))
         if parsed is not None:
             successful_times.append(parsed)
@@ -1712,7 +1744,11 @@ def _estimate_observer_cadence_seconds(runs_path: Path) -> tuple[float | None, i
     return float(statistics.median(intervals)), len(intervals)
 
 
-def observer_data_age(current: dict[str, object] | None, runs_path: Path) -> dict[str, object]:
+def observer_data_age(
+    current: dict[str, object] | None,
+    runs_path: Path,
+    history_root: Path | None = None,
+) -> dict[str, object]:
     if current is None:
         return {
             "state": "missing",
@@ -1725,7 +1761,7 @@ def observer_data_age(current: dict[str, object] | None, runs_path: Path) -> dic
         }
     observed = _parse_utc_iso(current.get("observed_at"))
     age_seconds = max(0.0, (datetime.now(timezone.utc) - observed).total_seconds()) if observed else None
-    expected_interval, sample_count = _estimate_observer_cadence_seconds(runs_path)
+    expected_interval, sample_count = _estimate_observer_cadence_seconds(runs_path, history_root)
     stale_after: float | None = None
     critical_after: float | None = None
     freshness = "unknown"
@@ -1777,6 +1813,8 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
                 if append_jsonl_unique(paths["timeline"], event, id_field="event_id"):
                     appended_event_count += 1
             observation = build_observation_record(project, previous_current, current, events)
+            if observation is None:
+                observation = build_unchanged_milestone_observation(project, current)
             observation_recorded = False
             if observation is not None:
                 observation_recorded = append_jsonl_unique(
@@ -1804,12 +1842,16 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
                 "meaningful_event_count": appended_event_count,
                 "alert_event_count": appended_alert_event_count,
                 "observation_recorded": observation_recorded,
+                "observation_kind": observation.get("observation_kind", "state_change")
+                if observation_recorded and observation is not None
+                else None,
                 "history_rotation_count": sum(int(item.get("records_moved") or 0) for item in rotations),
                 "stale_lock_recovered": recovered_lock_owner is not None,
                 "recovered_lock_owner": recovered_lock_owner,
                 "duration_ms": duration_ms,
             }
             previous_status = _read_json_object(paths["status"]) or {}
+            data_age = observer_data_age(current, paths["runs"], paths["history"])
             status = _status_payload(
                 project,
                 last_started=started_at,
@@ -1817,11 +1859,19 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
                 last_failure=previous_status.get("last_failure") if isinstance(previous_status.get("last_failure"), str) else None,
                 last_duration_ms=duration_ms,
                 last_run_id=run_id,
+                last_run_status="success",
                 worktrees_scanned=len(current.get("worktrees") or []),
                 errors=[],
+                data_age=data_age,
             )
             write_json_atomic(paths["current"], current)
             append_jsonl(paths["runs"], run)
+            # The rotation pass happens before this run's new records are
+            # appended. Refresh the index after the append so consumers see a
+            # complete archived + live history count for the just-finished
+            # successful run.
+            refresh_history_index(project)
+            status["data_age"] = observer_data_age(current, paths["runs"], paths["history"])
             write_json_atomic(paths["status"], status)
             return current, run, status
         except Exception as exc:
@@ -1838,6 +1888,7 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
                 "duration_ms": duration_ms,
             }
             previous_status = _read_json_object(paths["status"]) or {}
+            data_age = observer_data_age(_read_json_object(paths["current"]), paths["runs"], paths["history"])
             status = _status_payload(
                 project,
                 last_started=started_at,
@@ -1845,8 +1896,10 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
                 last_failure=finished_at,
                 last_duration_ms=duration_ms,
                 last_run_id=run_id,
+                last_run_status="failed",
                 worktrees_scanned=0,
                 errors=[str(exc)],
+                data_age=data_age,
             )
             try:
                 append_jsonl(paths["runs"], failure)
@@ -1864,7 +1917,8 @@ def observer_status(project: ObserverProject) -> dict[str, object]:
     status = _read_json_object(paths["status"])
     lock = _read_json_object(paths["lock"])
     history_index = _read_json_object(paths["history_index"])
-    data_age = observer_data_age(current, paths["runs"])
+    data_age = observer_data_age(current, paths["runs"], paths["history"])
+    lock_health = observer_lock_health(lock)
     self_health_alerts: list[dict[str, object]] = []
     if data_age.get("state") in {"stale", "critical"}:
         severity = "critical" if data_age.get("state") == "critical" else "warning"
@@ -1882,6 +1936,49 @@ def observer_status(project: ObserverProject) -> dict[str, object]:
                 "provenance": [{"source": "observer_data_age", **data_age}],
             }
         )
+    if status is not None:
+        last_failure = _parse_utc_iso(status.get("last_failure"))
+        last_success = _parse_utc_iso(status.get("last_success"))
+        latest_failed = status.get("last_run_status") == "failed" or (
+            last_failure is not None and (last_success is None or last_failure > last_success)
+        )
+        if latest_failed:
+            self_health_alerts.append(
+                {
+                    "schema_version": OBSERVER_ALERT_SCHEMA,
+                    "project_id": project.project_id,
+                    "alert_key": "observer:last-run-failed",
+                    "severity": "critical" if last_success is None else "warning",
+                    "status": "active",
+                    "title": "Observer 最近一次更新失败",
+                    "explanation": "上一份成功快照仍被保留，但最近一次 Observer 运行没有完成；应结合 data age 判断 Dashboard 是否已经陈旧。",
+                    "canonical_identity": {"type": "observer", "project_id": project.project_id},
+                    "observed_at": utc_now_iso(),
+                    "provenance": [
+                        {
+                            "source": "observer_status",
+                            "last_failure": status.get("last_failure"),
+                            "last_success": status.get("last_success"),
+                            "errors": status.get("errors") or [],
+                        }
+                    ],
+                }
+            )
+    if lock_health.get("state") == "abandoned":
+        self_health_alerts.append(
+            {
+                "schema_version": OBSERVER_ALERT_SCHEMA,
+                "project_id": project.project_id,
+                "alert_key": "observer:abandoned-lock",
+                "severity": "warning",
+                "status": "active",
+                "title": "Observer 检测到可回收的遗留锁",
+                "explanation": "锁对应进程已经明确不存在且超过保护宽限期；下一次写入型 Observer 运行可按安全锁协议回收，不需要修改 Writer 控制面。",
+                "canonical_identity": {"type": "observer", "project_id": project.project_id},
+                "observed_at": utc_now_iso(),
+                "provenance": [{"source": "observer_lock_health", **lock_health}],
+            }
+        )
     return {
         "project": project.to_payload(),
         "observer_dir": str(project.observer_dir),
@@ -1894,6 +1991,7 @@ def observer_status(project: ObserverProject) -> dict[str, object]:
         "dashboard_path": str(paths["dashboard"]),
         "history_index_path": str(paths["history_index"]),
         "lock": lock,
+        "lock_health": lock_health,
         "current": current,
         "self_health": status,
         "data_age": data_age,

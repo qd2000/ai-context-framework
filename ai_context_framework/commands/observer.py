@@ -10,6 +10,7 @@ from ai_context_framework.json_contract import json_enabled, print_json, set_res
 from ai_context_framework.observer import (
     ObserverLockedError,
     build_observer_snapshot,
+    observer_lock_health,
     observer_paths,
     observer_snapshot,
     observer_status,
@@ -38,6 +39,31 @@ def _base_payload(command: str) -> dict[str, object]:
         "error_code": None,
         "next_actions": [],
     }
+
+
+def register_observer_parser(subparsers, add_json_argument) -> None:
+    """Register the Observer CLI surface without bloating the root runtime."""
+
+    observer_parser = subparsers.add_parser(
+        "observer",
+        help="inspect and persist read-only project Observer state",
+    )
+    observer_subparsers = observer_parser.add_subparsers(dest="observer_command", required=True)
+    status_parser = observer_subparsers.add_parser(
+        "status",
+        help="show user-level Project Observer runtime status without writing",
+    )
+    status_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    add_json_argument(status_parser)
+    status_parser.set_defaults(func=observer_status_command)
+    snapshot_parser = observer_subparsers.add_parser(
+        "snapshot",
+        help="capture a read-only project/worktree snapshot into user-level Observer state",
+    )
+    snapshot_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    snapshot_parser.add_argument("--dry-run", action="store_true", help="validate the snapshot without writing Observer runtime state")
+    add_json_argument(snapshot_parser)
+    snapshot_parser.set_defaults(func=observer_snapshot_command)
 
 
 def observer_status_command(args: argparse.Namespace) -> int:
@@ -84,6 +110,8 @@ def observer_snapshot_command(args: argparse.Namespace) -> int:
             "observer_dir": str(project.observer_dir),
             "lock_path": str(exc.path),
             "lock_owner": exc.owner,
+            "lock_health": observer_lock_health(exc.owner),
+            "overlap_detected": True,
             "message": "Observer output is already owned by another active Observer run.",
             "next_actions": ["Inspect `acf observer status --json` and retry after the active Observer run releases its lock."],
         }

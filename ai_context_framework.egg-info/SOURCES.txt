@@ -20,6 +20,8 @@ ai_context_framework/markdown.py
 ai_context_framework/markers.py
 ai_context_framework/models.py
 ai_context_framework/observability.py
+ai_context_framework/observer.py
+ai_context_framework/observer_storage.py
 ai_context_framework/paths.py
 ai_context_framework/runtime.py
 ai_context_framework/tables.py
@@ -55,6 +57,7 @@ ai_context_framework/commands/log.py
 ai_context_framework/commands/log_inventory.py
 ai_context_framework/commands/new_context.py
 ai_context_framework/commands/next_status.py
+ai_context_framework/commands/observer.py
 ai_context_framework/commands/plan_task.py
 ai_context_framework/commands/review_audit_curate.py
 ai_context_framework/commands/status_check.py
