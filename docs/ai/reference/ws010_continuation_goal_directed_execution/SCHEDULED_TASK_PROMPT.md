@@ -35,7 +35,7 @@
 
 如果 WS010 后续再次产生尚未发布的新候选实现，worktree 内 `uv run acf continuation prompt` 只允许用于只读渲染 product-under-test prompt 和隔离测试；所有 claim、coordination、heartbeat、renew、workspace、effect、checkpoint、release、reconcile 和 recover 写控制命令继续使用当前已安装稳定 `acf`，直到更新版本完成发布和安装态验证。
 
-严格执行当次返回的 generated prompt。它是 generic continuation 执行政策、session 结束条件和安全协议的唯一权威。wrapper 不自行定义工作量、运行时长或“完成多少就汇报”的边界；Agent 自主决定有效工作范围和执行顺序。
+严格执行当次返回的 generated prompt。它是 generic continuation 执行政策、session 结束条件和安全协议的唯一权威。`.69` generic protocol 使用按条件适用的安全规则组，不是“从第一步走到最后一步就收口”的顺序 checklist；timing 只管理 lease liveness。wrapper 不自行定义工作量、运行时长或“完成多少就汇报”的边界；Agent 自主决定有效工作范围和执行顺序。
 
 ## 项目专用约束
 
@@ -56,7 +56,7 @@
 
 ## Session 结束与汇报
 
-final response 会结束当前 execution session。不要为了汇报进展、运行了一段时间、完成若干步骤或主观感觉“该收尾了”而 final；是否允许结束当前 session 完全服从当次 generated prompt。scheduler wake 本身不是 session-end reason。
+final response 会结束当前 execution session。不要为了汇报进展、运行了一段时间、完成若干步骤、测试/commit/checkpoint/Gate、timing 数值或主观感觉“该收尾了”而 final；是否允许结束当前 session 完全服从当次 generated prompt。scheduler wake 和 `state.next_action` 都只是恢复入口，不是 session-end reason 或工作配额。
 
 只有 generated prompt 允许当前 session handoff 时才进行收口；正常自愿 handoff 前保存准确进度、具体 `next_action`、必要 evidence，刷新 workspace，按需 checkpoint，并使用同一 stable owner credential release。不要在 final 后留下本可正常 release 的 live owner lease。
 

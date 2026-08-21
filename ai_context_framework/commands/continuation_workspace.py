@@ -571,8 +571,10 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "mode": "goal_directed_continuous",
             "bounded_scope": "ownership_write_and_effect_risk_only",
             "scheduler_wake_is_resume_only": True,
+            "protocol_is_sequential_checklist": False,
             "agent_selects_work_scope": True,
             "continue_while_safe_useful": True,
+            "next_action_is_work_quota": False,
             "checkpoint_is_stop": False,
             "commit_is_stop": False,
             "gate_completion_is_stop": False,
@@ -580,7 +582,9 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "final_response_requires_session_end_reason": True,
             "progress_report_is_session_end_reason": False,
             "elapsed_time_is_session_end_reason": False,
+            "timing_is_execution_duration_target": False,
             "platform_boundary_requires_explicit_signal": True,
+            "release_is_default_end_step": False,
             "action_refusal_scope": "specific_action_only",
             "unchanged_failed_action_may_repeat": False,
             "hard_stop_conditions": hard_stop_conditions,
@@ -612,9 +616,13 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
 Task: {control['task_id']} — {control['title']}
 Worktree: {root}
 Branch: {control['expected_branch']}
-Current stage: {state['stage']}
-Current status: {state['status']}
-Next action: {state['next_action']}
+
+Resume context:
+- Current stage: {state['stage']}
+- Current status: {state['status']}
+- Resume hint: {state['next_action']}
+
+The resume hint is only an entry point recovered from persisted state. It is not a work quota, the only task allowed now, or a stopping boundary.
 
 Project plan references:
 {render_items(plan_refs, empty="No plan reference is currently recorded.")}
@@ -624,26 +632,17 @@ Project-specific constraints recorded in continuation state:
 
 The thin scheduler wrapper must additionally provide any project-specific tooling, Runtime, resource/VM/node, permission, security, scientific, validation, and issue-reporting constraints that are not already represented above. These additions are project authority; they must not copy or redefine the generic continuation state machine.
 
-Timing profile: {control['timing_profile']}
-Scheduler interval: every {control['interval_minutes']} minutes
-Lease TTL: {control['lease_ttl_minutes']} minutes
-Heartbeat recommendation: every {control['heartbeat_interval_minutes']} minutes
-Stale threshold: {control['stale_after_minutes']} minutes
-Renew recommendation: every {control['renew_interval_minutes']} minutes
-The scheduler wake is only a resume signal for one continuous task. It does not define a work round, reporting interval, expected stopping point, or round/Gate deadline.
+Generic Scheduled Task protocol authority: this generated prompt is the only generic continuation state-machine contract. External wrappers should keep only fixed project/worktree/branch/task identity plus project-specific constraints, invoke `acf continuation prompt` again on every scheduler wake, and not freeze a second copy of the contention/recovery/workspace/effect protocol.
 
-Generic Scheduled Task protocol authority: this generated prompt is the only generic continuation state-machine contract. External wrappers should keep only fixed project/worktree/branch/task identity and project-specific runtime, scientific, permission, and validation constraints; do not copy or redefine the generic contention/recovery protocol.
-Thin-wrapper recipe: pin the fixed identity, invoke `acf continuation prompt` again on every scheduler wake, execute the returned protocol, then apply only project-specific runtime/scientific/permission/validation constraints. Do not freeze a copy of the contention/recovery/workspace/effect state machine in the wrapper.
-
-Goal-directed continuous execution policy:
+Continuous execution contract:
+- A scheduler wake is only a resume signal for one continuous task. It does not define a work round, reporting interval, work quota, expected stopping point, or Gate deadline.
 - Bounded continuation limits ownership, write scope, external side effects, and recovery risk. It does not limit how much useful work the Agent may complete during the current execution session.
-- Treat the current stage and next action as the recovery entry point, not as the only micro-task allowed in this execution session.
 - The Agent chooses the most effective work scope, order, implementation strategy, and validation depth from the overall local objective, plans, constraints, and evidence.
-- After every subtask, test, fix, commit, checkpoint, or Gate, reassess the local facts and continue with the next safe, non-repetitive, valuable action.
-- A checkpoint only persists progress. A Git commit only records a natural semantic checkpoint. A completed Gate only opens the next decision. None of them is a reason to release or end while useful work remains.
-- A final assistant response ends the current execution session. Do not produce a final response merely to report progress, summarize what was done, or create a neat stopping point. If the overall objective remains open and safe, non-repetitive, valuable work can continue now, keep using tools and continue the task instead of replying final.
-- Do not infer a session boundary from elapsed time, tool-call count, context length, the number of completed steps, a successful test/commit/checkpoint/Gate, or a desire to update the user. Those are not session-end reasons.
-- A safety refusal blocks only the specific unsafe claim, write, recovery, or side effect. Continue safe diagnosis, evidence review, issue recording, planning, testing, or other non-conflicting work.
+- After a subtask, test, fix, commit, checkpoint, or Gate, reassess the local facts and continue with the next safe, non-repetitive, valuable action while the overall objective remains open.
+- Checkpoints persist progress, commits record natural semantic checkpoints, and Gates open the next decision. They are not session-end signals.
+- A final assistant response ends the current execution session. Do not produce one merely to report progress, summarize completed work, or create a neat stopping point. If the overall objective remains open and safe, non-repetitive, valuable work can continue now, keep using tools and continue the task.
+- Elapsed time, tool-call count, perceived context length, the number of completed steps, successful tests, commits, checkpoints, Gates, or a desire to update the user are not session-end reasons.
+- A safety refusal blocks only the specific unsafe claim, write, recovery, or side effect. Continue safe diagnosis, evidence review, issue recording, planning, testing, or other non-conflicting work when available.
 - Do not repeat an unchanged failed action when no input, evidence, environment, or strategy has changed. Diagnose, narrow the reproduction, change conditions, choose another approach, or wait for an explicit external state change.
 
 Task-level hard-stop conditions are limited to exactly these four cases:
@@ -652,28 +651,51 @@ Task-level hard-stop conditions are limited to exactly these four cases:
 3. New human authorization, credentials, or a non-delegable decision are required.
 4. The configured project-access tool or connection, such as DevSpace, remains unavailable after reasonable reconnect attempts.
 
-Session-end and handoff discipline:
-- Another authenticated owner, a durable external wait, or a fail-closed action may justify ending this execution session only when it actually prevents all safe, useful, non-conflicting work that can be done now. Otherwise continue with the available work.
-- A platform boundary is valid only when the platform, system, or tool provides an explicit signal that the current execution is about to terminate. Do not infer it from elapsed time, perceived context usage, completed work, or a subjective sense that it is time to wrap up.
-- Before a final response, identify the concrete factual reason execution cannot continue now. If no such reason exists and the objective remains open, continue working.
-- These execution-session handoffs are not task completion or task-level pause conditions. Preserve accurate resumable state and a concrete next action; do not mark the mission paused, blocked_human, or done unless one of the four task-level hard-stop conditions actually applies.
-- If this runner owns a live lease and is voluntarily ending the execution session, refresh/checkpoint as useful and release the lease before the final response. Do not knowingly leave a live owner lease behind merely because the assistant is ready to report progress.
+The safety rules below apply when their condition is relevant. They are not a sequential checklist, and reaching the last section is not a reason to end the execution session.
 
-Continuation protocol:
-1. Do not reconstruct task state from chat history by default. Read local project plans/evidence, then run `acf continuation doctor {json.dumps(str(root))}{task_flag} --json`.
-2. Register this runner before trying to own the worktree with `acf continuation coordination attempt {json.dumps(str(root))}{task_flag} --runner-id <runner> --objective-summary <bounded-objective> --json`. If no owner exists, the attempt is only a `claim_candidate`; it does not itself grant ownership. If an owner exists, the attempt becomes a contender and automatically opens or joins the single challenge for that owner generation; the contender must not modify project files.
-3. Any project-locatable ACF command may opportunistically print `ACF continuation challenge pending` to stderr. That probe is informational only: ordinary `acf status/check/workstream/...` activity never ACKs a challenge and never grants ownership. Inspect details with `acf continuation coordination status {json.dumps(str(root))}{task_flag} --json`.
-4. If the current fenced owner performs a valid owner-protected continuation command with its `lease_id + generation + fence_token`, that authenticated activity resolves the pending challenge as `owner_active`; a normal authenticated release resolves it as `owner_released`. A contender must not impersonate the owner. It may continue safe non-conflicting read-only work; yield the duplicate writer session only when no useful non-conflicting work remains.
-5. If a challenge deadline passes without authenticated owner activity, `timed_out` / `ownership_forfeiture_candidate` only forfeits the old generation's ownership claim; it does not prove the Agent is dead and does not grant the contender write access. Run `acf continuation reconcile ... --json` and preserve all workspace/HEAD/effect/identity checks. A matching timed-out challenge can supply the ownership-forfeiture evidence for that generation; stale/orphan recovery without such challenge evidence still requires explicit durable owner-ended evidence. Record an eligible receipt only after every remaining blocker is resolved, accepting an advanced HEAD only when explicitly verified, then run `acf continuation recover ... --reconcile-id <receipt_id> --runner-id <runner> --json`. If reconcile remains blocked, do not perform the blocked recovery or write. Continue safe diagnosis, evidence collection, issue recording, planning, or other non-conflicting work; use a task-level hard stop only when one of the four listed conditions actually applies.
-6. If doctor says `can_claim=true` and no active owner was observed, claim one execution lease with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`. The lease bounds ownership and safety, not the amount of useful work. If step 5 recovered ownership instead, use the credentials returned by `recover` and do not claim again. Keep the returned lease_id, generation, and fence_token; treat fence_token as an owner credential and do not copy it into project files or logs.
-7. Start from the current stage and next action, then continuously advance the overall local objective while ownership remains valid. The Agent may complete multiple related subtasks, fixes, tests, commits, checkpoints, and Gates in the same execution session. Record compact runtime-neutral progress with `acf continuation progress ... --phase <phase> --milestone <compact-name> --evidence-ref <durable-ref> --json`; do not copy raw tool output or transcript history into continuation state.
-8. Inspect workspace ownership with `acf continuation workspace status ... --json`. Before modifying project files, declare the concrete paths with `acf continuation workspace intent ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --path <path> ... --json`. A bound Workstream intent must remain inside its direct write scope. Existing baseline/external dirty is protected; do not stash, reset, clean, stage, or commit it. If a durable writer finishes with a reviewed in-scope output that was not declared before launch and is therefore `unexpected_nonoverlap`, do not silently claim it: the fenced owner may use `workspace reclassify --task-owned <path> --evidence-ref <durable-ref> --reason <review>` only after proving provenance; uncertain output remains external/fail-closed. After writes and before handoff/finalization, refresh ownership with `acf continuation workspace refresh ...` so task-owned, unrelated external, and true path conflicts are explicit.
-9. Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. Owner-protected continuation commands perform the authenticated challenge touch after validating those credentials. For long work, run `acf continuation heartbeat ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` at roughly the configured cadence and `acf continuation renew ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before the renew threshold; heartbeat proves liveness but does not extend TTL. A long-running purely read-only/blocking tool call does not need a writer effect identity, but after it returns and before the next project write or non-idempotent action, re-run `assert-owner`.
-10. Before executing each external/non-idempotent side effect, write its deterministic identity first with `acf continuation effect prepare ... --key <logical-key> --kind <generic-kind> --json`. This requirement explicitly includes any long-lived local subprocess, DevSpace session, Runtime job, or external job that may outlive the current owner/tool call and later write project files or create a non-idempotent side effect. Persist a reusable external/job identity after launch and keep the effect `prepared|active|unknown` until an authoritative terminal observation. If no durable identity can be persisted, the writer must not cross an owner lifecycle and formal recovery remains fail-closed while its termination is unproven. Execute the side effect only when prepare returns `created=true`; `created=false` means the logical effect already exists and must be inspected/reused/reconciled rather than resubmitted. After authoritative observations, update only compact status/milestone/external-id/evidence references with `acf continuation effect update ...`. If an outcome is uncertain, preserve that effect for reconciliation and never resubmit it from memory. Continue other safe work when possible; if resolving the uncertainty truly requires human input, use the human-input hard-stop condition. Use `acf continuation effect list ... --json` to inspect durable effect identities.
-11. Validate completed work enough to continue safely or hand off accurately. A continuation handoff does not require a Git commit merely because the worktree is dirty; create a Git checkpoint only when the project has reached a natural semantic checkpoint. A commit is not a session stop signal. Never include unrelated external dirty in a commit.
-12. Update compact state whenever useful with `acf continuation checkpoint ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> ... --json`. Checkpointing does not require release; continue working while ownership is valid and useful work remains.
-13. Release the same lease with `acf continuation release ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` only when the execution session is actually ending for a concrete factual reason: an applicable task-level hard stop; an owner/external/fail-closed condition that leaves no safe useful work now; or an explicit platform/system/tool termination signal. Do not release merely to create a round boundary, report progress, or because a subtask, test, Gate, commit, or checkpoint completed. Preserved task WIP may remain uncommitted across scheduler wakes; only true workspace conflict/ambiguous provenance, identity mismatch, unresolved effect, paused/blocked state, or unknown write outcome should fail closed for the affected action.
-14. If this execution exposes a concrete reusable ACF/continuation/workflow defect or operational gap, record it immediately with `acf continuation issue {json.dumps(str(root))}{task_flag} --category <category> --severity <low|medium|high|critical> --text <concise issue> --evidence-ref <path-or-commit> --json`. Do not record normal active-lease no-ops, expected waits, or task-specific scientific failures as product issues.
+Startup and ownership:
+- Reconstruct current task state from local project plans/evidence and persisted continuation state, not chat history by default. Inspect with `acf continuation doctor {json.dumps(str(root))}{task_flag} --json`.
+- Register the runner with `acf continuation coordination attempt {json.dumps(str(root))}{task_flag} --runner-id <runner> --objective-summary <bounded-objective> --json` before trying to obtain writer ownership. An attempt is not ownership.
+- If doctor reports `can_claim=true` and no active owner was observed, claim one execution lease with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`. A lease bounds ownership and safety, not work quantity. Keep the returned lease_id, generation, and fence_token private to the current owner session.
+
+Contention and recovery:
+- If another owner exists, the attempt becomes a contender and opens or joins the challenge for that owner generation. Do not impersonate the owner or modify protected project files. Safe non-conflicting read-only work may continue.
+- `ACF continuation challenge pending` from ordinary project-locatable ACF commands is only an informational probe. Inspect with `acf continuation coordination status {json.dumps(str(root))}{task_flag} --json`; ordinary commands do not ACK a challenge or grant ownership.
+- A valid owner-protected continuation command authenticated by lease_id + generation + fence_token resolves a pending challenge as `owner_active`; normal release resolves it as `owner_released`.
+- Challenge timeout / `ownership_forfeiture_candidate` forfeits only the old ownership claim; it does not grant write access or prove the old process ended. Use formal `acf continuation reconcile ... --json` and `acf continuation recover ... --reconcile-id <receipt_id> --runner-id <runner> --json` with workspace/HEAD/effect/identity evidence. Reuse credentials returned by recover rather than claiming again.
+- If recovery of a specific action remains fail-closed, do not perform that blocked action. Continue other safe diagnosis, evidence collection, issue recording, planning, testing, or non-conflicting work when available.
+
+Workspace writes:
+- Inspect ownership with `acf continuation workspace status ... --json`. Before modifying project files, declare concrete paths with `acf continuation workspace intent ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --path <path> ... --json`; a bound Workstream intent must remain inside its direct write scope.
+- Protect baseline/external dirty state; do not stash, reset, clean, stage, or commit unrelated external changes.
+- If a reviewed durable writer output was not declared before launch and appears as `unexpected_nonoverlap`, use fenced `workspace reclassify --task-owned <path> --evidence-ref <durable-ref> --reason <review>` only after proving provenance. Uncertain output remains external/fail-closed.
+- Refresh workspace ownership after writes and before an actual handoff with `acf continuation workspace refresh ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` so task-owned, external, and conflict paths remain explicit.
+
+Ownership liveness:
+- Timing profile: {control['timing_profile']}; scheduler wake {control['interval_minutes']} min; lease TTL {control['lease_ttl_minutes']} min; heartbeat recommendation {control['heartbeat_interval_minutes']} min; stale threshold {control['stale_after_minutes']} min; renew recommendation {control['renew_interval_minutes']} min.
+- These values govern lease liveness only. They are not execution-duration targets, work quotas, reporting intervals, or reasons to stop.
+- Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. For long work, use `acf continuation heartbeat ...` at roughly the configured cadence and `acf continuation renew ...` before the renew threshold; heartbeat proves liveness but does not extend TTL.
+- A long-running purely read-only/blocking call does not need a writer effect identity, but after it returns and before the next project write or non-idempotent action, re-run `assert-owner`.
+
+External and non-idempotent side effects:
+- Before each such side effect, establish its deterministic identity with `acf continuation effect prepare ... --key <logical-key> --kind <generic-kind> --json`. This includes long-lived local subprocesses, DevSpace sessions, Runtime jobs, or external jobs that may outlive the current owner/tool call and later write project files or create a non-idempotent effect.
+- Execute the side effect only when prepare returns `created=true`. `created=false` means inspect/reuse/reconcile the existing logical effect rather than resubmitting it.
+- Persist a reusable external/job identity after launch and keep the effect `prepared|active|unknown` until authoritative terminal observation. Update compact status with `acf continuation effect update ...`; use `acf continuation effect list ... --json` to inspect durable identities.
+- If outcome is uncertain, preserve the effect for reconciliation and never resubmit from memory. If no durable identity can be persisted, the writer must not cross an owner lifecycle while termination remains unproven.
+
+Progress and checkpoints:
+- Continuously advance the overall local objective while ownership is valid. Record compact runtime-neutral progress when useful with `acf continuation progress ... --phase <phase> --milestone <compact-name> --evidence-ref <durable-ref> --json`; do not copy raw tool output or transcript history into continuation state.
+- Validate completed work enough to choose the next safe action. A dirty task-owned worktree does not by itself require a Git commit or handoff; create commits only at natural project semantic checkpoints and never include unrelated external dirty.
+- Update compact persisted state when useful with `acf continuation checkpoint ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> ... --json`. Checkpointing does not require release.
+
+Actual handoff or session end:
+- Continue is the default while the objective is open and safe, useful work can be done now. Another authenticated owner, a durable external wait, or a fail-closed action justifies handoff only when it actually leaves no safe, useful, non-conflicting work available now.
+- Do not guess a platform boundary. Treat it as real only when the platform, system, or tool provides an explicit signal that the current execution is about to terminate; elapsed time, perceived context usage, completed work, or a subjective sense that it is time to wrap up are not such signals.
+- If the current execution session really must end, preserve accurate resumable state and a concrete next action. Do not mark the mission paused, blocked_human, or done unless one of the four task-level hard-stop conditions actually applies.
+- If this runner owns a live lease and the session is actually ending, refresh/checkpoint as useful and release with `acf continuation release ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before final response. Release is not a default final step and is not triggered by progress reporting, commits, checkpoints, tests, or Gates.
+
+Reusable product issues:
+- When this work exposes a concrete reusable ACF/continuation/workflow defect or operational gap, record it with `acf continuation issue {json.dumps(str(root))}{task_flag} --category <category> --severity <low|medium|high|critical> --text <concise issue> --evidence-ref <path-or-commit> --json`. Do not record normal active-lease no-ops, expected waits, or task-specific scientific failures as product issues.
 """
         identity = {
             "workspace_root": str(root),
