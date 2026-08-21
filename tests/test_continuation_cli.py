@@ -5445,8 +5445,14 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertFalse(policy["gate_completion_is_stop"])
         self.assertTrue(policy["final_response_is_terminal"])
         self.assertTrue(policy["final_response_requires_session_end_reason"])
+        self.assertTrue(policy["session_end_requires_no_safe_useful_work"])
         self.assertFalse(policy["progress_report_is_session_end_reason"])
         self.assertFalse(policy["elapsed_time_is_session_end_reason"])
+        self.assertFalse(policy["startup_probe_is_session_end_reason"])
+        self.assertFalse(policy["active_owner_is_session_end_reason"])
+        self.assertTrue(policy["contender_continues_safe_read_only_when_available"])
+        self.assertFalse(policy["resume_hint_is_live_authority"])
+        self.assertTrue(policy["resume_hint_requires_authority_refresh"])
         self.assertFalse(policy["timing_is_execution_duration_target"])
         self.assertTrue(policy["platform_boundary_requires_explicit_signal"])
         self.assertFalse(policy["release_is_default_end_step"])
@@ -5475,8 +5481,22 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("bootstrap", payload["current"]["stage"])
         self.assertEqual("ready", payload["current"]["status"])
         self.assertEqual("Run gate one.", payload["current"]["next_action"])
+        resume_context = payload["resume_context"]
+        self.assertEqual("persisted_state", resume_context["source"])
+        self.assertEqual("recovery_hint_only", resume_context["authority"])
+        self.assertTrue(resume_context["requires_local_authority_refresh"])
+        self.assertTrue(resume_context["may_lag_newer_project_effect_or_external_authority"])
+        self.assertEqual("absent", resume_context["round_journal"]["state"])
+        self.assertEqual(0, resume_context["round_journal"]["count"])
+        self.assertEqual("absent", resume_context["effect_journal"]["state"])
+        self.assertEqual(0, resume_context["effect_journal"]["total"])
+        self.assertEqual(0, resume_context["effect_journal"]["unresolved_count"])
         self.assertIn("Resume context", prompt)
         self.assertIn("Resume hint: Run gate one.", prompt)
+        self.assertIn("compact persisted recovery metadata, not live authority", prompt)
+        self.assertIn("may lag newer Git/project evidence, continuation effects, Runtime state", prompt)
+        self.assertIn("Newer authoritative evidence supersedes the hint", prompt)
+        self.assertIn("Render-time continuation journal summary", prompt)
         self.assertIn("The resume hint is only an entry point", prompt)
         self.assertIn("It is not a work quota", prompt)
         self.assertIn("not chat history by default", prompt)
@@ -5493,6 +5513,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertIn("A final assistant response ends the current execution session", prompt)
         self.assertIn("Do not produce one merely to report progress", prompt)
         self.assertIn("Elapsed time, tool-call count, perceived context length", prompt)
+        self.assertIn("Startup probes such as `prompt`, `doctor`, `coordination attempt`", prompt)
         self.assertIn("The safety rules below apply when their condition is relevant", prompt)
         self.assertIn("They are not a sequential checklist", prompt)
         self.assertIn("Do not guess a platform boundary", prompt)
@@ -5514,6 +5535,8 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertNotIn("14. If this execution exposes", prompt)
         self.assertIn("acf continuation coordination attempt", prompt)
         self.assertIn("acf continuation coordination status", prompt)
+        self.assertIn("Another fresh authenticated owner is not, by itself, a session-end reason", prompt)
+        self.assertIn("do not jump directly from owner detection to a final response", prompt)
         self.assertIn("ACF continuation challenge pending", prompt)
         self.assertIn("ownership_forfeiture_candidate", prompt)
         self.assertIn("does not grant write access or prove the old process ended", prompt)
@@ -5537,6 +5560,59 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertIn("acf continuation recover", prompt)
         self.assertIn("acf continuation renew", prompt)
         self.assertIn("acf continuation release", prompt)
+        self.assertIn("safe useful non-conflicting work has actually been exhausted", prompt)
+        self.assertIn("State that concrete session-end reason in the final response", prompt)
+
+    def test_prompt_surfaces_compact_effect_authority_summary_without_copying_effect_history(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner = [
+            "--lease-id",
+            str(claim["lease"]["lease_id"]),
+            *self.owner_flags(claim),
+        ]
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *owner,
+                "--key",
+                "campaign:newer-than-resume-hint",
+                "--kind",
+                "external-job",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        code, prompt_payload, stderr = self.run_json(
+            ["continuation", "prompt", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, stderr)
+        resume_context = prompt_payload["resume_context"]
+        self.assertEqual("valid", resume_context["round_journal"]["state"])
+        self.assertEqual(1, resume_context["round_journal"]["count"])
+        self.assertEqual("valid", resume_context["effect_journal"]["state"])
+        self.assertEqual(1, resume_context["effect_journal"]["total"])
+        self.assertEqual(1, resume_context["effect_journal"]["unresolved_count"])
+        self.assertEqual(1, resume_context["effect_journal"]["by_status"]["prepared"])
+        prompt = str(prompt_payload["prompt"])
+        self.assertIn("effects=1", prompt)
+        self.assertIn("unresolved_effects=1", prompt)
+        self.assertNotIn("campaign:newer-than-resume-hint", prompt)
 
     def test_prompt_renders_project_constraints_and_additional_plan_refs(self) -> None:
         self.init_task()
