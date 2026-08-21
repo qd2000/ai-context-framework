@@ -3362,6 +3362,245 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("completed", first_effect["status"])
         self.assertEqual(65, len(journal["effects"]))
 
+    def test_effect_prepare_rolls_terminal_history_without_losing_replay_identity(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        journal = continuation_rounds.empty_effect_journal("WS900")
+        now = continuation._iso()
+        for index in range(continuation_rounds.MAX_EFFECTS):
+            key = f"terminal-{index}"
+            journal, _, _ = continuation_rounds.prepare_effect(
+                journal,
+                task_id="WS900",
+                generation=1,
+                logical_key=key,
+                kind="test-effect",
+                external_id=None,
+                milestone=None,
+                evidence_refs=[],
+                now=now,
+            )
+            journal, _ = continuation_rounds.update_effect(
+                journal,
+                task_id="WS900",
+                generation=1,
+                logical_key=key,
+                status="completed",
+                external_id=None,
+                milestone="terminal",
+                evidence_refs=[],
+                now=now,
+            )
+        continuation._write_json(state_dir / "effects.json", journal)
+
+        owner = [
+            "--lease-id",
+            str(claim["lease"]["lease_id"]),
+            *self.owner_flags(claim),
+        ]
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *owner,
+                "--key",
+                "next-effect",
+                "--kind",
+                "test-effect",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        self.assertTrue(prepared["created"])
+        self.assertTrue(prepared["rollover"]["rolled_over"])
+        self.assertEqual(continuation_rounds.MAX_EFFECTS, prepared["rollover"]["archived_terminal_count"])
+        current = json.loads((state_dir / "effects.json").read_text(encoding="utf-8"))
+        self.assertEqual(["next-effect"], [item["logical_key"] for item in current["effects"]])
+        archives = sorted(state_dir.glob("effects.archive.*.json"))
+        self.assertEqual(1, len(archives))
+        archived = json.loads(archives[0].read_text(encoding="utf-8"))
+        self.assertEqual(continuation_rounds.MAX_EFFECTS, len(archived["effects"]))
+        self.assertTrue(
+            all(
+                item["status"] in continuation_rounds.TERMINAL_EFFECT_STATUSES
+                for item in archived["effects"]
+            )
+        )
+
+        code, duplicate, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *owner,
+                "--key",
+                "terminal-0",
+                "--kind",
+                "test-effect",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{duplicate}")
+        self.assertFalse(duplicate["created"])
+        self.assertEqual("completed", duplicate["effect"]["status"])
+        self.assertEqual(257, duplicate["summary"]["total"])
+
+        code, listed, stderr = self.run_json(
+            ["continuation", "effect", "list", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{listed}")
+        self.assertEqual(257, listed["summary"]["total"])
+        self.assertIn("terminal-0", listed["summary"]["terminal"])
+        self.assertEqual(["next-effect"], listed["summary"]["unresolved"])
+
+    def test_effect_rollover_never_archives_unresolved_records(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        journal = continuation_rounds.empty_effect_journal("WS900")
+        now = continuation._iso()
+        for index in range(continuation_rounds.MAX_EFFECTS):
+            key = f"effect-{index}"
+            journal, _, _ = continuation_rounds.prepare_effect(
+                journal,
+                task_id="WS900",
+                generation=1,
+                logical_key=key,
+                kind="test-effect",
+                external_id=None,
+                milestone=None,
+                evidence_refs=[],
+                now=now,
+            )
+            if index < continuation_rounds.MAX_EFFECTS - 1:
+                journal, _ = continuation_rounds.update_effect(
+                    journal,
+                    task_id="WS900",
+                    generation=1,
+                    logical_key=key,
+                    status="completed",
+                    external_id=None,
+                    milestone="terminal",
+                    evidence_refs=[],
+                    now=now,
+                )
+        continuation._write_json(state_dir / "effects.json", journal)
+        owner = [
+            "--lease-id",
+            str(claim["lease"]["lease_id"]),
+            *self.owner_flags(claim),
+        ]
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *owner,
+                "--key",
+                "next-effect",
+                "--kind",
+                "test-effect",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        current = json.loads((state_dir / "effects.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            ["effect-255", "next-effect"],
+            [item["logical_key"] for item in current["effects"]],
+        )
+        archived = json.loads(
+            next(state_dir.glob("effects.archive.*.json")).read_text(encoding="utf-8")
+        )
+        self.assertNotIn("effect-255", [item["logical_key"] for item in archived["effects"]])
+
+    def test_doctor_fails_closed_when_effect_archive_contains_unresolved_record(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        journal = continuation_rounds.empty_effect_journal("WS900")
+        journal, _, created = continuation_rounds.prepare_effect(
+            journal,
+            task_id="WS900",
+            generation=1,
+            logical_key="archived-unresolved",
+            kind="test-effect",
+            external_id=None,
+            milestone=None,
+            evidence_refs=[],
+            now=continuation._iso(),
+        )
+        self.assertTrue(created)
+        continuation._write_json(state_dir / "effects.archive.000001.json", journal)
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(2, code, f"{stderr}\n{doctor}")
+        self.assertFalse(doctor["ok"])
+        self.assertEqual("invalid", doctor["effect_journal"]["state"])
+        self.assertFalse(doctor["can_claim"])
+
+    def test_continuation_migration_history_digests_include_effect_archives(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        archive = continuation_rounds.empty_effect_journal("WS900")
+        archive, _, _ = continuation_rounds.prepare_effect(
+            archive,
+            task_id="WS900",
+            generation=1,
+            logical_key="archived-terminal",
+            kind="test-effect",
+            external_id=None,
+            milestone=None,
+            evidence_refs=[],
+            now=continuation._iso(),
+        )
+        archive, _ = continuation_rounds.update_effect(
+            archive,
+            task_id="WS900",
+            generation=1,
+            logical_key="archived-terminal",
+            status="completed",
+            external_id=None,
+            milestone="terminal",
+            evidence_refs=[],
+            now=continuation._iso(),
+        )
+        continuation._write_json(state_dir / "effects.archive.000001.json", archive)
+        digests = continuation_inventory.preserved_history_digests(state_dir)
+        self.assertIn("effects.archive.000001.json", digests)
+        self.assertEqual(64, len(digests["effects.archive.000001.json"]))
+
     def test_expired_running_round_with_effects_requires_reconciliation_before_reclaim(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
