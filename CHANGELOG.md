@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+## v0.0.3.70 — 2026-08-21
+
+### Continuation workspace handoff status normalization
+
+- 修复 tracked unstaged task-owned WIP 在正常 `continuation release` 后立即被误报 `task_owned_handoff_drift` 的问题。根因是 Git porcelain 状态 `" M"` 参与 digest 计算，而 workspace manifest 持久化时状态被规范化为 `"M"`，导致同一份未改变文件在 ownerless handoff 校验时必然 digest 不一致。
+- `git_snapshot()` 现在先 canonicalize workspace status，再将同一 canonical status 同时用于 entry status 和 content digest；不放宽真实 provenance drift 保护，文件内容确实变化时仍继续 fail-closed。
+- 对 `.69` 已经写入的旧 manifest 提供窄兼容：只有旧 digest 能由**当前同一文件内容 + 当前 Git 原始 porcelain status**精确重算时，才把它视为状态空白规范化产生的 legacy alias，并在下一次成功 claim 时写回 canonical digest；内容有任何变化都不会命中兼容分支。
+- 新增 tracked unstaged handoff 回归测试，并保留 ownerless task-owned 内容真实变化必须阻断下一次 claim 的既有测试。
+
 ## v0.0.3.69 — 2026-08-21
 
 ### Continuation session-boundary hardening

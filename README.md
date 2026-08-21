@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.69` 是当前推荐版本。`acf continuation prompt` 采用 goal-directed continuous execution：scheduler wake 只是持续任务的恢复入口，不定义工作回合、汇报周期、工作配额或预期停止点；bounded 只约束 ownership、写入、副作用和恢复风险，不限制当前 execution session 的有效工作范围。stage/next_action 只是 resume context/hint，Agent 自主决定工作范围；子任务、测试、commit、checkpoint 或 Gate 完成都不是停止理由。generic protocol 不再使用 1→14 顺序 checklist，而改为按条件适用的 ownership/workspace/liveness/effect/checkpoint/handoff 规则组；timing 只服务 lease liveness，不是 execution-duration target。final response 会结束当前 execution session，因此不能只为汇报进展、经过了一段时间或“感觉该收尾”而触发；平台边界必须有平台、系统或工具的明确终止信号。JSON 同时暴露 `current`、`execution_policy`、`project_context` 和项目专用约束槽。
+`v0.0.3.70` 是当前推荐版本。`acf continuation prompt` 采用 goal-directed continuous execution：scheduler wake 只是持续任务的恢复入口，不定义工作回合、汇报周期、工作配额或预期停止点；bounded 只约束 ownership、写入、副作用和恢复风险，不限制当前 execution session 的有效工作范围。stage/next_action 只是 resume context/hint，Agent 自主决定工作范围；子任务、测试、commit、checkpoint 或 Gate 完成都不是停止理由。generic protocol 不再使用 1→14 顺序 checklist，而改为按条件适用的 ownership/workspace/liveness/effect/checkpoint/handoff 规则组；timing 只服务 lease liveness，不是 execution-duration target。final response 会结束当前 execution session，因此不能只为汇报进展、经过了一段时间或“感觉该收尾”而触发；平台边界必须有平台、系统或工具的明确终止信号。`.70` 另外修复 tracked unstaged task-owned WIP 在正常 release 后因 Git porcelain status 空白规范化不一致而被误报 `task_owned_handoff_drift` 的问题，并可在文件内容未变化时安全兼容 `.69` 已持久化的旧 digest。JSON 同时暴露 `current`、`execution_policy`、`project_context` 和项目专用约束槽。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
