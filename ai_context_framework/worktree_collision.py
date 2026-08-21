@@ -223,11 +223,20 @@ def analyze_primary_collisions(
     repository = canonical_path(repo)
     tree = str(candidate["tree"])
     changes = [_change_from_payload(row) for row in candidate.get("changes", [])]
-    local_entries = [dict(row) for row in snapshot.get("entries", []) if isinstance(row, Mapping)]
+    stat_only_keys = {
+        comparison_key(str(path)) for path in snapshot.get("stat_only_paths", []) if path
+    }
+    local_entries = [
+        dict(row)
+        for row in snapshot.get("entries", [])
+        if isinstance(row, Mapping) and comparison_key(str(row.get("path") or "")) not in stat_only_keys
+    ]
     local_states = {
         str(row.get("comparison_key")): row
         for row in snapshot.get("path_states", [])
-        if isinstance(row, Mapping) and row.get("comparison_key")
+        if isinstance(row, Mapping)
+        and row.get("comparison_key")
+        and str(row.get("comparison_key")) not in stat_only_keys
     }
     _add_candidate_relevant_ignored(repository, changes, local_entries, local_states)
     local_paths = _local_paths(local_entries)

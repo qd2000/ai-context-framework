@@ -8,6 +8,7 @@ ai_context_framework/cli.py
 ai_context_framework/constants.py
 ai_context_framework/context_budget.py
 ai_context_framework/continuation_coordination.py
+ai_context_framework/continuation_effect_archive.py
 ai_context_framework/continuation_inventory.py
 ai_context_framework/continuation_recovery.py
 ai_context_framework/continuation_rounds.py
@@ -41,6 +42,7 @@ ai_context_framework/commands/__init__.py
 ai_context_framework/commands/archive.py
 ai_context_framework/commands/continuation.py
 ai_context_framework/commands/continuation_coordination.py
+ai_context_framework/commands/continuation_parsers.py
 ai_context_framework/commands/continuation_recovery.py
 ai_context_framework/commands/continuation_workspace.py
 ai_context_framework/commands/decisions.py

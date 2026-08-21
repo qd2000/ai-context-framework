@@ -410,7 +410,9 @@ def continuation_init_command(args: argparse.Namespace) -> int:
             "objective": str(args.objective).strip(),
             "status": "ready",
             "stage": str(args.stage or "bootstrap").strip(),
-            "next_action": str(args.next_action or "Run continuation doctor and the next bounded gate.").strip(),
+            "next_action": str(
+                args.next_action or "Refresh local authority and execute the current default plan."
+            ).strip(),
             "updated_at": now,
             "completed": ["Initialized ACF bounded continuation control."],
             "constraints": [
@@ -528,7 +530,9 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
         control = core._load_control(paths, root)
         state = core._load_state(paths)
         round_snapshot, effect_snapshot = core._journal_snapshot(paths, control)
+        status_snapshot = core._status(root, control["task_id"])
         task_flag = f" --task-id {json.dumps(control['task_id'])}"
+        runner_id = str(getattr(args, "runner_id", None) or "").strip() or None
         plan_refs = list(state.get("plan_refs") or [])
         constraints = list(state.get("constraints") or [])
 
@@ -602,7 +606,10 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "protocol_is_sequential_checklist": False,
             "agent_selects_work_scope": True,
             "continue_while_safe_useful": True,
+            "next_action_is_default_execution_plan": True,
             "next_action_is_work_quota": False,
+            "next_action_requires_authority_refresh": True,
+            "next_action_may_be_superseded_by_newer_authority": True,
             "checkpoint_is_stop": False,
             "commit_is_stop": False,
             "gate_completion_is_stop": False,
@@ -613,7 +620,13 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "elapsed_time_is_session_end_reason": False,
             "startup_probe_is_session_end_reason": False,
             "active_owner_is_session_end_reason": False,
+            "active_lease_requires_liveness_verification": True,
+            "active_lease_is_session_end_reason": False,
+            "verified_duplicate_owner_may_end_duplicate_wake": True,
+            "duplicate_wake_exit_is_task_stop": False,
+            "stale_owner_requires_recovery": True,
             "contender_continues_safe_read_only_when_available": True,
+            "contender_must_create_busywork": False,
             "resume_hint_is_live_authority": False,
             "resume_hint_requires_authority_refresh": True,
             "timing_is_execution_duration_target": False,
@@ -639,26 +652,226 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                     "issue_reporting",
                 ],
                 "rule": (
-                    "The thin scheduler wrapper must add project-specific constraints that are not "
-                    "already represented by local plan refs or continuation state, without copying "
-                    "the generic continuation state machine."
+                    "The scheduler wrapper must be a sufficient high-salience bootstrap contract: "
+                    "it supplies exact project/workspace/tooling entry, stable ACF upgrade/adaptation, "
+                    "authority refresh and generated-plan execution rules, owner disclosure, and "
+                    "project-specific constraints without copying the generic continuation state machine."
                 ),
             },
         }
+        lease_snapshot = status_snapshot["lease"]
+        raw_lease = lease_snapshot.get("lease") if isinstance(lease_snapshot, Mapping) else None
+        owner_runner_id = str(raw_lease.get("runner_id") or "") if isinstance(raw_lease, Mapping) else None
+        owner_generation = raw_lease.get("generation") if isinstance(raw_lease, Mapping) else None
+        owner_liveness = str(lease_snapshot.get("liveness") or "absent")
+        caller_identity_known = runner_id is not None
+        same_runner_owner = bool(
+            lease_snapshot.get("state") == "active"
+            and runner_id
+            and owner_runner_id
+            and runner_id == owner_runner_id
+        )
+        fresh_owner_caller_unknown = bool(
+            lease_snapshot.get("state") == "active"
+            and owner_liveness == "fresh"
+            and not caller_identity_known
+        )
+        verified_live_other_owner = bool(
+            lease_snapshot.get("state") == "active"
+            and owner_liveness == "fresh"
+            and caller_identity_known
+            and not same_runner_owner
+        )
+        stale_or_unverified_owner = bool(
+            lease_snapshot.get("state") == "active"
+            and owner_liveness in {"stale", "legacy_unknown"}
+            and not same_runner_owner
+        )
+        expired_owner = lease_snapshot.get("state") == "expired"
+        owner_disposition = (
+            "current_owner"
+            if same_runner_owner
+            else "fresh_owner_caller_unknown"
+            if fresh_owner_caller_unknown
+            else "verified_live_other_owner"
+            if verified_live_other_owner
+            else "stale_or_unverified_owner"
+            if stale_or_unverified_owner
+            else "expired_owner"
+            if expired_owner
+            else "no_active_owner"
+        )
+        owner_context = {
+            "disposition": owner_disposition,
+            "caller_runner_id": runner_id,
+            "caller_identity_known": caller_identity_known,
+            "owner_runner_id": owner_runner_id,
+            "generation": owner_generation,
+            "liveness": owner_liveness,
+            "heartbeat_age_seconds": lease_snapshot.get("heartbeat_age_seconds"),
+            "orphan_candidate": bool(lease_snapshot.get("orphan_candidate")),
+            "verified_live": bool(owner_liveness == "fresh" and lease_snapshot.get("state") == "active"),
+            "duplicate_wake_candidate": verified_live_other_owner,
+            "can_claim": bool(status_snapshot.get("can_claim")),
+            "blocked_reasons": list(status_snapshot.get("blocked_reasons") or []),
+        }
+
+        goal_summary_placeholder = "<current-goal-summary>"
+        attempt_command = (
+            f"acf continuation coordination attempt {json.dumps(str(root))}{task_flag} "
+            f"--runner-id <runner> --objective-summary {goal_summary_placeholder} --json"
+        )
+        control_actions: list[str] = []
+        conditional_sections: list[str] = []
+        if same_runner_owner:
+            control_actions.append(
+                "Continue under the current owner credential; assert ownership before protected non-idempotent work "
+                "and heartbeat/renew according to lease liveness."
+            )
+            conditional_sections.append(
+                "Current writer safety:\n"
+                "- Before project writes, declare concrete workspace intent and preserve unrelated external dirty state.\n"
+                "- Before each non-idempotent or long-lived writer side effect, use deterministic effect identity; never replay an uncertain outcome.\n"
+                "- Checkpoints and Git commits are persistence points, not stop signals. Release only when this execution session is actually handing off or ending."
+            )
+        elif fresh_owner_caller_unknown:
+            control_actions.append(
+                "A fresh active owner exists, but the caller runner identity was not supplied. Re-render this prompt with `--runner-id <runner>` before deciding whether this is the current owner or a duplicate wake."
+            )
+            conditional_sections.append(
+                "Fresh owner with unknown caller identity:\n"
+                "- Fresh liveness proves an owner session is live, but without the caller runner id this prompt cannot safely classify the caller as that owner or as a duplicate wake.\n"
+                "- Do not infer duplicate ownership, auto-challenge a healthy owner, or write protected project files until caller identity is explicit."
+            )
+        elif verified_live_other_owner:
+            control_actions.extend(
+                [
+                    attempt_command,
+                    "Do not challenge while the observed owner remains fresh. Do not write protected project files.",
+                    "If this activation is only a duplicate scheduler wake and no independent safe non-conflicting work is useful, it may end without changing task state; the mission remains running under the existing owner.",
+                ]
+            )
+            conditional_sections.append(
+                "Verified live other owner:\n"
+                "- Fresh owner liveness is authenticated control-plane evidence that the owner session is still live; it does not prove which file is being edited at this instant.\n"
+                "- A healthy overlap is not a recovery event. Do not auto-challenge it. Safe independent read-only work is optional, not mandatory busywork.\n"
+                "- Ending only this duplicate wake is not a task stop, pause, blocker, or completion."
+            )
+        elif stale_or_unverified_owner:
+            control_actions.extend(
+                [
+                    attempt_command,
+                    f"Inspect `acf continuation coordination status {json.dumps(str(root))}{task_flag} --json`; a stale/unverified owner requires challenge-backed verification before recovery.",
+                    "After ownership forfeiture evidence or other valid owner-ended evidence, use formal reconcile/recover with current workspace/HEAD/effect/identity evidence; never steal ownership from a mere lease record.",
+                ]
+            )
+            conditional_sections.append(
+                "Stale or unverified owner recovery:\n"
+                "- An active lease is not proof that another agent is still working. Verify liveness first.\n"
+                "- Challenge timeout only forfeits the old ownership claim; it does not grant write access or prove external effects are terminal.\n"
+                "- Recovery remains receipt-bound and generation-fenced. A blocked recovery action does not prevent other safe diagnosis or evidence work."
+            )
+        elif expired_owner:
+            control_actions.append(
+                "The previous lease is expired. Use doctor/reconcile evidence to decide whether formal recover is required; do not re-claim through unresolved effects, HEAD drift, or workspace provenance ambiguity."
+            )
+            conditional_sections.append(
+                "Expired-owner recovery:\n"
+                "- Reconcile current workspace, HEAD, effect journal, identity, and prior generation before recovery when required.\n"
+                "- Reuse credentials returned by recover; do not claim a second time after successful recovery."
+            )
+        elif status_snapshot.get("can_claim"):
+            control_actions.extend(
+                [
+                    attempt_command,
+                    f"Claim with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`, then re-render `acf continuation prompt {json.dumps(str(root))}{task_flag} --runner-id <runner> --json` with the same runner id before project writes so current-writer safety guidance is loaded.",
+                    "Execute the refreshed default plan under the returned fenced owner credential after that post-claim prompt refresh.",
+                ]
+            )
+            conditional_sections.append(
+                "Claimable writer path:\n"
+                "- The coordination attempt is a compact intent record, not a bounded work quota. `--objective-summary` names the current goal; it does not limit how much useful work the session may complete.\n"
+                "- After claim, declare concrete workspace intent before writes and use deterministic effect identity before non-idempotent side effects."
+            )
+        else:
+            control_actions.append(
+                "The task is not currently claimable. Inspect the reported blocked reasons and perform only the safe action that resolves the specific blocker."
+            )
+
+        workspace_snapshot = status_snapshot.get("workspace")
+        if isinstance(workspace_snapshot, Mapping) and (
+            workspace_snapshot.get("state") == "invalid"
+            or workspace_snapshot.get("has_conflicts")
+            or workspace_snapshot.get("unclassified_paths")
+        ):
+            conditional_sections.append(
+                "Workspace provenance is currently relevant:\n"
+                "- Inspect `acf continuation workspace status ... --json`. Preserve baseline/external dirty state; do not stash, reset, clean, or absorb uncertain files.\n"
+                "- Reclassify unexpected output only after provenance is proven with durable evidence; uncertainty remains fail-closed."
+            )
+
+        if resume_context["effect_journal"]["unresolved_count"]:
+            conditional_sections.append(
+                "Unresolved effect authority is currently relevant:\n"
+                "- Inspect the existing effect identity before any submit/replay. Prepared/active/unknown effects remain unresolved until authoritative terminal observation.\n"
+                "- If an owner lifecycle ended, reconcile the existing durable identity rather than creating a replacement effect from memory."
+            )
+
+        conditional_text = "\n\n".join(conditional_sections) if conditional_sections else "No additional conditional safety branch is active."
         prompt = f"""Use the fixed local Git worktree below as the authoritative execution target.
 
 Task: {control['task_id']} — {control['title']}
 Worktree: {root}
 Branch: {control['expected_branch']}
 
-Resume context:
-- Current stage: {state['stage']}
-- Current status: {state['status']}
-- Resume hint: {state['next_action']}
+Overall objective:
+{state.get('objective') or control['objective']}
 
-The stage/status/resume hint above are compact persisted recovery metadata, not live authority. They may lag newer Git/project evidence, continuation effects, Runtime state, or other external authority. Before acting on the resume hint, refresh local authority with `acf continuation doctor`, inspect the effect journal when relevant, and perform the project-specific evidence/Runtime checks required by the wrapper. Newer authoritative evidence supersedes the hint; never replay an already-observed side effect merely because the hint is old.
-The resume hint is only an entry point recovered from persisted state. It is not a work quota, the only task allowed now, or a stopping boundary.
-Render-time continuation journal summary: rounds={resume_context['round_journal']['count']}; effects={resume_context['effect_journal']['total']}; unresolved_effects={resume_context['effect_journal']['unresolved_count']}; effect_statuses={json.dumps(resume_context['effect_journal']['by_status'], ensure_ascii=False, sort_keys=True)}.
+Current execution state:
+- Stage: {state['stage']}
+- Status: {state['status']}
+- Default execution plan (persisted): {state['next_action']}
+
+Authority rule:
+- Refresh local authority with `acf continuation doctor {json.dumps(str(root))}{task_flag} --json` plus the project-specific Git/plan/Runtime/evidence checks required by the scheduler wrapper.
+- The persisted default execution plan may lag newer authority. Newer authoritative evidence supersedes it; otherwise execute it as the next plan instead of merely reading, explaining, or reporting it.
+- Completing the default plan is not a work quota or stopping boundary. Reassess the overall objective and continue with the next safe, non-repetitive, valuable action while useful work remains.
+- Never replay an already-observed side effect merely because persisted recovery metadata is old.
+
+Ownership now:
+- Disposition: {owner_disposition}
+- Caller runner: {runner_id or 'not supplied'}
+- Active owner runner: {owner_runner_id or 'none'}
+- Generation: {owner_generation if owner_generation is not None else 'none'}
+- Liveness: {owner_liveness}
+- Heartbeat age seconds: {lease_snapshot.get('heartbeat_age_seconds') if lease_snapshot.get('heartbeat_age_seconds') is not None else 'unknown'}
+- Can claim now: {str(bool(status_snapshot.get('can_claim'))).lower()}
+- Blocked reasons: {json.dumps(list(status_snapshot.get('blocked_reasons') or []), ensure_ascii=False)}
+
+Journal authority summary: rounds={resume_context['round_journal']['count']}; effects={resume_context['effect_journal']['total']}; unresolved_effects={resume_context['effect_journal']['unresolved_count']}.
+
+Control actions relevant now:
+{render_items(control_actions, empty="No control-plane action is required.")}
+
+Continuous execution contract:
+- A scheduler wake only resumes one continuous task; it is not a work round, reporting interval, quota, or expected stopping point.
+- Bounded continuation limits ownership, write scope, external side effects, and recovery risk. It does not bound the amount of useful project work.
+- The Agent chooses work scope, order, implementation strategy, and validation depth from current project authority.
+- Tests, fixes, commits, checkpoints, and Gates are progress evidence, not session-end signals.
+- A final assistant response ends the current execution session. Do not final merely to report progress, because time passed, because context feels long, or because a local milestone succeeded.
+- A safety refusal blocks only the unsafe action. Continue other safe diagnosis, evidence review, testing, planning, or non-conflicting work when available.
+- Do not repeat an unchanged failed action without new evidence, input, environment, or strategy.
+
+Task-level hard-stop conditions are exactly:
+1. The overall objective is genuinely complete with required evidence.
+2. The user explicitly paused the task.
+3. New human authorization, credentials, or a non-delegable decision are required.
+4. The configured project-access tool or connection, such as DevSpace, remains unavailable after reasonable reconnect attempts.
+
+Current conditional safety guidance:
+{conditional_text}
+
+Lease timing (liveness only): profile={control['timing_profile']}; wake={control['interval_minutes']}m; TTL={control['lease_ttl_minutes']}m; heartbeat={control['heartbeat_interval_minutes']}m; stale={control['stale_after_minutes']}m; renew={control['renew_interval_minutes']}m. These numbers are not execution-duration targets or stop signals.
 
 Project plan references:
 {render_items(plan_refs, empty="No plan reference is currently recorded.")}
@@ -666,75 +879,13 @@ Project plan references:
 Project-specific constraints recorded in continuation state:
 {render_items(constraints, empty="No compact project constraint is currently recorded in continuation state.")}
 
-The thin scheduler wrapper must additionally provide any project-specific tooling, Runtime, resource/VM/node, permission, security, scientific, validation, and issue-reporting constraints that are not already represented above. These additions are project authority; they must not copy or redefine the generic continuation state machine.
-
-Generic Scheduled Task protocol authority: this generated prompt is the only generic continuation state-machine contract. External wrappers should keep only fixed project/worktree/branch/task identity plus project-specific constraints, invoke `acf continuation prompt` again on every scheduler wake, and not freeze a second copy of the contention/recovery/workspace/effect protocol.
-
-Continuous execution contract:
-- A scheduler wake is only a resume signal for one continuous task. It does not define a work round, reporting interval, work quota, expected stopping point, or Gate deadline.
-- Bounded continuation limits ownership, write scope, external side effects, and recovery risk. It does not limit how much useful work the Agent may complete during the current execution session.
-- The Agent chooses the most effective work scope, order, implementation strategy, and validation depth from the overall local objective, plans, constraints, and evidence.
-- After a subtask, test, fix, commit, checkpoint, or Gate, reassess the local facts and continue with the next safe, non-repetitive, valuable action while the overall objective remains open.
-- Checkpoints persist progress, commits record natural semantic checkpoints, and Gates open the next decision. They are not session-end signals.
-- A final assistant response ends the current execution session. Do not produce one merely to report progress, summarize completed work, or create a neat stopping point. If the overall objective remains open and safe, non-repetitive, valuable work can continue now, keep using tools and continue the task.
-- Elapsed time, tool-call count, perceived context length, the number of completed steps, successful tests, commits, checkpoints, Gates, or a desire to update the user are not session-end reasons.
-- Startup probes such as `prompt`, `doctor`, `coordination attempt`, or `coordination status` are evidence-gathering steps, not session-end reasons by themselves.
-- A safety refusal blocks only the specific unsafe claim, write, recovery, or side effect. Continue safe diagnosis, evidence review, issue recording, planning, testing, or other non-conflicting work when available.
-- Do not repeat an unchanged failed action when no input, evidence, environment, or strategy has changed. Diagnose, narrow the reproduction, change conditions, choose another approach, or wait for an explicit external state change.
-
-Task-level hard-stop conditions are limited to exactly these four cases:
-1. The overall objective is genuinely complete with required evidence.
-2. The user explicitly pauses the task.
-3. New human authorization, credentials, or a non-delegable decision are required.
-4. The configured project-access tool or connection, such as DevSpace, remains unavailable after reasonable reconnect attempts.
-
-The safety rules below apply when their condition is relevant. They are not a sequential checklist, and reaching the last section is not a reason to end the execution session.
-
-Startup and ownership:
-- Reconstruct current task state from local project plans/evidence and persisted continuation state, not chat history by default. Inspect with `acf continuation doctor {json.dumps(str(root))}{task_flag} --json`.
-- Register the runner with `acf continuation coordination attempt {json.dumps(str(root))}{task_flag} --runner-id <runner> --objective-summary <bounded-objective> --json` before trying to obtain writer ownership. An attempt is not ownership.
-- If doctor reports `can_claim=true` and no active owner was observed, claim one execution lease with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`. A lease bounds ownership and safety, not work quantity. Keep the returned lease_id, generation, and fence_token private to the current owner session.
-
-Contention and recovery:
-- If another owner exists, the attempt becomes a contender and opens or joins the challenge for that owner generation. Do not impersonate the owner or modify protected project files. Safe non-conflicting read-only work may continue.
-- Another fresh authenticated owner is not, by itself, a session-end reason. After becoming a contender, continue safe useful read-only authority/evidence refresh when available; do not jump directly from owner detection to a final response.
-- `ACF continuation challenge pending` from ordinary project-locatable ACF commands is only an informational probe. Inspect with `acf continuation coordination status {json.dumps(str(root))}{task_flag} --json`; ordinary commands do not ACK a challenge or grant ownership.
-- A valid owner-protected continuation command authenticated by lease_id + generation + fence_token resolves a pending challenge as `owner_active`; normal release resolves it as `owner_released`.
-- Challenge timeout / `ownership_forfeiture_candidate` forfeits only the old ownership claim; it does not grant write access or prove the old process ended. Use formal `acf continuation reconcile ... --json` and `acf continuation recover ... --reconcile-id <receipt_id> --runner-id <runner> --json` with workspace/HEAD/effect/identity evidence. Reuse credentials returned by recover rather than claiming again.
-- If recovery of a specific action remains fail-closed, do not perform that blocked action. Continue other safe diagnosis, evidence collection, issue recording, planning, testing, or non-conflicting work when available.
-
-Workspace writes:
-- Inspect ownership with `acf continuation workspace status ... --json`. Before modifying project files, declare concrete paths with `acf continuation workspace intent ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --path <path> ... --json`; a bound Workstream intent must remain inside its direct write scope.
-- Protect baseline/external dirty state; do not stash, reset, clean, stage, or commit unrelated external changes.
-- If a reviewed durable writer output was not declared before launch and appears as `unexpected_nonoverlap`, use fenced `workspace reclassify --task-owned <path> --evidence-ref <durable-ref> --reason <review>` only after proving provenance. Uncertain output remains external/fail-closed.
-- Refresh workspace ownership after writes and before an actual handoff with `acf continuation workspace refresh ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` so task-owned, external, and conflict paths remain explicit.
-
-Ownership liveness:
-- Timing profile: {control['timing_profile']}; scheduler wake {control['interval_minutes']} min; lease TTL {control['lease_ttl_minutes']} min; heartbeat recommendation {control['heartbeat_interval_minutes']} min; stale threshold {control['stale_after_minutes']} min; renew recommendation {control['renew_interval_minutes']} min.
-- These values govern lease liveness only. They are not execution-duration targets, work quotas, reporting intervals, or reasons to stop.
-- Before protected non-idempotent work, verify ownership with `acf continuation assert-owner ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json`. For long work, use `acf continuation heartbeat ...` at roughly the configured cadence and `acf continuation renew ...` before the renew threshold; heartbeat proves liveness but does not extend TTL.
-- A long-running purely read-only/blocking call does not need a writer effect identity, but after it returns and before the next project write or non-idempotent action, re-run `assert-owner`.
-
-External and non-idempotent side effects:
-- Before each such side effect, establish its deterministic identity with `acf continuation effect prepare ... --key <logical-key> --kind <generic-kind> --json`. This includes long-lived local subprocesses, DevSpace sessions, Runtime jobs, or external jobs that may outlive the current owner/tool call and later write project files or create a non-idempotent effect.
-- Execute the side effect only when prepare returns `created=true`. `created=false` means inspect/reuse/reconcile the existing logical effect rather than resubmitting it.
-- Persist a reusable external/job identity after launch and keep the effect `prepared|active|unknown` until authoritative terminal observation. Update compact status with `acf continuation effect update ...`; use `acf continuation effect list ... --json` to inspect durable identities.
-- If outcome is uncertain, preserve the effect for reconciliation and never resubmit from memory. If no durable identity can be persisted, the writer must not cross an owner lifecycle while termination remains unproven.
-
-Progress and checkpoints:
-- Continuously advance the overall local objective while ownership is valid. Record compact runtime-neutral progress when useful with `acf continuation progress ... --phase <phase> --milestone <compact-name> --evidence-ref <durable-ref> --json`; do not copy raw tool output or transcript history into continuation state.
-- Validate completed work enough to choose the next safe action. A dirty task-owned worktree does not by itself require a Git commit or handoff; create commits only at natural project semantic checkpoints and never include unrelated external dirty.
-- Update compact persisted state when useful with `acf continuation checkpoint ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> ... --json`. Checkpointing does not require release.
-
-Actual handoff or session end:
-- Continue is the default while the objective is open and safe, useful work can be done now. Another authenticated owner, a durable external wait, or a fail-closed action justifies handoff only when it actually leaves no safe, useful, non-conflicting work available now.
-- A contender may end the current session only after safe useful non-conflicting work has actually been exhausted, or when an explicit task-level hard stop or platform termination signal applies. State that concrete session-end reason in the final response.
-- Do not guess a platform boundary. Treat it as real only when the platform, system, or tool provides an explicit signal that the current execution is about to terminate; elapsed time, perceived context usage, completed work, or a subjective sense that it is time to wrap up are not such signals.
-- If the current execution session really must end, preserve accurate resumable state and a concrete next action. Do not mark the mission paused, blocked_human, or done unless one of the four task-level hard-stop conditions actually applies.
-- If this runner owns a live lease and the session is actually ending, refresh/checkpoint as useful and release with `acf continuation release ... --lease-id <lease_id> --generation <generation> --fence-token <fence_token> --json` before final response. Release is not a default final step and is not triggered by progress reporting, commits, checkpoints, tests, or Gates.
+Scheduler wrapper contract:
+- The wrapper must be sufficient, not artificially thin: it must carry exact project/workspace/tool entry, exact existing-worktree opening semantics, stable ACF upgrade/adaptation, authority refresh, generated-plan execution, owner disclosure, and project-specific Runtime/resource/permission/security/scientific/validation/issue-reporting rules.
+- This generated prompt plus `execution_policy` remain the dynamic generic continuation authority. The wrapper must not freeze a second copy of claim/challenge/reconcile/workspace/effect state-machine details.
+- Invoke `acf continuation prompt` again on every scheduler wake so the current owner state and only the relevant control branch are rendered.
 
 Reusable product issues:
-- When this work exposes a concrete reusable ACF/continuation/workflow defect or operational gap, record it with `acf continuation issue {json.dumps(str(root))}{task_flag} --category <category> --severity <low|medium|high|critical> --text <concise issue> --evidence-ref <path-or-commit> --json`. Do not record normal active-lease no-ops, expected waits, or task-specific scientific failures as product issues.
+- Record concrete reusable ACF/continuation/workflow defects with `acf continuation issue ... --json`. Do not record normal active-lease no-ops, healthy duplicate-owner overlap, expected waits, or task-specific scientific failures as product issues.
 """
         identity = {
             "workspace_root": str(root),
@@ -746,9 +897,20 @@ Reusable product issues:
             "schema_version": "acf.continuation.scheduler_wrapper.v1",
             "generic_protocol_source": "acf continuation prompt",
             "refresh_prompt_each_run": True,
+            "bootstrap_policy": "sufficient_high_salience",
             "identity": identity,
             "project_constraint_classes": project_context["wrapper_constraint_slot"]["classes"],
             "project_specific_constraints_slot": project_context["wrapper_constraint_slot"],
+            "required_bootstrap_topics": [
+                "exact_existing_workspace",
+                "project_access_tool_mode",
+                "stable_acf_upgrade_adaptation",
+                "authority_refresh",
+                "execute_generated_plan",
+                "owner_liveness_disclosure",
+                "project_constraints",
+                "final_response_contract",
+            ],
             "copy_generic_state_machine": False,
         }
         value = {
@@ -760,11 +922,13 @@ Reusable product issues:
                 "status": state["status"],
                 "next_action": state["next_action"],
             },
+            "owner_context": owner_context,
             "resume_context": resume_context,
             "execution_policy": execution_policy,
             "project_context": project_context,
             "scheduler_wrapper_contract": scheduler_wrapper_contract,
             "prompt": prompt,
+            "next_actions": control_actions,
         }
         result_holder.update(value)
         return value
@@ -981,7 +1145,9 @@ def continuation_workspace_adopt_command(args: argparse.Namespace) -> int:
                     "legacy workspace adoption cannot run while an active owner holds the task",
                     code="workspace_adoption_owner_active",
                     exit_code=3,
-                    next_actions=["Let the active owner finish or use the generated challenge/recovery protocol."],
+                    next_actions=[
+                        "Inspect owner liveness first. A fresh verified owner should not be challenged merely because another scheduler wake arrived; stale or unverified ownership uses the generated recovery path."
+                    ],
                 )
             state = core._load_state(paths)
             snapshot = workspace_current_snapshot(root)

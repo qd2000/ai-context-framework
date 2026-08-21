@@ -1391,6 +1391,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     continuation_prompt_parser.add_argument("path", nargs="?", type=Path)
     continuation_prompt_parser.add_argument("--task-id", default=None)
+    continuation_prompt_parser.add_argument("--runner-id", default=None, help="optional current runner identity so the rendered protocol can distinguish owner vs duplicate wake")
     add_json_argument(continuation_prompt_parser)
     continuation_prompt_parser.set_defaults(func=continuation_commands.continuation_prompt_command)
 

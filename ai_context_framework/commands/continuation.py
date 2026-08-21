@@ -36,11 +36,13 @@ except ImportError:  # pragma: no cover - Windows path.
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
 from ai_context_framework import (
     continuation_coordination,
+    continuation_effect_archive,
     continuation_inventory,
     continuation_recovery,
     continuation_rounds,
     continuation_workspace,
 )
+from ai_context_framework.commands import continuation_parsers
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
 from ai_context_framework.commands import continuation_recovery as continuation_recovery_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
@@ -54,8 +56,6 @@ from ai_context_framework.observability import (
 )
 from ai_context_framework.worktree_service import target_from_registry, verify_target
 from ai_context_framework.git_support import discover_git_project
-
-
 CONTROL_SCHEMA = "acf.continuation.control.v1"
 STATE_SCHEMA = "acf.continuation.state.v1"
 LEASE_SCHEMA = "acf.continuation.lease.v1"
@@ -113,6 +113,7 @@ LIST_FIELDS = (
     "plan_refs",
     "verification",
 )
+ROLLING_LIST_FIELDS = frozenset({"completed", "evidence_refs", "verification"})
 
 
 class ContinuationError(RuntimeError):
@@ -378,10 +379,17 @@ def _load_effect_journal(
     if not path.exists():
         if require_existing:
             raise ContinuationError("effect journal is missing", code="effect_journal_missing")
-        return continuation_rounds.empty_effect_journal(str(control["task_id"]))
+        journal = continuation_rounds.empty_effect_journal(str(control["task_id"]))
+        try:
+            continuation_effect_archive.validate_history(path, journal, task_id=str(control["task_id"]))
+        except continuation_rounds.ContinuationRoundError as exc:
+            raise _round_error(exc) from exc
+        return journal
     try:
         payload = _read_json(path, label="effect_journal")
-        return continuation_rounds.validate_effect_journal(payload, task_id=str(control["task_id"]))
+        journal = continuation_rounds.validate_effect_journal(payload, task_id=str(control["task_id"]))
+        continuation_effect_archive.validate_history(path, journal, task_id=str(control["task_id"]))
+        return journal
     except continuation_rounds.ContinuationRoundError as exc:
         raise _round_error(exc) from exc
 
@@ -403,13 +411,16 @@ def _journal_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> 
     else:
         round_snapshot = {"state": "absent", "path": str(round_path), "count": 0, "latest": None}
 
-    if effect_path.exists():
+    effect_archives = continuation_effect_archive.archive_paths(effect_path)
+    if effect_path.exists() or effect_archives:
         try:
             effects = _load_effect_journal(paths, control)
+            _, effect_summary, archive_paths = continuation_effect_archive.list_history(effect_path, effects, task_id=str(control["task_id"]))
             effect_snapshot = {
                 "state": "valid",
                 "path": str(effect_path),
-                "summary": continuation_rounds.effect_summary(effects, task_id=str(control["task_id"])),
+                "summary": effect_summary,
+                "archive_paths": archive_paths,
             }
         except ContinuationError as exc:
             effect_snapshot = {"state": "invalid", "path": str(effect_path), "error": str(exc)}
@@ -524,8 +535,41 @@ def _validate_state(payload: Mapping[str, Any]) -> dict[str, Any]:
     return state
 
 
-def _write_state(path: Path, payload: Mapping[str, Any]) -> None:
-    _write_json(path, _validate_state(payload))
+def _compact_state_lists(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep compact state fields inside their rolling bounded window.
+
+    Older ACF releases could append beyond ``MAX_LIST_ITEMS`` and then make
+    the same state unreadable on the next command.  History-like state lists
+    are compact recovery summaries rather than the authoritative history
+    journal, so retain their most recent bounded window.  Semantic lists such
+    as constraints, open questions and plan refs must never be silently
+    dropped; they remain strict and fail closed if an old state exceeds the
+    bound.
+    """
+
+    state = dict(payload)
+    # Capacity repair must not become a way to hide an invalid old entry by
+    # trimming it before normal state validation sees it.  Scan the complete
+    # pre-compaction payload for the safety properties that apply to every
+    # individual item, then relax only the aggregate list-count bound.
+    _reject_forbidden_state_keys(state)
+    for field in LIST_FIELDS:
+        values = state.get(field, [])
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            encoded = json.dumps(item, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            if len(encoded) > MAX_TEXT_BYTES:
+                raise ContinuationError(f"{field} item is too large", code="state_invalid")
+        if field in ROLLING_LIST_FIELDS and len(values) > MAX_LIST_ITEMS:
+            state[field] = values[-MAX_LIST_ITEMS:]
+    return state
+
+
+def _write_state(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
+    state = _validate_state(_compact_state_lists(payload))
+    _write_json(path, state)
+    return state
 
 
 def _load_control(paths: Mapping[str, Path], root: Path) -> dict[str, Any]:
@@ -585,7 +629,7 @@ def _load_control(paths: Mapping[str, Path], root: Path) -> dict[str, Any]:
 
 
 def _load_state(paths: Mapping[str, Path]) -> dict[str, Any]:
-    return _validate_state(_read_json(paths["state"], label="state"))
+    return _validate_state(_compact_state_lists(_read_json(paths["state"], label="state")))
 
 
 def _lease_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> dict[str, Any]:
@@ -1077,7 +1121,7 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 state["verification"] = _append_unique(
                     state["verification"], ["Recovered an expired lease after identity/workspace ownership checks."]
                 )
-            _write_state(paths["state"], state)
+            state = _write_state(paths["state"], state)
             return {
                 "status": "claimed",
                 "task_id": control["task_id"],
@@ -1220,32 +1264,23 @@ def continuation_effect_prepare_command(args: argparse.Namespace) -> int:
             generation = _require_fenced_generation(lease)
             journal = _load_effect_journal(paths, control)
             try:
-                journal, effect, created = continuation_rounds.prepare_effect(
-                    journal,
-                    task_id=str(control["task_id"]),
-                    generation=generation,
-                    logical_key=args.key,
-                    kind=args.kind,
-                    external_id=args.external_id,
-                    milestone=args.milestone,
-                    evidence_refs=args.evidence_ref or [],
-                    now=_iso(),
+                journal, effect, created, summary, rollover = continuation_effect_archive.prepare_with_rollover(
+                    paths["effects"], journal,
+                    task_id=str(control["task_id"]), generation=generation,
+                    logical_key=args.key, kind=args.kind, external_id=args.external_id,
+                    milestone=args.milestone, evidence_refs=args.evidence_ref or [], now=_iso(),
                 )
             except continuation_rounds.ContinuationRoundError as exc:
                 raise _round_error(exc) from exc
-            if created:
-                _write_json(paths["effects"], journal)
             return {
                 "status": "effect_prepared" if created else "effect_exists",
                 "created": created,
                 "effect": effect,
-                "summary": continuation_rounds.effect_summary(
-                    journal, task_id=str(control["task_id"])
-                ),
+                "summary": summary,
+                "rollover": rollover,
             }
 
     return _guarded(args, "continuation effect prepare", operation)
-
 
 def continuation_effect_update_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
@@ -1275,7 +1310,8 @@ def continuation_effect_update_command(args: argparse.Namespace) -> int:
             generation = _require_fenced_generation(lease)
             journal = _load_effect_journal(paths, control, require_existing=True)
             try:
-                journal, effect = continuation_rounds.update_effect(
+                journal, effect, summary = continuation_effect_archive.update_across_history(
+                    paths["effects"],
                     journal,
                     task_id=str(control["task_id"]),
                     generation=generation,
@@ -1288,18 +1324,13 @@ def continuation_effect_update_command(args: argparse.Namespace) -> int:
                 )
             except continuation_rounds.ContinuationRoundError as exc:
                 raise _round_error(exc) from exc
-            _write_json(paths["effects"], journal)
             return {
                 "status": "effect_updated",
                 "effect": effect,
-                "summary": continuation_rounds.effect_summary(
-                    journal, task_id=str(control["task_id"])
-                ),
+                "summary": summary,
             }
 
     return _guarded(args, "continuation effect update", operation)
-
-
 def continuation_effect_list_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
@@ -1307,18 +1338,19 @@ def continuation_effect_list_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             journal = _load_effect_journal(paths, control)
+            try:
+                effects, summary, archive_paths = continuation_effect_archive.list_history(paths["effects"], journal, task_id=str(control["task_id"]))
+            except continuation_rounds.ContinuationRoundError as exc:
+                raise _round_error(exc) from exc
             return {
                 "status": "listed",
-                "effects": journal["effects"],
-                "summary": continuation_rounds.effect_summary(
-                    journal, task_id=str(control["task_id"])
-                ),
+                "effects": effects,
+                "summary": summary,
                 "path": str(paths["effects"]),
+                "archive_paths": archive_paths,
             }
 
     return _guarded(args, "continuation effect list", operation)
-
-
 def continuation_recover_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
@@ -1499,6 +1531,12 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 state["verification"],
                 [f"Recovered continuation ownership via reconcile receipt {receipt['receipt_id']}."],
             )
+            # Validate/compact the final continuation state before any of the
+            # generation-transfer files are persisted.  Older releases wrote
+            # control/lease/round/workspace first and could therefore leave a
+            # half-committed fresh lease when the final state write rejected
+            # an over-capacity verification list.
+            state = _validate_state(_compact_state_lists(state))
             recovery = {
                 "schema_version": continuation_recovery.RECOVERY_SCHEMA,
                 "recovery_id": str(uuid.uuid4()),
@@ -1524,7 +1562,7 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
             if effect_reconciliations:
                 _write_json(paths["effects"], reconciled_effect_journal)
             _write_json(paths["workspace"], workspace_manifest)
-            _write_state(paths["state"], state)
+            state = _write_state(paths["state"], state)
             if challenge_resolution is not None:
                 _write_json(paths["coordination"], coordination_state)
             _write_json(paths["recovery"], recovery)
@@ -1619,7 +1657,7 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
             for field, values in updates.items():
                 state[field] = _append_unique(state.get(field, []), values)
             state["updated_at"] = _iso()
-            _write_state(paths["state"], state)
+            state = _write_state(paths["state"], state)
             return {"status": "checkpointed", "state": state, "next_action": state["next_action"]}
 
     return _guarded(args, "continuation checkpoint", operation)
@@ -1712,7 +1750,7 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 except continuation_rounds.ContinuationRoundError as exc:
                     raise _round_error(exc) from exc
             state["updated_at"] = release_now
-            _write_state(paths["state"], state)
+            state = _write_state(paths["state"], state)
             if round_journal is not None:
                 _write_json(paths["rounds"], round_journal)
             if workspace_manifest is not None:
@@ -1776,7 +1814,7 @@ def continuation_pause_command(args: argparse.Namespace) -> int:
                 state["status"] = "paused"
                 state["next_action"] = "Wait for an explicit continuation resume action."
                 state["updated_at"] = _iso()
-                _write_state(paths["state"], state)
+                state = _write_state(paths["state"], state)
             return {
                 "status": "pause_requested" if snapshot["state"] == "active" else "paused",
                 "pause": marker,
@@ -1801,7 +1839,7 @@ def continuation_resume_command(args: argparse.Namespace) -> int:
             state["status"] = "ready"
             state["next_action"] = _validate_text(args.next_action, field="next_action")
             state["updated_at"] = _iso()
-            _write_state(paths["state"], state)
+            state = _write_state(paths["state"], state)
             paths["pause"].unlink(missing_ok=False)
             return {"status": "ready", "state": state, "next_action": state["next_action"]}
 
@@ -1874,79 +1912,17 @@ def continuation_issue_command(args: argparse.Namespace) -> int:
 
 
 def register_round_effect_parsers(subparsers, add_json_argument) -> None:
-    progress = subparsers.add_parser(
-        "progress",
-        help="record bounded runtime-neutral round phase/milestone progress",
+    continuation_parsers.register_round_effect_parsers(
+        subparsers,
+        add_json_argument,
+        round_phases=ROUND_PHASES,
+        effect_statuses=EFFECT_STATUSES,
+        progress_command=continuation_progress_command,
+        effect_prepare_command=continuation_effect_prepare_command,
+        effect_update_command=continuation_effect_update_command,
+        effect_list_command=continuation_effect_list_command,
+        register_recovery_parsers=continuation_recovery_commands.register_recovery_parsers,
     )
-    progress.add_argument("path", nargs="?", type=Path)
-    progress.add_argument("--task-id", default=None)
-    progress.add_argument("--lease-id", required=True)
-    progress.add_argument("--generation", type=int, default=None)
-    progress.add_argument("--fence-token", default=None)
-    progress.add_argument(
-        "--phase",
-        choices=tuple(sorted(ROUND_PHASES - {"released"})),
-        default=None,
-    )
-    progress.add_argument("--milestone", default=None)
-    progress.add_argument("--evidence-ref", action="append", default=None)
-    add_json_argument(progress)
-    progress.set_defaults(func=continuation_progress_command)
-
-    effect = subparsers.add_parser(
-        "effect",
-        help="record bounded write-ahead identities and durable external-effect observations",
-    )
-    effect_subparsers = effect.add_subparsers(dest="continuation_effect_command", required=True)
-
-    prepare = effect_subparsers.add_parser(
-        "prepare",
-        help="prepare one deterministic external-effect identity before executing it",
-    )
-    prepare.add_argument("path", nargs="?", type=Path)
-    prepare.add_argument("--task-id", default=None)
-    prepare.add_argument("--lease-id", required=True)
-    prepare.add_argument("--generation", type=int, default=None)
-    prepare.add_argument("--fence-token", default=None)
-    prepare.add_argument("--key", required=True)
-    prepare.add_argument("--kind", required=True)
-    prepare.add_argument("--external-id", default=None)
-    prepare.add_argument("--milestone", default=None)
-    prepare.add_argument("--evidence-ref", action="append", default=None)
-    add_json_argument(prepare)
-    prepare.set_defaults(func=continuation_effect_prepare_command)
-
-    update = effect_subparsers.add_parser(
-        "update",
-        help="record an observed durable effect status/milestone/evidence update",
-    )
-    update.add_argument("path", nargs="?", type=Path)
-    update.add_argument("--task-id", default=None)
-    update.add_argument("--lease-id", required=True)
-    update.add_argument("--generation", type=int, default=None)
-    update.add_argument("--fence-token", default=None)
-    update.add_argument("--key", required=True)
-    update.add_argument(
-        "--status",
-        choices=tuple(sorted(EFFECT_STATUSES)),
-        default=None,
-    )
-    update.add_argument("--external-id", default=None)
-    update.add_argument("--milestone", default=None)
-    update.add_argument("--evidence-ref", action="append", default=None)
-    add_json_argument(update)
-    update.set_defaults(func=continuation_effect_update_command)
-
-    list_parser = effect_subparsers.add_parser(
-        "list",
-        help="list compact durable effect records for reconciliation/reuse decisions",
-    )
-    list_parser.add_argument("path", nargs="?", type=Path)
-    list_parser.add_argument("--task-id", default=None)
-    add_json_argument(list_parser)
-    list_parser.set_defaults(func=continuation_effect_list_command)
-
-    continuation_recovery_commands.register_recovery_parsers(subparsers, add_json_argument)
 
 
 continuation_init_command = continuation_workspace_commands.continuation_init_command
