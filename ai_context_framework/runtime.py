@@ -50,6 +50,7 @@ from ai_context_framework.commands import workstream as workstream_commands
 from ai_context_framework.commands import worktree as worktree_commands
 from ai_context_framework.commands import continuation as continuation_commands
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
+from ai_context_framework.commands import observer as observer_commands
 from ai_context_framework.commands.log import (
     build_usage_event,
     check_counts,
@@ -1190,6 +1191,29 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_resume_parser.add_argument("--apply", action="store_true")
     add_json_argument(worktree_resume_parser)
     worktree_resume_parser.set_defaults(func=worktree_commands.worktree_resume_command)
+
+    observer_parser = subparsers.add_parser(
+        "observer",
+        help="observe one project and its Git worktrees without joining writer control",
+    )
+    observer_subparsers = observer_parser.add_subparsers(dest="observer_command", required=True)
+
+    observer_status_parser = observer_subparsers.add_parser(
+        "status",
+        help="show user-level Project Observer runtime status without writing",
+    )
+    observer_status_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    add_json_argument(observer_status_parser)
+    observer_status_parser.set_defaults(func=observer_commands.observer_status_command)
+
+    observer_snapshot_parser = observer_subparsers.add_parser(
+        "snapshot",
+        help="capture a read-only project/worktree snapshot into user-level Observer state",
+    )
+    observer_snapshot_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    observer_snapshot_parser.add_argument("--dry-run", action="store_true", help="validate the snapshot without writing Observer runtime state")
+    add_json_argument(observer_snapshot_parser)
+    observer_snapshot_parser.set_defaults(func=observer_commands.observer_snapshot_command)
 
     continuation_parser = subparsers.add_parser(
         "continuation",
