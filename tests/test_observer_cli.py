@@ -17,6 +17,7 @@ from ai_context_framework.observer import (
     _observation_fingerprint,
     _stable_fingerprint,
     append_jsonl_unique,
+    build_observer_snapshot,
     build_alert_lifecycle_events,
     build_unchanged_milestone_observation,
     capture_project_workstreams,
@@ -531,6 +532,57 @@ class ObserverCliTests(unittest.TestCase):
         second["continuations"][0]["lease"]["liveness"]["heartbeat_age_seconds"] = 11.5
 
         self.assertEqual(_stable_fingerprint(first), _stable_fingerprint(second))
+
+    def test_snapshot_retries_once_and_reports_critical_when_source_never_stabilizes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            observer_project = resolve_observer_project(project)
+            captures = [
+                {"worktrees": [], "workstreams": [], "continuations": [], "marker": 1},
+                {"worktrees": [], "workstreams": [], "continuations": [], "marker": 2},
+                {"worktrees": [], "workstreams": [], "continuations": [], "marker": 3},
+            ]
+
+            with patch("ai_context_framework.observer._capture_project_facts", side_effect=captures):
+                snapshot = build_observer_snapshot(observer_project)
+
+            consistency = snapshot["snapshot_consistency"]
+            self.assertEqual(consistency["state"], "unstable")
+            self.assertEqual(consistency["attempts"], 3)
+            self.assertNotEqual(consistency["first_fingerprint"], consistency["second_fingerprint"])
+            self.assertNotEqual(consistency["second_fingerprint"], consistency["final_fingerprint"])
+            self.assertEqual(snapshot["alerts"][0]["alert_key"], "project:snapshot-consistency-unstable")
+            self.assertEqual(snapshot["alerts"][0]["severity"], "critical")
+
+    def test_divergent_workstream_sources_warn_machine_health_and_raise_critical_alert(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            observer_project = resolve_observer_project(project)
+            workstream = {
+                "id": "WS123",
+                "status": "Active",
+                "source_consistency": "divergent",
+                "sources": [
+                    {"detail_path": "primary/docs/ai/active/workstreams/WS123.md"},
+                    {"detail_path": "worktree/docs/ai/active/workstreams/WS123.md"},
+                ],
+            }
+            enriched = enrich_workstream_machine_states([workstream], [])[0]
+            self.assertEqual(enriched["machine_state"]["health"], "warning")
+            self.assertIn("workstream_sources_divergent", enriched["machine_state"]["health_reasons"])
+            alerts = derive_snapshot_alerts(
+                observer_project,
+                {
+                    "observed_at": "2026-08-21T00:00:00Z",
+                    "snapshot_consistency": {"state": "stable"},
+                    "workstreams": [enriched],
+                    "continuations": [],
+                    "worktrees": [],
+                },
+            )
+            self.assertEqual(len(alerts), 1)
+            self.assertEqual(alerts[0]["alert_key"], "workstream:WS123:source-divergent")
+            self.assertEqual(alerts[0]["severity"], "critical")
 
     def test_unchanged_progress_records_sparse_milestone_only_once(self):
         with tempfile.TemporaryDirectory() as tmp:
