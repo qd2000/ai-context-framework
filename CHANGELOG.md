@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+## v0.0.3.69 — 2026-08-21
+
+### Continuation session-boundary hardening
+
+- 修复 `acf continuation prompt` 仍可能被模型解释成“每次 scheduler wake 是一个需要主动收口的独立回合”的语义漏洞：scheduler wake 现在明确只是持续任务的恢复入口，不定义工作回合、汇报周期或预期停止点。
+- generated prompt 明确 final assistant response 本身会终止当前 execution session；进度汇报、elapsed time、tool-call count、context length、完成若干步骤、测试/commit/checkpoint/Gate 成功或主观感觉“该收尾了”都不是 session-end reason。只要总体目标仍 open 且当前仍有安全、非重复、有价值工作，就继续使用工具推进而不是 final。
+- platform boundary 不再允许由 Agent 主观推断；只有平台、系统或工具明确发出当前执行即将终止的信号时才成立。另一个 owner、external wait 或 fail-closed 也只有在实际阻断当前所有安全有价值工作时才允许 handoff。
+- 正常自愿 handoff 的 live owner 必须在 final response 前完成必要 workspace refresh/checkpoint 并 release；避免网页回复已经结束、continuation lease 却继续 active，进而让下一次 scheduler wake 误入 stale-owner challenge/recovery。
+- `continuation prompt --json` 的 `execution_policy` 新增 session-boundary 机器字段：`scheduler_wake_is_resume_only`、`final_response_is_terminal`、`final_response_requires_session_end_reason`、`progress_report_is_session_end_reason=false`、`elapsed_time_is_session_end_reason=false` 和 `platform_boundary_requires_explicit_signal=true`。
+
 ## v0.0.3.68 — 2026-08-20
 
 ### Goal-directed continuous execution prompt
