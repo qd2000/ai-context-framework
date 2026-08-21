@@ -22,6 +22,7 @@
 - archived terminal records 保留完整 deterministic `logical_key/kind/external_id/status/evidence` identity；后续 `effect prepare` 会同时检查 current + archive，所以旧 logical key 仍返回 `created=false`，不会因为 rollover 丢失 durable replay protection。`effect update` 与 `effect list` 同样覆盖 archive history。
 - rollover 采用 archive-first/current-second 原子文件顺序；若进程恰好在两次原子写之间中断，current/archive 的 exact duplicate 被视为可恢复 alias，不一致 duplicate 则 fail-closed。archive 损坏、包含 unresolved record 或与 current identity 冲突也会进入 continuation journal invalid，而不是被 doctor/recovery 静默忽略。
 - continuation state migration receipt 的 preserved-history digests 现在同时纳入 `effects.archive.*.json`。这使原 `.66` 的 64→256 容量 hardening 从“延迟下一次上限”升级为可持续 rollover，而不删除历史防重放 identity。
+- merge promotion 的 primary snapshot 现在携带同一套 read-only semantic-Git `stat_only_paths`；collision analyzer 会忽略已经由内容级 Git diff 证明为 stat-only 的普通 tracked `M`，避免 release/build 生成的 line-ending/stat metadata 假 dirty 与候选真实文件更新相交时误报 `wait_or_resolve_primary_paths`。真实 staged、untracked、rename/delete/type/mode/unmerged/submodule 或内容变化仍继续保护。
 
 ## v0.0.3.70 — 2026-08-21
 
