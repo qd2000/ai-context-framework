@@ -42,6 +42,7 @@ from ai_context_framework import (
     continuation_rounds,
     continuation_workspace,
 )
+from ai_context_framework.commands import continuation_parsers
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
 from ai_context_framework.commands import continuation_recovery as continuation_recovery_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
@@ -1911,79 +1912,17 @@ def continuation_issue_command(args: argparse.Namespace) -> int:
 
 
 def register_round_effect_parsers(subparsers, add_json_argument) -> None:
-    progress = subparsers.add_parser(
-        "progress",
-        help="record bounded runtime-neutral round phase/milestone progress",
+    continuation_parsers.register_round_effect_parsers(
+        subparsers,
+        add_json_argument,
+        round_phases=ROUND_PHASES,
+        effect_statuses=EFFECT_STATUSES,
+        progress_command=continuation_progress_command,
+        effect_prepare_command=continuation_effect_prepare_command,
+        effect_update_command=continuation_effect_update_command,
+        effect_list_command=continuation_effect_list_command,
+        register_recovery_parsers=continuation_recovery_commands.register_recovery_parsers,
     )
-    progress.add_argument("path", nargs="?", type=Path)
-    progress.add_argument("--task-id", default=None)
-    progress.add_argument("--lease-id", required=True)
-    progress.add_argument("--generation", type=int, default=None)
-    progress.add_argument("--fence-token", default=None)
-    progress.add_argument(
-        "--phase",
-        choices=tuple(sorted(ROUND_PHASES - {"released"})),
-        default=None,
-    )
-    progress.add_argument("--milestone", default=None)
-    progress.add_argument("--evidence-ref", action="append", default=None)
-    add_json_argument(progress)
-    progress.set_defaults(func=continuation_progress_command)
-
-    effect = subparsers.add_parser(
-        "effect",
-        help="record bounded write-ahead identities and durable external-effect observations",
-    )
-    effect_subparsers = effect.add_subparsers(dest="continuation_effect_command", required=True)
-
-    prepare = effect_subparsers.add_parser(
-        "prepare",
-        help="prepare one deterministic external-effect identity before executing it",
-    )
-    prepare.add_argument("path", nargs="?", type=Path)
-    prepare.add_argument("--task-id", default=None)
-    prepare.add_argument("--lease-id", required=True)
-    prepare.add_argument("--generation", type=int, default=None)
-    prepare.add_argument("--fence-token", default=None)
-    prepare.add_argument("--key", required=True)
-    prepare.add_argument("--kind", required=True)
-    prepare.add_argument("--external-id", default=None)
-    prepare.add_argument("--milestone", default=None)
-    prepare.add_argument("--evidence-ref", action="append", default=None)
-    add_json_argument(prepare)
-    prepare.set_defaults(func=continuation_effect_prepare_command)
-
-    update = effect_subparsers.add_parser(
-        "update",
-        help="record an observed durable effect status/milestone/evidence update",
-    )
-    update.add_argument("path", nargs="?", type=Path)
-    update.add_argument("--task-id", default=None)
-    update.add_argument("--lease-id", required=True)
-    update.add_argument("--generation", type=int, default=None)
-    update.add_argument("--fence-token", default=None)
-    update.add_argument("--key", required=True)
-    update.add_argument(
-        "--status",
-        choices=tuple(sorted(EFFECT_STATUSES)),
-        default=None,
-    )
-    update.add_argument("--external-id", default=None)
-    update.add_argument("--milestone", default=None)
-    update.add_argument("--evidence-ref", action="append", default=None)
-    add_json_argument(update)
-    update.set_defaults(func=continuation_effect_update_command)
-
-    list_parser = effect_subparsers.add_parser(
-        "list",
-        help="list compact durable effect records for reconciliation/reuse decisions",
-    )
-    list_parser.add_argument("path", nargs="?", type=Path)
-    list_parser.add_argument("--task-id", default=None)
-    add_json_argument(list_parser)
-    list_parser.set_defaults(func=continuation_effect_list_command)
-
-    continuation_recovery_commands.register_recovery_parsers(subparsers, add_json_argument)
 
 
 continuation_init_command = continuation_workspace_commands.continuation_init_command
