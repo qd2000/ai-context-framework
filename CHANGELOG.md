@@ -14,6 +14,15 @@
 - `recover` 在写入新的 control/lease/round/workspace generation 之前先完成最终 state 的 compact + validation，避免旧 `.70` 那种“state 写入失败但 generation/lease 已前移、调用方又拿不到 fence token”的半提交 recovery。
 - 新增四条回归：单次 checkpoint 写入 70 条 evidence/verification 仍保持 state 可读；手工构造旧版 70 条 history overflow 后 `doctor / prompt / claim` 可恢复并在下一次写入时落成合法 bounded state；overflow 前缀中的 forbidden raw-history item 不能通过裁剪逃逸校验；semantic `constraints` overflow 仍必须 `state_invalid`。
 
+## v0.0.3.71 — 2026-08-21
+
+### Continuation terminal-effect rollover
+
+- long-running continuation 不再靠继续放大 `MAX_EFFECTS` 延后容量自锁：当当前 `effects.json` 因记录数或字节数达到边界而无法接受新 effect 时，ACF 只把 `completed|failed` 的 terminal records 搬入 bounded `effects.archive.NNNNNN.json` segments，再写入新的 current journal；`prepared|active|unknown` 永不归档，若 unresolved records 自身耗尽容量仍继续 fail-closed。
+- archived terminal records 保留完整 deterministic `logical_key/kind/external_id/status/evidence` identity；后续 `effect prepare` 会同时检查 current + archive，所以旧 logical key 仍返回 `created=false`，不会因为 rollover 丢失 durable replay protection。`effect update` 与 `effect list` 同样覆盖 archive history。
+- rollover 采用 archive-first/current-second 原子文件顺序；若进程恰好在两次原子写之间中断，current/archive 的 exact duplicate 被视为可恢复 alias，不一致 duplicate 则 fail-closed。archive 损坏、包含 unresolved record 或与 current identity 冲突也会进入 continuation journal invalid，而不是被 doctor/recovery 静默忽略。
+- continuation state migration receipt 的 preserved-history digests 现在同时纳入 `effects.archive.*.json`。这使原 `.66` 的 64→256 容量 hardening 从“延迟下一次上限”升级为可持续 rollover，而不删除历史防重放 identity。
+
 ## v0.0.3.70 — 2026-08-21
 
 ### Continuation workspace handoff status normalization

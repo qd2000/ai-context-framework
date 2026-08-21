@@ -36,6 +36,7 @@ except ImportError:  # pragma: no cover - Windows path.
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
 from ai_context_framework import (
     continuation_coordination,
+    continuation_effect_archive,
     continuation_inventory,
     continuation_recovery,
     continuation_rounds,
@@ -54,8 +55,6 @@ from ai_context_framework.observability import (
 )
 from ai_context_framework.worktree_service import target_from_registry, verify_target
 from ai_context_framework.git_support import discover_git_project
-
-
 CONTROL_SCHEMA = "acf.continuation.control.v1"
 STATE_SCHEMA = "acf.continuation.state.v1"
 LEASE_SCHEMA = "acf.continuation.lease.v1"
@@ -379,10 +378,17 @@ def _load_effect_journal(
     if not path.exists():
         if require_existing:
             raise ContinuationError("effect journal is missing", code="effect_journal_missing")
-        return continuation_rounds.empty_effect_journal(str(control["task_id"]))
+        journal = continuation_rounds.empty_effect_journal(str(control["task_id"]))
+        try:
+            continuation_effect_archive.validate_history(path, journal, task_id=str(control["task_id"]))
+        except continuation_rounds.ContinuationRoundError as exc:
+            raise _round_error(exc) from exc
+        return journal
     try:
         payload = _read_json(path, label="effect_journal")
-        return continuation_rounds.validate_effect_journal(payload, task_id=str(control["task_id"]))
+        journal = continuation_rounds.validate_effect_journal(payload, task_id=str(control["task_id"]))
+        continuation_effect_archive.validate_history(path, journal, task_id=str(control["task_id"]))
+        return journal
     except continuation_rounds.ContinuationRoundError as exc:
         raise _round_error(exc) from exc
 
@@ -404,13 +410,16 @@ def _journal_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> 
     else:
         round_snapshot = {"state": "absent", "path": str(round_path), "count": 0, "latest": None}
 
-    if effect_path.exists():
+    effect_archives = continuation_effect_archive.archive_paths(effect_path)
+    if effect_path.exists() or effect_archives:
         try:
             effects = _load_effect_journal(paths, control)
+            _, effect_summary, archive_paths = continuation_effect_archive.list_history(effect_path, effects, task_id=str(control["task_id"]))
             effect_snapshot = {
                 "state": "valid",
                 "path": str(effect_path),
-                "summary": continuation_rounds.effect_summary(effects, task_id=str(control["task_id"])),
+                "summary": effect_summary,
+                "archive_paths": archive_paths,
             }
         except ContinuationError as exc:
             effect_snapshot = {"state": "invalid", "path": str(effect_path), "error": str(exc)}
@@ -1254,32 +1263,23 @@ def continuation_effect_prepare_command(args: argparse.Namespace) -> int:
             generation = _require_fenced_generation(lease)
             journal = _load_effect_journal(paths, control)
             try:
-                journal, effect, created = continuation_rounds.prepare_effect(
-                    journal,
-                    task_id=str(control["task_id"]),
-                    generation=generation,
-                    logical_key=args.key,
-                    kind=args.kind,
-                    external_id=args.external_id,
-                    milestone=args.milestone,
-                    evidence_refs=args.evidence_ref or [],
-                    now=_iso(),
+                journal, effect, created, summary, rollover = continuation_effect_archive.prepare_with_rollover(
+                    paths["effects"], journal,
+                    task_id=str(control["task_id"]), generation=generation,
+                    logical_key=args.key, kind=args.kind, external_id=args.external_id,
+                    milestone=args.milestone, evidence_refs=args.evidence_ref or [], now=_iso(),
                 )
             except continuation_rounds.ContinuationRoundError as exc:
                 raise _round_error(exc) from exc
-            if created:
-                _write_json(paths["effects"], journal)
             return {
                 "status": "effect_prepared" if created else "effect_exists",
                 "created": created,
                 "effect": effect,
-                "summary": continuation_rounds.effect_summary(
-                    journal, task_id=str(control["task_id"])
-                ),
+                "summary": summary,
+                "rollover": rollover,
             }
 
     return _guarded(args, "continuation effect prepare", operation)
-
 
 def continuation_effect_update_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
@@ -1309,7 +1309,8 @@ def continuation_effect_update_command(args: argparse.Namespace) -> int:
             generation = _require_fenced_generation(lease)
             journal = _load_effect_journal(paths, control, require_existing=True)
             try:
-                journal, effect = continuation_rounds.update_effect(
+                journal, effect, summary = continuation_effect_archive.update_across_history(
+                    paths["effects"],
                     journal,
                     task_id=str(control["task_id"]),
                     generation=generation,
@@ -1322,18 +1323,13 @@ def continuation_effect_update_command(args: argparse.Namespace) -> int:
                 )
             except continuation_rounds.ContinuationRoundError as exc:
                 raise _round_error(exc) from exc
-            _write_json(paths["effects"], journal)
             return {
                 "status": "effect_updated",
                 "effect": effect,
-                "summary": continuation_rounds.effect_summary(
-                    journal, task_id=str(control["task_id"])
-                ),
+                "summary": summary,
             }
 
     return _guarded(args, "continuation effect update", operation)
-
-
 def continuation_effect_list_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
@@ -1341,18 +1337,19 @@ def continuation_effect_list_command(args: argparse.Namespace) -> int:
         with _state_lock(paths["lock"]):
             control = _load_control(paths, root)
             journal = _load_effect_journal(paths, control)
+            try:
+                effects, summary, archive_paths = continuation_effect_archive.list_history(paths["effects"], journal, task_id=str(control["task_id"]))
+            except continuation_rounds.ContinuationRoundError as exc:
+                raise _round_error(exc) from exc
             return {
                 "status": "listed",
-                "effects": journal["effects"],
-                "summary": continuation_rounds.effect_summary(
-                    journal, task_id=str(control["task_id"])
-                ),
+                "effects": effects,
+                "summary": summary,
                 "path": str(paths["effects"]),
+                "archive_paths": archive_paths,
             }
 
     return _guarded(args, "continuation effect list", operation)
-
-
 def continuation_recover_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
