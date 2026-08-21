@@ -550,6 +550,136 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertTrue(doctor["can_claim"])
         self.assertEqual("absent", doctor["lease"]["state"])
 
+    def test_checkpoint_rolls_bounded_state_lists_instead_of_invalidating_state(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        additions: list[str] = []
+        for index in range(70):
+            additions.extend(["--evidence-ref", f"evidence:{index}"])
+            additions.extend(["--verification", f"verification:{index}"])
+
+        code, checkpoint, stderr = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                *additions,
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{checkpoint}")
+        state = checkpoint["state"]
+        self.assertEqual(continuation.MAX_LIST_ITEMS, len(state["evidence_refs"]))
+        self.assertEqual(continuation.MAX_LIST_ITEMS, len(state["verification"]))
+        self.assertEqual("evidence:6", state["evidence_refs"][0])
+        self.assertEqual("evidence:69", state["evidence_refs"][-1])
+        self.assertEqual("verification:6", state["verification"][0])
+        self.assertEqual("verification:69", state["verification"][-1])
+
+        code, prompt, stderr = self.run_json(
+            ["continuation", "prompt", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prompt}")
+        self.assertEqual("rendered", prompt["status"])
+
+    def test_doctor_and_claim_compact_preexisting_state_list_overflow(self) -> None:
+        init = self.init_task()
+        state_path = Path(str(init["state_dir"])) / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["evidence_refs"] = [f"legacy-evidence:{index}" for index in range(70)]
+        state["verification"] = [f"legacy-verification:{index}" for index in range(70)]
+        state_path.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertTrue(doctor["can_claim"])
+        self.assertEqual(continuation.MAX_LIST_ITEMS, len(doctor["state"]["evidence_refs"]))
+        self.assertEqual("legacy-evidence:6", doctor["state"]["evidence_refs"][0])
+
+        code, prompt, stderr = self.run_json(
+            ["continuation", "prompt", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prompt}")
+        self.assertEqual("rendered", prompt["status"])
+
+        persisted_before_claim = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(70, len(persisted_before_claim["evidence_refs"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        persisted_after_claim = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(continuation.MAX_LIST_ITEMS, len(persisted_after_claim["evidence_refs"]))
+        self.assertEqual(continuation.MAX_LIST_ITEMS, len(persisted_after_claim["verification"]))
+        self.assertEqual("legacy-evidence:6", persisted_after_claim["evidence_refs"][0])
+        self.assertEqual("legacy-verification:6", persisted_after_claim["verification"][0])
+
+    def test_legacy_state_overflow_does_not_trim_away_forbidden_history(self) -> None:
+        init = self.init_task()
+        state_path = Path(str(init["state_dir"])) / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["evidence_refs"] = [
+            {"raw_output": "must remain invalid"},
+            *[f"legacy-evidence:{index}" for index in range(70)],
+        ]
+        state_path.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        code, doctor, _ = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(2, code)
+        self.assertEqual("state_invalid", doctor["error_code"])
+        self.assertIn("forbidden raw-history field", doctor["message"])
+
+    def test_legacy_semantic_state_list_overflow_still_fails_closed(self) -> None:
+        init = self.init_task()
+        state_path = Path(str(init["state_dir"])) / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["constraints"] = [f"constraint:{index}" for index in range(70)]
+        state_path.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        code, doctor, _ = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(2, code)
+        self.assertEqual("state_invalid", doctor["error_code"])
+        self.assertEqual("constraints must be a bounded list", doctor["message"])
+
     def test_claim_creates_fenced_owner_and_heartbeat_refreshes_liveness(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
@@ -2770,6 +2900,10 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{claim}")
+        state_path = state_dir / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["verification"] = [f"pre-recovery-verification:{index}" for index in range(64)]
+        continuation._write_json(state_path, state)
         code, attempt, stderr = self.run_json(
             [
                 "continuation",
@@ -2835,6 +2969,13 @@ class ContinuationCliTests(unittest.TestCase):
         )
         self.assertEqual(0, code, f"{stderr}\n{recovered}")
         self.assertEqual(int(claim["generation"]) + 1, recovered["generation"])
+        persisted_state = continuation._read_json(state_path, label="state")
+        self.assertEqual(continuation.MAX_LIST_ITEMS, len(persisted_state["verification"]))
+        self.assertEqual(
+            f"pre-recovery-verification:{1}",
+            persisted_state["verification"][0],
+        )
+        self.assertIn("Recovered continuation ownership via reconcile receipt", persisted_state["verification"][-1])
         resolution = recovered["recovery"]["challenge_resolution"]
         self.assertEqual(challenge_id, resolution["challenge_id"])
         self.assertEqual("ownership_recovered", resolution["resolution"])

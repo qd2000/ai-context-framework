@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+## v0.0.3.72 — 2026-08-21
+
+### Continuation compact-state capacity self-healing
+
+- 修复 compact `state.json` 的 list capacity 自锁：旧实现允许 `checkpoint` / `recover` 等路径在内存中继续 append `completed / evidence_refs / verification` 等列表，但最终 64 项硬上限会让后续 `prompt / doctor / reconcile` 直接报 `state_invalid`，真实 WS079 曾达到 `evidence_refs=78 / verification=88` 后无法进入 generated continuation protocol。
+- 历史型 compact state list（`completed / evidence_refs / verification`）现在采用确定性的 rolling bounded window，写入只保留最近 `MAX_LIST_ITEMS=64` 项；`constraints / open_questions / plan_refs` 属于仍可能有效的语义状态，继续超过 64 就 fail-closed，绝不为容量静默丢掉安全/计划语义。状态仍保持 64 KiB 总量、单项约 4 KiB 与 forbidden raw-history 字段约束，不扩大 transcript/raw-output 持久化边界。
+- 对已经由旧版本写出的 current-schema list overflow 增加惰性兼容：`prompt / doctor / reconcile` 读取时先在内存中裁到最近 64 项，因此不会因历史容量溢出形成 control-plane deadlock；下一次合法 state write 会持久化 compact 结果。round/effect/coordination/Git/worklog 等权威历史文件不受裁剪。
+- `recover` 在写入新的 control/lease/round/workspace generation 之前先完成最终 state 的 compact + validation，避免旧 `.70` 那种“state 写入失败但 generation/lease 已前移、调用方又拿不到 fence token”的半提交 recovery。
+- 新增四条回归：单次 checkpoint 写入 70 条 evidence/verification 仍保持 state 可读；手工构造旧版 70 条 history overflow 后 `doctor / prompt / claim` 可恢复并在下一次写入时落成合法 bounded state；overflow 前缀中的 forbidden raw-history item 不能通过裁剪逃逸校验；semantic `constraints` overflow 仍必须 `state_invalid`。
+
 ## v0.0.3.70 — 2026-08-21
 
 ### Continuation workspace handoff status normalization

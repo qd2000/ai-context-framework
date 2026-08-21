@@ -111,7 +111,7 @@ Workspace ownership 保存在用户级 `workspace.json`，只记录 bounded path
 
 新 task 可用 `acf continuation init ... --profile long-running`；已有 task 使用 `acf continuation configure ... --profile long-running` 原位更新 timing control，不重建 state/workspace manifest，也不要求 `init --force`。`configure` 在 active lease 存在时拒绝修改，避免外部控制面在 owner 运行中改变 liveness 语义；需要自定义 cadence 时可对 profile 再显式覆盖 `--interval-minutes`、`--lease-ttl-minutes`、`--renew-interval-minutes`、`--heartbeat-interval-minutes`、`--stale-after-minutes`。heartbeat 只更新 `last_heartbeat_at`，renew 才延长 lease expiry。
 
-`checkpoint` 只覆盖一个 bounded `state.json`。状态最大 64 KiB，列表最多 64 项，单项最大约 4 KiB；`transcript/history/raw_output/tool_output/stdout/stderr` 等字段在任意嵌套层级都拒绝。
+`checkpoint` 只覆盖一个 bounded `state.json`。状态最大 64 KiB，列表最多 64 项，单项最大约 4 KiB；`transcript/history/raw_output/tool_output/stdout/stderr` 等字段在任意嵌套层级都拒绝。历史型 `completed / evidence_refs / verification` 是**当前恢复摘要的 rolling window**，不是长期历史账本：append 后超过 64 项时确定性保留最近 64 项，完整长期证据继续由 Git、round/effect/coordination journal、项目 worklog/artifact 等权威层承担。`constraints / open_questions / plan_refs` 可能仍直接影响后续安全与计划，因此不做自动裁剪，超过 64 继续 fail-closed。为兼容旧版本已经写出的 current-schema history-list overflow，读取 state 时也会先在内存中对三个 history list 做最近窗口裁剪，使 `prompt / doctor / reconcile` 能继续工作；下一次合法 state write 再持久化 compact 结果。裁剪前仍扫描全部旧条目的 forbidden raw-history 和单项大小，所以非法旧条目不能靠落出窗口逃逸；非 list 类型或无法通过其余 schema 校验的状态也继续 fail-closed。
 
 `release` 的收口规则：
 

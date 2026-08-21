@@ -113,6 +113,7 @@ LIST_FIELDS = (
     "plan_refs",
     "verification",
 )
+ROLLING_LIST_FIELDS = frozenset({"completed", "evidence_refs", "verification"})
 
 
 class ContinuationError(RuntimeError):
@@ -524,8 +525,41 @@ def _validate_state(payload: Mapping[str, Any]) -> dict[str, Any]:
     return state
 
 
-def _write_state(path: Path, payload: Mapping[str, Any]) -> None:
-    _write_json(path, _validate_state(payload))
+def _compact_state_lists(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep compact state fields inside their rolling bounded window.
+
+    Older ACF releases could append beyond ``MAX_LIST_ITEMS`` and then make
+    the same state unreadable on the next command.  History-like state lists
+    are compact recovery summaries rather than the authoritative history
+    journal, so retain their most recent bounded window.  Semantic lists such
+    as constraints, open questions and plan refs must never be silently
+    dropped; they remain strict and fail closed if an old state exceeds the
+    bound.
+    """
+
+    state = dict(payload)
+    # Capacity repair must not become a way to hide an invalid old entry by
+    # trimming it before normal state validation sees it.  Scan the complete
+    # pre-compaction payload for the safety properties that apply to every
+    # individual item, then relax only the aggregate list-count bound.
+    _reject_forbidden_state_keys(state)
+    for field in LIST_FIELDS:
+        values = state.get(field, [])
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            encoded = json.dumps(item, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            if len(encoded) > MAX_TEXT_BYTES:
+                raise ContinuationError(f"{field} item is too large", code="state_invalid")
+        if field in ROLLING_LIST_FIELDS and len(values) > MAX_LIST_ITEMS:
+            state[field] = values[-MAX_LIST_ITEMS:]
+    return state
+
+
+def _write_state(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
+    state = _validate_state(_compact_state_lists(payload))
+    _write_json(path, state)
+    return state
 
 
 def _load_control(paths: Mapping[str, Path], root: Path) -> dict[str, Any]:
@@ -585,7 +619,7 @@ def _load_control(paths: Mapping[str, Path], root: Path) -> dict[str, Any]:
 
 
 def _load_state(paths: Mapping[str, Path]) -> dict[str, Any]:
-    return _validate_state(_read_json(paths["state"], label="state"))
+    return _validate_state(_compact_state_lists(_read_json(paths["state"], label="state")))
 
 
 def _lease_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> dict[str, Any]:
@@ -1077,7 +1111,7 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 state["verification"] = _append_unique(
                     state["verification"], ["Recovered an expired lease after identity/workspace ownership checks."]
                 )
-            _write_state(paths["state"], state)
+            state = _write_state(paths["state"], state)
             return {
                 "status": "claimed",
                 "task_id": control["task_id"],
@@ -1499,6 +1533,12 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 state["verification"],
                 [f"Recovered continuation ownership via reconcile receipt {receipt['receipt_id']}."],
             )
+            # Validate/compact the final continuation state before any of the
+            # generation-transfer files are persisted.  Older releases wrote
+            # control/lease/round/workspace first and could therefore leave a
+            # half-committed fresh lease when the final state write rejected
+            # an over-capacity verification list.
+            state = _validate_state(_compact_state_lists(state))
             recovery = {
                 "schema_version": continuation_recovery.RECOVERY_SCHEMA,
                 "recovery_id": str(uuid.uuid4()),
@@ -1524,7 +1564,7 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
             if effect_reconciliations:
                 _write_json(paths["effects"], reconciled_effect_journal)
             _write_json(paths["workspace"], workspace_manifest)
-            _write_state(paths["state"], state)
+            state = _write_state(paths["state"], state)
             if challenge_resolution is not None:
                 _write_json(paths["coordination"], coordination_state)
             _write_json(paths["recovery"], recovery)
@@ -1619,7 +1659,7 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
             for field, values in updates.items():
                 state[field] = _append_unique(state.get(field, []), values)
             state["updated_at"] = _iso()
-            _write_state(paths["state"], state)
+            state = _write_state(paths["state"], state)
             return {"status": "checkpointed", "state": state, "next_action": state["next_action"]}
 
     return _guarded(args, "continuation checkpoint", operation)
@@ -1712,7 +1752,7 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 except continuation_rounds.ContinuationRoundError as exc:
                     raise _round_error(exc) from exc
             state["updated_at"] = release_now
-            _write_state(paths["state"], state)
+            state = _write_state(paths["state"], state)
             if round_journal is not None:
                 _write_json(paths["rounds"], round_journal)
             if workspace_manifest is not None:
@@ -1776,7 +1816,7 @@ def continuation_pause_command(args: argparse.Namespace) -> int:
                 state["status"] = "paused"
                 state["next_action"] = "Wait for an explicit continuation resume action."
                 state["updated_at"] = _iso()
-                _write_state(paths["state"], state)
+                state = _write_state(paths["state"], state)
             return {
                 "status": "pause_requested" if snapshot["state"] == "active" else "paused",
                 "pause": marker,
@@ -1801,7 +1841,7 @@ def continuation_resume_command(args: argparse.Namespace) -> int:
             state["status"] = "ready"
             state["next_action"] = _validate_text(args.next_action, field="next_action")
             state["updated_at"] = _iso()
-            _write_state(paths["state"], state)
+            state = _write_state(paths["state"], state)
             paths["pause"].unlink(missing_ok=False)
             return {"status": "ready", "state": state, "next_action": state["next_action"]}
 
