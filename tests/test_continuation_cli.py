@@ -93,6 +93,29 @@ class ContinuationCliTests(unittest.TestCase):
             str(claim["fence_token"]),
         ]
 
+    def open_challenge(
+        self,
+        attempt: dict[str, object],
+        *,
+        task_id: str = "WS908",
+    ) -> dict[str, object]:
+        attempt_payload = attempt["attempt"]
+        self.assertIsInstance(attempt_payload, dict)
+        code, challenge, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "challenge",
+                str(self.root),
+                "--task-id",
+                task_id,
+                "--attempt-id",
+                str(attempt_payload["attempt_id"]),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{challenge}")
+        return challenge
+
     def test_init_and_doctor_use_user_global_state_without_dirtying_repo(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
@@ -1963,14 +1986,13 @@ class ContinuationCliTests(unittest.TestCase):
         )
         self.assertEqual(0, code, f"{stderr}\n{prompt}")
         prompt_text = str(prompt["prompt"])
-        self.assertIn("Timing profile: long-running", prompt_text)
-        self.assertIn("heartbeat recommendation 10 min", prompt_text)
-        self.assertIn("stale threshold 25 min", prompt_text)
-        self.assertIn("renew recommendation 45 min", prompt_text)
-        self.assertIn("scheduler wake is only a resume signal", prompt_text)
-        self.assertIn("does not define a work round, reporting interval, work quota, expected stopping point", prompt_text)
-        self.assertIn("These values govern lease liveness only", prompt_text)
-        self.assertIn("They are not execution-duration targets", prompt_text)
+        self.assertIn("profile=long-running", prompt_text)
+        self.assertIn("heartbeat=10m", prompt_text)
+        self.assertIn("stale=25m", prompt_text)
+        self.assertIn("renew=45m", prompt_text)
+        self.assertIn("scheduler wake only resumes one continuous task", prompt_text)
+        self.assertIn("not a work round, reporting interval, quota, or expected stopping point", prompt_text)
+        self.assertIn("These numbers are not execution-duration targets or stop signals", prompt_text)
 
     def test_ws008_configure_refuses_active_owner(self) -> None:
         self.init_task("WS908")
@@ -2395,7 +2417,10 @@ class ContinuationCliTests(unittest.TestCase):
                 ]
             )
             self.assertEqual(0, code, f"{stderr}\n{attempt}")
-            self.assertEqual("contender_registered", attempt["status"])
+            self.assertEqual("live_owner_observed", attempt["status"])
+            self.assertFalse(attempt["challenge_created"])
+            self.assertFalse(attempt["challenge_required"])
+            self.assertTrue(attempt["duplicate_wake_safe_to_yield"])
             self.assertEqual(generation, attempt["attempt"]["observed_owner_generation"])
             attempt_id = str(attempt["attempt"]["attempt_id"])
             attempt_ids.append(attempt_id)
@@ -2501,7 +2526,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(3, code)
         self.assertEqual("coordination_owner_changed", challenged["error_code"])
 
-    def test_ws008_coordination_rejects_unbounded_objective_text(self) -> None:
+    def test_ws008_coordination_rejects_oversized_objective_summary(self) -> None:
         self.init_task("WS908")
         code, attempt, _ = self.run_json(
             [
@@ -2520,7 +2545,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(3, code)
         self.assertEqual("coordination_text_too_large", attempt["error_code"])
 
-    def test_ws008_coordination_attempt_auto_opens_challenge_for_active_owner(self) -> None:
+    def test_ws008_coordination_attempt_keeps_fresh_owner_uncontested(self) -> None:
         self.init_task("WS908")
         code, claim, stderr = self.run_json(
             [
@@ -2546,12 +2571,63 @@ class ContinuationCliTests(unittest.TestCase):
                 "--runner-id",
                 "contender-a",
                 "--objective-summary",
-                "Continue the same bounded gate.",
+                "Continue the current project goal.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        self.assertEqual("live_owner_observed", attempt["status"])
+        self.assertEqual("verified_live", attempt["owner_disposition"])
+        self.assertFalse(attempt["challenge_created"])
+        self.assertFalse(attempt["challenge_required"])
+        self.assertIsNone(attempt["challenge"])
+        self.assertTrue(attempt["duplicate_wake_safe_to_yield"])
+        self.assertEqual([], attempt["coordination"]["nonterminal_challenges"])
+        self.assertEqual(int(claim["generation"]), attempt["attempt"]["observed_owner_generation"])
+
+    def test_ws008_coordination_attempt_auto_challenges_stale_owner(self) -> None:
+        init = self.init_task("WS908")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "owner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_path = state_dir / "lease.json"
+        lease = continuation._read_json(lease_path, label="lease")
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=30))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=31))
+        lease["expires_at"] = continuation._iso(now + timedelta(minutes=90))
+        continuation._write_json(lease_path, lease)
+
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "Recover the current project goal only if the old owner is no longer live.",
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{attempt}")
         self.assertEqual("contender_registered", attempt["status"])
+        self.assertEqual("stale_or_unverified", attempt["owner_disposition"])
         self.assertTrue(attempt["challenge_created"])
+        self.assertTrue(attempt["challenge_required"])
+        self.assertFalse(attempt["duplicate_wake_safe_to_yield"])
         self.assertEqual("open", attempt["challenge"]["status"])
         self.assertEqual(int(claim["generation"]), attempt["challenge"]["owner_generation"])
         self.assertEqual(1, len(attempt["coordination"]["nonterminal_challenges"]))
@@ -2587,7 +2663,8 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{attempt}")
-        challenge_id = str(attempt["challenge"]["challenge_id"])
+        challenge = self.open_challenge(attempt)
+        challenge_id = str(challenge["challenge"]["challenge_id"])
 
         code, project_status, stderr = self.run_json(["status", str(self.root)])
         self.assertEqual(0, code, f"{stderr}\n{project_status}")
@@ -2639,6 +2716,7 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        self.open_challenge(attempt)
         coordination_path = state_dir / "coordination.json"
         coordination = continuation._read_json(coordination_path, label="coordination")
         coordination["challenges"][0]["owner_generation"] = int(claim["generation"]) + 100
@@ -2677,7 +2755,8 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{attempt}")
-        challenge_id = str(attempt["challenge"]["challenge_id"])
+        challenge = self.open_challenge(attempt)
+        challenge_id = str(challenge["challenge"]["challenge_id"])
 
         code, denied, _ = self.run_json(
             [
@@ -2757,7 +2836,8 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{attempt}")
-        challenge_id = str(attempt["challenge"]["challenge_id"])
+        challenge_payload = self.open_challenge(attempt)
+        challenge_id = str(challenge_payload["challenge"]["challenge_id"])
         coordination_path = state_dir / "coordination.json"
         coordination = continuation._read_json(coordination_path, label="coordination")
         challenge = coordination["challenges"][0]
@@ -2846,7 +2926,8 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{attempt}")
-        challenge_id = str(attempt["challenge"]["challenge_id"])
+        challenge = self.open_challenge(attempt)
+        challenge_id = str(challenge["challenge"]["challenge_id"])
 
         code, released, stderr = self.run_json(
             [
@@ -2919,7 +3000,8 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{attempt}")
-        challenge_id = str(attempt["challenge"]["challenge_id"])
+        challenge_payload = self.open_challenge(attempt)
+        challenge_id = str(challenge_payload["challenge"]["challenge_id"])
         coordination_path = state_dir / "coordination.json"
         coordination = continuation._read_json(coordination_path, label="coordination")
         challenge = coordination["challenges"][0]
@@ -3039,6 +3121,7 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        self.open_challenge(attempt)
         coordination_path = state_dir / "coordination.json"
         coordination = continuation._read_json(coordination_path, label="coordination")
         challenge = coordination["challenges"][0]
@@ -4795,7 +4878,8 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{attempt}")
-        challenge_id = str(attempt["challenge"]["challenge_id"])
+        challenge_payload = self.open_challenge(attempt, task_id="WS917")
+        challenge_id = str(challenge_payload["challenge"]["challenge_id"])
         coordination_path = state_dir / "coordination.json"
         coordination = continuation._read_json(coordination_path, label="coordination")
         coordination["challenges"][0]["opened_at"] = continuation._iso(
@@ -5775,42 +5859,47 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(lease["head"], blocked["details"]["lease_head"])
         self.assertEqual(self._git("rev-parse", "HEAD").stdout.strip(), blocked["details"]["current_head"])
 
-    def test_prompt_is_local_first_and_contains_goal_directed_protocol(self) -> None:
+    def test_prompt_is_local_first_and_state_conditioned(self) -> None:
         self.init_task()
         code, payload, stderr = self.run_json(
-            ["continuation", "prompt", str(self.root), "--task-id", "WS900"]
+            [
+                "continuation",
+                "prompt",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-b",
+            ]
         )
         self.assertEqual(0, code, stderr)
         prompt = str(payload["prompt"])
         identity = payload["identity"]
-        self.assertIsInstance(identity, dict)
-        assert isinstance(identity, dict)
         self.assertEqual("WS900", identity["task_id"])
         self.assertEqual(str(self.root), identity["workspace_root"])
         self.assertEqual("main", identity["branch"])
         self.assertIsNone(identity["workstream_id"])
+
         wrapper = payload["scheduler_wrapper_contract"]
-        self.assertIsInstance(wrapper, dict)
-        assert isinstance(wrapper, dict)
         self.assertEqual("acf.continuation.scheduler_wrapper.v1", wrapper["schema_version"])
         self.assertEqual("acf continuation prompt", wrapper["generic_protocol_source"])
         self.assertTrue(wrapper["refresh_prompt_each_run"])
+        self.assertEqual("sufficient_high_salience", wrapper["bootstrap_policy"])
         self.assertFalse(wrapper["copy_generic_state_machine"])
         self.assertEqual(
             [
-                "tooling",
-                "runtime",
-                "resource",
-                "permission",
-                "security",
-                "scientific",
-                "validation",
-                "issue_reporting",
+                "exact_existing_workspace",
+                "project_access_tool_mode",
+                "stable_acf_upgrade_adaptation",
+                "authority_refresh",
+                "execute_generated_plan",
+                "owner_liveness_disclosure",
+                "project_constraints",
+                "final_response_contract",
             ],
-            wrapper["project_constraint_classes"],
+            wrapper["required_bootstrap_topics"],
         )
-        self.assertEqual(identity, wrapper["identity"])
-        self.assertTrue(wrapper["project_specific_constraints_slot"]["required"])
+
         policy = payload["execution_policy"]
         self.assertEqual("acf.continuation.execution_policy.v1", policy["schema_version"])
         self.assertEqual("goal_directed_continuous", policy["mode"])
@@ -5819,7 +5908,10 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertFalse(policy["protocol_is_sequential_checklist"])
         self.assertTrue(policy["agent_selects_work_scope"])
         self.assertTrue(policy["continue_while_safe_useful"])
+        self.assertTrue(policy["next_action_is_default_execution_plan"])
         self.assertFalse(policy["next_action_is_work_quota"])
+        self.assertTrue(policy["next_action_requires_authority_refresh"])
+        self.assertTrue(policy["next_action_may_be_superseded_by_newer_authority"])
         self.assertFalse(policy["checkpoint_is_stop"])
         self.assertFalse(policy["commit_is_stop"])
         self.assertFalse(policy["gate_completion_is_stop"])
@@ -5830,7 +5922,13 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertFalse(policy["elapsed_time_is_session_end_reason"])
         self.assertFalse(policy["startup_probe_is_session_end_reason"])
         self.assertFalse(policy["active_owner_is_session_end_reason"])
+        self.assertTrue(policy["active_lease_requires_liveness_verification"])
+        self.assertFalse(policy["active_lease_is_session_end_reason"])
+        self.assertTrue(policy["verified_duplicate_owner_may_end_duplicate_wake"])
+        self.assertFalse(policy["duplicate_wake_exit_is_task_stop"])
+        self.assertTrue(policy["stale_owner_requires_recovery"])
         self.assertTrue(policy["contender_continues_safe_read_only_when_available"])
+        self.assertFalse(policy["contender_must_create_busywork"])
         self.assertFalse(policy["resume_hint_is_live_authority"])
         self.assertTrue(policy["resume_hint_requires_authority_refresh"])
         self.assertFalse(policy["timing_is_execution_duration_target"])
@@ -5846,102 +5944,178 @@ class ContinuationCliTests(unittest.TestCase):
             ],
             [item["id"] for item in policy["hard_stop_conditions"]],
         )
-        project_context = payload["project_context"]
-        self.assertEqual(["docs/ai/active/Task_Plan.md"], project_context["plan_refs"])
-        self.assertEqual(
-            [
-                "Use the configured fixed Git worktree and branch.",
-                "Treat local project state as authoritative; do not reconstruct state from chat history by default.",
-                "Do not repeat an uncertain non-idempotent operation.",
-                "Finish runner-owned writes with the project-required checkpoint; preserve unrelated external dirty state.",
-            ],
-            project_context["constraints"],
-        )
-        self.assertTrue(project_context["wrapper_constraint_slot"]["required"])
+
         self.assertEqual("bootstrap", payload["current"]["stage"])
         self.assertEqual("ready", payload["current"]["status"])
         self.assertEqual("Run gate one.", payload["current"]["next_action"])
+        owner_context = payload["owner_context"]
+        self.assertEqual("no_active_owner", owner_context["disposition"])
+        self.assertEqual("runner-b", owner_context["caller_runner_id"])
+        self.assertIsNone(owner_context["owner_runner_id"])
+        self.assertEqual("absent", owner_context["liveness"])
+        self.assertTrue(owner_context["can_claim"])
+        self.assertFalse(owner_context["duplicate_wake_candidate"])
+
+        project_context = payload["project_context"]
+        self.assertEqual(["docs/ai/active/Task_Plan.md"], project_context["plan_refs"])
+        self.assertTrue(project_context["wrapper_constraint_slot"]["required"])
+        self.assertIn("sufficient high-salience bootstrap contract", project_context["wrapper_constraint_slot"]["rule"])
+
         resume_context = payload["resume_context"]
         self.assertEqual("persisted_state", resume_context["source"])
         self.assertEqual("recovery_hint_only", resume_context["authority"])
         self.assertTrue(resume_context["requires_local_authority_refresh"])
-        self.assertTrue(resume_context["may_lag_newer_project_effect_or_external_authority"])
         self.assertEqual("absent", resume_context["round_journal"]["state"])
-        self.assertEqual(0, resume_context["round_journal"]["count"])
         self.assertEqual("absent", resume_context["effect_journal"]["state"])
-        self.assertEqual(0, resume_context["effect_journal"]["total"])
-        self.assertEqual(0, resume_context["effect_journal"]["unresolved_count"])
-        self.assertIn("Resume context", prompt)
-        self.assertIn("Resume hint: Run gate one.", prompt)
-        self.assertIn("compact persisted recovery metadata, not live authority", prompt)
-        self.assertIn("may lag newer Git/project evidence, continuation effects, Runtime state", prompt)
-        self.assertIn("Newer authoritative evidence supersedes the hint", prompt)
-        self.assertIn("Render-time continuation journal summary", prompt)
-        self.assertIn("The resume hint is only an entry point", prompt)
-        self.assertIn("It is not a work quota", prompt)
-        self.assertIn("not chat history by default", prompt)
-        self.assertIn("acf continuation doctor", prompt)
-        self.assertIn("only generic continuation state-machine contract", prompt)
-        self.assertIn("invoke `acf continuation prompt` again on every scheduler wake", prompt)
+
+        self.assertIn("Overall objective", prompt)
+        self.assertIn("Default execution plan (persisted): Run gate one.", prompt)
+        self.assertIn("execute it as the next plan instead of merely reading, explaining, or reporting it", prompt)
+        self.assertIn("Completing the default plan is not a work quota or stopping boundary", prompt)
         self.assertIn("Continuous execution contract", prompt)
-        self.assertIn("scheduler wake is only a resume signal", prompt)
-        self.assertIn("does not define a work round, reporting interval, work quota, expected stopping point", prompt)
-        self.assertIn("It does not limit how much useful work", prompt)
-        self.assertIn("The Agent chooses the most effective work scope", prompt)
-        self.assertIn("Checkpoints persist progress", prompt)
-        self.assertIn("commits record natural semantic checkpoints", prompt)
+        self.assertIn("scheduler wake only resumes one continuous task", prompt)
+        self.assertIn("It does not bound the amount of useful project work", prompt)
         self.assertIn("A final assistant response ends the current execution session", prompt)
-        self.assertIn("Do not produce one merely to report progress", prompt)
-        self.assertIn("Elapsed time, tool-call count, perceived context length", prompt)
-        self.assertIn("Startup probes such as `prompt`, `doctor`, `coordination attempt`", prompt)
-        self.assertIn("The safety rules below apply when their condition is relevant", prompt)
-        self.assertIn("They are not a sequential checklist", prompt)
-        self.assertIn("Do not guess a platform boundary", prompt)
-        self.assertIn("explicit signal that the current execution is about to terminate", prompt)
-        self.assertIn("release with `acf continuation release", prompt)
-        self.assertIn("Release is not a default final step", prompt)
-        self.assertIn("Task-level hard-stop conditions are limited to exactly these four cases", prompt)
-        self.assertIn("such as DevSpace", prompt)
-        self.assertIn("resource/VM/node", prompt)
-        self.assertIn("issue-reporting constraints", prompt)
-        self.assertIn("These values govern lease liveness only", prompt)
-        self.assertIn("They are not execution-duration targets", prompt)
-        self.assertNotIn("Execute only the current bounded gate", prompt)
-        self.assertNotIn("If reconcile remains blocked, stop without modifying the worktree", prompt)
-        self.assertNotIn("approaching its execution boundary", prompt)
-        self.assertNotIn("genuinely handing off the current activation", prompt)
-        self.assertNotIn("one valid activation", prompt)
-        self.assertNotIn("Continuation protocol:\n1.", prompt)
-        self.assertNotIn("14. If this execution exposes", prompt)
-        self.assertIn("acf continuation coordination attempt", prompt)
-        self.assertIn("acf continuation coordination status", prompt)
-        self.assertIn("Another fresh authenticated owner is not, by itself, a session-end reason", prompt)
-        self.assertIn("do not jump directly from owner detection to a final response", prompt)
-        self.assertIn("ACF continuation challenge pending", prompt)
-        self.assertIn("ownership_forfeiture_candidate", prompt)
-        self.assertIn("does not grant write access or prove the old process ended", prompt)
-        self.assertIn("acf continuation claim", prompt)
-        self.assertIn("acf continuation assert-owner", prompt)
-        self.assertIn("heartbeat", prompt)
-        self.assertIn("acf continuation progress", prompt)
-        self.assertIn("acf continuation workspace status", prompt)
-        self.assertIn("acf continuation workspace intent", prompt)
-        self.assertIn("acf continuation workspace refresh", prompt)
-        self.assertIn("acf continuation effect prepare", prompt)
-        self.assertIn("acf continuation effect update", prompt)
-        self.assertIn("acf continuation effect list", prompt)
-        self.assertIn("long-lived local subprocess", prompt)
-        self.assertIn("DevSpace session", prompt)
-        self.assertIn("Runtime job", prompt)
-        self.assertIn("must not cross an owner lifecycle", prompt)
-        self.assertIn("purely read-only/blocking call does not need a writer effect identity", prompt)
-        self.assertIn("before the next project write or non-idempotent action, re-run `assert-owner`", prompt)
-        self.assertIn("acf continuation reconcile", prompt)
-        self.assertIn("acf continuation recover", prompt)
-        self.assertIn("acf continuation renew", prompt)
-        self.assertIn("acf continuation release", prompt)
-        self.assertIn("safe useful non-conflicting work has actually been exhausted", prompt)
-        self.assertIn("State that concrete session-end reason in the final response", prompt)
+        self.assertIn("Task-level hard-stop conditions are exactly", prompt)
+        self.assertIn("--objective-summary <current-goal-summary>", prompt)
+        self.assertIn("The coordination attempt is a compact intent record, not a bounded work quota", prompt)
+        self.assertIn("Claim with `acf continuation claim", prompt)
+        self.assertIn("then re-render `acf continuation prompt", prompt)
+        self.assertIn("with the same runner id before project writes", prompt)
+        self.assertIn("The wrapper must be sufficient, not artificially thin", prompt)
+        self.assertIn("Invoke `acf continuation prompt` again on every scheduler wake", prompt)
+        self.assertNotIn("<bounded-objective>", prompt)
+        self.assertNotIn("acf continuation coordination status", prompt)
+        self.assertNotIn("ownership_forfeiture_candidate", prompt)
+        self.assertNotIn("acf continuation reconcile", prompt)
+        self.assertNotIn("acf continuation recover", prompt)
+        self.assertNotIn("acf continuation effect prepare", prompt)
+        self.assertNotIn("acf continuation effect update", prompt)
+        self.assertLess(len(prompt), 9000)
+        self.assertLess(prompt.count("acf continuation"), 10)
+        self.assertEqual(payload["next_actions"][0].split()[0:4], ["acf", "continuation", "coordination", "attempt"])
+
+    def test_prompt_matching_runner_renders_current_owner_safety(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, payload, stderr = self.run_json(
+            [
+                "continuation",
+                "prompt",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, stderr)
+        owner_context = payload["owner_context"]
+        self.assertEqual("current_owner", owner_context["disposition"])
+        self.assertEqual("runner-a", owner_context["owner_runner_id"])
+        self.assertTrue(owner_context["verified_live"])
+        prompt = str(payload["prompt"])
+        self.assertIn("Current writer safety", prompt)
+        self.assertIn("deterministic effect identity", prompt)
+        self.assertIn("Release only when this execution session is actually handing off or ending", prompt)
+        self.assertNotIn("Stale or unverified owner recovery", prompt)
+
+    def test_prompt_fresh_other_runner_renders_duplicate_wake_without_recovery_busywork(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, payload, stderr = self.run_json(
+            [
+                "continuation",
+                "prompt",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(0, code, stderr)
+        owner_context = payload["owner_context"]
+        self.assertEqual("verified_live_other_owner", owner_context["disposition"])
+        self.assertTrue(owner_context["duplicate_wake_candidate"])
+        self.assertEqual("fresh", owner_context["liveness"])
+        prompt = str(payload["prompt"])
+        self.assertIn("Verified live other owner", prompt)
+        self.assertIn("Do not auto-challenge it", prompt)
+        self.assertIn("Ending only this duplicate wake is not a task stop", prompt)
+        self.assertIn("optional, not mandatory busywork", prompt)
+        self.assertNotIn("Stale or unverified owner recovery", prompt)
+        self.assertNotIn("acf continuation reconcile", prompt)
+        self.assertNotIn("acf continuation recover", prompt)
+        self.assertTrue(any("Do not challenge" in action for action in payload["next_actions"]))
+
+    def test_prompt_stale_other_runner_renders_recovery_branch(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_path = state_dir / "lease.json"
+        lease = continuation._read_json(lease_path, label="lease")
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=30))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=31))
+        lease["expires_at"] = continuation._iso(now + timedelta(minutes=90))
+        continuation._write_json(lease_path, lease)
+        code, payload, stderr = self.run_json(
+            [
+                "continuation",
+                "prompt",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(0, code, stderr)
+        owner_context = payload["owner_context"]
+        self.assertEqual("stale_or_unverified_owner", owner_context["disposition"])
+        self.assertEqual("stale", owner_context["liveness"])
+        self.assertFalse(owner_context["duplicate_wake_candidate"])
+        prompt = str(payload["prompt"])
+        self.assertIn("Stale or unverified owner recovery", prompt)
+        self.assertIn("An active lease is not proof that another agent is still working", prompt)
+        self.assertIn("challenge-backed verification", prompt)
+        self.assertIn("formal reconcile/recover", prompt)
+        self.assertIn("coordination status", prompt)
 
     def test_prompt_surfaces_compact_effect_authority_summary_without_copying_effect_history(self) -> None:
         self.init_task()

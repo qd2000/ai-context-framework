@@ -347,11 +347,13 @@ def continuation_coordination_attempt_command(args: argparse.Namespace) -> int:
                     exit_code=3,
                 )
             observed_owner_generation: int | None = None
+            owner_liveness: str | None = None
             if lease["state"] == "active":
                 raw_lease = lease.get("lease")
                 if not isinstance(raw_lease, Mapping):
                     raise core.ContinuationError("active lease payload is missing", code="lease_invalid")
                 observed_owner_generation = core._require_fenced_generation(raw_lease)
+                owner_liveness = str(lease.get("liveness") or "legacy_unknown")
             now = core._iso()
             state, _ = refresh_coordination_timeouts(paths, control, now=now)
             try:
@@ -365,7 +367,8 @@ def continuation_coordination_attempt_command(args: argparse.Namespace) -> int:
                 )
                 challenge = None
                 challenge_created = False
-                if observed_owner_generation is not None:
+                verified_live_owner = observed_owner_generation is not None and owner_liveness == "fresh"
+                if observed_owner_generation is not None and not verified_live_owner:
                     now_dt = core._now()
                     _, deadline_at = challenge_deadline(
                         control,
@@ -389,16 +392,36 @@ def continuation_coordination_attempt_command(args: argparse.Namespace) -> int:
                 raise coordination_error(exc) from exc
             core._write_json(paths["coordination"], state)
             contender = observed_owner_generation is not None
+            verified_live_owner = contender and owner_liveness == "fresh"
+            owner_disposition = (
+                "verified_live"
+                if verified_live_owner
+                else "stale_or_unverified"
+                if contender
+                else "absent"
+            )
             return {
-                "status": "contender_registered" if contender else "claim_candidate_registered",
+                "status": (
+                    "live_owner_observed"
+                    if verified_live_owner
+                    else "contender_registered"
+                    if contender
+                    else "claim_candidate_registered"
+                ),
                 "task_id": control["task_id"],
                 "attempt": attempt,
                 "challenge": challenge,
                 "challenge_created": challenge_created,
+                "challenge_required": bool(contender and not verified_live_owner),
+                "owner_disposition": owner_disposition,
+                "duplicate_wake_safe_to_yield": bool(verified_live_owner),
                 "owner": owner_summary(lease),
                 "coordination": coordination,
                 "next_action": (
-                    "Remain a contender; the challenge does not grant write ownership or prove owner death."
+                    "A fresh authenticated owner was observed. Do not challenge or write protected project files; "
+                    "if this is only a duplicate scheduler wake, it may yield without changing task state."
+                    if verified_live_owner
+                    else "Remain a contender; the challenge does not grant write ownership or prove owner death."
                     if contender
                     else "No active owner was observed; re-run doctor/claim rather than treating this attempt as ownership."
                 ),
@@ -468,7 +491,7 @@ def continuation_coordination_challenge_command(args: argparse.Namespace) -> int
 def register_coordination_parsers(subparsers, add_json_argument) -> None:
     coordination = subparsers.add_parser(
         "coordination",
-        help="register bounded contender attempts and challenges without granting write ownership",
+        help="register compact runner intent and coordinate owner liveness without granting write ownership",
     )
     coordination_subparsers = coordination.add_subparsers(
         dest="continuation_coordination_command",
@@ -477,7 +500,7 @@ def register_coordination_parsers(subparsers, add_json_argument) -> None:
 
     status = coordination_subparsers.add_parser(
         "status",
-        help="inspect bounded attempt/challenge state and the currently observed owner",
+        help="inspect runner attempts, challenges, and the currently observed owner",
     )
     status.add_argument("path", nargs="?", type=Path)
     status.add_argument("--task-id", default=None)
@@ -496,7 +519,7 @@ def register_coordination_parsers(subparsers, add_json_argument) -> None:
         "--deadline-minutes",
         type=int,
         default=None,
-        help="automatic challenge response window when an owner is active; defaults to heartbeat recommendation",
+        help="challenge response window used only when the observed owner is stale or otherwise unverified; defaults to heartbeat recommendation",
     )
     add_json_argument(attempt)
     attempt.set_defaults(func=continuation_coordination_attempt_command)

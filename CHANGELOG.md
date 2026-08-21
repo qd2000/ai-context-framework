@@ -6,6 +6,17 @@
 
 ## v0.0.3.72 — 2026-08-21
 
+### Scheduler bootstrap、owner overlap 与 prompt attention hardening
+
+- Scheduled Task wrapper 的产品合同从“越薄越好”改为 **sufficient high-salience bootstrap**：wrapper 应完整提供精确项目/既有 worktree/connector 入口、DevSpace existing-checkout 打开语义、稳定 ACF 升级/迁移后的继续执行、authority refresh、generated-plan 执行、owner 用户可见说明和项目专用 Runtime/resource/permission/security/scientific/validation/issue-reporting 约束；仍禁止复制 generic claim/challenge/reconcile/workspace/effect 状态机。
+- `acf continuation prompt --json` 新增可选 `--runner-id` 与稳定 `owner_context`，将 lease record、当前 owner、verified live other owner、stale/unverified owner、expired owner 与 no-owner 分开。未提供 caller runner identity 时不会把 fresh lease 武断解释为“另一个 owner”；会要求以 runner identity 重新渲染后再判断 duplicate wake。
+- healthy hourly overlap 不再自动制造 contention：`coordination attempt` 遇到 **fresh** owner 时登记 `live_owner_observed`，返回 `duplicate_wake_safe_to_yield=true` 且不自动 challenge；只有 stale / legacy-unverified owner 才自动 open/join challenge。显式 `coordination challenge` 仍保留，formal reconcile/recover 与 generation fencing 安全边界不变。
+- generated prompt 改为 state-conditioned progressive disclosure：always-on 只突出 overall objective、当前 stage/status、default execution plan、authority refresh、continue-by-default、4 个 hard stop、owner 摘要与当前 relevant action；claim、duplicate-owner、stale recovery、workspace provenance、unresolved effect 等控制细节只在当前状态相关时展开，正常 happy path 不再加载整套 recovery/effect 操作手册。
+- `state.next_action` 的机器语义收敛为“**authority refresh 后的默认执行计划，但不是 work quota**”：新增 `next_action_is_default_execution_plan=true`、`next_action_requires_authority_refresh=true` 和 `next_action_may_be_superseded_by_newer_authority=true`，保留 `next_action_is_work_quota=false`。generated prompt 明确要求如果 newer Git/PLAN/Runtime/effect authority 没有覆盖它，就执行而不是只读取/解释/汇报；完成后继续围绕总体目标推进。
+- 移除 Agent-facing `<bounded-objective>` 暗示，`--objective-summary` 示例改为 `<current-goal-summary>`；coordination summary 仍保持字节上限和 compact contract，但 bounded 只表示 ownership/write/effect/recovery 风险边界，不再暗示业务工作量边界。
+- execution policy 新增 `active_lease_requires_liveness_verification`、`active_lease_is_session_end_reason=false`、`verified_duplicate_owner_may_end_duplicate_wake=true`、`duplicate_wake_exit_is_task_stop=false`、`stale_owner_requires_recovery=true` 与 `contender_must_create_busywork=false`：结束一个 verified duplicate scheduler wake 不等于 mission 的 paused/blocked/done，也不要求 contender 为了延长 session 人为制造 read-only busywork。
+- worktree artifact 默认分类补充标准 Python 可再生缓存：`.venv/`、`__pycache__/`、`.pyc/.pyo`、`.pytest_cache/.mypy_cache/.ruff_cache` 直接识别为 `reproducible_cache/acknowledged`，避免每个真实项目都手工声明相同缓存，同时真实 output/result 仍保持 unknown/fail-closed。
+
 ### Continuation compact-state capacity self-healing
 
 - 修复 compact `state.json` 的 list capacity 自锁：旧实现允许 `checkpoint` / `recover` 等路径在内存中继续 append `completed / evidence_refs / verification` 等列表，但最终 64 项硬上限会让后续 `prompt / doctor / reconcile` 直接报 `state_invalid`，真实 WS079 曾达到 `evidence_refs=78 / verification=88` 后无法进入 generated continuation protocol。
@@ -14,8 +25,6 @@
 - `recover` 在写入新的 control/lease/round/workspace generation 之前先完成最终 state 的 compact + validation，避免旧 `.70` 那种“state 写入失败但 generation/lease 已前移、调用方又拿不到 fence token”的半提交 recovery。
 - 新增四条回归：单次 checkpoint 写入 70 条 evidence/verification 仍保持 state 可读；手工构造旧版 70 条 history overflow 后 `doctor / prompt / claim` 可恢复并在下一次写入时落成合法 bounded state；overflow 前缀中的 forbidden raw-history item 不能通过裁剪逃逸校验；semantic `constraints` overflow 仍必须 `state_invalid`。
 
-## v0.0.3.71 — 2026-08-21
-
 ### Continuation terminal-effect rollover
 
 - long-running continuation 不再靠继续放大 `MAX_EFFECTS` 延后容量自锁：当当前 `effects.json` 因记录数或字节数达到边界而无法接受新 effect 时，ACF 只把 `completed|failed` 的 terminal records 搬入 bounded `effects.archive.NNNNNN.json` segments，再写入新的 current journal；`prepared|active|unknown` 永不归档，若 unresolved records 自身耗尽容量仍继续 fail-closed。
@@ -23,6 +32,15 @@
 - rollover 采用 archive-first/current-second 原子文件顺序；若进程恰好在两次原子写之间中断，current/archive 的 exact duplicate 被视为可恢复 alias，不一致 duplicate 则 fail-closed。archive 损坏、包含 unresolved record 或与 current identity 冲突也会进入 continuation journal invalid，而不是被 doctor/recovery 静默忽略。
 - continuation state migration receipt 的 preserved-history digests 现在同时纳入 `effects.archive.*.json`。这使原 `.66` 的 64→256 容量 hardening 从“延迟下一次上限”升级为可持续 rollover，而不删除历史防重放 identity。
 - merge promotion 的 primary snapshot 现在携带同一套 read-only semantic-Git `stat_only_paths`；collision analyzer 会忽略已经由内容级 Git diff 证明为 stat-only 的普通 tracked `M`，避免 release/build 生成的 line-ending/stat metadata 假 dirty 与候选真实文件更新相交时误报 `wait_or_resolve_primary_paths`。真实 staged、untracked、rename/delete/type/mode/unmerged/submodule 或内容变化仍继续保护。
+
+## v0.0.3.71 — 2026-08-21
+
+### Continuation resume authority / session-end hardening
+
+- generated prompt 将 persisted stage/status/next_action 明确降为 recovery metadata：执行前必须重新读取 local Git/project/Runtime/effect authority；newer authority 可以覆盖旧 hint，不能因为旧 hint 仍存在就重放已发生副作用。
+- `continuation prompt --json` 新增 compact `resume_context`，只暴露 state 更新时间、round count、effect count/status 与 unresolved count，不把 raw journal/history 复制进默认 prompt。
+- execution policy 明确 startup probe、fresh owner detection 和进度汇报本身都不是 session-end reason；contender 只有在安全、有价值、非冲突工作确实耗尽时才可结束当前 execution session，并必须说明具体 session-end reason。
+- 这些 `.71` 规则在 `.72` 中继续保留，但由新的 state-conditioned prompt 与 duplicate-owner 分类降低无关控制面注意力。
 
 ## v0.0.3.70 — 2026-08-21
 

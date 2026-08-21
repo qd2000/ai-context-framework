@@ -18,20 +18,23 @@ from tests.worktree_scenarios import TemporaryWorktreeScenario
 
 
 class WorktreeArtifactTests(unittest.TestCase):
-    def test_scan_keeps_all_unconfigured_paths_unknown(self):
+    def test_scan_keeps_results_unknown_but_classifies_standard_python_cache(self):
         with TemporaryWorktreeScenario() as scenario:
             source = scenario.add_source_worktree()
             scenario.write(source, "output/result.ksc", b"result")
             scenario.write(source, "pkg/__pycache__/module.pyc", b"cache")
+            scenario.write(source, ".venv/pyvenv.cfg", b"home = C:/Python\n")
             rows = scan_source_artifacts(source)
             by_path = {row["relative_path"]: row for row in rows}
             self.assertEqual(by_path["output/result.ksc"]["classification"], "unknown")
             self.assertEqual(by_path["output/result.ksc"]["status"], "unclassified")
             self.assertEqual(
                 by_path["pkg/__pycache__/module.pyc"]["classification"],
-                "unknown",
+                "reproducible_cache",
             )
-            self.assertEqual(by_path["pkg/__pycache__/module.pyc"]["status"], "unclassified")
+            self.assertEqual(by_path["pkg/__pycache__/module.pyc"]["status"], "acknowledged")
+            self.assertEqual(by_path[".venv/pyvenv.cfg"]["classification"], "reproducible_cache")
+            self.assertEqual(by_path[".venv/pyvenv.cfg"]["status"], "acknowledged")
 
     def test_configured_patterns_classify_cache_and_discardable(self):
         with TemporaryWorktreeScenario() as scenario:
