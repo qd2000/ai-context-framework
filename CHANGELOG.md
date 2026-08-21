@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+### Project Observer
+
+- 新增项目级 `acf observer` 开发态主链路：`status`、`snapshot`、`interpret`、`glossary-set`、`glossary`、`history`。一个项目一个 Global Observer，同项目 primary checkout 与注册 worktree 统一观察；Observer 只写用户级 `~/.acf/projects/<project-id>/observer/`，不参与 continuation Writer 控制。
+- 新增稳定重读快照、Execution/Progress/Health 分离、continuation owner-liveness/effect 风险、Workstream source divergence Alert、自健康、轻量锁与 abandoned-lock 安全恢复。
+- 新增 meaningful history append/dedupe、无损按月 rotation/index 和 live+archive 重建；Observer 历史默认永久保留，不按时间自动删除。
+- 新增 source-fingerprint 绑定的版本化人类语义解释、canonical identity、confidence/provenance、stale-cache fail-closed、项目 glossary 与 interpretation history。
+- 新增自包含静态 `dashboard.html`：可直接 `file://` 打开，包含项目总览、Alerts、Workstream 逻辑卡、meaningful timeline、技术详情、搜索/筛选/折叠；颜色与文字/符号冗余表达，使用克制字号，不启动 HTTP/daemon。
+- Observer structured state 与 Dashboard 共用 credential-like 值过滤；API key、password、token、private key、license、fence token 等值拒绝写入或替换为 `[redacted]`。Dashboard renderer 失败保留 last-good HTML 并通过 self-health Alert 暴露。
+- Observer Core 不硬编码 MCP、电脑、盘符或项目实例；具体项目访问工具由外部 scheduler wrapper/adapter 注入。开发态能力先在 ACF 自身持续 dogfood，通过 release gate 后才进入全局/PyPI 发布。
+
 ## v0.0.3.68 — 2026-08-20
 
 ### Goal-directed continuous execution prompt

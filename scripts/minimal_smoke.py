@@ -48,9 +48,12 @@ class SmokeRunner:
         cwd: Path | None = None,
         expect_exit: int = 0,
         expect_error_code: str | None = None,
+        env_overrides: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         env = os.environ.copy()
         env.setdefault("PYTHONUTF8", "1")
+        if env_overrides:
+            env.update(env_overrides)
         completed = subprocess.run(
             [*self.acf_cmd, *args],
             cwd=str(cwd) if cwd is not None else None,
@@ -551,6 +554,20 @@ class SmokeRunner:
                 ]
             )
         )
+
+    def observer_minimal_happy_path(self, tmp: Path, steps: list[dict[str, Any]]) -> None:
+        project = tmp / "observer"
+        context = project / "docs" / "ai"
+        acf_home = tmp / "acf-home"
+        env = {"ACF_HOME": str(acf_home)}
+        steps.append(self.run_acf(["init", str(context), "--profile", "standard", "--json"], env_overrides=env))
+        steps.append(self.run_acf(["observer", "status", str(project), "--json"], env_overrides=env))
+        steps.append(self.run_acf(["observer", "snapshot", str(project), "--dry-run", "--json"], env_overrides=env))
+        snapshot = self.run_acf(["observer", "snapshot", str(project), "--json"], env_overrides=env)
+        dashboard = Path(str(snapshot.get("payload", {}).get("observer_dir", ""))) / "dashboard.html"
+        snapshot["dashboard_exists"] = dashboard.is_file()
+        snapshot["ok"] = bool(snapshot["ok"] and snapshot["dashboard_exists"])
+        steps.append(snapshot)
         report = context / "human" / "reports" / "smoke-report-2099-01-01.md"
         report.write_text("# Smoke Human Report\n\nSmoke report body.\n", encoding="utf-8")
         steps.append(self.run_acf(["human", "index", "sync", str(context), "--json"]))
@@ -595,6 +612,7 @@ class SmokeRunner:
         self.scenario("plan reference minimal happy path", self.plan_reference_minimal_happy_path)
         self.scenario("new object minimal happy path", self.new_object_minimal_happy_path)
         self.scenario("human note standard happy path", self.human_note_standard_happy_path)
+        self.scenario("observer minimal happy path", self.observer_minimal_happy_path)
         ok = all(scenario["ok"] for scenario in self.scenarios)
         return {
             "schema_version": 1,

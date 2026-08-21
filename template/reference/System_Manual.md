@@ -417,6 +417,43 @@ Worktree lifecycle 与 continuation workspace 共用 read-only semantic-clean：
 
 continuation state 固定存放于 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；默认根目录是 `~/.acf`，`ACF_HOME` override 只替换这个根。`acf continuation list <worktree> --json` 与 `--all-projects` 只读报告 task/workstream identity、timing、control generation、各 state schema 及 compatibility。支持的 legacy workspace schema 使用 `acf continuation migrate ... --dry-run` 预览，并只在没有 lease record 时显式 `--apply --reason ...`；migration receipt 记录 schema/digest 变化和其余 history 文件的 byte digest，未知/future schema 继续 fail-closed。不要直接编辑 ACF_HOME JSON。
 
+### Project Observer
+
+`acf observer` 提供项目级 Global Observer。一个项目只维护一个用户级 Observer namespace；同项目 primary checkout 与 ACF 注册 worktree 统一观察。固定边界是 **read broad / write narrow / control none**：Observer 可以读取 Git、Workstream、continuation、计划和 evidence，但只把派生状态写入 `~/.acf/projects/<project-id>/observer/`，不会 claim/challenge/recover continuation，也不会修改 Writer 项目文件。
+
+```powershell
+acf observer status --json
+acf observer snapshot --dry-run --json
+acf observer snapshot --json
+acf observer history --stream timeline --limit 20 --json
+acf observer glossary --json
+```
+
+`snapshot` 使用开始/结束 fingerprint 形成一致性快照；读取期间发生变化会重读一次，仍不稳定则标记 critical Alert。Observer 使用自己的轻量锁，不复用 continuation lease；current/status/dashboard 原子替换，render 失败保留 last-good Dashboard。meaningful history 默认永久保留，只按月无损 rotation/index，不按时间自动删除。Execution / Progress / Health 分离；正常 `waiting_external` 不自动等于异常，缺少明确分母时不生成假百分比。
+
+语义解释由 AI 提供，但必须绑定当前 Workstream 的 `semantic.source_fingerprint`。CLI 负责 canonical identity、confidence、provenance、版本历史和 stale-cache fail-closed；底层 meaning-relevant facts 变化后旧解释自动标记 stale，展示层不继续把它当作当前事实。
+
+```powershell
+acf observer interpret . --workstream WS001 --source-fingerprint <fingerprint> `
+  --human-title "人类可读标题" `
+  --current-focus "当前在解决什么" `
+  --why-now "为什么现在做" `
+  --recent-proof "最近证明或排除的事实" `
+  --implication "这些结果意味着什么" `
+  --next-step "下一步以及为什么这样走" `
+  --confidence high `
+  --provenance "active/workstreams/WS001.md" --json
+
+acf observer glossary-set . --term "术语" --human-term "人类解释" `
+  --explanation "稳定解释。" --confidence high --provenance "reference/Source.md" --json
+```
+
+confidence 支持 `authoritative / high / medium / low`；medium/low 在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。结构化 Observer state 与 HTML 都过滤 credential-like 值，API key、password、token、private key、license、fence token 等不得进入 Observer 产物。
+
+`dashboard.html` 是静态、自包含、直接 `file://` 打开的派生视图，不启动 HTTP/daemon，不依赖外部资源。颜色表达必须同时配文字/符号：红=critical、琥珀=warning、绿=healthy/verified、蓝=active/info、灰=canonical/history/metadata；字体保持连续阅读尺度，不用巨大字号制造重点。
+
+Observer Core 不硬编码 MCP、电脑、盘符或具体项目实例。哪个 Scheduled Task 使用哪个项目访问工具属于项目自己的 wrapper/adapter，而不是通用 Observer 产品合同。
+
 ### Workstream guard 模式
 
 `acf workstream guard` 检查的是“变更文件是否符合当前 Workstream 的写入范围”，不是默认独占整个工作区。多个 agent 或多个 Workstream 在同一仓库并行时，完成、ready、done 或切换状态前，优先显式传入本次要验收的文件集：
