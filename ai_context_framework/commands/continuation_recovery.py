@@ -184,7 +184,7 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
             effect_milestones = list(args.effect_milestone or [])
             effect_requested = any(
                 (effect_keys, effect_terminal_statuses, effect_external_ids, effect_milestones)
-            ) or bool(args.effect_not_started) or bool(args.effect_evidence_ref or [])
+            ) or bool(args.effect_not_started) or bool(args.effect_local_terminal) or bool(args.effect_evidence_ref or [])
             effect_reconciliations: list[dict[str, Any]] = []
             if effect_requested:
                 if not effect_keys or len(effect_keys) != len(effect_terminal_statuses):
@@ -197,9 +197,19 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                         "effect-not-started accepts exactly one effect key and cannot be combined with an external id",
                         code="effect_identity_conflict",
                     )
-                if not args.effect_not_started and len(effect_external_ids) != len(effect_keys):
+                if args.effect_not_started and args.effect_local_terminal:
                     raise core.ContinuationError(
-                        "ownerless effect reconciliation requires one external id for each effect key unless effect-not-started is asserted",
+                        "effect-not-started and effect-local-terminal are mutually exclusive",
+                        code="effect_identity_conflict",
+                    )
+                if args.effect_local_terminal and effect_external_ids:
+                    raise core.ContinuationError(
+                        "effect-local-terminal cannot be combined with an external id",
+                        code="effect_identity_conflict",
+                    )
+                if not args.effect_not_started and not args.effect_local_terminal and len(effect_external_ids) != len(effect_keys):
+                    raise core.ContinuationError(
+                        "ownerless effect reconciliation requires one external id for each effect key unless effect-not-started or effect-local-terminal is asserted",
                         code="effect_reconcile_incomplete",
                     )
                 if effect_milestones and len(effect_milestones) != len(effect_keys):
@@ -223,7 +233,7 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                                 logical_key=core._validate_text(effect_key, field="effect_key"),
                                 external_id=(
                                     None
-                                    if args.effect_not_started
+                                    if args.effect_not_started or args.effect_local_terminal
                                     else core._validate_text(
                                         effect_external_ids[index],
                                         field="effect_external_id",
@@ -234,6 +244,7 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                                 evidence_refs=effect_evidence_refs,
                                 owner_ended=bool(args.owner_ended),
                                 not_started=bool(args.effect_not_started),
+                                local_terminal=bool(args.effect_local_terminal),
                             )
                         )
                 except continuation_recovery.ContinuationRecoveryError as exc:
@@ -319,6 +330,14 @@ def register_recovery_parsers(subparsers, add_json_argument) -> None:
         "--effect-not-started",
         action="store_true",
         help="assert that a still-prepared effect never crossed the external submission boundary; requires failed status, no external id, and external authority evidence",
+    )
+    reconcile.add_argument(
+        "--effect-local-terminal",
+        action="store_true",
+        help=(
+            "assert that one or more still-prepared effects with no external id are local deterministic actions "
+            "whose durable local authority evidence proves terminal completion/failure"
+        ),
     )
     reconcile.add_argument(
         "--effect-milestone",

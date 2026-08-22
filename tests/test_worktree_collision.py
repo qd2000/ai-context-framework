@@ -87,6 +87,35 @@ class WorktreeCollisionTests(unittest.TestCase):
             self.assertFalse(report["allowed"])
             self.assertEqual(report["divergent_overlap_paths"], ["same.txt"])
 
+    def test_stat_only_primary_overlap_does_not_block_candidate_change(self):
+        with TemporaryWorktreeScenario() as scenario:
+            scenario.write(scenario.primary, ".gitattributes", "normalized.txt text eol=crlf\n")
+            scenario.write(scenario.primary, "normalized.txt", b"base\n")
+            run_git(scenario.primary, "add", ".gitattributes", "normalized.txt")
+            run_git(scenario.primary, "commit", "-m", "add normalized fixture")
+            source_head = scenario.commit_source_files([("normalized.txt", b"candidate\n")])
+
+            (scenario.primary / "normalized.txt").unlink()
+            run_git(scenario.primary, "checkout", "--", "normalized.txt")
+            self.assertIn(b"\r\n", (scenario.primary / "normalized.txt").read_bytes())
+            (scenario.primary / "normalized.txt").write_bytes(b"base\n")
+
+            snapshot = capture_git_worktree_snapshot(scenario.primary, include_ignored=True)
+            self.assertEqual(["normalized.txt"], snapshot["stat_only_paths"])
+            candidate = build_candidate_preview(
+                scenario.primary,
+                primary_head=scenario.head(scenario.primary),
+                source_head=source_head,
+            )
+            report = analyze_primary_collisions(
+                scenario.primary,
+                snapshot=snapshot,
+                candidate=candidate,
+            )
+            self.assertTrue(report["allowed"])
+            self.assertEqual([], report["divergent_overlap_paths"])
+            self.assertEqual([], report["collisions"])
+
     def test_primary_ignored_collision_is_detected_without_full_ignored_snapshot(self):
         with TemporaryWorktreeScenario() as scenario:
             source = scenario.add_source_worktree()

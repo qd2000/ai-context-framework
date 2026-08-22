@@ -286,6 +286,20 @@ def _ls_files(root: Path, *, ignored: bool) -> list[str]:
 def _default_classification(
     relative_path: str,
 ) -> tuple[ArtifactClassification, ArtifactEntryStatus, str, str | None]:
+    normalized = normalize_relative_path(relative_path)
+    segments = tuple(part.casefold() for part in normalized.split("/") if part)
+    if (
+        (segments and segments[0] == ".venv")
+        or "__pycache__" in segments
+        or normalized.casefold().endswith((".pyc", ".pyo"))
+        or any(part in {".pytest_cache", ".mypy_cache", ".ruff_cache"} for part in segments)
+    ):
+        return (
+            ArtifactClassification.REPRODUCIBLE_CACHE,
+            ArtifactEntryStatus.ACKNOWLEDGED,
+            "none",
+            "standard reproducible Python environment/cache artifact",
+        )
     return (
         ArtifactClassification.UNKNOWN,
         ArtifactEntryStatus.UNCLASSIFIED,

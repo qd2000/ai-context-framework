@@ -1,8 +1,8 @@
 # WS010 Standard Scheduled Task Wrapper
 
-本文件是 WS010 可直接复制到外部 Scheduled Task 的薄 wrapper，也是后续其他 ACF continuation 自动任务的模板样本。
+本文件保留 WS010 当时用于真实 dogfood 的 Scheduled Task wrapper，属于历史设计样本，不再作为当前 ACF scheduler wrapper 的 canonical 模板直接复制。
 
-它只固定执行身份、每轮 dynamic prompt 入口和项目专用约束；不复制 generic claim、contention、workspace、effect、reconcile 或 recover 状态机。
+当前产品合同已经从当时的“thin wrapper”演进为 **sufficient high-salience bootstrap wrapper**：外层 Scheduled Task 必须完整携带 existing-workspace/connector 打开语义、稳定 ACF 升级与兼容迁移、authority refresh、generated default plan 的执行方式、owner 用户可见披露以及项目专用 Runtime/resource/permission/security/scientific/validation/issue-reporting 约束；generic claim/challenge/reconcile/workspace/effect/fencing 状态机仍不得复制。当前权威见 `docs/ai/reference/Continuation_Control_Design.md` 与 System Manual。
 
 ---
 
@@ -12,7 +12,7 @@
 
 持续推进 ACF WS010「Goal-directed continuous execution prompt」。
 
-每次运行都是独立无人值守执行轮次。不要依赖网页聊天历史恢复任务状态；本地 Git、Workstream、PLAN、continuation state、tests/evidence 和当前已安装稳定 ACF 是执行事实源。
+每次 scheduler wake 只是同一持续任务的恢复入口，不是独立工作回合，也不产生主动收口或汇报义务。不要依赖网页聊天历史恢复任务状态；本地 Git、Workstream、PLAN、continuation state、tests/evidence 和当前已安装稳定 ACF 是执行事实源。
 
 固定身份：
 
@@ -23,19 +23,19 @@
 - Continuation task-id：`WS010`
 - Plan：`docs/ai/reference/ws010_continuation_goal_directed_execution/PLAN.md`
 
-每轮先使用 @DevSpace Local 打开上述固定 worktree，不创建重复 worktree，不切换到 primary checkout 开发。读取根 `AGENTS.md`、`docs/ai/AGENTS.md`、`acf workstream context WS010` 和当前 `PLAN.md`，并验证 path、branch、HEAD、worktree registry、Git common-dir 与固定身份一致。
+每次 wake 先使用 @DevSpace Local 打开上述固定 worktree，不创建重复 worktree，不切换到 primary checkout 开发。读取根 `AGENTS.md`、`docs/ai/AGENTS.md`、`acf workstream context WS010` 和当前 `PLAN.md`，并验证 path、branch、HEAD、worktree registry、Git common-dir 与固定身份一致。
 
-每轮先运行稳定控制面诊断：
+每次 wake 先运行稳定控制面诊断：
 
 `acf continuation doctor "D:\PROJECT\Tools\ai-context-framework_worktrees\ws010-continuation-goal-directed-execution" --task-id WS010 --json`
 
-当前稳定基线已是 v0.0.3.68，因此每轮直接使用全局安装态生成本轮协议：
+当前稳定基线已是 v0.0.3.69，因此每次 wake 直接使用全局安装态生成当前协议：
 
 `acf continuation prompt "D:\PROJECT\Tools\ai-context-framework_worktrees\ws010-continuation-goal-directed-execution" --task-id WS010 --json`
 
 如果 WS010 后续再次产生尚未发布的新候选实现，worktree 内 `uv run acf continuation prompt` 只允许用于只读渲染 product-under-test prompt 和隔离测试；所有 claim、coordination、heartbeat、renew、workspace、effect、checkpoint、release、reconcile 和 recover 写控制命令继续使用当前已安装稳定 `acf`，直到更新版本完成发布和安装态验证。
 
-严格执行本轮返回的 generated prompt。它是 generic continuation 执行政策和安全协议的唯一权威。完成一个子任务、测试、commit、checkpoint 或 Gate 不构成停止理由；只要仍存在安全、非重复且有价值的下一步，就继续推进总体目标，Agent 自主决定本次工作范围和执行顺序。
+严格执行当次返回的 generated prompt。它是 generic continuation 执行政策、session 结束条件和安全协议的唯一权威。`.69` generic protocol 使用按条件适用的安全规则组，不是“从第一步走到最后一步就收口”的顺序 checklist；timing 只管理 lease liveness。wrapper 不自行定义工作量、运行时长或“完成多少就汇报”的边界；Agent 自主决定有效工作范围和执行顺序。
 
 ## 项目专用约束
 
@@ -54,16 +54,16 @@
 7. 只显式暂存已验证的 WS010 scoped 文件，禁止 `git add .`；不得 stash/reset/clean/rebase/force 或覆盖无关修改。
 8. 根据实际修改运行 focused tests，并至少执行 `uv run acf workstream guard WS010 --files <实际修改文件...> --json`、`git diff --check`、`uv run acf check template`、`uv run acf check --strict`；形成 release 候选前运行完整 continuation suite 和 full unittest。
 
-## 本轮收口
+## Session 结束与汇报
 
-只有 generated prompt 定义的任务级硬停止条件成立，或当前执行平台即将强制结束时，才允许结束本次 activation。平台边界、另一个 authenticated owner 正在推进或 durable external job 正在等待都只是可恢复交接，不得把任务标记为 paused、blocked_human 或 done。
+final response 会结束当前 execution session。不要为了汇报进展、运行了一段时间、完成若干步骤、测试/commit/checkpoint/Gate、timing 数值或主观感觉“该收尾了”而 final；是否允许结束当前 session 完全服从当次 generated prompt。scheduler wake 和 `state.next_action` 都只是恢复入口，不是 session-end reason 或工作配额。
 
-真正退出前，保存准确进度、具体 `next_action`、必要 evidence，刷新 workspace，执行 bounded checkpoint，并使用同一 stable owner credential release。checkpoint 或 commit 本身不要求 release；如果还有安全且有价值的下一步，继续执行。
+只有 generated prompt 允许当前 session handoff 时才进行收口；正常自愿 handoff 前保存准确进度、具体 `next_action`、必要 evidence，刷新 workspace，按需 checkpoint，并使用同一 stable owner credential release。不要在 final 后留下本可正常 release 的 live owner lease。
 
-最终用中文简洁汇报：
+仅在 generated prompt 允许结束当前 execution session 时，用中文简洁汇报：
 
 - 当前总体目标和阶段；
-- 本轮连续完成的工作；
+- 当前 execution session 实际完成的工作；
 - 修改文件；
 - tests / guard；
 - issue fingerprint；
@@ -73,9 +73,11 @@
 
 ---
 
-## 通用模板预留
+## 历史迁移说明
 
-将本 wrapper 迁移到其他项目时，只替换：
+以下内容记录 WS010 当时向其他项目迁移的思路，仅用于理解历史演进；不要把本节作为当前 wrapper 生成模板。当前 wrapper 应按 `.72` sufficient bootstrap contract 重新组织，并使用 `acf continuation prompt --runner-id <runner> --json` 获取 state-conditioned generic protocol。
+
+WS010 当时迁移时替换：
 
 1. DevSpace/connector；
 2. project/worktree/branch/workstream/task-id/PLAN 固定身份；
@@ -84,16 +86,16 @@
 
 不得把 generic continuation 状态机复制进外层 Scheduled Task。
 
-## 迁移到其他开发任务的最小清单
+## 当时迁移到其他开发任务的最小清单
 
 迁移时只做参数化替换，不复制 WS010 self-hosting 细节：
 
-1. 固定目标任务自己的 project/worktree/branch/workstream/task-id/PLAN，并保留“每轮重新调用安装态 `acf continuation prompt`”这一唯一 generic 协议入口。
+1. 固定目标任务自己的 project/worktree/branch/workstream/task-id/PLAN，并保留“每次 scheduler wake 重新调用安装态 `acf continuation prompt`”这一唯一 generic 协议入口。
 2. 删除 WS010 专有的 stable-control-plane / product-under-test 条款；仅在目标任务本身也是 ACF self-hosting 时保留同类隔离规则。
 3. 把目标任务真正需要的 DevSpace、Runtime、VM/节点、主机、权限、安全、科学/工程验收、发布和 issue-reporting 规则填入“项目专用约束”，不要把这些约束塞进通用 ACF prompt。
 4. 保留显式 worktree/branch 身份校验、禁止重复 worktree、禁止覆盖无关 dirty、显式 stage scoped files、禁止 `git add .` 与 destructive Git 快捷操作。
-5. 保留 `goal_directed_continuous` 行为：一个测试、commit、checkpoint 或 Gate 完成后继续选择下一项安全有价值工作；只有 generated prompt 的四类任务级硬停止条件允许结束整个任务。
-6. 首次迁移后至少观察一轮真实 Scheduled Task fresh activation；若发现新的通用缺陷，用该任务自己的 `acf continuation issue` 记录，不在 wrapper 中临时复制第二套恢复状态机。
+5. 保留 `goal_directed_continuous` 行为并让 session-end discipline 完全由 generated prompt 决定；wrapper 不增加最短运行时长、最大步骤数或“完成一个阶段就汇报”的额外限制。
+6. 首次迁移后至少观察一次真实 Scheduled Task fresh wake；若发现新的通用缺陷，用该任务自己的 `acf continuation issue` 记录，不在 wrapper 中临时复制第二套恢复状态机。
 
 ### 当前四个迁移对象
 

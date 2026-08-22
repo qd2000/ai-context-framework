@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ai_context_framework.git_support import canonical_path, git_output, run_git
+from ai_context_framework.git_support import canonical_path, git_output, run_git, semantic_status
 
 
 SNAPSHOT_SCHEMA_VERSION = "acf.git_worktree_snapshot.v1"
@@ -280,6 +280,7 @@ def capture_git_worktree_snapshot(
         {entry.path for entry in entries if entry.record_type == "unmerged"},
         key=comparison_key,
     )
+    stat_only_paths = [str(value) for value in semantic_status(checkout)["stat_only_paths"]]
 
     stable_payload: dict[str, Any] = {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
@@ -294,6 +295,7 @@ def capture_git_worktree_snapshot(
         "untracked_paths": untracked_paths,
         "ignored_paths": ignored_paths,
         "unmerged_paths": unmerged_paths,
+        "stat_only_paths": stat_only_paths,
         "index_lock": _git_path_exists(checkout, "index.lock"),
         "sequencer": sequencer.to_payload(),
     }

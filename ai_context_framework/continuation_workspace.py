@@ -133,8 +133,15 @@ def git_snapshot(root: Path) -> dict[str, Any]:
     head = _run_git(root, "rev-parse", "HEAD").strip()
     semantic = semantic_status(root)
     entries: list[dict[str, str]] = []
+    legacy_digest_aliases: dict[str, list[str]] = {}
     for record in semantic["dirty_records"]:
-        status = str(record["status"])
+        raw_status = str(record["status"])
+        # Persisted workspace entries normalize surrounding porcelain status
+        # whitespace through `_entry()`.  The digest must use that same
+        # canonical status or a tracked unstaged record such as `" M"` will
+        # be written as status `"M"` with a digest derived from `" M"`, then
+        # immediately look like ownerless handoff drift on the next read.
+        status = _text(raw_status, field="status", max_bytes=16)
         path_value = str(record["path"])
         paths = [path_value]
         original_path = record.get("original_path")
@@ -142,6 +149,15 @@ def git_snapshot(root: Path) -> dict[str, Any]:
             paths.append(original_path)
         for candidate in paths:
             normalized = normalize_path(candidate)
+            if raw_status != status:
+                # v0.0.3.69 and earlier workspace manifests could persist the
+                # canonical status while hashing the raw porcelain status.
+                # Keep the old digest only as a transient observation alias so
+                # ownerless handoff can prove an existing manifest represents
+                # the exact same current bytes and safely rewrite it on claim.
+                legacy_digest_aliases.setdefault(normalized, []).append(
+                    _entry_digest(root, normalized, raw_status)
+                )
             entries.append(
                 {
                     "schema_version": ENTRY_SCHEMA,
@@ -157,6 +173,7 @@ def git_snapshot(root: Path) -> dict[str, Any]:
         "head": head,
         "entries": entries,
         "stat_only_paths": list(semantic["stat_only_paths"]),
+        "legacy_digest_aliases": legacy_digest_aliases,
     }
 
 
@@ -848,14 +865,23 @@ def observe_handoff(
     current = validate_manifest(manifest, task_id=task_id)
     expected_task_owned = _entry_map(current["task_owned"])
     observed = _entry_map(snapshot["entries"])
+    raw_legacy_aliases = snapshot.get("legacy_digest_aliases", {})
+    legacy_aliases = raw_legacy_aliases if isinstance(raw_legacy_aliases, Mapping) else {}
     classified = classify(current, task_id=task_id, snapshot=snapshot, now=now)
     drift_conflicts: list[dict[str, str]] = []
     for path_value, expected in expected_task_owned.items():
         live = observed.get(path_value)
+        aliases = legacy_aliases.get(path_value, [])
+        legacy_digest_equivalent = bool(
+            live is not None
+            and live["status"] == expected["status"]
+            and isinstance(aliases, list)
+            and expected["digest"] in aliases
+        )
         if (
             live is None
             or live["status"] != expected["status"]
-            or live["digest"] != expected["digest"]
+            or (live["digest"] != expected["digest"] and not legacy_digest_equivalent)
         ):
             drift_conflicts.append(
                 {
