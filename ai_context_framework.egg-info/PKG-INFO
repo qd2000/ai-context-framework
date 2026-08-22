@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.72
+Version: 0.0.3.73
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.72` 是当前推荐版本。`acf continuation prompt` 继续采用 goal-directed continuous execution，但把默认注意力进一步收敛到“总体目标 → authority refresh → 当前默认执行计划 → 当前 owner 状态 → 仅与当前状态相关的安全分支”。`state.next_action` 在 refresh 后仍有效时是默认下一步执行计划，而不是只供查看的 hint，也不是 work quota；完成它后若总体目标仍开放且还有安全、有价值工作，Agent 继续自主推进。`prompt --runner-id` 可区分当前 owner、verified live other owner、stale/unverified owner、expired owner 与无 owner；healthy hourly overlap 不再自动 challenge，verified duplicate wake 可以让行结束当前重复 session，但不改变 mission 状态，stale/unverified ownership 才进入 challenge/reconcile/recover。Scheduled Task wrapper 不再追求“薄”，而应是 sufficient high-salience bootstrap：完整携带精确既有 workspace/connector 入口、稳定 ACF 升级适配、generated-plan 执行、owner 用户可见说明和项目专用约束，同时不复制 generic 状态机。`.72` 还让 compact continuation state 的历史摘要列表成为最近 64 项 rolling window，并为 terminal effect history 提供 replay-safe rollover，避免长任务因 state/effect 容量自锁。final response、timing、commit/checkpoint/Gate 的既有非停止语义继续保留。
+`v0.0.3.73` 是当前推荐版本。它继承 `.72` 的 sufficient scheduler bootstrap、state-conditioned generated prompt、default execution plan、owner liveness/duplicate-wake 语义和 continuation capacity/effect rollover hardening，并补上一条窄的 legacy local-effect recovery：旧版本若留下 `prepared + external_id=null` 的**本地确定性 effect**，且 owner 已结束/forfeit、durable local authority evidence 已能证明实际 terminal 结果，可显式使用 `reconcile --effect-local-terminal` 收口；该路径不适用于 active/unknown effect，也不能绕过已有 external-id 的 identity-matched reconciliation。ACF 仍不会从文件名或普通项目事实自动裁决 effect 真假，调用方必须提供可审计 evidence，`recover` 仍受 observation digest、receipt 与 generation fencing 约束。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
@@ -367,7 +367,7 @@ effect history 采用 replay-safe rollover：current `effects.json` 到达记录
 
 `continuation workspace reclassify` 是 active fenced owner 的窄恢复工具，不是事后泛化的 `workspace intent`：durable writer 已结束后，如果某个启动前漏报的真实产出当前被分类为 `unexpected_nonoverlap`，只有在来源已审阅且提供 durable `--evidence-ref` 与 `--reason` 时，才能显式用 `--task-owned <path>` 纳入任务，或用 `--baseline-external <path>` 继续保护为外部修改。task-owned reclassification 仍受 bound Workstream direct write scope 约束；已有 conflict、非 unexpected 路径、重叠分类、scope 越界、证据缺失或来源不确定都继续 fail-closed。
 
-ownerless effect recovery 有两个明确且互斥的收口路径：已经取得 durable external id 的 effect 必须继续用 `--effect-external-id` 与外部终态证据做 identity-matched reconciliation；同一 stale generation 若有多个此类 externally-proven terminal effects，可按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，由一个 receipt 原子收口全部 assertions，并共享本次 `--effect-evidence-ref` 集合。若 write-ahead `effect prepare` 后能够由外部 authority 明确证明 submit **从未启动**，则可在 owner-ended/forfeiture 条件下使用 `reconcile --effect-not-started --effect-terminal-status failed --effect-evidence-ref <ref>`；该 no-start 分支仍只接受单个 `prepared`、`external_id=null` 记录，不能声明 completed，也不能用于 active/unknown effect。
+ownerless effect recovery 有三条明确、互斥且 fail-closed 的收口路径：已经取得 durable external id 的 effect 必须继续用 `--effect-external-id` 与外部终态证据做 identity-matched reconciliation；同一 stale generation 若有多个此类 externally-proven terminal effects，可按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，由一个 receipt 原子收口全部 assertions，并共享本次 `--effect-evidence-ref` 集合。若 write-ahead `effect prepare` 后能够由外部 authority 明确证明 submit **从未启动**，则可在 owner-ended/forfeiture 条件下使用 `reconcile --effect-not-started --effect-terminal-status failed --effect-evidence-ref <ref>`；该 no-start 分支仍只接受单个 `prepared`、`external_id=null` 记录，不能声明 completed，也不能用于 active/unknown effect。若旧版本已经实际执行了**本地确定性动作**，但当时只留下 `prepared + external_id=null`，且 durable local artifact/state/hash 等 authority evidence 已明确证明 terminal 结果，则可显式使用 `--effect-local-terminal`（可一次对多个 effect 使用同一 receipt）；它只接受仍为 `prepared` 且没有 external id 的记录，不能和 `--effect-not-started` 或 `--effect-external-id` 混用，active/unknown effect 继续拒绝。
 
 `acf continuation list [<worktree>] --json` 只读展示当前 ACF_HOME 中的 continuation identity、`task_id/workstream_id`、timing profile、每个 state 文件的 schema 与 `current / migration_available / blocked` 兼容状态；`--all-projects` 可扫描全部 path-hash namespace。已知 legacy workspace schema 使用 `acf continuation migrate ... --dry-run --json` 先生成迁移计划，并在**没有 lease record** 时显式 `--apply --reason ...`；迁移只改已声明可兼容的 state 文件并写 `last_migration.json` receipt，round/effect/coordination/reconcile/recovery 等历史文件用 byte digest 证明未被改写。未知或未来 schema 不自动猜测，继续 fail-closed；外部 scheduler 不得手工编辑 `~/.acf` JSON。
 

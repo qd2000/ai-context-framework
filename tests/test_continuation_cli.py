@@ -5024,6 +5024,257 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("submit-not-started", effect["milestone"])
         self.assertIn("github:remote-pr-ref-absent", effect["evidence_refs"])
 
+    def test_ownerless_prepared_local_effects_can_reconcile_terminal_without_external_ids(
+        self,
+    ) -> None:
+        """Durable local artifact evidence may close legacy prepared effects that never stored external ids."""
+        init = self.init_task("WS925")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS925",
+                "--runner-id",
+                "legacy-local-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+        for key in ("installed-observer-dogfood", "final-observer-semantic"):
+            code, prepared, stderr = self.run_json(
+                [
+                    "continuation",
+                    "effect",
+                    "prepare",
+                    str(self.root),
+                    "--task-id",
+                    "WS925",
+                    *owner,
+                    "--key",
+                    key,
+                    "--kind",
+                    "local-observer-dogfood",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{prepared}")
+            self.assertIsNone(prepared["effect"]["external_id"])
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS925",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:legacy-owner-ended",
+                "--effect-key",
+                "installed-observer-dogfood",
+                "--effect-terminal-status",
+                "completed",
+                "--effect-key",
+                "final-observer-semantic",
+                "--effect-terminal-status",
+                "completed",
+                "--effect-local-terminal",
+                "--effect-milestone",
+                "installed-contract-verified",
+                "--effect-milestone",
+                "final-semantic-verified",
+                "--effect-evidence-ref",
+                "artifact:installed-vs-dev-observer-contract",
+                "--effect-evidence-ref",
+                "artifact:final-installed-semantic",
+                "--reason",
+                "Durable local artifacts prove both legacy prepared effects completed even though the old runner never stored external ids.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"], reconciled)
+        self.assertEqual(2, len(reconciled["effect_reconciliations"]))
+        for assertion in reconciled["effect_reconciliations"]:
+            self.assertTrue(assertion["local_terminal"])
+            self.assertIsNone(assertion["external_id"])
+            self.assertEqual("prepared", assertion["observed_status"])
+            self.assertEqual("completed", assertion["terminal_status"])
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS925",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "replacement-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        code, effects, stderr = self.run_json(
+            ["continuation", "effect", "list", str(self.root), "--task-id", "WS925"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{effects}")
+        self.assertEqual([], effects["summary"]["unresolved"])
+        self.assertEqual(
+            {"installed-observer-dogfood", "final-observer-semantic"},
+            {effect["logical_key"] for effect in effects["effects"] if effect["status"] == "completed"},
+        )
+        self.assertTrue(all(effect["external_id"] is None for effect in effects["effects"]))
+
+    def test_local_terminal_reconciliation_remains_narrow_and_fail_closed(self) -> None:
+        for task_id, external_id, current_status, expected_error in (
+            ("WS926", "job-926", None, "effect_identity_conflict"),
+            ("WS927", None, "active", "effect_local_terminal_status_invalid"),
+        ):
+            with self.subTest(task_id=task_id):
+                init = self.init_task(task_id)
+                state_dir = Path(str(init["state_dir"]))
+                code, claim, stderr = self.run_json(
+                    [
+                        "continuation",
+                        "claim",
+                        str(self.root),
+                        "--task-id",
+                        task_id,
+                        "--runner-id",
+                        "legacy-local-owner",
+                    ]
+                )
+                self.assertEqual(0, code, f"{stderr}\n{claim}")
+                owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+                prepare_args = [
+                    "continuation",
+                    "effect",
+                    "prepare",
+                    str(self.root),
+                    "--task-id",
+                    task_id,
+                    *owner,
+                    "--key",
+                    "effect-under-test",
+                    "--kind",
+                    "local-observer-dogfood",
+                ]
+                if external_id is not None:
+                    prepare_args.extend(["--external-id", external_id])
+                code, prepared, stderr = self.run_json(prepare_args)
+                self.assertEqual(0, code, f"{stderr}\n{prepared}")
+                if current_status is not None:
+                    code, updated, stderr = self.run_json(
+                        [
+                            "continuation",
+                            "effect",
+                            "update",
+                            str(self.root),
+                            "--task-id",
+                            task_id,
+                            *owner,
+                            "--key",
+                            "effect-under-test",
+                            "--status",
+                            current_status,
+                        ]
+                    )
+                    self.assertEqual(0, code, f"{stderr}\n{updated}")
+
+                lease_path = state_dir / "lease.json"
+                lease = json.loads(lease_path.read_text(encoding="utf-8"))
+                now = continuation._now()
+                lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+                lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+                lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+                lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+                continuation._write_json(lease_path, lease)
+
+                code, rejected, _ = self.run_json(
+                    [
+                        "continuation",
+                        "reconcile",
+                        str(self.root),
+                        "--task-id",
+                        task_id,
+                        "--owner-ended",
+                        "--evidence-ref",
+                        "scheduler:owner-ended",
+                        "--effect-key",
+                        "effect-under-test",
+                        "--effect-terminal-status",
+                        "completed",
+                        "--effect-local-terminal",
+                        "--effect-evidence-ref",
+                        "artifact:durable-local-output",
+                    ]
+                )
+                self.assertEqual(2, code)
+                self.assertEqual(expected_error, rejected["error_code"])
+
+        self.init_task("WS928")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS928",
+                "--runner-id",
+                "mode-conflict-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS928",
+                *owner,
+                "--key",
+                "effect-under-test",
+                "--kind",
+                "local-observer-dogfood",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        code, rejected, _ = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS928",
+                "--owner-ended",
+                "--effect-key",
+                "effect-under-test",
+                "--effect-terminal-status",
+                "failed",
+                "--effect-not-started",
+                "--effect-local-terminal",
+                "--effect-evidence-ref",
+                "artifact:conflicting-assertion",
+            ]
+        )
+        self.assertEqual(2, code)
+        self.assertEqual("effect_identity_conflict", rejected["error_code"])
+
     def test_ws009_effect_not_started_keeps_identity_and_terminal_claims_fail_closed(
         self,
     ) -> None:
@@ -6166,6 +6417,7 @@ class ContinuationCliTests(unittest.TestCase):
         prompt = str(prompt_payload["prompt"])
         self.assertIn("effects=1", prompt)
         self.assertIn("unresolved_effects=1", prompt)
+        self.assertIn("--effect-local-terminal", prompt)
         self.assertNotIn("campaign:newer-than-resume-hint", prompt)
 
     def test_prompt_renders_project_constraints_and_additional_plan_refs(self) -> None:
