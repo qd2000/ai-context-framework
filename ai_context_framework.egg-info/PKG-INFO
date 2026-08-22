@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.73
+Version: 0.0.3.74
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,11 +11,11 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.73` 是当前推荐版本。它继承 `.72` 的 sufficient scheduler bootstrap、state-conditioned generated prompt、default execution plan、owner liveness/duplicate-wake 语义和 continuation capacity/effect rollover hardening，并补上一条窄的 legacy local-effect recovery：旧版本若留下 `prepared + external_id=null` 的**本地确定性 effect**，且 owner 已结束/forfeit、durable local authority evidence 已能证明实际 terminal 结果，可显式使用 `reconcile --effect-local-terminal` 收口；该路径不适用于 active/unknown effect，也不能绕过已有 external-id 的 identity-matched reconciliation。ACF 仍不会从文件名或普通项目事实自动裁决 effect 真假，调用方必须提供可审计 evidence，`recover` 仍受 observation digest、receipt 与 generation fencing 约束。
+`v0.0.3.74` 是当前推荐版本。它继承 `.73` 的 legacy local-effect recovery 和 `.72` 的 sufficient scheduler bootstrap、state-conditioned generated prompt、default execution plan、owner liveness/duplicate-wake、continuation capacity/effect rollover hardening，并正式把 **Project Observer** 纳入稳定产品：同一项目 primary checkout 与注册 worktree 进入同一用户级 Observer namespace，Observer 只读 Git/ACF/计划/evidence，狭窄写入 `~/.acf/.../observer/` 的 current/history/semantic/glossary/static Dashboard，固定为 **read broad / write narrow / control none**，不 claim/challenge/recover Writer continuation。`.74` 同时把 WS011 dogfood 暴露的 reviewed Workstream lifecycle checkpoint exception 适配到当前 progressive prompt，而不是恢复旧的全量 continuation 手册。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
-- 详细 CLI 参数：`acf --help`、`acf workstream reserve --help`、`acf worktree --help`、`acf continuation --help`
+- 详细 CLI 参数：`acf --help`、`acf workstream reserve --help`、`acf worktree --help`、`acf continuation --help`、`acf observer --help`
 
 ACF 的默认 AI 入口采用 global-first progressive disclosure：无论项目有一个还是多个 Active / Blocked / ReadyToMerge / Merging Workstream，只要没有明确选择，agent 都只读取全局上下文和 Workstreams 摘要，不读取任何 WS detail、read_scope、reference、output 或专属 worklog。显式选择后，`acf status|next --workstream WSNNN` 仍只返回 pointer-only 入口；随后调用 `acf workstream context WSNNN` 才披露专属上下文和边界。`reference/` 是项目内中间材料层，Knowledge 是有来源、证据和适用边界的高可信精炼层，均按需读取。
 
@@ -300,6 +300,11 @@ acf workstream block WS002 --reason "等待依赖"
 acf workstream cancel WS002 --reason "方向取消"
 acf workstream list
 acf workstream show WS001
+acf observer status --json
+acf observer snapshot --dry-run --json
+acf observer snapshot --json
+acf observer history --stream timeline --limit 20 --json
+acf observer glossary --json
 acf new task --title "实现一个维护任务" --goal "写清当前目标。"
 acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
 acf new reference --title "设计文档标题" --summary "一句话说明。" --body "核心内容。"
@@ -367,7 +372,11 @@ effect history 采用 replay-safe rollover：current `effects.json` 到达记录
 
 `continuation workspace reclassify` 是 active fenced owner 的窄恢复工具，不是事后泛化的 `workspace intent`：durable writer 已结束后，如果某个启动前漏报的真实产出当前被分类为 `unexpected_nonoverlap`，只有在来源已审阅且提供 durable `--evidence-ref` 与 `--reason` 时，才能显式用 `--task-owned <path>` 纳入任务，或用 `--baseline-external <path>` 继续保护为外部修改。task-owned reclassification 仍受 bound Workstream direct write scope 约束；已有 conflict、非 unexpected 路径、重叠分类、scope 越界、证据缺失或来源不确定都继续 fail-closed。
 
+普通 `baseline_external` 默认仍不可 stage/commit。唯一窄例外是当前 authenticated runner 刚通过 `acf workstream scope-add|merge-request|ready|merge-start|done` 为绑定 Workstream 生成 `docs/ai/active/Workstreams.md` 与该 Workstream detail 时，允许在 lifecycle/merge 边界审阅 exact diff 与 durable ACF command evidence 后，把**仅这两个确定性 control-plane 文件**形成独立 checkpoint。它不扩展普通 Task authority write_scope，也不允许第三个 baseline/external path 混入提交。
+
 ownerless effect recovery 有三条明确、互斥且 fail-closed 的收口路径：已经取得 durable external id 的 effect 必须继续用 `--effect-external-id` 与外部终态证据做 identity-matched reconciliation；同一 stale generation 若有多个此类 externally-proven terminal effects，可按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，由一个 receipt 原子收口全部 assertions，并共享本次 `--effect-evidence-ref` 集合。若 write-ahead `effect prepare` 后能够由外部 authority 明确证明 submit **从未启动**，则可在 owner-ended/forfeiture 条件下使用 `reconcile --effect-not-started --effect-terminal-status failed --effect-evidence-ref <ref>`；该 no-start 分支仍只接受单个 `prepared`、`external_id=null` 记录，不能声明 completed，也不能用于 active/unknown effect。若旧版本已经实际执行了**本地确定性动作**，但当时只留下 `prepared + external_id=null`，且 durable local artifact/state/hash 等 authority evidence 已明确证明 terminal 结果，则可显式使用 `--effect-local-terminal`（可一次对多个 effect 使用同一 receipt）；它只接受仍为 `prepared` 且没有 external id 的记录，不能和 `--effect-not-started` 或 `--effect-external-id` 混用，active/unknown effect 继续拒绝。
+
+`observer status|snapshot|interpret|glossary-set|glossary|history` 提供项目级 Global Observer。一个项目只有一个用户级 Observer runtime namespace；primary checkout 与 ACF 注册 worktree 统一进入观察域。Observer 可以广泛读取 Git、Workstream、continuation、计划和 evidence，但只把结构化 current/history/self-health/semantic/glossary 与自包含 `dashboard.html` 写入用户级 ACF_HOME，不修改 Writer 项目文件，也不参与 continuation ownership。`snapshot --dry-run` 只验证；`snapshot` 使用稳定重读、一致性 fingerprint、credential-like 值过滤、轻量锁和原子替换更新状态并生成可直接 `file://` 打开的静态 Dashboard。meaningful history 默认永久保留，只做无损 rotation/index；`interpret` 必须绑定当前 `source_fingerprint`，CLI 负责 canonical identity、confidence、provenance、版本历史与 stale-cache fail-closed；没有明确分母时不伪造进度百分比。
 
 `acf continuation list [<worktree>] --json` 只读展示当前 ACF_HOME 中的 continuation identity、`task_id/workstream_id`、timing profile、每个 state 文件的 schema 与 `current / migration_available / blocked` 兼容状态；`--all-projects` 可扫描全部 path-hash namespace。已知 legacy workspace schema 使用 `acf continuation migrate ... --dry-run --json` 先生成迁移计划，并在**没有 lease record** 时显式 `--apply --reason ...`；迁移只改已声明可兼容的 state 文件并写 `last_migration.json` receipt，round/effect/coordination/reconcile/recovery 等历史文件用 byte digest 证明未被改写。未知或未来 schema 不自动猜测，继续 fail-closed；外部 scheduler 不得手工编辑 `~/.acf` JSON。
 

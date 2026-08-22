@@ -732,6 +732,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                 "Current writer safety:\n"
                 "- Before project writes, declare concrete workspace intent and preserve unrelated external dirty state.\n"
                 "- Before each non-idempotent or long-lived writer side effect, use deterministic effect identity; never replay an uncertain outcome.\n"
+                "- Narrow ACF control-plane lifecycle exception: after the authenticated runner itself executes deterministic `acf workstream scope-add|merge-request|ready|merge-start|done` for the bound Workstream, the exact generated `docs/ai/active/Workstreams.md` plus that Workstream detail may be reviewed and committed as a dedicated control-plane checkpoint; this does not extend ordinary Task write scope or permit any third baseline/external path.\n"
                 "- Checkpoints and Git commits are persistence points, not stop signals. Release only when this execution session is actually handing off or ending."
             )
         elif fresh_owner_caller_unknown:
