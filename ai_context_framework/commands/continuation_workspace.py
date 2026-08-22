@@ -814,7 +814,8 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             conditional_sections.append(
                 "Unresolved effect authority is currently relevant:\n"
                 "- Inspect the existing effect identity before any submit/replay. Prepared/active/unknown effects remain unresolved until authoritative terminal observation.\n"
-                "- If an owner lifecycle ended, reconcile the existing durable identity rather than creating a replacement effect from memory."
+                "- If an owner lifecycle ended, reconcile the existing durable identity rather than creating a replacement effect from memory.\n"
+                "- A legacy still-prepared local deterministic effect with no external id may use `reconcile --effect-local-terminal` only when durable local authority evidence proves its terminal result; active/unknown effects and external jobs remain fail-closed."
             )
 
         conditional_text = "\n\n".join(conditional_sections) if conditional_sections else "No additional conditional safety branch is active."

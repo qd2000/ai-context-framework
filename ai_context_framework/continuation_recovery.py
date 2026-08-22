@@ -198,6 +198,7 @@ def build_effect_reconciliation(
     evidence_refs: Sequence[str],
     owner_ended: bool,
     not_started: bool = False,
+    local_terminal: bool = False,
 ) -> dict[str, Any]:
     if not owner_ended and not ownership_forfeited(observation):
         raise ContinuationRecoveryError(
@@ -233,6 +234,11 @@ def build_effect_reconciliation(
             code="effect_already_terminal",
         )
     stored_external_id = target.get("external_id")
+    if not_started and local_terminal:
+        raise ContinuationRecoveryError(
+            "effect reconciliation modes are mutually exclusive",
+            code="effect_identity_conflict",
+        )
     if not_started:
         if observed_status != "prepared":
             raise ContinuationRecoveryError(
@@ -252,6 +258,22 @@ def build_effect_reconciliation(
         if external_id is not None:
             raise ContinuationRecoveryError(
                 "effect-not-started cannot be combined with an external identity",
+                code="effect_identity_conflict",
+            )
+    elif local_terminal:
+        if observed_status != "prepared":
+            raise ContinuationRecoveryError(
+                "only a still-prepared effect can use local terminal reconciliation without an external identity",
+                code="effect_local_terminal_status_invalid",
+            )
+        if isinstance(stored_external_id, str) and stored_external_id.strip():
+            raise ContinuationRecoveryError(
+                "an effect with a durable external identity must use identity-matched reconciliation",
+                code="effect_identity_conflict",
+            )
+        if external_id is not None:
+            raise ContinuationRecoveryError(
+                "local terminal reconciliation cannot be combined with an external identity",
                 code="effect_identity_conflict",
             )
     else:
@@ -278,7 +300,7 @@ def build_effect_reconciliation(
         "effect_id": str(target["effect_id"]),
         "logical_key": str(target["logical_key"]),
         "kind": str(target["kind"]),
-        "external_id": None if not_started else stored_external_id,
+        "external_id": None if (not_started or local_terminal) else stored_external_id,
         "observed_status": observed_status,
         "terminal_status": terminal_status,
         "milestone": resolved_milestone,
@@ -287,6 +309,8 @@ def build_effect_reconciliation(
     }
     if not_started:
         result["not_started"] = True
+    if local_terminal:
+        result["local_terminal"] = True
     return result
 
 
@@ -315,7 +339,9 @@ def validate_effect_reconciliations(
             "evidence_refs",
             "effect_digest",
         }
-        if not required.issubset(item) or not set(item).issubset(required | {"not_started"}):
+        if not required.issubset(item) or not set(item).issubset(
+            required | {"not_started", "local_terminal"}
+        ):
             raise ContinuationRecoveryError("effect reconciliation assertion schema is invalid")
         logical_key = item.get("logical_key")
         if not isinstance(logical_key, str) or not logical_key.strip() or logical_key in seen:
@@ -340,6 +366,7 @@ def validate_effect_reconciliations(
             ),
             owner_ended=owner_ended,
             not_started=item.get("not_started") is True,
+            local_terminal=item.get("local_terminal") is True,
         )
         if rebuilt != item:
             raise ContinuationRecoveryError(

@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+## v0.0.3.73 — 2026-08-22
+
+### Legacy local-effect terminal reconciliation
+
+- 为旧版 continuation 遗留的 `prepared + external_id=null` 本地确定性 effect 增加显式、证据驱动的 ownerless recovery 路径：`acf continuation reconcile --effect-local-terminal ...`。该模式只在 owner 已结束或已有 ownership-forfeiture evidence、effect 仍为 `prepared`、历史记录没有 external id、且提供非空 durable local authority evidence 时允许声明 `completed|failed`。
+- `--effect-local-terminal` 与 `--effect-not-started` / `--effect-external-id` 互斥；已有 external id 的 effect 仍必须 identity-match，`active|unknown` effect 仍 fail-closed。ACF 不根据 effect kind、文件名或项目内容自动判断“本地动作已完成”，事实裁决继续由调用方的可审计 evidence assertion 承担。
+- 同一 interrupted generation 可在一个 reconcile receipt 中对多个 legacy local terminal effects 原子收口；receipt 继续绑定完整 observation/effect digest，`recover` 前任何 state/effect/HEAD/workspace 漂移都会触发 `reconciliation_stale`。
+- generated prompt 的 unresolved-effect 分支新增该窄恢复提示，避免升级后的 Agent 面对已由 durable local artifacts 证明完成的旧 local effect 时只能在“谎称未启动”和“永久 fail-closed”之间二选一。
+- 新增回归覆盖：两个无 external-id 的 prepared local effects 可凭 durable evidence 原子收口；已有 external id、active effect 以及 local-terminal/not-started 模式冲突均继续拒绝。
+
 ## v0.0.3.72 — 2026-08-21
 
 ### Scheduler bootstrap、owner overlap 与 prompt attention hardening
