@@ -6279,6 +6279,9 @@ class ContinuationCliTests(unittest.TestCase):
         prompt = str(payload["prompt"])
         self.assertIn("Current writer safety", prompt)
         self.assertIn("deterministic effect identity", prompt)
+        self.assertIn("Narrow ACF control-plane lifecycle exception", prompt)
+        self.assertIn("scope-add|merge-request|ready|merge-start|done", prompt)
+        self.assertIn("dedicated control-plane checkpoint", prompt)
         self.assertIn("Release only when this execution session is actually handing off or ending", prompt)
         self.assertNotIn("Stale or unverified owner recovery", prompt)
 

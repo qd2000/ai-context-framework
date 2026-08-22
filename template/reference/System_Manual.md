@@ -407,6 +407,8 @@ acf continuation workspace refresh <worktree> --task-id WS001 --lease-id <lease_
 
 `workspace reclassify` 只处理当前 fenced owner 已审阅的 `unexpected_nonoverlap`：durable writer 已结束后，启动前漏报的真实产出只有在提供 durable evidence 与 reason 时才能用 `--task-owned` 纳入任务，或用 `--baseline-external` 明确保留为外部修改。task-owned 仍必须命中 Workstream direct write scope；已有 conflict、非 unexpected 路径、路径重叠、scope 越界或 provenance 不确定继续 fail-closed。
 
+普通 `baseline_external` 必须继续保护，禁止 stash/reset/clean/stage/commit。唯一窄例外是当前 authenticated runner 刚通过 `acf workstream scope-add|merge-request|ready|merge-start|done` 为**当前绑定 Workstream**生成的 Workstreams 索引与当前 Workstream detail 文件：在 lifecycle/merge 边界可以审阅 exact diff 与 durable ACF command evidence，并把**仅这两个确定性 control-plane 文件**形成独立 checkpoint。该动作不扩展普通 Task authority write_scope，也不能把其他 baseline/external path 带入提交；来源不明或人工编辑的 authority dirty 仍 fail-closed。
+
 Worktree lifecycle 与 continuation workspace 共用 read-only semantic-clean：普通 tracked unstaged `M` 若 `GIT_OPTIONAL_LOCKS=0` 的 Git diff 为空，则只报告在 `stat_only_paths`，不作为 blocker；staged/untracked/真实 diff/rename/delete/type/mode/unmerged/submodule 继续严格。verify/list 不调用会改 index 的 refresh。Workstream `## Workspace` 只保存 slug 和 local registry/verify/list authority，不保存机器相关 mode/path/branch；Open reserve/create next_actions 明确提示执行前显式设置 Active。
 
 `continuation prompt --json` 返回可机器读取的 `identity` 与 `scheduler_wrapper_contract`；`bootstrap_policy=sufficient_high_salience` 要求 wrapper 完整提供 exact existing workspace / tool mode / stable ACF upgrade / authority refresh / execute generated plan / owner disclosure / project constraints / final-response contract，同时 `copy_generic_state_machine=false` 禁止复制 generic 状态机。对 DevSpace 已经存在的固定 worktree，应明确使用 existing checkout 语义（`mode="checkout"`），不得再次用 `mode="worktree"` 创建 `.devspace/worktrees` detached/重复副本。任何可能在 owner/tool-call 结束后继续写项目文件或产生非幂等副作用的 Runtime/external writer 仍必须在启动前建立 durable deterministic effect/job identity。
@@ -416,6 +418,43 @@ Worktree lifecycle 与 continuation workspace 共用 read-only semantic-clean：
 同一 stale generation 若同时存在多个已有 durable external id、且由外部 authority 明确证明 terminal 的 unresolved effects，可在一次 `reconcile` 中按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，以一个 receipt 原子绑定全部 assertions；它们共享本次 `--effect-evidence-ref` 集合，数量、identity 或 digest 不一致继续 fail-closed。write-ahead `effect prepare` 后若尚未真正 submit，仍允许一条单 effect 的显式 no-start 恢复路径：只有 effect 仍为 `prepared`、`external_id=null`，并有外部 authority 证明 submit 从未启动时，owner 结束/forfeiture 后才可用 `reconcile --effect-not-started --effect-terminal-status failed --effect-evidence-ref <ref>` 生成 receipt，并由 `recover` 标记 failed。对于旧版本已经实际执行、但因为当时没写 external id 而仍停在 `prepared + external_id=null` 的**本地确定性 effect**，`.73` 可在 owner-ended/forfeiture 且 durable local authority evidence 明确证明 terminal 结果时使用 `--effect-local-terminal`；它可一次收口多个 local effects，但与 external-id / not-started 模式互斥，active/unknown 或证据不足仍严格拒绝。
 
 continuation state 固定存放于 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；默认根目录是 `~/.acf`，`ACF_HOME` override 只替换这个根。compact `state.json` 的 `completed / evidence_refs / verification` 是最多 64 项的 rolling history summary；旧版本遗留的 current-schema history overflow 会在读取时惰性压缩，并在下一次合法 state write 持久化。`constraints / open_questions / plan_refs` 继续严格限 64 项，超限 fail-closed，不会为了容量静默丢掉仍有效的安全/计划语义；裁剪前仍检查 forbidden raw-history 和单项大小。`acf continuation list <worktree> --json` 与 `--all-projects` 只读报告 task/workstream identity、timing、control generation、各 state schema 及 compatibility。支持的 legacy workspace schema 使用 `acf continuation migrate ... --dry-run` 预览，并只在没有 lease record 时显式 `--apply --reason ...`；migration receipt 记录 schema/digest 变化和其余 history 文件的 byte digest，未知/future schema 继续 fail-closed。不要直接编辑 ACF_HOME JSON。
+
+### Project Observer
+
+`acf observer` 提供项目级 Global Observer。一个项目只维护一个用户级 Observer namespace；同项目 primary checkout 与 ACF 注册 worktree 统一观察。固定边界是 **read broad / write narrow / control none**：Observer 可以读取 Git、Workstream、continuation、计划和 evidence，但只把派生状态写入 `~/.acf/projects/<project-id>/observer/`，不会 claim/challenge/recover continuation，也不会修改 Writer 项目文件。
+
+```powershell
+acf observer status --json
+acf observer snapshot --dry-run --json
+acf observer snapshot --json
+acf observer history --stream timeline --limit 20 --json
+acf observer glossary --json
+```
+
+`snapshot` 使用开始/结束 fingerprint 形成一致性快照；读取期间发生变化会重读一次，仍不稳定则标记 critical Alert。Observer 使用自己的轻量锁，不复用 continuation lease；current/status/dashboard 原子替换，render 失败保留 last-good Dashboard。meaningful history 默认永久保留，只按月无损 rotation/index，不按时间自动删除。Execution / Progress / Health 分离；正常 `waiting_external` 不自动等于异常，缺少明确分母时不生成假百分比。
+
+语义解释由 AI 提供，但必须绑定当前 Workstream 的 `semantic.source_fingerprint`。CLI 负责 canonical identity、confidence、provenance、版本历史和 stale-cache fail-closed；底层 meaning-relevant facts 变化后旧解释自动标记 stale，展示层不继续把它当作当前事实。
+
+```powershell
+acf observer interpret . --workstream WS001 --source-fingerprint <fingerprint> `
+  --human-title "人类可读标题" `
+  --current-focus "当前在解决什么" `
+  --why-now "为什么现在做" `
+  --recent-proof "最近证明或排除的事实" `
+  --implication "这些结果意味着什么" `
+  --next-step "下一步以及为什么这样走" `
+  --confidence high `
+  --provenance "active/workstreams/WS001.md" --json
+
+acf observer glossary-set . --term "术语" --human-term "人类解释" `
+  --explanation "稳定解释。" --confidence high --provenance "reference/Source.md" --json
+```
+
+confidence 支持 `authoritative / high / medium / low`；medium/low 在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。结构化 Observer state 与 HTML 都过滤 credential-like 值，API key、password、token、private key、license、fence token 等不得进入 Observer 产物。
+
+`dashboard.html` 是静态、自包含、直接 `file://` 打开的派生视图，不启动 HTTP/daemon，不依赖外部资源。颜色表达必须同时配文字/符号：红=critical、琥珀=warning、绿=healthy/verified、蓝=active/info、灰=canonical/history/metadata；字体保持连续阅读尺度，不用巨大字号制造重点。
+
+Observer Core 不硬编码 MCP、电脑、盘符或具体项目实例。哪个 Scheduled Task 使用哪个项目访问工具属于项目自己的 wrapper/adapter，而不是通用 Observer 产品合同。
 
 ### Workstream guard 模式
 

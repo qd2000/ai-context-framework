@@ -97,6 +97,11 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 - `uv run acf doctor docs/ai --draft-semantic --today YYYY-MM-DD --json`
 - `uv run acf doctor --projects docs/ai ../other-project/docs/ai --json`
 - `uv run acf curate draft docs/ai --dry-run --json`
+- `uv run acf observer status --json`
+- `uv run acf observer snapshot --dry-run --json`
+- `uv run acf observer snapshot --json`
+- `uv run acf observer history --stream timeline --limit 20 --json`
+- `uv run acf observer glossary --json`
 - 需要整理、归纳、精简上下文时，按需读取 [reference/Context_Curation_Prompt.md](Context_Curation_Prompt.md)；默认产物是整理建议，不是文件修改。
 - `uv run acf log projects --scan-root E:\Codes --json`
 - `uv run acf log feedback docs/ai --type Problem --source manual --text "实际使用反馈。" --json`
@@ -168,6 +173,8 @@ acf log issues --all-projects --open-only --json
 
 `workspace reclassify` 只处理 active fenced owner 当前看到的 `unexpected_nonoverlap`，用于 durable writer 已结束后对启动前漏报输出做证据化归属。`--task-owned` 会同时补入 write intent，`--baseline-external` 则继续保护外部修改；两者都要求 `--evidence-ref` 和 `--reason`。task-owned 路径必须命中 bound Workstream direct write scope，已有 workspace conflict、非 unexpected 路径、父子/重复分类、scope 越界或来源无法证明时均拒绝执行。
 
+普通 `baseline_external` 仍禁止 stash/reset/clean/stage/commit。唯一窄例外是当前 authenticated runner 刚通过 `acf workstream scope-add|merge-request|ready|merge-start|done` 为**当前绑定 Workstream**生成的两个确定性 control-plane authority 文件：[Workstreams 索引](../active/Workstreams.md) 与 active workstream 目录下当前绑定 Workstream 的 detail 文件。在 lifecycle/merge 边界，可以先逐项审阅 exact diff 并保存 durable ACF command evidence，再把**仅这两个文件**形成独立 control-plane checkpoint，使 worktree 回到 semantic-clean 后继续 ACF-managed merge。该例外不扩展普通 Task authority write_scope，不允许第三个 baseline/external path 混入提交；来源不明、人工编辑或 provenance 无法证明时继续 fail-closed。
+
 Git/worktree 与 continuation workspace 共享同一 semantic-clean 边界：普通 tracked unstaged `M` 只有在 `GIT_OPTIONAL_LOCKS=0` 的 read-only diff 证明没有 normalized content change 时才作为 `stat_only_paths` 忽略；staged、untracked、真实 diff、rename/delete/type/mode/unmerged/submodule 仍严格视为 dirty。`acf worktree verify/list` 会暴露 `stat_only_paths`，但不会通过 index refresh“修复”状态。Workstream `## Workspace` 不持久化机器相关 mode/path/branch，只保存 slug 和 local registry/verify/list authority；Open Workstream 的 reserve/create next_actions 明确要求执行前显式切换为 Active。
 
 官方 scheduler wrapper 不追求“薄”，而追求 **sufficient high-salience bootstrap**，同时仍不保存 generic 状态机副本。wrapper 应完整写明固定 project/worktree/branch/task/workstream identity、项目访问 connector、**打开既有 worktree 的精确模式**（例如 DevSpace 对已有 worktree 使用 `mode="checkout"`，不得再次使用 `mode="worktree"` 创建 detached/重复工作树）、稳定 ACF 版本检查与升级/迁移后的继续执行、每次 authority refresh、`prompt --runner-id <runner>`、把刷新后仍有效的 generated `next_action` 作为默认计划立即执行、owner 用户可见说明，以及项目特有 Runtime/resource/permission/security/scientific/validation/issue-reporting 约束。wrapper 不复制 claim/challenge/reconcile/workspace/effect 状态机，也不用“本轮收口”“最终汇报”制造回合终点。可能跨当前 owner/tool-call 生命周期继续写项目文件或产生非幂等副作用的本地长进程、Runtime/external job 仍必须使用 durable effect/job identity；纯只读长阻塞调用可不建立 writer effect，但下一次写入/副作用前必须重新 `assert-owner`。
@@ -177,6 +184,56 @@ Git/worktree 与 continuation workspace 共享同一 semantic-clean 边界：普
 同一 stale generation 若同时存在多个已有 durable external id、且由外部 authority 明确证明 terminal 的 unresolved effects，可在一次 `reconcile` 中按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，以一个 receipt 原子绑定全部 effect assertions；本次重复 assertions 共享 `--effect-evidence-ref` 集合，数量、identity 或 digest 不一致仍 fail-closed。如果中断发生在 write-ahead `effect prepare` 之后、真正 external submit 之前，且单个记录仍是 `prepared`、`external_id=null`，外部 authority 又能明确证明 submit 从未启动，则 owner 结束/forfeiture 后可用 `acf continuation reconcile ... --effect-key <key> --effect-terminal-status failed --effect-not-started --effect-evidence-ref <ref>` 记录 no-start receipt，再由 `recover` 原子收口为 failed。`.73` 另增加 `--effect-local-terminal`：只针对旧版本已经执行的**本地确定性动作**，当记录仍为 `prepared`、没有 external id、durable local artifact/state/hash 等 authority evidence 已能证明 `completed|failed` 时，允许显式生成 receipt；同一 receipt 可覆盖多个此类 local effects。该模式与 `--effect-not-started` / `--effect-external-id` 互斥，已有 external id、active/unknown effect、证据不足或 receipt 后 observation 漂移仍 fail-closed。ACF 不自动判断 effect 是否“本地”或已完成，只验证机械边界并持久化调用方的可审计 assertion。
 
 continuation state 的 canonical 位置是 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；默认 `ACF_HOME=~/.acf`，override 只替换根目录，不改变 namespace/schema。使用 `acf continuation list <worktree> --json` 查看当前项目 task，或 `acf continuation list --all-projects --json` 只读盘点全部 project/task；输出稳定区分 `task_id` 与 `workstream_id`，并列出 control generation、timing profile、每个 state 文件 schema 以及 `current / migration_available / blocked`。已知 legacy workspace schema 用 `acf continuation migrate <worktree> --task-id <id> --dry-run --json` 先预览；确认无 active/expired lease record 后再 `--apply --reason ...`。迁移 receipt 写入 `last_migration.json`，记录 from/to schema 与 workspace digest，同时保存其余 control/state/round/effect/coordination/reconcile/recovery 历史文件的 byte digest；未知/future schema 继续 fail-closed，任何 scheduler/Agent 都不得手改这些 JSON。
+
+### Project Observer
+
+`acf observer` 是项目级只读可观测入口，和 continuation Writer 控制面严格分离。一个项目只对应一个用户级 Observer namespace；primary checkout 与 ACF 注册的同项目 worktree 会被统一扫描。Observer 的固定权限边界是 **read broad / write narrow / control none**：它可以读取 Git、Workstream、continuation、计划、evidence 和必要代码，但只把派生状态写入 `~/.acf/projects/<project-id>/observer/`，不会 claim/challenge/recover continuation、不会提交 Git、不会修改 Writer 的项目文件。
+
+```powershell
+# 只读查看当前 Observer runtime、自健康和数据年龄
+acf observer status --json
+
+# 只生成/验证本轮事实，不写 Observer runtime
+acf observer snapshot --dry-run --json
+
+# 原子更新 current/history/self-health，并生成自包含 dashboard.html
+acf observer snapshot --json
+
+# 读取 live + rotated 历史；stream 可选 timeline/observations/alerts/runs/interpretations
+acf observer history --stream timeline --limit 20 --json
+
+# 读取项目级 semantic glossary
+acf observer glossary --json
+```
+
+`snapshot` 会对项目事实做开始/结束 fingerprint；第一次读取期间发生变化时自动重读一次，仍不稳定则把 `snapshot_consistency=unstable` 并生成 critical Alert，不把混合快照包装成高置信度事实。Observer 自己使用独立轻量锁，正常 overlap fail-closed；只有锁已超过 grace 且本机只读进程检查明确证明旧 PID 不存在时才回收 abandoned lock。`current.json`、`observer_status.json` 和 `dashboard.html` 都用 temp → validate → atomic replace；HTML render 失败会保留上一份 last-good Dashboard。meaningful timeline/observation/alert/run/interpretation 默认永久保留，只按月无损 rotation 到 `history/<stream>/YYYY-MM.jsonl` 并维护 `history/index.json`，不做按时间删除。
+
+机器层把 Execution、Progress、Health 分开：`waiting_external` 不等于故障；缺少明确分母时不生成百分比。continuation running 且 fresh lease 时可以健康，stale owner 为 warning，expired owner 为 critical；Observer 只报告，不执行 contention/recovery。Workstream 在不同 source 中出现不一致时保留 canonical identity 与所有来源，并提升 Alert，而不是静默挑一个版本当事实。
+
+人类语义由 AI 负责解释，CLI 只提供确定性持久化合同：先从当前 snapshot 取得 Workstream 的 `semantic.source_fingerprint`，再使用 `observer interpret` 写入解释；如果底层 meaning-relevant facts 已变化，命令返回 `observer_semantic_source_changed`，旧解释在下一次 snapshot 中标记 `stale`，Dashboard 不继续把它当作当前事实。
+
+```powershell
+acf observer interpret . --workstream WS001 --source-fingerprint <fingerprint> `
+  --human-title "人类可读标题" `
+  --current-focus "当前在解决什么" `
+  --why-now "为什么现在做" `
+  --recent-proof "最近证明或排除的事实" `
+  --implication "这些结果意味着什么" `
+  --next-step "下一步以及为什么这样走" `
+  --confidence high `
+  --provenance "active/workstreams/WS001.md" `
+  --json
+
+acf observer glossary-set . --term "LM/TR" --human-term "LM/信赖域优化" `
+  --explanation "利用局部模型和信赖域限制优化步长的方法。" `
+  --confidence high --provenance "reference/Optimization.md" --json
+```
+
+confidence 支持 `authoritative / high / medium / low`；medium/low 会在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。interpretation 以 append-only 版本历史记录，`observer history --stream interpretations` 可追溯 old/new interpretation、source fingerprint 和 provenance。结构化 Observer state 与 HTML 共用 credential-like 值过滤；API key、password、token、private key、license、fence token 等值拒绝写入或替换为 `[redacted]`。
+
+`dashboard.html` 是纯静态、自包含、可直接 `file://` 打开的展示层，不启动 HTTP/daemon，也不依赖外部 CSS/JS/fetch。红色只用于 critical，琥珀用于 warning，绿色用于 healthy/verified，蓝色用于 active/info，灰色用于 canonical/历史/metadata；颜色必须同时配文字/符号，主标题约 24px、Workstream 标题约 17px，不用巨大字号制造重点。Dashboard 是派生视图，Observer structured state 才是观测事实层。
+
+Observer Core 不硬编码 MCP 名称、电脑、盘符或项目实例。Scheduled Task 需要调用哪个项目访问工具由项目自己的 wrapper/adapter 决定；例如某个具体项目的 wrapper 可以指定一个 DevSpace connector，但该名字不能进入通用 Observer Core。开发 Observer 自身时，稳定安装态 ACF 继续作为 continuation canonical control plane，worktree 内 `uv run acf observer ...` 作为 product-under-test；先在 ACF 项目连续 dogfood 并收口高优先级 issue，再进入合并、PyPI 和全局稳定安装。
 
 ### Workstream guard 模式
 

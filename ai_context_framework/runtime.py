@@ -48,7 +48,7 @@ from ai_context_framework.commands import doctor as doctor_commands
 from ai_context_framework.commands import plan_task as plan_task_commands
 from ai_context_framework.commands import workstream as workstream_commands
 from ai_context_framework.commands import worktree as worktree_commands
-from ai_context_framework.commands import continuation as continuation_commands
+from ai_context_framework.commands import continuation as continuation_commands, observer as observer_commands
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
 from ai_context_framework.commands.log import (
     build_usage_event,
@@ -1190,6 +1190,8 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_resume_parser.add_argument("--apply", action="store_true")
     add_json_argument(worktree_resume_parser)
     worktree_resume_parser.set_defaults(func=worktree_commands.worktree_resume_command)
+
+    observer_commands.register_observer_parser(subparsers, add_json_argument)
 
     continuation_parser = subparsers.add_parser(
         "continuation",

@@ -4,6 +4,17 @@
 
 ## Unreleased
 
+## v0.0.3.74 — 2026-08-22
+
+### Project Observer stable release 与 WS011 integration closeout
+
+- 正式把 WS011 Project Observer 合入稳定产品：新增 `acf observer status|snapshot|interpret|glossary-set|glossary|history`，同一项目 primary checkout 与注册 worktree 共用用户级 Observer namespace，边界固定为 **read broad / write narrow / control none**，不会 claim/challenge/recover continuation，也不会写 Writer 项目文件。
+- Observer snapshot 使用稳定重读、一致性 fingerprint、credential-like 值过滤、轻量锁与原子替换；current/history/self-health/semantic/glossary 与自包含 `file://` Dashboard 只写入用户级 ACF_HOME。meaningful history 默认永久保留，通过无损 rotation/index 控制文件规模。
+- 语义解释必须绑定当前 `source_fingerprint`；CLI 维护 canonical identity、confidence、provenance、版本历史与 source-drift stale-cache fail-closed。Dashboard 不启动 HTTP/daemon，不依赖外部资源，颜色同时配文字/符号，缺少明确分母时不伪造进度百分比。
+- release smoke 现在从 wheel 与 sdist 的隔离安装环境实际验证 Observer status/snapshot/dashboard，而不是只验证源码树；minimal smoke 与专用 Observer abnormal-scenario tests 覆盖锁竞争/废弃锁恢复、unstable snapshot、owner liveness、render last-good、history rotation/reconstruction、source divergence、敏感值拒绝与 effect-risk 语义。
+- WS011 dogfood 纠正了旧 `.69` 发布状态漂移：不可变 PyPI `0.0.3.69` wheel 与 Git tag 实际没有 Observer，因此两个历史 `prepared + external_id=null` installed-state Observer effects 在 `.73` 的 `--effect-local-terminal` 路径下凭不可变发布证据原子收口为 `failed`，没有伪造“已完成”事实。
+- 将 WS011 发现的 reviewed Workstream lifecycle checkpoint exception 重新适配到 `.72+` 的 state-conditioned generated prompt：只有 authenticated current writer 自己执行确定性 `scope-add|merge-request|ready|merge-start|done` 后，才允许审阅并单独 checkpoint `Workstreams.md + 当前 Workstream detail` 两个 control-plane 文件；不恢复旧的全量协议文本，也不扩大普通 Task write scope。
+
 ## v0.0.3.73 — 2026-08-22
 
 ### Legacy local-effect terminal reconciliation
