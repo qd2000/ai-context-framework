@@ -6536,6 +6536,9 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertIn("effects=1", prompt)
         self.assertIn("unresolved_effects=1", prompt)
         self.assertIn("--effect-local-terminal", prompt)
+        self.assertIn("still prepared or active", prompt)
+        self.assertIn("unknown effects and external jobs remain fail-closed", prompt)
+        self.assertNotIn("active/unknown effects and external jobs remain fail-closed", prompt)
         self.assertNotIn("campaign:newer-than-resume-hint", prompt)
 
     def test_prompt_renders_project_constraints_and_additional_plan_refs(self) -> None:
