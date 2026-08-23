@@ -335,8 +335,8 @@ def register_recovery_parsers(subparsers, add_json_argument) -> None:
         "--effect-local-terminal",
         action="store_true",
         help=(
-            "assert that one or more still-prepared effects with no external id are local deterministic actions "
-            "whose durable local authority evidence proves terminal completion/failure"
+            "assert that one or more prepared/active effects with no external id are local deterministic actions "
+            "whose durable local authority evidence proves terminal completion/failure; unknown effects remain rejected"
         ),
     )
     reconcile.add_argument(
