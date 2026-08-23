@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## v0.0.3.75 — 2026-08-23
+
+### Active local-effect ownerless recovery
+
+- 修复 Scheduled Task 在本地确定性 dogfood 动作已经写出 durable state、effect 已推进到 `active`、但 owner 随后异常结束时的恢复死锁：`acf continuation reconcile --effect-local-terminal` 现在可在 owner-ended/forfeiture、`external_id=null` 且 durable local authority evidence 明确证明 terminal 的前提下收口 `prepared|active` effect；`unknown`、已有 external id、证据不足和模式冲突继续 fail-closed。
+- 新增回归覆盖 active local effect → owner expiry → evidence-backed reconcile/recover → terminal effect 的完整闭环，并把 CLI help、README、Automation、dogfood/manual 与 template manual 同步到同一合同。
+
 ## v0.0.3.74 — 2026-08-22
 
 ### Project Observer stable release 与 WS011 integration closeout
