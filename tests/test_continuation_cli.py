@@ -5140,7 +5140,7 @@ class ContinuationCliTests(unittest.TestCase):
     def test_local_terminal_reconciliation_remains_narrow_and_fail_closed(self) -> None:
         for task_id, external_id, current_status, expected_error in (
             ("WS926", "job-926", None, "effect_identity_conflict"),
-            ("WS927", None, "active", "effect_local_terminal_status_invalid"),
+            ("WS927", None, "unknown", "effect_local_terminal_status_invalid"),
         ):
             with self.subTest(task_id=task_id):
                 init = self.init_task(task_id)
@@ -5223,6 +5223,121 @@ class ContinuationCliTests(unittest.TestCase):
                 )
                 self.assertEqual(2, code)
                 self.assertEqual(expected_error, rejected["error_code"])
+
+        init = self.init_task("WS929")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS929",
+                "--runner-id",
+                "active-local-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+        code, prepared, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "prepare",
+                str(self.root),
+                "--task-id",
+                "WS929",
+                *owner,
+                "--key",
+                "active-local-effect",
+                "--kind",
+                "observer-dogfood",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prepared}")
+        code, updated, stderr = self.run_json(
+            [
+                "continuation",
+                "effect",
+                "update",
+                str(self.root),
+                "--task-id",
+                "WS929",
+                *owner,
+                "--key",
+                "active-local-effect",
+                "--status",
+                "active",
+                "--milestone",
+                "local-output-written",
+                "--evidence-ref",
+                "observer:revision-929",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{updated}")
+
+        lease_path = state_dir / "lease.json"
+        lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        now = continuation._now()
+        lease["issued_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_renew_at"] = continuation._iso(now - timedelta(minutes=240))
+        lease["last_heartbeat_at"] = continuation._iso(now - timedelta(minutes=60))
+        lease["expires_at"] = continuation._iso(now - timedelta(minutes=1))
+        continuation._write_json(lease_path, lease)
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "reconcile",
+                str(self.root),
+                "--task-id",
+                "WS929",
+                "--owner-ended",
+                "--evidence-ref",
+                "scheduler:owner-ended",
+                "--effect-key",
+                "active-local-effect",
+                "--effect-terminal-status",
+                "completed",
+                "--effect-local-terminal",
+                "--effect-milestone",
+                "durable-local-output-verified",
+                "--effect-evidence-ref",
+                "observer:revision-929",
+                "--reason",
+                "The interrupted active effect is local deterministic work and durable Observer state proves completion.",
+                "--record",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["eligible_for_recover"], reconciled)
+        self.assertEqual("active", reconciled["effect_reconciliations"][0]["observed_status"])
+        self.assertTrue(reconciled["effect_reconciliations"][0]["local_terminal"])
+
+        code, recovered, stderr = self.run_json(
+            [
+                "continuation",
+                "recover",
+                str(self.root),
+                "--task-id",
+                "WS929",
+                "--reconcile-id",
+                str(reconciled["receipt"]["receipt_id"]),
+                "--runner-id",
+                "replacement-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{recovered}")
+        code, effects, stderr = self.run_json(
+            ["continuation", "effect", "list", str(self.root), "--task-id", "WS929"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{effects}")
+        self.assertEqual([], effects["summary"]["unresolved"])
+        completed = next(
+            effect for effect in effects["effects"] if effect["logical_key"] == "active-local-effect"
+        )
+        self.assertEqual("completed", completed["status"])
+        self.assertIsNone(completed["external_id"])
 
         self.init_task("WS928")
         code, claim, stderr = self.run_json(

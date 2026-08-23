@@ -261,9 +261,9 @@ def build_effect_reconciliation(
                 code="effect_identity_conflict",
             )
     elif local_terminal:
-        if observed_status != "prepared":
+        if observed_status not in {"prepared", "active"}:
             raise ContinuationRecoveryError(
-                "only a still-prepared effect can use local terminal reconciliation without an external identity",
+                "only a prepared or active effect can use local terminal reconciliation without an external identity",
                 code="effect_local_terminal_status_invalid",
             )
         if isinstance(stored_external_id, str) and stored_external_id.strip():

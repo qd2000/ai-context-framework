@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.74
+Version: 0.0.3.75
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.74` 是当前推荐版本。它继承 `.73` 的 legacy local-effect recovery 和 `.72` 的 sufficient scheduler bootstrap、state-conditioned generated prompt、default execution plan、owner liveness/duplicate-wake、continuation capacity/effect rollover hardening，并正式把 **Project Observer** 纳入稳定产品：同一项目 primary checkout 与注册 worktree 进入同一用户级 Observer namespace，Observer 只读 Git/ACF/计划/evidence，狭窄写入 `~/.acf/.../observer/` 的 current/history/semantic/glossary/static Dashboard，固定为 **read broad / write narrow / control none**，不 claim/challenge/recover Writer continuation。`.74` 同时把 WS011 dogfood 暴露的 reviewed Workstream lifecycle checkpoint exception 适配到当前 progressive prompt，而不是恢复旧的全量 continuation 手册。
+`v0.0.3.75` 是当前推荐版本。它继承 `.74` 的稳定 Project Observer 与 `.72-.73` 的 scheduler/continuation hardening，并补齐真实 Scheduled Task dogfood 暴露的 ownerless recovery 缺口：本地确定性 effect 已进入 `active`、没有 external id、owner 随后中断时，只要 durable local authority evidence 能明确证明 terminal，`--effect-local-terminal` 现在可以安全收口 `prepared|active`；`unknown`、已有 external id、证据不足和模式冲突仍 fail-closed。Project Observer 继续保持同一项目 primary checkout 与注册 worktree 共用用户级 Observer namespace，固定 **read broad / write narrow / control none**。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
@@ -374,7 +374,7 @@ effect history 采用 replay-safe rollover：current `effects.json` 到达记录
 
 普通 `baseline_external` 默认仍不可 stage/commit。唯一窄例外是当前 authenticated runner 刚通过 `acf workstream scope-add|merge-request|ready|merge-start|done` 为绑定 Workstream 生成 `docs/ai/active/Workstreams.md` 与该 Workstream detail 时，允许在 lifecycle/merge 边界审阅 exact diff 与 durable ACF command evidence 后，把**仅这两个确定性 control-plane 文件**形成独立 checkpoint。它不扩展普通 Task authority write_scope，也不允许第三个 baseline/external path 混入提交。
 
-ownerless effect recovery 有三条明确、互斥且 fail-closed 的收口路径：已经取得 durable external id 的 effect 必须继续用 `--effect-external-id` 与外部终态证据做 identity-matched reconciliation；同一 stale generation 若有多个此类 externally-proven terminal effects，可按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，由一个 receipt 原子收口全部 assertions，并共享本次 `--effect-evidence-ref` 集合。若 write-ahead `effect prepare` 后能够由外部 authority 明确证明 submit **从未启动**，则可在 owner-ended/forfeiture 条件下使用 `reconcile --effect-not-started --effect-terminal-status failed --effect-evidence-ref <ref>`；该 no-start 分支仍只接受单个 `prepared`、`external_id=null` 记录，不能声明 completed，也不能用于 active/unknown effect。若旧版本已经实际执行了**本地确定性动作**，但当时只留下 `prepared + external_id=null`，且 durable local artifact/state/hash 等 authority evidence 已明确证明 terminal 结果，则可显式使用 `--effect-local-terminal`（可一次对多个 effect 使用同一 receipt）；它只接受仍为 `prepared` 且没有 external id 的记录，不能和 `--effect-not-started` 或 `--effect-external-id` 混用，active/unknown effect 继续拒绝。
+ownerless effect recovery 有三条明确、互斥且 fail-closed 的收口路径：已经取得 durable external id 的 effect 必须继续用 `--effect-external-id` 与外部终态证据做 identity-matched reconciliation；同一 stale generation 若有多个此类 externally-proven terminal effects，可按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，由一个 receipt 原子收口全部 assertions，并共享本次 `--effect-evidence-ref` 集合。若 write-ahead `effect prepare` 后能够由外部 authority 明确证明 submit **从未启动**，则可在 owner-ended/forfeiture 条件下使用 `reconcile --effect-not-started --effect-terminal-status failed --effect-evidence-ref <ref>`；该 no-start 分支仍只接受单个 `prepared`、`external_id=null` 记录，不能声明 completed，也不能用于 active/unknown effect。若已经实际执行了**本地确定性动作**，但记录仍为 `prepared|active + external_id=null`，且 durable local artifact/state/hash 等 authority evidence 已明确证明 terminal 结果，则可显式使用 `--effect-local-terminal`（可一次对多个 effect 使用同一 receipt）；它不和 `--effect-not-started` 或 `--effect-external-id` 混用，`unknown` effect、已有 external id 或证据不足仍继续拒绝。
 
 `observer status|snapshot|interpret|glossary-set|glossary|history` 提供项目级 Global Observer。一个项目只有一个用户级 Observer runtime namespace；primary checkout 与 ACF 注册 worktree 统一进入观察域。Observer 可以广泛读取 Git、Workstream、continuation、计划和 evidence，但只把结构化 current/history/self-health/semantic/glossary 与自包含 `dashboard.html` 写入用户级 ACF_HOME，不修改 Writer 项目文件，也不参与 continuation ownership。`snapshot --dry-run` 只验证；`snapshot` 使用稳定重读、一致性 fingerprint、credential-like 值过滤、轻量锁和原子替换更新状态并生成可直接 `file://` 打开的静态 Dashboard。meaningful history 默认永久保留，只做无损 rotation/index；`interpret` 必须绑定当前 `source_fingerprint`，CLI 负责 canonical identity、confidence、provenance、版本历史与 stale-cache fail-closed；没有明确分母时不伪造进度百分比。
 
