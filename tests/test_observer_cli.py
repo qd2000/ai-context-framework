@@ -584,6 +584,55 @@ class ObserverCliTests(unittest.TestCase):
             self.assertEqual(alerts[0]["alert_key"], "workstream:WS123:source-divergent")
             self.assertEqual(alerts[0]["severity"], "critical")
 
+    def test_active_workstream_with_nonactive_registry_warns_and_surfaces_lifecycle_alert(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            observer_project = resolve_observer_project(project)
+            workstream = {
+                "id": "WS123",
+                "status": "Active",
+                "source_consistency": "consistent",
+                "registry": {
+                    "state": "merged",
+                    "path": str(project / "linked-worktree"),
+                    "branch": "codex/ws123",
+                },
+            }
+
+            enriched = enrich_workstream_machine_states([workstream], [])[0]
+
+            self.assertEqual(enriched["machine_state"]["health"], "warning")
+            self.assertIn("workstream_registry_not_active", enriched["machine_state"]["health_reasons"])
+            alerts = derive_snapshot_alerts(
+                observer_project,
+                {
+                    "observed_at": "2026-08-21T00:00:00Z",
+                    "snapshot_consistency": {"state": "stable"},
+                    "workstreams": [enriched],
+                    "continuations": [],
+                    "worktrees": [],
+                },
+            )
+            self.assertEqual(len(alerts), 1)
+            self.assertEqual(alerts[0]["alert_key"], "workstream:WS123:registry-lifecycle-mismatch")
+            self.assertEqual(alerts[0]["severity"], "warning")
+            self.assertEqual(alerts[0]["provenance"][0]["registry_state"], "merged")
+
+            terminal = {**workstream, "status": "Done"}
+            terminal_enriched = enrich_workstream_machine_states([terminal], [])[0]
+            self.assertEqual(terminal_enriched["machine_state"]["health"], "healthy")
+            terminal_alerts = derive_snapshot_alerts(
+                observer_project,
+                {
+                    "observed_at": "2026-08-21T00:00:00Z",
+                    "snapshot_consistency": {"state": "stable"},
+                    "workstreams": [terminal_enriched],
+                    "continuations": [],
+                    "worktrees": [],
+                },
+            )
+            self.assertEqual(terminal_alerts, [])
+
     def test_unchanged_progress_records_sparse_milestone_only_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             project, _context = self.make_project(Path(tmp))
