@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## v0.0.3.78 — 2026-08-24
+
 ### Observer Workstream source authority
 
 - 修复 registry-managed 多 worktree 项目中的 ghost Workstream：primary checkout 已将 Workstream 归档后，其他 registered worktree 残留的旧 Active detail 不再把该 Workstream 重新投影为 current；primary archive lifecycle 是终态 authority。

@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.77` 是当前推荐版本。它继承 `.76` 已发布并完成 installed-state dogfood 的 Project Observer，以及 `.75` 的 ownerless local-effect recovery，并补齐 WS011 归档收口暴露的 archived Workstream recovery scope 缺口：绑定 Workstream 已从 `active/workstreams/` 移入 `archive/workstreams/` 后，continuation 仍可从 schema-valid archived detail 恢复原有直接写入边界，并只额外放行该 Workstream 的四个确定性 active/archive lifecycle 路径用于证据化 reclassification；普通任务路径不会因此扩权。Project Observer 继续保持同一项目 primary checkout 与注册 worktree 共用用户级 Observer namespace，固定 **read broad / write narrow / control none**；structured state/history 的 canonical 时间继续使用 UTC，而静态 Dashboard 的人类可见时间统一显示为北京时间 `UTC+08:00`。
+`v0.0.3.78` 是当前推荐版本。它继承 `.77` 的 archived Workstream recovery 与北京时间 Dashboard，并修复 Project Observer 的 Workstream source-authority 漂移：primary active/archive lifecycle 是 project-level authority，只有 registry state=`active` 的 bound Workstream worktree 才能参与当前专属 source；其他 registered worktree 的历史副本继续保留 diagnostics/evidence，但不能 ghost-resurrect 已归档 Workstream。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
