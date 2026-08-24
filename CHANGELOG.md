@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## v0.0.3.79 — 2026-08-24
+
+### Worktree reactivation anchors
+
+- 修复长期 Workstream 在 release merge 后重新 `worktree attach --apply` 时的 reactivation/sync 死锁：重新绑定已有 registry 记录时保留原有 `base_commit` / `reservation_commit` Git anchor，不再把尚未进入 source branch 的最新 primary HEAD 写成新的 reservation authority。
+- `worktree sync` 随后可正常把当前 primary 合入长期 source worktree；新增 deterministic regression 覆盖“primary 已前进、existing binding 重新激活、attach 验证通过、sync 成功推进 source”的完整生命周期。
+
 ## v0.0.3.78 — 2026-08-24
 
 ### Observer Workstream source authority

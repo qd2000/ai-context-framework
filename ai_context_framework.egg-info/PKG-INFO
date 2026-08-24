@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.78
+Version: 0.0.3.79
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.78` 是当前推荐版本。它继承 `.77` 的 archived Workstream recovery 与北京时间 Dashboard，并修复 Project Observer 的 Workstream source-authority 漂移：primary active/archive lifecycle 是 project-level authority，只有 registry state=`active` 的 bound Workstream worktree 才能参与当前专属 source；其他 registered worktree 的历史副本继续保留 diagnostics/evidence，但不能 ghost-resurrect 已归档 Workstream。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。
+`v0.0.3.79` 是当前推荐版本。它继承 `.78` 的 Observer Workstream source-authority 修复，并补齐长期 Workstream release 后的 reactivation/sync 生命周期：对已经存在的 registry binding 重新 `worktree attach --apply` 时保留原 Git base/reservation anchors，避免把尚未进入 source branch 的最新 primary HEAD 提前写成 reservation authority，从而消除随后 `worktree sync` 的 `reservation_commit_not_ancestor` 死锁。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
