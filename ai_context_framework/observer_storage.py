@@ -85,9 +85,11 @@ def semantic_source_projection(
 ) -> dict[str, object]:
     """Return stable facts that an interpretation is allowed to explain.
 
-    Volatile owner heartbeats are deliberately excluded.  Stage, status,
-    next action, machine health class, and durable round milestone/evidence
-    remain because changes to those facts can invalidate a human narrative.
+    Volatile owner heartbeats and terminal-effect accumulation are deliberately
+    excluded.  Stage, status, next action, machine health class, durable
+    ownership generation, unresolved effect risk, and round
+    milestone/evidence remain because changes to those facts can invalidate a
+    human narrative.
     """
 
     workstream_id = str(workstream.get("id") or "")
@@ -96,6 +98,8 @@ def semantic_source_projection(
         if row.get("workstream_id") != workstream_id:
             continue
         latest = row.get("latest_round") if isinstance(row.get("latest_round"), dict) else {}
+        effects = row.get("effects") if isinstance(row.get("effects"), dict) else {}
+        effect_counts = effects.get("status_counts") if isinstance(effects.get("status_counts"), dict) else {}
         related.append(
             {
                 "task_id": row.get("task_id"),
@@ -103,9 +107,16 @@ def semantic_source_projection(
                 "status": row.get("status"),
                 "next_action": row.get("next_action"),
                 "objective": row.get("objective"),
+                "round_generation": latest.get("generation"),
                 "round_phase": latest.get("phase"),
                 "round_milestone": latest.get("milestone"),
                 "round_evidence_refs": list(latest.get("evidence_refs") or []),
+                "effect_risk": {
+                    "unresolved_count": int(effects.get("unresolved_count") or 0),
+                    "prepared_count": int(effect_counts.get("prepared") or 0),
+                    "active_count": int(effect_counts.get("active") or 0),
+                    "unknown_count": int(effect_counts.get("unknown") or 0),
+                },
             }
         )
     related.sort(key=lambda row: (str(row.get("task_id") or ""), str(row.get("stage") or "")))

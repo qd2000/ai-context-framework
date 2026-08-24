@@ -864,6 +864,52 @@ class WorktreeCliTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertFalse(git(repo, "branch", "--list", "codex/ws001-full-lifecycle").stdout.strip())
 
+    def test_merge_cleanup_removes_semantic_stat_only_integration_worktree(self):
+        _root, repo, context = self.make_repo()
+        git(repo, "config", "core.autocrlf", "true")
+        (repo / ".gitattributes").write_text("normalized.txt text eol=crlf\n", encoding="utf-8")
+        (repo / "normalized.txt").write_bytes(b"alpha\nbeta\n")
+        git(repo, "add", ".gitattributes", "normalized.txt")
+        git(repo, "commit", "-m", "add normalized merge fixture")
+        reserved = self.reserve(context, slug="cleanup-stat-only")
+        created = self.create_ws_worktree(context, reserved["id"])
+        target = Path(created["target"]["path"])
+        (target / "feature.txt").write_text("feature", encoding="utf-8")
+        git(target, "add", "feature.txt")
+        git(target, "commit", "-m", "feature")
+        self.mark_ready_in_worktree(target, reserved["id"])
+        post = json.dumps(
+            [
+                "python",
+                "-c",
+                "from pathlib import Path; Path('normalized.txt').write_bytes(b'alpha\\nbeta\\n')",
+            ]
+        )
+
+        code, merged, stderr = self.json_cli(
+            [
+                "worktree",
+                "merge",
+                str(context),
+                "--workstream",
+                reserved["id"],
+                "--post-check-json",
+                post,
+                "--apply",
+            ]
+        )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(merged["status"], "merged")
+        self.assertEqual(merged["cleanup"]["status"], "cleaned")
+        self.assertTrue(merged["cleanup"]["semantic_force"])
+        self.assertIn("normalized.txt", merged["cleanup"]["stat_only_paths"])
+        integration_path = merged["cleanup"]["path"]
+        self.assertNotIn(
+            integration_path,
+            [row["path"] for row in self.json_cli(["worktree", "list", str(context)])[1]["worktrees"]],
+        )
+
     def test_close_refuses_unmerged_or_dirty_worktree(self):
         _root, _repo, context = self.make_repo()
         reserved = self.reserve(context, slug="close-gate")

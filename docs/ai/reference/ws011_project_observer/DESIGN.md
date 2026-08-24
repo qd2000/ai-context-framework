@@ -677,6 +677,8 @@ Observer 读取权限宽，但遵守渐进式披露：
 
 上一版 semantic state 只用于 diff，不是事实源；与当前项目事实冲突时必须以项目事实为准。
 
+Semantic source fingerprint 必须覆盖会让人类叙述失真的稳定/物质事实，例如 continuation ownership generation 与 unresolved effect risk；不得仅因为 heartbeat 刷新或 terminal effect 历史计数累加而失效。这样既避免把 owner/effect 已变化的旧叙述继续标为 `current`，也避免无意义的高频语义抖动。
+
 ---
 
 ## 29. Alert 系统

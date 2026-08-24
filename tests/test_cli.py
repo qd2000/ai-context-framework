@@ -1468,6 +1468,67 @@ class CliTests(unittest.TestCase):
             detail_text = (target / "active" / "workstreams" / "WS010.md").read_text(encoding="utf-8")
             self.assertIn("status: Merging", detail_text)
 
+    def test_maintenance_workstream_can_reactivate_from_merging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.assertEqual(self.run_cli(["init", str(target), "--profile", "minimal"]), 0)
+            self.assertEqual(self.run_cli(["workstream", "init", str(target)]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "add",
+                        str(target),
+                        "--id",
+                        "WS010",
+                        "--type",
+                        "Maintenance",
+                        "--title",
+                        "Long-lived maintenance",
+                        "--owner",
+                        "主 agent",
+                        "--output",
+                        "维护记录",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "set", "WS010", str(target), "--status", "Active"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS010",
+                        str(target),
+                        "--target",
+                        "active/Task_Plan.md",
+                        "--summary",
+                        "Merge reviewed maintenance patch.",
+                        "--verification",
+                        "Unit fixture.",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS010", str(target), "--human-approved"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    ["workstream", "merge-start", "WS010", str(target), "--summary", "Start maintenance merge."]
+                ),
+                0,
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "set", "WS010", str(target), "--status", "Active", "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["status"], "Active")
+            detail_text = (target / "active" / "workstreams" / "WS010.md").read_text(encoding="utf-8")
+            self.assertIn("status: Active", detail_text)
+
     def test_workstream_check_is_optional_when_index_absent(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
