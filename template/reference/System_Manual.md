@@ -456,6 +456,8 @@ confidence 支持 `authoritative / high / medium / low`；medium/low 在展示�
 
 正式 production Observer scheduler 与开发/维护 Writer 应职责分离。production task 负责例行 snapshot/render；Maintenance 普通 wake 只读检查 runs/status/current/dashboard freshness，不得用自己的例行 snapshot 掩盖 scheduler miss 或 data-age stale。Maintenance 只有在诊断、修复后验证、release smoke、installed-state dogfood 或 migration 时才主动刷新，并应先保留故障前 evidence。
 
+Workstream source authority 以 primary lifecycle 为 project-level 边界：primary 已归档的 Workstream 不得被其他 linked/registered worktree 中残留的旧 Active detail 复活；Workstream 自己的 bound worktree 只有在 registry state=`active` 时才参与当前 source。其他 registered worktree 的历史副本仍可作为 diagnostics/evidence，但不成为其他 Workstream 的 canonical semantic source；真实 current-source divergence 必须保持 fail-visible。
+
 Observer Core 不硬编码 MCP、电脑、盘符或具体项目实例。哪个 Scheduled Task 使用哪个项目访问工具属于项目自己的 wrapper/adapter，而不是通用 Observer 产品合同。
 
 ### Workstream guard 模式

@@ -137,6 +137,8 @@ acf observer interpret
 - 真正的 installed-state Observer 不再把已归档 WS011 ghost-resurrect 为 Active；
 - 修复不删除历史 evidence，不把 arbitrary worktree 变成新的 authority。
 
+**Implementation evidence（2026-08-24）**：已新增 primary archive authority 与 active-registry source gate。两个新回归先在旧实现上分别失败：primary 归档后 WS123 被 stale worktree 复活；registry 已 merged 时 stale bound Active 覆盖 primary Done。修复后这两个回归与既有 registry-scoped source 测试均通过，完整 `tests.test_observer_cli` 37/37 通过。真实 ACF candidate `observer snapshot --dry-run` 保留 production runtime 不写入，结果 `snapshot_consistency=stable`、current workstreams 仅 `WS012:Active`、alerts 为空、7 个 worktree diagnostics 仍保留；issue `e469e99755604428cd08` 的 ghost WS011 现场被产品层 source-authority 修复而不是靠清理旧 worktree 绕过。
+
 ### WS012.3 — 24-hour production watchdog window
 
 至少观察 24 个连续 hourly Production Observer activation，期间 Maintenance 不做例行 snapshot。
