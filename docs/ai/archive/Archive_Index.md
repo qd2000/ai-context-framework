@@ -58,6 +58,7 @@
 | 2026-08-20 | Task | 完成 ACF Worktree 临时合并、并发恢复与结果迁移能力 | active/Current_Task.md | `archive/tasks/2026-08-20-完成-acf-worktree-临时合并-并发恢复与结果迁移能力.md` | Archived | WS009 post-merge primary maintenance: archive terminal retained Current_Task after v0.0.3.66 release. |
 | 2026-08-20 | workstream | WS009 | active/workstreams/WS009.md | `archive/workstreams/WS009.md` | Done | WS009 completed: merged to master 42370e49, v0.0.3.66 published, Lenovo/FCC/qdspc/AStock adoption green, primary authority cleanup complete. |
 | 2026-08-20 | workstream | WS010 | active/workstreams/WS010.md | `archive/workstreams/WS010.md` | Done | WS010 goal-directed continuation v0.0.3.68 released, two fresh dogfood activations passed, and merge f7cd89b completed. |
+| 2026-08-24 | workstream | WS011 | active/workstreams/WS011.md | `archive/workstreams/WS011.md` | Done | WS011 v0.0.3.76 release and installed-state Observer dogfood are complete; final semantic v26 and revision 84 confirm healthy terminal state, and the Workstream is no longer referenced by current execution. |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |

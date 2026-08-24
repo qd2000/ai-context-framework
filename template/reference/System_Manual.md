@@ -405,7 +405,7 @@ acf continuation workspace refresh <worktree> --task-id WS001 --lease-id <lease_
 
 `acf continuation prompt` 采用 goal-directed continuous execution：scheduler wake 只是持续任务的恢复入口，不定义独立工作回合、汇报周期、工作配额或预期停止点；bounded 只约束 ownership、写入、副作用和恢复风险，不限制当前 execution session 的有效工作量。`.72+` 中 `state.next_action` 在 authority refresh 后仍有效时是默认执行计划，不是只供查看的 hint，也不是 work quota；newer Git/PLAN/Runtime/effect authority 可以覆盖它，否则应执行，完成后继续围绕总体目标推进。若默认计划明确等待下一次真实外部/项目状态变化，则 scheduler wake、`coordination attempt` 与 `claim` 本身都不算满足等待条件的项目进展；没有其他当前可执行的安全、有价值工作时，可以不 claim、不改变 task 状态地结束本次 wake，避免通过 claim 人为制造 lifecycle change。generated prompt 只展开当前状态相关的 claim/duplicate/recovery/workspace/effect 分支。final response、timing、测试/commit/checkpoint/Gate 的既有非停止语义保持不变；任务级 hard stop 仍只有总体目标完成、用户明确暂停、需要新的人工授权/凭据/不可替代决策，或项目访问工具经合理重连仍不可用。
 
-`workspace reclassify` 只处理当前 fenced owner 已审阅的 `unexpected_nonoverlap`：durable writer 已结束后，启动前漏报的真实产出只有在提供 durable evidence 与 reason 时才能用 `--task-owned` 纳入任务，或用 `--baseline-external` 明确保留为外部修改。task-owned 仍必须命中 Workstream direct write scope；已有 conflict、非 unexpected 路径、路径重叠、scope 越界或 provenance 不确定继续 fail-closed。
+`workspace reclassify` 只处理当前 fenced owner 已审阅的 `unexpected_nonoverlap`：durable writer 已结束后，启动前漏报的真实产出只有在提供 durable evidence 与 reason 时才能用 `--task-owned` 纳入任务，或用 `--baseline-external` 明确保留为外部修改。task-owned 仍必须命中 Workstream direct write scope；已有 conflict、非 unexpected 路径、路径重叠、scope 越界或 provenance 不确定继续 fail-closed。若绑定 Workstream 已由正式 `workstream archive` 移到 archive 且 active detail 已不存在，恢复流程可以校验 archived detail 并继续使用原 direct scope；只允许本次归档所需的 active index/detail 与 archive index/detail 四个精确 lifecycle authority 路径额外参与证据驱动 reclassify，不会重新激活 Workstream 或扩大普通 Task authority。
 
 普通 `baseline_external` 必须继续保护，禁止 stash/reset/clean/stage/commit。唯一窄例外是当前 authenticated runner 刚通过 `acf workstream scope-add|merge-request|ready|merge-start|done` 为**当前绑定 Workstream**生成的 Workstreams 索引与当前 Workstream detail 文件：在 lifecycle/merge 边界可以审阅 exact diff 与 durable ACF command evidence，并把**仅这两个确定性 control-plane 文件**形成独立 checkpoint。该动作不扩展普通 Task authority write_scope，也不能把其他 baseline/external path 带入提交；来源不明或人工编辑的 authority dirty 仍 fail-closed。
 
@@ -452,7 +452,7 @@ acf observer glossary-set . --term "术语" --human-term "人类解释" `
 
 confidence 支持 `authoritative / high / medium / low`；medium/low 在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。结构化 Observer state 与 HTML 都过滤 credential-like 值，API key、password、token、private key、license、fence token 等不得进入 Observer 产物。
 
-`dashboard.html` 是静态、自包含、直接 `file://` 打开的派生视图，不启动 HTTP/daemon，不依赖外部资源。颜色表达必须同时配文字/符号：红=critical、琥珀=warning、绿=healthy/verified、蓝=active/info、灰=canonical/history/metadata；字体保持连续阅读尺度，不用巨大字号制造重点。
+`dashboard.html` 是静态、自包含、直接 `file://` 打开的派生视图，不启动 HTTP/daemon，不依赖外部资源。颜色表达必须同时配文字/符号：红=critical、琥珀=warning、绿=healthy/verified、蓝=active/info、灰=canonical/history/metadata；字体保持连续阅读尺度，不用巨大字号制造重点。Observer structured state/history 的 canonical 时间戳保持 UTC；所有人类可见 Dashboard 时间统一显示为北京时间 `UTC+08:00`，展示层转换不得改写底层 UTC 数据。
 
 Observer Core 不硬编码 MCP、电脑、盘符或具体项目实例。哪个 Scheduled Task 使用哪个项目访问工具属于项目自己的 wrapper/adapter，而不是通用 Observer 产品合同。
 

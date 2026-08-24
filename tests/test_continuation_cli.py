@@ -12,8 +12,9 @@ from pathlib import Path
 
 import acf
 from ai_context_framework import continuation_inventory, continuation_rounds, continuation_workspace
-from ai_context_framework.commands import continuation
+from ai_context_framework.commands import continuation, continuation_workspace as continuation_workspace_command
 from ai_context_framework.observability import usage_log_path
+from ai_context_framework.runtime_parts.archive_workstream import render_workstream_index
 
 
 class ContinuationCliTests(unittest.TestCase):
@@ -2352,6 +2353,51 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, f"{stderr}\n{refreshed}")
         self.assertEqual(["release-metadata.txt"], refreshed["workspace"]["task_owned_paths"])
         self.assertEqual([], refreshed["workspace"]["conflicts"])
+
+    def test_archived_bound_workstream_keeps_exact_lifecycle_recovery_scopes(self) -> None:
+        context_root = self.root / "docs" / "ai"
+        (context_root / "active").mkdir(parents=True)
+        (context_root / "rules").mkdir(parents=True)
+        (context_root / "archive" / "workstreams").mkdir(parents=True)
+        (context_root / "AGENTS.md").write_text("# test\n", encoding="utf-8")
+        (context_root / "active" / "Context.md").write_text("# test\n", encoding="utf-8")
+        (context_root / "rules" / "Always_Active.md").write_text("# test\n", encoding="utf-8")
+        (context_root / "active" / "Workstreams.md").write_text(
+            render_workstream_index(), encoding="utf-8"
+        )
+        (context_root / "archive" / "workstreams" / "WS908.md").write_text(
+            """---
+id: WS908
+type: Task
+status: Done
+attention: Now
+owner: ChatGPT
+title: Archived recovery test
+depends_on: []
+read_scope:
+  - AGENTS.md
+write_scope:
+  - assigned: src/**
+merge_targets:
+  - main
+coordination: serial
+merge_resolution: merged
+---
+# WS908
+""",
+            encoding="utf-8",
+        )
+
+        scopes, discovered_context = continuation_workspace_command.workstream_direct_write_scopes(
+            self.root, "WS908"
+        )
+
+        self.assertEqual(context_root.resolve(), discovered_context)
+        self.assertIn("src/**", scopes)
+        self.assertIn("active/Workstreams.md", scopes)
+        self.assertIn("active/workstreams/WS908.md", scopes)
+        self.assertIn("archive/Archive_Index.md", scopes)
+        self.assertIn("archive/workstreams/WS908.md", scopes)
 
     def test_ws008_coordination_attempt_without_owner_is_only_claim_candidate(self) -> None:
         init = self.init_task("WS908")

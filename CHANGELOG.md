@@ -4,6 +4,19 @@
 
 ## Unreleased
 
+## v0.0.3.77 — 2026-08-24
+
+### Archived Workstream recovery scope
+
+- 修复 Workstream 已由 `acf workstream archive` 确定性移入 `archive/workstreams/`、但 archive Git checkpoint 前 owner 异常结束时的 continuation 恢复死锁：recovered fenced owner 现在可以从经过 schema 校验的 archived Workstream detail 恢复原 direct write scope，而不要求重新创建 active Workstream。
+- 对 archived bound Workstream 只额外开放本次归档所需的四个精确 lifecycle authority 路径：`active/Workstreams.md`、原 `active/workstreams/WSxxx.md`、`archive/Archive_Index.md` 与 `archive/workstreams/WSxxx.md`。这条恢复路径只服务已经发生的 ACF-managed archive WIP，不扩大普通 Task authority，也不放宽 `unexpected_nonoverlap` 的 durable evidence / provenance / conflict 检查。
+- 新增回归覆盖 archived detail fallback 与精确 lifecycle scope，并用 WS011 自身 interrupted archive closeout 真实复现验证该缺陷。
+
+### Observer Dashboard 北京时间展示
+
+- Observer structured state、history 与 semantic 的 canonical 时间戳继续统一保存为 UTC，不改写排序、去重、fingerprint 或 provenance；仅在人类可见的静态 `dashboard.html` 中，把“最后观察”和 Meaningful Timeline 等时间统一显示为北京时间 `UTC+08:00`。
+- Dashboard 明确标注“北京时间 (UTC+08:00)”，并新增回归验证 `2026-08-24T01:51:10Z` 在可见 HTML 中渲染为 `2026-08-24 09:51:10 北京时间 (UTC+08:00)`，同时内嵌 canonical JSON 仍保留原 UTC 值。
+
 ## v0.0.3.76 — 2026-08-24
 
 ### Continuation autonomy and recovery-prompt alignment

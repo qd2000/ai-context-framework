@@ -20,12 +20,14 @@ from ai_context_framework import (
     continuation_rounds,
     continuation_workspace,
 )
-from ai_context_framework.front_matter import split_typed_scope
+from ai_context_framework.front_matter import parse_front_matter, split_typed_scope, validate_front_matter
 from ai_context_framework.git_support import discover_git_project
 from ai_context_framework.observability import acf_home
 from ai_context_framework.runtime_parts.archive_workstream import (
     normalize_scope_path,
     read_workstream_detail,
+    workstream_archive_dir,
+    workstream_front_matter_schema,
 )
 
 
@@ -284,11 +286,35 @@ def workstream_direct_write_scopes(
     if not workstream_id:
         return [], None
     project = discover_git_project(root)
-    detail = read_workstream_detail(project.context_root, workstream_id)
-    kind = str(detail.metadata.get("type") or "Task")
-    merge_owner = detail.metadata.get("merge_owner")
-    coordination = detail.metadata.get("coordination")
-    raw_scopes = detail.metadata.get("write_scope")
+    archived = False
+    try:
+        detail = read_workstream_detail(project.context_root, workstream_id)
+        metadata = detail.metadata
+    except SystemExit as exc:
+        if not str(exc).startswith(f"workstream_not_found: {workstream_id}"):
+            raise
+        archive_path = workstream_archive_dir(project.context_root) / f"{workstream_id}.md"
+        if not archive_path.is_file():
+            raise
+        metadata, _, diagnostics = parse_front_matter(archive_path.read_text(encoding="utf-8"))
+        diagnostics.extend(validate_front_matter(metadata, workstream_front_matter_schema()))
+        if metadata.get("id") != workstream_id:
+            raise SystemExit(
+                f"workstream_schema_failed: archived workstream id mismatch: expected {workstream_id}"
+            ) from exc
+        if diagnostics:
+            raise SystemExit(
+                "workstream_schema_failed: "
+                + "; ".join(
+                    f"{diagnostic.field + ': ' if diagnostic.field else ''}{diagnostic.message}"
+                    for diagnostic in diagnostics
+                )
+            ) from exc
+        archived = True
+    kind = str(metadata.get("type") or "Task")
+    merge_owner = metadata.get("merge_owner")
+    coordination = metadata.get("coordination")
+    raw_scopes = metadata.get("write_scope")
     scopes: list[str] = []
     if isinstance(raw_scopes, list):
         for item in raw_scopes:
@@ -306,6 +332,20 @@ def workstream_direct_write_scopes(
             )
             if allowed:
                 scopes.append(normalize_scope_path(scope_path))
+    if archived:
+        # A Workstream archive is an ACF-managed lifecycle transition that
+        # intentionally removes the active detail before its surrounding Git
+        # checkpoint may be committed.  If that owner dies in this narrow
+        # window, recovery still needs to classify the exact archive authority
+        # files from durable provenance without restoring the active Workstream.
+        scopes.extend(
+            [
+                "active/Workstreams.md",
+                f"active/workstreams/{workstream_id}.md",
+                "archive/Archive_Index.md",
+                f"archive/workstreams/{workstream_id}.md",
+            ]
+        )
     return sorted(dict.fromkeys(scopes)), project.context_root
 
 

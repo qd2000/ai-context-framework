@@ -11,7 +11,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -25,6 +25,7 @@ OBSERVER_SEMANTIC_SCHEMA = "acf.observer.semantic.v1"
 OBSERVER_INTERPRETATION_SCHEMA = "acf.observer.interpretation.v1"
 OBSERVER_GLOSSARY_SCHEMA = "acf.observer.glossary.v1"
 OBSERVER_DASHBOARD_SCHEMA = "acf.observer.dashboard.v1"
+OBSERVER_DASHBOARD_TIMEZONE = timezone(timedelta(hours=8), name="UTC+08:00")
 OBSERVER_LOCK_RECLAIM_GRACE_SECONDS = 60
 OBSERVER_SEMANTIC_CONFIDENCE = {"authoritative", "high", "medium", "low"}
 SEMANTIC_SENSITIVE_VALUE_RE = re.compile(
@@ -412,6 +413,21 @@ def _html_text(value: object, fallback: str = "—") -> str:
     return escape(str(value), quote=True)
 
 
+def _dashboard_display_time(value: object) -> str:
+    """Render canonical UTC timestamps as Beijing time for human-facing HTML.
+
+    Observer runtime state and history remain UTC. This conversion is only a
+    presentation concern so ordering, dedupe, fingerprints, and cross-machine
+    evidence continue to use one canonical time basis.
+    """
+
+    parsed = _parse_utc_iso(value)
+    if parsed is None:
+        return str(value or "—")
+    local = parsed.astimezone(OBSERVER_DASHBOARD_TIMEZONE)
+    return f"{local.strftime('%Y-%m-%d %H:%M:%S')} 北京时间 (UTC+08:00)"
+
+
 def _health_rank(value: object) -> int:
     return {"critical": 3, "warning": 2, "healthy": 1}.get(str(value or "").casefold(), 0)
 
@@ -601,7 +617,7 @@ def _timeline_html(machine_events: list[dict[str, object]], interpretations: lis
         before = row.get("before")
         after = row.get("after")
         body = (
-            f'<article class="timeline-item"><time>{_html_text(row.get("observed_at"))}</time>'
+            f'<article class="timeline-item"><time>{_html_text(_dashboard_display_time(row.get("observed_at")))}</time>'
             f'<div><strong>{_html_text(kind_labels.get(kind, kind))}</strong> · <code>{_html_text(identity_text)}</code>'
             f'<p class="muted">{_html_text(before)} → {_html_text(after)}</p></div></article>'
         )
@@ -611,7 +627,7 @@ def _timeline_html(machine_events: list[dict[str, object]], interpretations: lis
         proofs = row.get("recent_proof") if isinstance(row.get("recent_proof"), list) else []
         proof_text = "；".join(str(item) for item in proofs[:2])
         body = (
-            f'<article class="timeline-item semantic-event"><time>{_html_text(row.get("interpreted_at"))}</time>'
+            f'<article class="timeline-item semantic-event"><time>{_html_text(_dashboard_display_time(row.get("interpreted_at")))}</time>'
             f'<div><strong>语义解释更新 v{_html_text(row.get("interpretation_version"))}</strong> · '
             f'<code>{_html_text(row.get("workstream_id"))}</code>'
             f'<p>{_html_text(row.get("human_title"))}</p><p class="muted">{_html_text(proof_text)}</p></div></article>'
@@ -696,7 +712,7 @@ def render_dashboard_html(
 </head>
 <body>
 <main class="page">
-  <header class="top"><div><h1>{_html_text(title)}</h1><div class="muted">最后观察：{_html_text(safe_current.get('observed_at'))} · 数据状态：{_html_text(current_data_age.get('state'))}</div></div><div class="badge tone-{_html_text(overall)}"><span aria-hidden="true">{health_icon}</span> Overall Health：{_html_text(health_label)}</div></header>
+  <header class="top"><div><h1>{_html_text(title)}</h1><div class="muted">最后观察：{_html_text(_dashboard_display_time(safe_current.get('observed_at')))} · 数据状态：{_html_text(current_data_age.get('state'))}</div></div><div class="badge tone-{_html_text(overall)}"><span aria-hidden="true">{health_icon}</span> Overall Health：{_html_text(health_label)}</div></header>
   <section class="summary-grid" aria-label="项目总览">
     <div class="metric"><span class="muted">Active Workstreams</span><strong>{active_count}</strong></div>
     <div class="metric"><span class="muted">当前 Alerts</span><strong>{len(all_alerts)}</strong></div>
@@ -708,7 +724,7 @@ def render_dashboard_html(
   <section class="panel"><h2>Workstreams</h2><div class="toolbar"><input id="search" type="search" placeholder="搜索 Workstream、canonical term、目标或下一步" aria-label="搜索"><select id="health-filter" aria-label="按健康状态筛选"><option value="all">全部健康状态</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="healthy">Healthy</option></select></div><div class="workstream-list" id="workstreams">{cards or '<p class="empty">当前没有 Workstream。</p>'}</div></section>
   <section class="panel"><h2>Meaningful Timeline</h2><div id="timeline">{timeline}</div></section>
   <section class="panel"><h2>Semantic Glossary</h2><div class="glossary-grid" id="glossary">{glossary_html}</div></section>
-  <footer>Observer 只解释本地事实，不参与 Writer control plane。Dashboard 为静态自包含文件，不需要 HTTP 服务。</footer>
+  <footer>Observer 只解释本地事实，不参与 Writer control plane。Dashboard 为静态自包含文件，不需要 HTTP 服务。页面时间统一显示北京时间 (UTC+08:00)，底层 canonical state/history 仍使用 UTC。</footer>
 </main>
 <script id="observer-data" type="application/json">{embedded_json}</script>
 <script>
