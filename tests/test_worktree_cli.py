@@ -682,6 +682,70 @@ class WorktreeCliTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         self.assertEqual(applied["status"], "attached")
 
+    def test_reattach_preserves_existing_registry_anchor_so_sync_can_advance(self):
+        _root, repo, context = self.make_repo()
+        reserved = self.reserve(context, slug="reattach-sync")
+        created = self.create_ws_worktree(context, reserved["id"])
+        target = Path(created["target"]["path"])
+        common = git_common_dir(repo)
+        registry_before = read_registry(common, reserved["id"])
+        self.assertIsNotNone(registry_before)
+        original_base = str(registry_before["base_commit"])
+        original_reservation = str(registry_before["reservation_commit"])
+
+        code, _payload, stderr = self.json_cli(
+            ["workstream", "set", reserved["id"], str(context), "--status", "Active"]
+        )
+        self.assertEqual(code, 0, stderr)
+        git(
+            repo,
+            "add",
+            "docs/ai/active/Workstreams.md",
+            f"docs/ai/active/workstreams/{reserved['id']}.md",
+        )
+        git(repo, "commit", "-m", "activate workstream on primary")
+        primary_head = git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.assertNotEqual(git(target, "rev-parse", "HEAD").stdout.strip(), primary_head)
+
+        code, attached, stderr = self.json_cli(
+            [
+                "worktree",
+                "attach",
+                str(context),
+                "--workstream",
+                reserved["id"],
+                "--target",
+                str(target),
+                "--apply",
+            ]
+        )
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(attached["status"], "already_attached")
+        self.assertTrue(attached["verification"]["ok"])
+        registry_after = read_registry(common, reserved["id"])
+        self.assertEqual(registry_after["state"], "active")
+        self.assertEqual(registry_after["base_commit"], original_base)
+        self.assertEqual(registry_after["reservation_commit"], original_reservation)
+
+        code, plan, stderr = self.json_cli(
+            ["worktree", "sync", str(context), "--workstream", reserved["id"]]
+        )
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(plan["status"], "ready_to_sync")
+        code, result, stderr = self.json_cli(
+            [
+                "worktree",
+                "sync",
+                str(context),
+                "--workstream",
+                reserved["id"],
+                "--apply",
+            ]
+        )
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(result["status"], "synced")
+        self.assertEqual(git(target, "rev-parse", "HEAD").stdout.strip(), primary_head)
+
     def test_sync_merges_primary_into_clean_worktree(self):
         _root, repo, context = self.make_repo()
         reserved = self.reserve(context, slug="sync-task")
