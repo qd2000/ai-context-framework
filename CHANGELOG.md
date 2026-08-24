@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+## v0.0.3.76 — 2026-08-24
+
+### Continuation autonomy and recovery-prompt alignment
+
+- 修复长时 Scheduled Task 的自激式续跑：当 authority refresh 后的 `next_action` 明确要求“等待下一次真实外部/项目状态变化”且该条件尚未满足时，generated continuation prompt 不再把 scheduler wake、`coordination attempt` 或 `claim` 本身当作可执行进展；这些动作属于 control-plane bookkeeping，不能用来人为制造一个新的 lifecycle change 再让 Observer 观察自己。
+- `execution_policy` 新增 `claim_requires_present_safe_useful_work=true`、`control_plane_activity_satisfies_wait_condition=false` 与 `no_useful_work_may_end_wake_without_claim=true`。如果当前确实没有满足条件的安全、有价值工作，单次 scheduler wake 可以在**不 claim、不改变 task 状态**的前提下结束；一旦真实 authority 变化或存在其他可执行工作，仍按原有 fenced ownership 协议 claim 并持续推进。
+- generated prompt 同步当前稳定恢复合同：对于没有外部标识、但已由 durable local evidence 明确证明终态的本地确定性 effect，可按现有 evidence-backed local-terminal 恢复路径处理；不确定或外部 effect 继续保持 fail-closed，避免实现能力和 AI-facing guidance 漂移。
+
 ## v0.0.3.75 — 2026-08-23
 
 ### Active local-effect ownerless recovery

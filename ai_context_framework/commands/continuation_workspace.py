@@ -616,6 +616,9 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "final_response_is_terminal": True,
             "final_response_requires_session_end_reason": True,
             "session_end_requires_no_safe_useful_work": True,
+            "claim_requires_present_safe_useful_work": True,
+            "control_plane_activity_satisfies_wait_condition": False,
+            "no_useful_work_may_end_wake_without_claim": True,
             "progress_report_is_session_end_reason": False,
             "elapsed_time_is_session_end_reason": False,
             "startup_probe_is_session_end_reason": False,
@@ -785,13 +788,16 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             control_actions.extend(
                 [
                     attempt_command,
-                    f"Claim with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`, then re-render `acf continuation prompt {json.dumps(str(root))}{task_flag} --runner-id <runner> --json` with the same runner id before project writes so current-writer safety guidance is loaded.",
-                    "Execute the refreshed default plan under the returned fenced owner credential after that post-claim prompt refresh.",
+                    "Use refreshed project authority to decide whether safe useful work is executable now. If the persisted/default plan explicitly waits for a real external or project-state change and that condition is not met, do not claim merely to manufacture a continuation lifecycle change; scheduler wake, coordination attempt, and claim are control-plane activity, not evidence satisfying that wait condition.",
+                    f"If useful work is executable now, claim with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`, then re-render `acf continuation prompt {json.dumps(str(root))}{task_flag} --runner-id <runner> --json` with the same runner id before project writes so current-writer safety guidance is loaded.",
+                    "If no safe useful work is presently executable, this scheduler wake may end without claiming and without changing task state; otherwise execute the refreshed default plan under the returned fenced owner credential after the post-claim prompt refresh.",
                 ]
             )
             conditional_sections.append(
                 "Claimable writer path:\n"
                 "- The coordination attempt is a compact intent record, not a bounded work quota. `--objective-summary` names the current goal; it does not limit how much useful work the session may complete.\n"
+                "- A scheduler wake, coordination attempt, or claim is control-plane bookkeeping. It must not be counted as the real/external state change required by a conditional wait plan, and it must not be used to create synthetic progress solely so the task can observe itself.\n"
+                "- Claim only when refreshed authority identifies safe useful work that is executable now. If a wait condition is still unsatisfied and no other useful work exists, ending this wake without claim leaves the mission running and is not a pause, blocker, or completion.\n"
                 "- After claim, declare concrete workspace intent before writes and use deterministic effect identity before non-idempotent side effects."
             )
         else:
@@ -816,7 +822,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                 "Unresolved effect authority is currently relevant:\n"
                 "- Inspect the existing effect identity before any submit/replay. Prepared/active/unknown effects remain unresolved until authoritative terminal observation.\n"
                 "- If an owner lifecycle ended, reconcile the existing durable identity rather than creating a replacement effect from memory.\n"
-                "- A legacy still-prepared local deterministic effect with no external id may use `reconcile --effect-local-terminal` only when durable local authority evidence proves its terminal result; active/unknown effects and external jobs remain fail-closed."
+                "- A local deterministic effect with no external id may use `reconcile --effect-local-terminal` when it is still prepared or active and durable local authority evidence proves its terminal result; unknown effects and external jobs remain fail-closed."
             )
 
         conditional_text = "\n\n".join(conditional_sections) if conditional_sections else "No additional conditional safety branch is active."
@@ -857,6 +863,7 @@ Control actions relevant now:
 
 Continuous execution contract:
 - A scheduler wake only resumes one continuous task; it is not a work round, reporting interval, quota, or expected stopping point.
+- Scheduler/coordination/claim activity is not project progress and does not satisfy a plan that explicitly waits for a real external or project-state change.
 - Bounded continuation limits ownership, write scope, external side effects, and recovery risk. It does not bound the amount of useful project work.
 - The Agent chooses work scope, order, implementation strategy, and validation depth from current project authority.
 - Tests, fixes, commits, checkpoints, and Gates are progress evidence, not session-end signals.

@@ -660,6 +660,15 @@ def _workstream_machine_state(
     if workstream.get("source_consistency") == "divergent":
         health = "warning"
         health_reasons.append("workstream_sources_divergent")
+    registry = workstream.get("registry") if isinstance(workstream.get("registry"), dict) else None
+    registry_state = str((registry or {}).get("state") or "").casefold()
+    if (
+        registry is not None
+        and workstream_status_key in {"active", "blocked", "readytomerge", "merging"}
+        and registry_state != "active"
+    ):
+        health = "warning"
+        health_reasons.append("workstream_registry_not_active")
     liveness_risks = [_continuation_liveness_risk(row) for row in related]
     effect_risks = [_continuation_effect_risk(row) for row in related]
     unresolved_effects = sum(int(risk.get("unresolved_count") or 0) for risk in effect_risks)
@@ -769,6 +778,30 @@ def derive_snapshot_alerts(project: ObserverProject, snapshot: dict[str, object]
                             for item in row.get("sources") or []
                             if isinstance(item, dict)
                         ],
+                    }
+                ],
+            )
+        registry = row.get("registry") if isinstance(row.get("registry"), dict) else None
+        workstream_status = str(row.get("status") or "")
+        registry_state = str((registry or {}).get("state") or "").casefold()
+        if (
+            registry is not None
+            and workstream_status.casefold() in {"active", "blocked", "readytomerge", "merging"}
+            and registry_state != "active"
+        ):
+            add_alert(
+                alert_key=f"workstream:{workstream_id}:registry-lifecycle-mismatch",
+                severity="warning",
+                title=f"{workstream_id} 的 Worktree registry 与活动状态不一致",
+                explanation="Workstream 仍处于活动类状态，但其已绑定 Worktree registry 不是 active；依赖 verified worktree 选择的 ACF 命令可能因此拒绝进入该 Workstream。",
+                canonical_identity={"type": "workstream", "id": workstream_id},
+                provenance=[
+                    {
+                        "source": "worktree_registry",
+                        "workstream_status": workstream_status,
+                        "registry_state": registry.get("state"),
+                        "registry_path": registry.get("path"),
+                        "registry_branch": registry.get("branch"),
                     }
                 ],
             )
