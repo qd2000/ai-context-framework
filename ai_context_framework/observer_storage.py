@@ -86,8 +86,9 @@ def semantic_source_projection(
     """Return stable facts that an interpretation is allowed to explain.
 
     Volatile owner heartbeats are deliberately excluded.  Stage, status,
-    next action, machine health class, and durable round milestone/evidence
-    remain because changes to those facts can invalidate a human narrative.
+    next action, machine health class, durable ownership generation, and
+    round milestone/evidence remain because changes to those facts can
+    invalidate a human narrative.
     """
 
     workstream_id = str(workstream.get("id") or "")
@@ -103,6 +104,7 @@ def semantic_source_projection(
                 "status": row.get("status"),
                 "next_action": row.get("next_action"),
                 "objective": row.get("objective"),
+                "round_generation": latest.get("generation"),
                 "round_phase": latest.get("phase"),
                 "round_milestone": latest.get("milestone"),
                 "round_evidence_refs": list(latest.get("evidence_refs") or []),

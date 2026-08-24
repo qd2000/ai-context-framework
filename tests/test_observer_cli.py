@@ -1120,6 +1120,39 @@ class ObserverCliTests(unittest.TestCase):
             semantic_source_fingerprint(workstream, [during]),
         )
 
+    def test_semantic_source_fingerprint_changes_when_continuation_generation_changes(self):
+        workstream = {
+            "id": "WS123",
+            "title": "Semantic task",
+            "status": "Active",
+            "attention": "Now",
+            "goal": "Explain progress",
+            "source_consistency": "consistent",
+            "machine_state": {"execution": "running", "health": "healthy", "health_reasons": ["no_machine_warning_detected"]},
+        }
+        base = {
+            "task_id": "WS123",
+            "workstream_id": "WS123",
+            "stage": "C04",
+            "status": "running",
+            "next_action": "Continue",
+            "objective": "Explain progress",
+            "effects": {"status_counts": {"completed": 2}, "unresolved_count": 0},
+        }
+        generation_7 = {
+            **base,
+            "latest_round": {"generation": 7, "phase": "claimed", "milestone": "claimed", "evidence_refs": []},
+        }
+        generation_8 = {
+            **base,
+            "latest_round": {"generation": 8, "phase": "claimed", "milestone": "claimed", "evidence_refs": []},
+        }
+
+        self.assertNotEqual(
+            semantic_source_fingerprint(workstream, [generation_7]),
+            semantic_source_fingerprint(workstream, [generation_8]),
+        )
+
     def test_glossary_set_is_user_level_and_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             project, _context = self.make_project(Path(tmp))
