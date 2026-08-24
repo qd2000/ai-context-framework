@@ -1093,7 +1093,7 @@ class ObserverCliTests(unittest.TestCase):
             mismatch = json.loads(stdout)
             self.assertEqual(mismatch["error_code"], "observer_semantic_source_changed")
 
-    def test_semantic_source_fingerprint_ignores_transient_effect_counts_when_health_meaning_is_unchanged(self):
+    def test_semantic_source_fingerprint_changes_when_unresolved_effect_risk_changes(self):
         workstream = {
             "id": "WS123",
             "title": "Semantic task",
@@ -1115,9 +1115,36 @@ class ObserverCliTests(unittest.TestCase):
         before = {**base, "effects": {"status_counts": {"completed": 2}, "unresolved_count": 0}}
         during = {**base, "effects": {"status_counts": {"completed": 2, "prepared": 1}, "unresolved_count": 1}}
 
-        self.assertEqual(
+        self.assertNotEqual(
             semantic_source_fingerprint(workstream, [before]),
             semantic_source_fingerprint(workstream, [during]),
+        )
+
+    def test_semantic_source_fingerprint_ignores_terminal_effect_count_growth(self):
+        workstream = {
+            "id": "WS123",
+            "title": "Semantic task",
+            "status": "Active",
+            "attention": "Now",
+            "goal": "Explain progress",
+            "source_consistency": "consistent",
+            "machine_state": {"execution": "running", "health": "healthy", "health_reasons": ["no_machine_warning_detected"]},
+        }
+        base = {
+            "task_id": "WS123",
+            "workstream_id": "WS123",
+            "stage": "C04",
+            "status": "running",
+            "next_action": "Continue",
+            "objective": "Explain progress",
+            "latest_round": {"generation": 7, "phase": "claimed", "milestone": "claimed", "evidence_refs": []},
+        }
+        before = {**base, "effects": {"status_counts": {"completed": 2}, "unresolved_count": 0}}
+        after = {**base, "effects": {"status_counts": {"completed": 3}, "unresolved_count": 0}}
+
+        self.assertEqual(
+            semantic_source_fingerprint(workstream, [before]),
+            semantic_source_fingerprint(workstream, [after]),
         )
 
     def test_semantic_source_fingerprint_changes_when_continuation_generation_changes(self):
