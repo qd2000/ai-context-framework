@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.79
+Version: 0.0.3.80
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.79` 是当前推荐版本。它继承 `.78` 的 Observer Workstream source-authority 修复，并补齐长期 Workstream release 后的 reactivation/sync 生命周期：对已经存在的 registry binding 重新 `worktree attach --apply` 时保留原 Git base/reservation anchors，避免把尚未进入 source branch 的最新 primary HEAD 提前写成 reservation authority，从而消除随后 `worktree sync` 的 `reservation_commit_not_ancestor` 死锁。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。
+`v0.0.3.80` 是当前推荐版本。它继承 `.79` 的长期 Workstream reactivation/sync 修复，并补齐 release 后维护闭环：长期 Maintenance Workstream 可以通过 ACF 状态机从 `Merging` 重新进入 `Active`；`acf worktree merge` 清理临时 integration worktree 时会区分真实 Git dirty 与内容等价的 tracked stat-only 变化，只对语义干净、仅含 stat-only 变化的临时 worktree 使用受限 force removal，避免 uv/check 过程改写 egg-info metadata 后遗留 integration worktree。Project Observer 的 semantic freshness 同时跟踪 ownership generation 与 unresolved effect risk，避免 owner/effect 已变化时旧叙述仍被错误标为 current，同时忽略纯 terminal effect 计数增长以避免无意义抖动。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)

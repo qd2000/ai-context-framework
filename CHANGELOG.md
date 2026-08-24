@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+## v0.0.3.80 — 2026-08-24
+
+### Long-lived Maintenance closeout
+
+- 长期 `Maintenance` Workstream 在 release merge 后可通过 ACF 状态机从 `Merging` 回到 `Active`，不再需要绕过状态机手工恢复，从而消除 post-release reactivation 期间的 lifecycle mismatch。
+- `acf worktree merge` 的 integration cleanup 改用 semantic Git status：真实 staged/untracked/delete/rename/mode/unmerged 或内容变化仍 fail-closed 保留；只有 tracked `M` 且 normalized content 无差异的 stat-only 路径会被识别为可再生噪声，并仅在这种语义干净场景下对临时 integration worktree 使用 `git worktree remove --force`。
+- Project Observer 的 semantic source fingerprint 现在纳入 continuation ownership generation 与 unresolved effect risk：正式 recovery/owner generation 切换，或 prepared/active/unknown effect 的风险状态变化，都会让可能失真的旧人类语义立即变为 stale；heartbeat 与仅增加的 terminal effect 历史计数仍被排除，避免无意义的语义抖动。
+- 新增 deterministic regression 覆盖 `Merging -> Active` Maintenance reactivation，以及 uv/check 风格 stat-only rewrite 后 integration worktree 能被安全清理；完整 555-unit regression 与 WS012 file-scoped guard 通过。
+
 ## v0.0.3.79 — 2026-08-24
 
 ### Worktree reactivation anchors
