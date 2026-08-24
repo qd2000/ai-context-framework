@@ -13,7 +13,7 @@ import re
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -471,9 +471,28 @@ def attach_workstream(
         raise SystemExit(
             f"workstream_already_bound: {workstream_id} at {existing.get('path')}"
         )
+
+    # Re-attaching an existing binding is a lifecycle reactivation, not a new
+    # reservation.  Keep the original Git anchors until `worktree sync`
+    # explicitly advances the source branch.  Recomputing reservation/base
+    # commits from the newer primary here can make the just-reactivated
+    # worktree fail verification because those commits are not ancestors of
+    # the source branch yet.
+    binding_target = expected
+    if existing:
+        binding_target = replace(
+            expected,
+            base_branch=str(existing.get("base_branch") or expected.base_branch),
+            base_commit=str(existing.get("base_commit") or expected.base_commit),
+            reservation_commit=(
+                str(existing.get("reservation_commit"))
+                if existing.get("reservation_commit")
+                else expected.reservation_commit
+            ),
+        )
     payload = {
         "status": "ready_to_attach" if not existing else "already_attached",
-        "target": target_payload(expected),
+        "target": target_payload(binding_target),
         "record": {
             "path": str(record.path),
             "branch": record.branch_short,
@@ -490,15 +509,15 @@ def attach_workstream(
                 "slug": expected.slug,
                 "path": str(path),
                 "branch": expected.branch,
-                "base_branch": expected.base_branch,
-                "base_commit": expected.base_commit,
-                "reservation_commit": expected.reservation_commit,
+                "base_branch": binding_target.base_branch,
+                "base_commit": binding_target.base_commit,
+                "reservation_commit": binding_target.reservation_commit,
                 "git_common_dir": str(project.common_dir),
                 "state": "active",
             },
         )
         payload["status"] = "attached" if not existing else "already_attached"
-        payload["verification"] = verify_target(project, expected)
+        payload["verification"] = verify_target(project, binding_target)
     return payload
 
 
