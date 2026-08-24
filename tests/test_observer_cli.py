@@ -35,7 +35,7 @@ from ai_context_framework.observer import (
 )
 from ai_context_framework.observability import usage_project_dir
 from ai_context_framework.git_support import discover_git_project, write_registry
-from ai_context_framework.observer_storage import semantic_source_fingerprint
+from ai_context_framework.observer_storage import render_dashboard_html, semantic_source_fingerprint
 
 
 class ObserverCliTests(unittest.TestCase):
@@ -292,6 +292,54 @@ class ObserverCliTests(unittest.TestCase):
             self.assertNotIn("fetch(", html)
             status = json.loads(paths["status"].read_text(encoding="utf-8"))
             self.assertEqual(status["dashboard"]["status"], "success")
+
+    def test_dashboard_renders_human_times_in_beijing_while_embedded_state_stays_utc(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            observer_project = resolve_observer_project(project)
+            current = {
+                "observed_at": "2026-08-24T01:51:10Z",
+                "workstreams": [],
+                "alerts": [],
+                "semantic": {"status": "current"},
+            }
+            status = {"data_age": {"state": "fresh"}}
+            machine_events = [
+                {
+                    "observed_at": "2026-08-24T02:00:00Z",
+                    "kind": "worktree_head_changed",
+                    "canonical_identity": {"id": "WS001"},
+                    "before": "abc",
+                    "after": "def",
+                }
+            ]
+            interpretations = [
+                {
+                    "interpreted_at": "2026-08-24T03:00:00Z",
+                    "interpretation_version": 1,
+                    "workstream_id": "WS001",
+                    "human_title": "示例语义更新",
+                    "recent_proof": [],
+                }
+            ]
+
+            html = render_dashboard_html(
+                observer_project,
+                current=current,
+                status=status,
+                machine_events=machine_events,
+                interpretations=interpretations,
+                glossary={"terms": {}},
+            )
+
+            visible_html = html.split('<script id="observer-data"', 1)[0]
+            self.assertIn("2026-08-24 09:51:10 北京时间 (UTC+08:00)", visible_html)
+            self.assertIn("2026-08-24 10:00:00 北京时间 (UTC+08:00)", visible_html)
+            self.assertIn("2026-08-24 11:00:00 北京时间 (UTC+08:00)", visible_html)
+            self.assertNotIn("2026-08-24T01:51:10Z", visible_html)
+            self.assertNotIn("2026-08-24T02:00:00Z", visible_html)
+            self.assertNotIn("2026-08-24T03:00:00Z", visible_html)
+            self.assertIn('"observed_at": "2026-08-24T01:51:10Z"', html)
 
     def test_dashboard_render_failure_preserves_last_good_file_and_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:

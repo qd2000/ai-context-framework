@@ -452,7 +452,7 @@ acf observer glossary-set . --term "术语" --human-term "人类解释" `
 
 confidence 支持 `authoritative / high / medium / low`；medium/low 在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。结构化 Observer state 与 HTML 都过滤 credential-like 值，API key、password、token、private key、license、fence token 等不得进入 Observer 产物。
 
-`dashboard.html` 是静态、自包含、直接 `file://` 打开的派生视图，不启动 HTTP/daemon，不依赖外部资源。颜色表达必须同时配文字/符号：红=critical、琥珀=warning、绿=healthy/verified、蓝=active/info、灰=canonical/history/metadata；字体保持连续阅读尺度，不用巨大字号制造重点。
+`dashboard.html` 是静态、自包含、直接 `file://` 打开的派生视图，不启动 HTTP/daemon，不依赖外部资源。颜色表达必须同时配文字/符号：红=critical、琥珀=warning、绿=healthy/verified、蓝=active/info、灰=canonical/history/metadata；字体保持连续阅读尺度，不用巨大字号制造重点。Observer structured state/history 的 canonical 时间戳保持 UTC；所有人类可见 Dashboard 时间统一显示为北京时间 `UTC+08:00`，展示层转换不得改写底层 UTC 数据。
 
 Observer Core 不硬编码 MCP、电脑、盘符或具体项目实例。哪个 Scheduled Task 使用哪个项目访问工具属于项目自己的 wrapper/adapter，而不是通用 Observer 产品合同。
 

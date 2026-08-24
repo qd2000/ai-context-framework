@@ -231,7 +231,7 @@ acf observer glossary-set . --term "LM/TR" --human-term "LM/信赖域优化" `
 
 confidence 支持 `authoritative / high / medium / low`；medium/low 会在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。interpretation 以 append-only 版本历史记录，`observer history --stream interpretations` 可追溯 old/new interpretation、source fingerprint 和 provenance。结构化 Observer state 与 HTML 共用 credential-like 值过滤；API key、password、token、private key、license、fence token 等值拒绝写入或替换为 `[redacted]`。
 
-`dashboard.html` 是纯静态、自包含、可直接 `file://` 打开的展示层，不启动 HTTP/daemon，也不依赖外部 CSS/JS/fetch。红色只用于 critical，琥珀用于 warning，绿色用于 healthy/verified，蓝色用于 active/info，灰色用于 canonical/历史/metadata；颜色必须同时配文字/符号，主标题约 24px、Workstream 标题约 17px，不用巨大字号制造重点。Dashboard 是派生视图，Observer structured state 才是观测事实层。
+`dashboard.html` 是纯静态、自包含、可直接 `file://` 打开的展示层，不启动 HTTP/daemon，也不依赖外部 CSS/JS/fetch。红色只用于 critical，琥珀用于 warning，绿色用于 healthy/verified，蓝色用于 active/info，灰色用于 canonical/历史/metadata；颜色必须同时配文字/符号，主标题约 24px、Workstream 标题约 17px，不用巨大字号制造重点。Observer structured state/history 中的 canonical 时间戳保持 UTC；Dashboard 头部和 Meaningful Timeline 等人类可见时间统一转换为北京时间 `UTC+08:00` 并明确标注，底层 UTC 不因展示需求改写。Dashboard 是派生视图，Observer structured state 才是观测事实层。
 
 Observer Core 不硬编码 MCP 名称、电脑、盘符或项目实例。Scheduled Task 需要调用哪个项目访问工具由项目自己的 wrapper/adapter 决定；例如某个具体项目的 wrapper 可以指定一个 DevSpace connector，但该名字不能进入通用 Observer Core。开发 Observer 自身时，稳定安装态 ACF 继续作为 continuation canonical control plane，worktree 内 `uv run acf observer ...` 作为 product-under-test；先在 ACF 项目连续 dogfood 并收口高优先级 issue，再进入合并、PyPI 和全局稳定安装。
 

@@ -197,6 +197,8 @@ Markdown 只在以下场景生成：
 
 HTML 只是展示层，不是状态事实源；任何时候都可以从 Observer state 重建。
 
+时间合同固定为：Observer structured state/history/semantic 中的 canonical 时间戳继续统一保存为 UTC；`dashboard.html` 中所有人类可见时间统一渲染为北京时间 `UTC+08:00` 并明确标注。展示时区转换不得改写底层 UTC、事件排序、dedupe、fingerprint 或 provenance 时间事实。
+
 ---
 
 ## 8. Observer 数据结构
