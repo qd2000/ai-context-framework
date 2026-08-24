@@ -280,6 +280,34 @@ def _workstream_occurrences_for_root(root: Path) -> list[dict[str, object]]:
     return rows
 
 
+def _archived_workstream_ids_for_root(root: Path) -> set[str]:
+    """Return Workstream ids that the primary context has moved to archive.
+
+    Archive presence is lifecycle authority, not another current semantic
+    source.  The ids are used only to prevent stale linked-worktree copies
+    from resurrecting a Workstream after the primary checkout has archived it.
+    """
+
+    try:
+        location = discover_context(root)
+    except SystemExit:
+        return set()
+    archive_dir = location.context_root / "archive" / "workstreams"
+    if not archive_dir.is_dir():
+        return set()
+    archived: set[str] = set()
+    for detail_path in sorted(archive_dir.glob("WS*.md")):
+        workstream_id = detail_path.stem
+        try:
+            text = detail_path.read_text(encoding="utf-8")
+        except OSError:
+            archived.add(workstream_id)
+            continue
+        metadata, _body, _diagnostics = parse_front_matter(text)
+        archived.add(_string_metadata(metadata, "id") or workstream_id)
+    return archived
+
+
 def _safe_registry_rows(project: ObserverProject) -> list[dict[str, object]]:
     if not project.git_managed:
         return []
@@ -321,6 +349,9 @@ def capture_project_workstreams(
     for root in roots:
         occurrences.extend(_workstream_occurrences_for_root(root))
     registry_rows = _safe_registry_rows(project)
+    registry_managed_domain = bool(registry_rows)
+    primary_key = path_key(project.canonical_root)
+    primary_archived_ids = _archived_workstream_ids_for_root(project.canonical_root)
     by_id: dict[str, list[dict[str, object]]] = {}
     for row in occurrences:
         workstream_id = row.get("id")
@@ -330,6 +361,16 @@ def capture_project_workstreams(
     result: list[dict[str, object]] = []
     for workstream_id in sorted(by_id):
         sources = by_id[workstream_id]
+        primary_source_present = any(
+            isinstance(row.get("source_worktree"), str)
+            and path_key(str(row["source_worktree"])) == primary_key
+            for row in sources
+        )
+        # Once the primary context has archived a Workstream, stale active
+        # details left in linked worktrees are historical evidence only.  They
+        # must never resurrect that Workstream in the current Observer view.
+        if workstream_id in primary_archived_ids and not primary_source_present:
+            continue
         registry = next(
             (
                 row
@@ -348,18 +389,23 @@ def capture_project_workstreams(
             for row in sources
             if isinstance(row.get("source_worktree"), str)
             and (
-                path_key(str(row["source_worktree"])) == path_key(project.canonical_root)
+                path_key(str(row["source_worktree"])) == primary_key
                 or (
                     (source_registry := registry_by_path.get(path_key(str(row["source_worktree"])))) is not None
                     and (
                         source_registry.get("workstream") == workstream_id
                         or source_registry.get("key") == workstream_id
                     )
+                    and str(source_registry.get("state") or "").casefold() == "active"
                 )
             )
         ]
-        if authoritative_sources:
+        if registry_managed_domain:
             sources = authoritative_sources
+        elif authoritative_sources:
+            sources = authoritative_sources
+        if not sources:
+            continue
         selected: dict[str, object] | None = None
         if registry and isinstance(registry.get("path"), str):
             expected_path = path_key(str(registry["path"]))
@@ -378,7 +424,7 @@ def capture_project_workstreams(
                     row
                     for row in sources
                     if isinstance(row.get("source_worktree"), str)
-                    and path_key(str(row["source_worktree"])) == path_key(project.canonical_root)
+                    and path_key(str(row["source_worktree"])) == primary_key
                 ),
                 sources[0],
             )

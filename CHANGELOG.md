@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+## v0.0.3.78 — 2026-08-24
+
+### Observer Workstream source authority
+
+- 修复 registry-managed 多 worktree 项目中的 ghost Workstream：primary checkout 已将 Workstream 归档后，其他 registered worktree 残留的旧 Active detail 不再把该 Workstream 重新投影为 current；primary archive lifecycle 是终态 authority。
+- bound Workstream worktree 只有在其 registry state 为 `active` 时才可作为当前 Workstream source；registry 已 `merged` 等非 active 状态时，primary current/terminal source 优先，避免 stale bound detail 覆盖主线终态。
+- unrelated registered worktree 仍保留在 worktree diagnostics/历史证据域，但不再作为其他 Workstream 的 canonical semantic source；真实 primary/bound active source divergence 继续 fail-visible。
+- 新增真实 Git worktree/registry 回归，并用 ACF 项目 candidate dry-run 验证：修复后 current 只投影 `WS012:Active`、alerts 为空，旧 WS011 不再 ghost-resurrect。
+
 ## v0.0.3.77 — 2026-08-24
 
 ### Archived Workstream recovery scope

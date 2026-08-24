@@ -233,6 +233,10 @@ confidence 支持 `authoritative / high / medium / low`；medium/low 会在展�
 
 `dashboard.html` 是纯静态、自包含、可直接 `file://` 打开的展示层，不启动 HTTP/daemon，也不依赖外部 CSS/JS/fetch。红色只用于 critical，琥珀用于 warning，绿色用于 healthy/verified，蓝色用于 active/info，灰色用于 canonical/历史/metadata；颜色必须同时配文字/符号，主标题约 24px、Workstream 标题约 17px，不用巨大字号制造重点。Observer structured state/history 中的 canonical 时间戳保持 UTC；Dashboard 头部和 Meaningful Timeline 等人类可见时间统一转换为北京时间 `UTC+08:00` 并明确标注，底层 UTC 不因展示需求改写。Dashboard 是派生视图，Observer structured state 才是观测事实层。
 
+正式 production Observer scheduler 与开发/维护 Writer 必须分离。production task 才承担例行 snapshot/render；Maintenance 普通 wake 应先读取 `observer_status.json`、runs/current/history 与 Dashboard mtime 判断 watchdog 是否真实按期成功，不得为了维持 freshness 自己例行刷新，否则会掩盖 scheduler miss、data-age stale 和 Observer 自身故障。Maintenance snapshot 只用于诊断、修复后验证、release smoke、installed-state dogfood 或 migration，并应保留故障前 evidence。
+
+Workstream source authority 以 primary lifecycle 为 project-level 边界：primary active detail 是主线当前 source，primary archive 表示该 Workstream 已进入历史终态，其他 linked/registered worktree 中残留的旧 Active detail 不得将其复活。Workstream 自己的 bound worktree 只有在 registry state=`active` 时才可作为当前专属 source；非 active registry 下优先 primary current/terminal source。unrelated registered worktree 仍保留在 worktree diagnostics 与历史 evidence 中，但不成为其他 Workstream 的 canonical semantic source；真正的 primary/bound active divergence 继续用 source consistency/Alert 显式暴露。
+
 Observer Core 不硬编码 MCP 名称、电脑、盘符或项目实例。Scheduled Task 需要调用哪个项目访问工具由项目自己的 wrapper/adapter 决定；例如某个具体项目的 wrapper 可以指定一个 DevSpace connector，但该名字不能进入通用 Observer Core。开发 Observer 自身时，稳定安装态 ACF 继续作为 continuation canonical control plane，worktree 内 `uv run acf observer ...` 作为 product-under-test；先在 ACF 项目连续 dogfood 并收口高优先级 issue，再进入合并、PyPI 和全局稳定安装。
 
 ### Workstream guard 模式

@@ -876,7 +876,19 @@ Project Access Adapter / wrapper 负责“如何进入项目”，包括当前�
 
 Scheduled Task 只是 Observer 的定时唤醒器，不是 Observer 本体。
 
-当前使用每小时一次的项目级任务。
+正式运行时，一个项目只维护一个 production Observer Scheduled Task；它固定观察项目 primary checkout，并调用稳定安装态 Observer workflow。开发/维护 Writer 必须使用另一个任务与独立 Workstream，不能把 production watchdog 和 Writer 合成同一个 scheduler owner。
+
+production Observer 的权限边界保持：
+
+```text
+read broad
+write ~/.acf/projects/<project-id>/observer/ only
+control none
+```
+
+它不得 claim/challenge/recover Writer、修改 Git/Workstream、升级工具或直接修代码。发现问题只输出 Alert/diagnostic，由独立 Maintenance Workstream 修复。
+
+生产 Observer 与 Maintenance Writer 应错峰运行，给 Writer 的真实变化留出稳定观察间隔。具体分钟属于项目 wrapper/调度配置，不进入 Observer Core schema；ACF 自身当前 dogfood 采用 Writer `:04`、Observer `:34`。
 
 每轮必须：
 
@@ -890,6 +902,14 @@ Scheduled Task 只是 Observer 的定时唤醒器，不是 Observer 本体。
 不得无工具直接回答，也不得根据聊天历史重建当前状态。
 
 长期产品目标应让 Scheduled Task 只调用稳定的 Observer CLI/workflow，而不是每小时让模型从零重新设计 Dashboard。
+
+### Anti-masking
+
+正式 production Observer 已上线后，开发/维护 Writer 的普通 wake **不得例行运行 `observer snapshot` / render 来保持 Dashboard 新鲜**。Maintenance 应先读取 runs/status/current/dashboard mtime 判断 production task 是否真实按期成功；否则 production scheduler 即使已经失效，Maintenance 的手工刷新也会把 data age 与 Dashboard freshness 伪装成正常。
+
+Maintenance 只有在修复后验证、明确诊断实验、release smoke、installed-state dogfood 或 migration 时才允许主动刷新 Observer；执行前必须先保留故障前 evidence，并把该刷新标记为 maintenance verification，而不能算作 production scheduler 成功证据。
+
+快捷入口同样只维护一个 canonical shortcut；目标变化时更新原 shortcut，不按版本或时间戳无限创建副本。
 
 ---
 

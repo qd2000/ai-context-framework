@@ -210,6 +210,166 @@ class ObserverCliTests(unittest.TestCase):
             self.assertEqual(payload["snapshot"]["project_id"], observer_project.project_id)
             self.assertFalse(observer_project.observer_dir.exists())
 
+    def test_registry_managed_workstream_does_not_fallback_to_unrelated_stale_source_after_primary_archive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, context = self.make_project(root)
+            detail_dir = context / "active" / "workstreams"
+            detail_dir.mkdir(parents=True, exist_ok=True)
+            detail = detail_dir / "WS123.md"
+            detail.write_text(
+                "---\n"
+                "id: WS123\n"
+                "type: Task\n"
+                "status: Active\n"
+                "attention: Now\n"
+                "owner: agent\n"
+                "title: Archived observer task\n"
+                "---\n"
+                "# WS123\n\n"
+                "## 目标\n\n"
+                "验证 unrelated stale worktree 不会复活已归档 Workstream。\n",
+                encoding="utf-8",
+            )
+            self.init_git_project(project)
+
+            unrelated_worktree = root / "unrelated-worktree"
+            subprocess.run(
+                ["git", "worktree", "add", "-b", "unrelated", str(unrelated_worktree)],
+                cwd=project,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            owner_worktree = root / "owner-worktree"
+            subprocess.run(
+                ["git", "worktree", "add", "-b", "ws123-owner", str(owner_worktree)],
+                cwd=project,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            archive_dir = context / "archive" / "workstreams"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            archived_detail = archive_dir / "WS123.md"
+            archived_detail.write_text(
+                detail.read_text(encoding="utf-8").replace("status: Active", "status: Done"),
+                encoding="utf-8",
+            )
+            detail.unlink()
+            subprocess.run(["git", "add", "docs"], cwd=project, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "test: archive WS123"],
+                cwd=project,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            git_project = discover_git_project(project)
+            write_registry(
+                git_project.common_dir,
+                "WS123",
+                {
+                    "workstream": "WS123",
+                    "branch": "ws123-owner",
+                    "path": str(owner_worktree),
+                    "state": "active",
+                    "slug": "archived-observer-task",
+                },
+            )
+            write_registry(
+                git_project.common_dir,
+                "bugfix:unrelated",
+                {
+                    "workstream": None,
+                    "branch": "unrelated",
+                    "path": str(unrelated_worktree),
+                    "state": "active",
+                    "slug": "unrelated",
+                },
+            )
+
+            observer_project = resolve_observer_project(project)
+            worktrees = capture_project_worktrees(observer_project)
+            workstreams = capture_project_workstreams(observer_project, worktrees)
+
+            self.assertNotIn("WS123", {row["id"] for row in workstreams})
+            by_path = {Path(str(row["path"])).resolve(): row for row in worktrees}
+            self.assertTrue(by_path[unrelated_worktree.resolve()]["observer_scope"])
+            self.assertTrue(by_path[unrelated_worktree.resolve()]["registered"])
+
+    def test_non_active_bound_registry_uses_primary_terminal_source_instead_of_stale_bound_active(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, context = self.make_project(root)
+            detail_dir = context / "active" / "workstreams"
+            detail_dir.mkdir(parents=True, exist_ok=True)
+            detail = detail_dir / "WS123.md"
+            detail.write_text(
+                "---\n"
+                "id: WS123\n"
+                "type: Task\n"
+                "status: Active\n"
+                "attention: Now\n"
+                "owner: agent\n"
+                "title: Lifecycle observer task\n"
+                "---\n"
+                "# WS123\n\n"
+                "## 目标\n\n"
+                "验证 terminal primary authority。\n",
+                encoding="utf-8",
+            )
+            self.init_git_project(project)
+
+            owner_worktree = root / "owner-worktree"
+            subprocess.run(
+                ["git", "worktree", "add", "-b", "ws123-owner", str(owner_worktree)],
+                cwd=project,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            detail.write_text(
+                detail.read_text(encoding="utf-8").replace("status: Active", "status: Done"),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "docs"], cwd=project, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "test: mark WS123 done"],
+                cwd=project,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            git_project = discover_git_project(project)
+            write_registry(
+                git_project.common_dir,
+                "WS123",
+                {
+                    "workstream": "WS123",
+                    "branch": "ws123-owner",
+                    "path": str(owner_worktree),
+                    "state": "merged",
+                    "slug": "lifecycle-observer-task",
+                },
+            )
+
+            observer_project = resolve_observer_project(project)
+            workstreams = capture_project_workstreams(
+                observer_project,
+                capture_project_worktrees(observer_project),
+            )
+            workstream = next(row for row in workstreams if row["id"] == "WS123")
+
+            self.assertEqual(workstream["status"], "Done")
+            self.assertEqual(Path(str(workstream["selected_source"])).resolve(), project.resolve())
+            self.assertEqual(
+                {Path(str(row["source_worktree"])).resolve() for row in workstream["sources"]},
+                {project.resolve()},
+            )
+
     def test_snapshot_writes_only_user_level_observer_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             project, _context = self.make_project(Path(tmp))
