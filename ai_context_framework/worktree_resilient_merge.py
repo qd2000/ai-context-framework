@@ -25,6 +25,7 @@ from ai_context_framework.git_support import (
     rev_parse,
     run_git,
     safe_file_key,
+    semantic_status,
     target_payload,
     update_operation,
     write_registry,
@@ -303,15 +304,25 @@ def cleanup_integration(
     result = {"path": str(path), "branch": branch, "worktree_removed": False, "branch_removed": False}
     record = record_for_path(list_worktrees(project.repo_root), path)
     if record is not None:
-        if not is_clean(path):
+        status = semantic_status(path)
+        if not status["clean"]:
             result["status"] = "dirty_retained"
             return result
-        removed = run_git(project.repo_root, ("worktree", "remove", str(path)), check=False)
+        stat_only_paths = [str(value) for value in status["stat_only_paths"]]
+        remove_args: tuple[str, ...] = (
+            "worktree",
+            "remove",
+            *(("--force",) if stat_only_paths else ()),
+            str(path),
+        )
+        removed = run_git(project.repo_root, remove_args, check=False)
         if removed.returncode != 0:
             result["status"] = "worktree_remove_failed"
             result["stderr"] = removed.stderr
             return result
         result["worktree_removed"] = True
+        result["semantic_force"] = bool(stat_only_paths)
+        result["stat_only_paths"] = stat_only_paths
     elif not path.exists():
         result["worktree_removed"] = True
     if branch_exists(project.repo_root, branch):

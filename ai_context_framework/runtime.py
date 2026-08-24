@@ -342,7 +342,7 @@ WORKSTREAM_STATE_TRANSITIONS = {
     "Active": {"Blocked", "ReadyToMerge", "Cancelled"},
     "Blocked": {"Active", "Cancelled"},
     "ReadyToMerge": {"Active", "Merging", "Done", "Cancelled"},
-    "Merging": {"ReadyToMerge", "Done", "Cancelled"},
+    "Merging": {"Active", "ReadyToMerge", "Done", "Cancelled"},
     "Done": set(),
     "Cancelled": set(),
 }
