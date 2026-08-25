@@ -44,6 +44,7 @@ from ai_context_framework import (
 )
 from ai_context_framework.commands import continuation_parsers
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
+from ai_context_framework.commands import continuation_directives as continuation_directive_commands
 from ai_context_framework.commands import continuation_recovery as continuation_recovery_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
 from ai_context_framework.observability import (
@@ -321,6 +322,7 @@ def _paths(root: Path, task_id: str | None) -> dict[str, Path]:
         "workspace": directory / "workspace.json",
         "reconcile": directory / "reconcile.json",
         "recovery": directory / "last_recovery.json",
+        "directives": directory / "directives.json",
     }
 
 
@@ -1069,6 +1071,8 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 ttl_minutes=ttl,
                 now=now,
             )
+            directive_context = continuation_directive_commands.directive_context(paths, control)
+            continuation_directive_commands.observe_directive_context(lease, directive_context)
             round_journal = _load_round_journal(paths, control)
             try:
                 round_journal, round_record = continuation_rounds.begin_round(
@@ -1139,6 +1143,7 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 "heartbeat_interval_minutes": control["heartbeat_interval_minutes"],
                 "stale_after_minutes": control["stale_after_minutes"],
                 "renew_interval_minutes": control["renew_interval_minutes"],
+                "directive_context": directive_context,
             }
 
     return _guarded(args, "continuation claim", operation)
@@ -1190,12 +1195,18 @@ def continuation_heartbeat_command(args: argparse.Namespace) -> int:
             git = _git_identity(root)
             if git["branch"] != control["expected_branch"] or git["detached"]:
                 raise ContinuationError("Git identity changed during active round", code="workspace_mismatch")
+            directive_context = continuation_directive_commands.directive_context(paths, control)
+            directive_signal = continuation_directive_commands.observe_directive_context(
+                lease,
+                directive_context,
+            )
             lease["last_heartbeat_at"] = _iso()
             _write_json(paths["lease"], lease)
             return {
                 "status": "heartbeat_recorded",
                 "lease": _public_lease(lease),
                 "generation": lease.get("generation"),
+                "directive_signal": directive_signal,
             }
 
     return _guarded(args, "continuation heartbeat", operation)
@@ -1613,11 +1624,20 @@ def continuation_renew_command(args: argparse.Namespace) -> int:
             if ttl < 1 or ttl > MAX_LEASE_TTL_MINUTES:
                 raise ContinuationError("invalid lease TTL", code="timing_invalid")
             now = _now()
+            directive_context = continuation_directive_commands.directive_context(paths, control)
+            directive_signal = continuation_directive_commands.observe_directive_context(
+                lease,
+                directive_context,
+            )
             lease["last_heartbeat_at"] = _iso(now)
             lease["last_renew_at"] = _iso(now)
             lease["expires_at"] = _iso(now + timedelta(minutes=ttl))
             _write_json(paths["lease"], lease)
-            return {"status": "renewed", "lease": _public_lease(lease)}
+            return {
+                "status": "renewed",
+                "lease": _public_lease(lease),
+                "directive_signal": directive_signal,
+            }
 
     return _guarded(args, "continuation renew", operation)
 
@@ -1912,6 +1932,7 @@ def continuation_issue_command(args: argparse.Namespace) -> int:
 
 
 def register_round_effect_parsers(subparsers, add_json_argument) -> None:
+    continuation_directive_commands.register_directive_parser(subparsers, add_json_argument)
     continuation_parsers.register_round_effect_parsers(
         subparsers,
         add_json_argument,
