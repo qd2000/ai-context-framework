@@ -31,6 +31,7 @@ PRESERVED_HISTORY_FILES = (
     "last_run.json",
     "pause.json",
     "lease.json",
+    "directives.json",
 )
 
 

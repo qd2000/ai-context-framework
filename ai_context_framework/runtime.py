@@ -50,6 +50,7 @@ from ai_context_framework.commands import workstream as workstream_commands
 from ai_context_framework.commands import worktree as worktree_commands
 from ai_context_framework.commands import continuation as continuation_commands, observer as observer_commands
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
+from ai_context_framework.commands import continuation_directives as continuation_directive_commands
 from ai_context_framework.commands.log import (
     build_usage_event,
     check_counts,
@@ -1292,6 +1293,11 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_heartbeat_parser.add_argument("--fence-token", default=None)
     add_json_argument(continuation_heartbeat_parser)
     continuation_heartbeat_parser.set_defaults(func=continuation_commands.continuation_heartbeat_command)
+
+    continuation_directive_commands.register_directive_parser(
+        continuation_subparsers,
+        add_json_argument,
+    )
 
     continuation_commands.register_round_effect_parsers(
         continuation_subparsers,

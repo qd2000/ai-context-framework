@@ -11,7 +11,12 @@ from datetime import timedelta
 from pathlib import Path
 
 import acf
-from ai_context_framework import continuation_inventory, continuation_rounds, continuation_workspace
+from ai_context_framework import (
+    continuation_directives,
+    continuation_inventory,
+    continuation_rounds,
+    continuation_workspace,
+)
 from ai_context_framework.commands import continuation, continuation_workspace as continuation_workspace_command
 from ai_context_framework.observability import usage_log_path
 from ai_context_framework.runtime_parts.archive_workstream import render_workstream_index
@@ -167,6 +172,10 @@ class ContinuationCliTests(unittest.TestCase):
             [continuation_workspace.WORKSPACE_SCHEMA],
             payload["schema_contract"]["workspace.json"]["current"],
         )
+        self.assertEqual(
+            ["acf.continuation.directive-journal.v1"],
+            payload["schema_contract"]["directives.json"]["current"],
+        )
 
         code, doctor, stderr = self.run_json(
             ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
@@ -175,6 +184,301 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("current", doctor["state_compatibility"]["compatibility"])
         self.assertFalse(doctor["state_compatibility"]["migration_required"])
         self.assertEqual(str(init["state_dir"]), str(task["state_dir"]))
+
+    def test_directive_inbox_is_user_level_append_only_and_lifecycle_is_auditable(self) -> None:
+        init = self.init_task()
+        baseline = self._git("status", "--porcelain").stdout
+
+        code, added, stderr = self.run_json(
+            [
+                "continuation",
+                "directive",
+                "add",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--kind",
+                "requirement",
+                "--priority",
+                "80",
+                "--text",
+                "Add a durable project narrative to the Observer dashboard.",
+                "--evidence-ref",
+                "plan:WS012.4",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{added}")
+        directive = added["directive"]
+        directive_id = str(directive["id"])
+        self.assertEqual("pending", directive["status"])
+        self.assertEqual(1, added["directive_context"]["pending_count"])
+        journal_path = Path(str(added["journal_path"]))
+        self.assertEqual(Path(str(init["state_dir"])) / "directives.json", journal_path)
+        self.assertTrue(journal_path.is_file())
+        self.assertEqual(baseline, self._git("status", "--porcelain").stdout)
+
+        code, listed, stderr = self.run_json(
+            [
+                "continuation",
+                "directive",
+                "list",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--status",
+                "pending",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{listed}")
+        self.assertEqual([directive_id], [item["id"] for item in listed["directives"]])
+
+        code, adopted, stderr = self.run_json(
+            [
+                "continuation",
+                "directive",
+                "adopt",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--directive-id",
+                directive_id,
+                "--evidence-ref",
+                "docs/ai/active/Task_Plan.md",
+                "--note",
+                "Synchronized into project authority.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{adopted}")
+        self.assertEqual("adopted", adopted["directive"]["status"])
+        self.assertEqual(0, adopted["directive_context"]["pending_count"])
+
+        code, resolved, stderr = self.run_json(
+            [
+                "continuation",
+                "directive",
+                "resolve",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--directive-id",
+                directive_id,
+                "--evidence-ref",
+                "commit:abc123",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{resolved}")
+        self.assertEqual("resolved", resolved["directive"]["status"])
+        journal = json.loads(journal_path.read_text(encoding="utf-8"))
+        self.assertEqual(3, journal["revision"])
+        self.assertEqual(["added", "adopted", "resolved"], [event["event_kind"] for event in journal["events"]])
+        self.assertEqual(
+            "Add a durable project narrative to the Observer dashboard.",
+            journal["events"][0]["text"],
+        )
+
+    def test_directive_supersede_creates_replacement_without_rewriting_original(self) -> None:
+        self.init_task()
+        code, added, stderr = self.run_json(
+            [
+                "continuation",
+                "directive",
+                "add",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--kind",
+                "priority_change",
+                "--priority",
+                "60",
+                "--text",
+                "Prefer the old maintenance order.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{added}")
+        old_id = str(added["directive"]["id"])
+        code, superseded, stderr = self.run_json(
+            [
+                "continuation",
+                "directive",
+                "supersede",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--directive-id",
+                old_id,
+                "--kind",
+                "priority_change",
+                "--priority",
+                "95",
+                "--text",
+                "Implement live steering before passive acceptance.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{superseded}")
+        replacement = superseded["replacement"]
+        self.assertEqual("superseded", superseded["superseded"]["status"])
+        self.assertEqual(replacement["id"], superseded["superseded"]["superseded_by"])
+        self.assertEqual("pending", replacement["status"])
+        self.assertEqual([old_id], replacement["supersedes"])
+        self.assertEqual(1, superseded["directive_context"]["pending_count"])
+
+        code, shown, stderr = self.run_json(
+            [
+                "continuation",
+                "directive",
+                "show",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--directive-id",
+                old_id,
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{shown}")
+        self.assertEqual("Prefer the old maintenance order.", shown["directive"]["text"])
+
+    def test_directive_active_inbox_capacity_fails_closed_without_mutating_journal(self) -> None:
+        journal = continuation_directives.empty_journal("WS900")
+        for index in range(continuation_directives.MAX_ACTIVE_DIRECTIVES):
+            journal, _ = continuation_directives.add_directive(
+                journal,
+                kind="requirement",
+                priority=50,
+                text=f"Bounded directive {index}",
+                created_at="2026-08-25T03:00:00Z",
+                actor="user",
+            )
+
+        revision = journal["revision"]
+        with self.assertRaisesRegex(
+            continuation_directives.DirectiveError,
+            "active directive inbox exceeds",
+        ) as raised:
+            continuation_directives.add_directive(
+                journal,
+                kind="requirement",
+                priority=50,
+                text="This directive must fail closed at capacity.",
+                created_at="2026-08-25T03:00:00Z",
+                actor="user",
+            )
+        self.assertEqual("directive_capacity_exceeded", raised.exception.code)
+        self.assertEqual(revision, journal["revision"])
+        self.assertEqual(
+            continuation_directives.MAX_ACTIVE_DIRECTIVES,
+            len(continuation_directives.project_directives(journal)),
+        )
+
+    def test_pending_directive_surfaces_in_prompt_and_heartbeat_change_signal(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            ["continuation", "claim", str(self.root), "--task-id", "WS900", "--runner-id", "runner-a"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        self.assertEqual(0, claim["directive_context"]["revision"])
+
+        code, added, stderr = self.run_json(
+            [
+                "continuation",
+                "directive",
+                "add",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--kind",
+                "constraint",
+                "--priority",
+                "90",
+                "--text",
+                "Do not refresh production Observer state from maintenance wakes.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{added}")
+        directive_id = str(added["directive"]["id"])
+
+        owner = [
+            "--lease-id",
+            str(claim["lease"]["lease_id"]),
+            *self.owner_flags(claim),
+        ]
+        code, heartbeat, stderr = self.run_json(
+            ["continuation", "heartbeat", str(self.root), "--task-id", "WS900", *owner]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{heartbeat}")
+        signal = heartbeat["directive_signal"]
+        self.assertTrue(signal["changed_since_last_observation"])
+        self.assertTrue(signal["authority_refresh_required"])
+        self.assertEqual(1, signal["pending_count"])
+        self.assertEqual(directive_id, signal["latest_directive_id"])
+
+        code, heartbeat2, stderr = self.run_json(
+            ["continuation", "heartbeat", str(self.root), "--task-id", "WS900", *owner]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{heartbeat2}")
+        self.assertFalse(heartbeat2["directive_signal"]["changed_since_last_observation"])
+
+        code, added2, stderr = self.run_json(
+            [
+                "continuation",
+                "directive",
+                "add",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--kind",
+                "priority_change",
+                "--priority",
+                "95",
+                "--text",
+                "Prioritize live steering before the old persisted next action.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{added2}")
+        code, renewed, stderr = self.run_json(
+            ["continuation", "renew", str(self.root), "--task-id", "WS900", *owner]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{renewed}")
+        self.assertTrue(renewed["directive_signal"]["changed_since_last_observation"])
+        self.assertEqual(2, renewed["directive_signal"]["pending_count"])
+
+        code, prompt, stderr = self.run_json(
+            [
+                "continuation",
+                "prompt",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prompt}")
+        self.assertEqual(2, prompt["directive_context"]["pending_count"])
+        self.assertEqual(added2["directive"]["id"], prompt["directive_context"]["latest_directive"]["id"])
+        self.assertIn("Pending directives are new user-authority signals", prompt["prompt"])
+        self.assertIn("Do not refresh production Observer state from maintenance wakes.", prompt["prompt"])
+        self.assertTrue(
+            prompt["execution_policy"]["pending_user_directive_supersedes_persisted_next_action"]
+        )
+
+    def test_directive_refuses_credential_like_text(self) -> None:
+        self.init_task()
+        code, payload, _ = self.run_json(
+            [
+                "continuation",
+                "directive",
+                "add",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--kind",
+                "requirement",
+                "--text",
+                "Use api_key=super-secret-value for the integration.",
+            ]
+        )
+        self.assertNotEqual(0, code)
+        self.assertEqual("directive_sensitive_value_refused", payload["error_code"])
 
     def test_list_all_projects_discovers_namespaced_tasks(self) -> None:
         self.init_task("WS900")

@@ -36,6 +36,7 @@ except ImportError:  # pragma: no cover - Windows path.
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
 from ai_context_framework import (
     continuation_coordination,
+    continuation_directives,
     continuation_effect_archive,
     continuation_inventory,
     continuation_recovery,
@@ -44,6 +45,7 @@ from ai_context_framework import (
 )
 from ai_context_framework.commands import continuation_parsers
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
+from ai_context_framework.commands import continuation_directives as continuation_directive_commands
 from ai_context_framework.commands import continuation_recovery as continuation_recovery_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
 from ai_context_framework.observability import (
@@ -321,6 +323,7 @@ def _paths(root: Path, task_id: str | None) -> dict[str, Path]:
         "workspace": directory / "workspace.json",
         "reconcile": directory / "reconcile.json",
         "recovery": directory / "last_recovery.json",
+        "directives": directory / "directives.json",
     }
 
 
@@ -630,6 +633,38 @@ def _load_control(paths: Mapping[str, Path], root: Path) -> dict[str, Any]:
 
 def _load_state(paths: Mapping[str, Path]) -> dict[str, Any]:
     return _validate_state(_compact_state_lists(_read_json(paths["state"], label="state")))
+
+
+def _directive_context(paths: Mapping[str, Path], control: Mapping[str, Any]) -> dict[str, Any]:
+    return continuation_directive_commands.directive_context(paths, control)
+
+
+def _observe_directive_context(
+    lease: dict[str, Any],
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    previous_revision = lease.get("directive_revision_seen")
+    previous_digest = lease.get("directive_digest_seen")
+    revision = int(context.get("revision") or 0)
+    digest = str(context.get("digest") or "")
+    changed = previous_revision is not None and (
+        previous_revision != revision or previous_digest != digest
+    )
+    lease["directive_revision_seen"] = revision
+    lease["directive_digest_seen"] = digest
+    latest = context.get("latest_directive")
+    latest_id = latest.get("id") if isinstance(latest, Mapping) else None
+    return {
+        "schema_version": continuation_directives.DIRECTIVE_CONTEXT_SCHEMA,
+        "revision": revision,
+        "digest": digest,
+        "pending_count": int(context.get("pending_count") or 0),
+        "latest_directive_id": latest_id,
+        "authority_refresh_required": bool(context.get("authority_refresh_required")),
+        "changed_since_last_observation": changed,
+        "previous_revision": previous_revision,
+        "previous_digest": previous_digest,
+    }
 
 
 def _lease_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> dict[str, Any]:
@@ -1069,6 +1104,8 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 ttl_minutes=ttl,
                 now=now,
             )
+            directive_context = _directive_context(paths, control)
+            _observe_directive_context(lease, directive_context)
             round_journal = _load_round_journal(paths, control)
             try:
                 round_journal, round_record = continuation_rounds.begin_round(
@@ -1139,6 +1176,7 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 "heartbeat_interval_minutes": control["heartbeat_interval_minutes"],
                 "stale_after_minutes": control["stale_after_minutes"],
                 "renew_interval_minutes": control["renew_interval_minutes"],
+                "directive_context": directive_context,
             }
 
     return _guarded(args, "continuation claim", operation)
@@ -1190,12 +1228,15 @@ def continuation_heartbeat_command(args: argparse.Namespace) -> int:
             git = _git_identity(root)
             if git["branch"] != control["expected_branch"] or git["detached"]:
                 raise ContinuationError("Git identity changed during active round", code="workspace_mismatch")
+            directive_context = _directive_context(paths, control)
+            directive_signal = _observe_directive_context(lease, directive_context)
             lease["last_heartbeat_at"] = _iso()
             _write_json(paths["lease"], lease)
             return {
                 "status": "heartbeat_recorded",
                 "lease": _public_lease(lease),
                 "generation": lease.get("generation"),
+                "directive_signal": directive_signal,
             }
 
     return _guarded(args, "continuation heartbeat", operation)
@@ -1613,11 +1654,17 @@ def continuation_renew_command(args: argparse.Namespace) -> int:
             if ttl < 1 or ttl > MAX_LEASE_TTL_MINUTES:
                 raise ContinuationError("invalid lease TTL", code="timing_invalid")
             now = _now()
+            directive_context = _directive_context(paths, control)
+            directive_signal = _observe_directive_context(lease, directive_context)
             lease["last_heartbeat_at"] = _iso(now)
             lease["last_renew_at"] = _iso(now)
             lease["expires_at"] = _iso(now + timedelta(minutes=ttl))
             _write_json(paths["lease"], lease)
-            return {"status": "renewed", "lease": _public_lease(lease)}
+            return {
+                "status": "renewed",
+                "lease": _public_lease(lease),
+                "directive_signal": directive_signal,
+            }
 
     return _guarded(args, "continuation renew", operation)
 

@@ -15,6 +15,7 @@ from typing import Any, Mapping
 
 from ai_context_framework import (
     continuation_coordination,
+    continuation_directives,
     continuation_inventory,
     continuation_recovery,
     continuation_rounds,
@@ -100,6 +101,10 @@ def continuation_schema_contract() -> dict[str, dict[str, Any]]:
         },
         "last_migration.json": {
             "current": [continuation_inventory.MIGRATION_RECEIPT_SCHEMA],
+            "required": False,
+        },
+        "directives.json": {
+            "current": [continuation_directives.DIRECTIVE_JOURNAL_SCHEMA],
             "required": False,
         },
     }
@@ -575,6 +580,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
         runner_id = str(getattr(args, "runner_id", None) or "").strip() or None
         plan_refs = list(state.get("plan_refs") or [])
         constraints = list(state.get("constraints") or [])
+        directive_context = core._directive_context(paths, control)
 
         effect_summary = effect_snapshot.get("summary")
         if not isinstance(effect_summary, dict):
@@ -650,6 +656,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "next_action_is_work_quota": False,
             "next_action_requires_authority_refresh": True,
             "next_action_may_be_superseded_by_newer_authority": True,
+            "pending_user_directive_supersedes_persisted_next_action": True,
             "checkpoint_is_stop": False,
             "commit_is_stop": False,
             "gate_completion_is_stop": False,
@@ -702,6 +709,21 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                 ),
             },
         }
+        pending_directives = list(directive_context.get("pending") or [])
+
+        def render_directives(values: list[Any]) -> str:
+            if not values:
+                return "- No pending user directives."
+            rendered: list[str] = []
+            for value in values:
+                if not isinstance(value, Mapping):
+                    continue
+                rendered.append(
+                    "- "
+                    f"{value.get('id')} | kind={value.get('kind')} | priority={value.get('priority')} | "
+                    f"{value.get('text')}"
+                )
+            return "\n".join(rendered) or "- No pending user directives."
         lease_snapshot = status_snapshot["lease"]
         raw_lease = lease_snapshot.get("lease") if isinstance(lease_snapshot, Mapping) else None
         owner_runner_id = str(raw_lease.get("runner_id") or "") if isinstance(raw_lease, Mapping) else None
@@ -886,6 +908,12 @@ Authority rule:
 - Completing the default plan is not a work quota or stopping boundary. Reassess the overall objective and continue with the next safe, non-repetitive, valuable action while useful work remains.
 - Never replay an already-observed side effect merely because persisted recovery metadata is old.
 
+User directive authority:
+- Directive revision: {directive_context['revision']}; pending: {directive_context['pending_count']}; digest: {directive_context['digest']}.
+- Pending directives are new user-authority signals and supersede the persisted default execution plan until authority refresh decides how each applies.
+- The directive inbox is not a second Task Plan. Persistent requirements/constraints/plan changes must be synchronized into the correct project Markdown authority before being marked adopted; temporary runtime steering may be adopted with durable evidence.
+{render_directives(pending_directives)}
+
 Ownership now:
 - Disposition: {owner_disposition}
 - Caller runner: {runner_id or 'not supplied'}
@@ -972,6 +1000,7 @@ Reusable product issues:
                 "next_action": state["next_action"],
             },
             "owner_context": owner_context,
+            "directive_context": directive_context,
             "resume_context": resume_context,
             "execution_policy": execution_policy,
             "project_context": project_context,
