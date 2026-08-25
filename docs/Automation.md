@@ -12,6 +12,20 @@
 
 并行 Scheduled Task / 外部 agent 使用 `acf continuation` 时，命令级成功/失败自动进入用户级 usage log；遇到具体、可复用、证据支持的 ACF / continuation / 调度工作流缺口时，agent 通过 `acf continuation issue` 写结构化 issue。`acf log issues --all-projects --json` 按稳定 fingerprint 聚合不同 worktree 的重复 occurrence，供后续产品改进直接复用。正常 active-lease no-op、等待外部任务和业务算法失败不得记录为产品 issue。
 
+ACF 自身的 WS012 Maintenance Writer 负责把该跨项目 issue 池真正消费起来，而不是只累计日志：每次 `:04` wake 可以只读获取 `acf log issues --all-projects --open-only --json`，先按当前稳定版重新验证、识别已修复但未 resolve 的历史项、聚合同根因 fingerprint，再分为 Immediate / Ready Batch / Observe。critical、数据损坏/重复副作用风险、continuation 自锁、阻断 Scheduled Task 或当前稳定版的跨 Workstream 严重 regression 应立即进入修复；普通 high/medium 先形成 deterministic regression、affected files、repair plan 和 validation plan，达到 WS012 PLAN 定义的 batch 条件后一次性处理当时全部 Ready Batch root-cause clusters。原始 open issue 数量本身不作为 batch 触发条件。
+
+### WS012 动态用户需求与 live steering（计划中，稳定版尚未实现）
+
+长时间 continuation 任务还需要正式接收用户中途新增的 requirement、priority change、constraint 和 plan change。该能力计划以 `acf continuation directive ...` 作为用户级、可审计的 authority inbox；它不是第二套 Task Plan，也不会让 CLI 自动裁决自然语言事实。pending directive 只负责可靠表达“用户 authority 已变化”，Agent 在下一次 authority refresh 后决定临时执行还是把持久要求同步到正确的 Markdown PLAN / Workstream / Rules，再将 directive adopt/resolve。
+
+WS012 的第一版目标包括：
+
+- directive durable event/history 存在 continuation 用户级 namespace，不引入数据库或常驻 agent runtime；
+- `continuation prompt --json` 暴露 pending directive 摘要和 digest/revision，并在 generated prompt 中高显著提示旧 `next_action` 可能已被新用户 authority supersede；
+- heartbeat/renew 能提示 pending directive revision 变化，使长 session 可以在下一次 scheduler wake 前发现用户 steering；
+- 第一轮 dogfood 使用该渠道正式注入并消费“Observer Project Narrative / Project Map”和“Global continuation issue maintenance”两个真实需求；
+- 在 CLI 真正实现前，Scheduled Task wrapper 只能把已明确落入 WS012 PLAN 的新用户 authority 当作当前计划，不得在文档中伪称 `directive` 命令已经可用。
+
 `acf.py` 先覆盖确定性工作：
 
 - 可安装入口：`pyproject.toml` 提供 `acf` console script；正式用户从 PyPI 使用 `uv tool install ai-context-framework`，更新使用 `uv tool upgrade ai-context-framework`；仓库开发期可用 `uv tool install -e .`，本仓库开发入口仍保留 `uv run python acf.py ...`。

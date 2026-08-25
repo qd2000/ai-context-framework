@@ -1038,3 +1038,91 @@ ACF Project Observer 的核心原则：
 > **Observer 解释项目，但不能替项目创造事实。**
 >
 > **ACF 自己必须先用开发态 Observer 完成真实 dogfood，再允许全局/PyPI 发布。**
+
+---
+
+## 42. WS012 计划扩展：Project Narrative / Architecture Map / Logical Milestone Flow
+
+> 状态：**Planned in WS012，当前稳定版尚未实现。**
+
+现有 Dashboard 已经能回答“项目现在是否健康”“当前 Workstream 在做什么”“最近发生了什么”，但仍然缺少长期阅读所需的项目级叙事骨架。WS012 将增加一个独立的 **Project Narrative** derived semantic layer，使 Dashboard 还能稳定回答：
+
+1. 项目的整体目标是什么；
+2. 主要架构模块是什么、它们之间如何关联；
+3. 项目沿什么逻辑路线演进到当前阶段；
+4. 哪些 milestone 已完成、当前位于哪里、后续逻辑是什么；
+5. 每个节点由哪些项目 authority / evidence 支撑。
+
+计划数据结构：
+
+```text
+Project Narrative
+├─ overall_goal
+│  ├─ summary
+│  └─ provenance
+├─ architecture
+│  ├─ nodes[]
+│  └─ edges[]
+├─ milestones[]
+│  ├─ id / title / status
+│  ├─ depends_on / next
+│  ├─ summary / implication
+│  └─ evidence / provenance
+└─ current_position
+```
+
+该层必须继续遵守 Observer 的事实边界：
+
+- Narrative 是 derived semantic state，不替代 `Context.md`、Task Plan、Workstream、ADR、Git 或其他项目 authority；
+- model/agent 可以根据已授权的项目上下文生成语义解释，ACF CLI 只负责确定性的 schema 校验、版本化、source fingerprint、stale 判定、历史保存和渲染；
+- 不默认扫描全部仓库；继续从项目入口、active authority、plan refs、Workstream context 与可选 Project Observation Profile 渐进读取；
+- 每个总体目标、architecture node/edge、milestone 和 current position 必须保留 provenance；
+- source fingerprint 与当前项目 authority 不一致时，旧 Narrative 必须显示为 `stale`，不能继续作为 current project story；
+- 缺少足够 authority 时允许显示 Unknown/Not interpreted，不为了填满流程图而推造历史。
+
+Dashboard 信息结构扩展为：
+
+```text
+Project Overview
+├─ Overall Goal
+├─ Architecture Map
+├─ Logical Milestone Flow / Project Evolution
+├─ Current Position
+├─ Overall Health / Alerts
+├─ Current Workstreams
+├─ Meaningful Timeline
+└─ Technical provenance
+```
+
+其中 Logical Milestone Flow 不是最近事件流水账，而是跨版本持续存在的**逻辑进度链**。Timeline 继续记录“什么时候发生了什么”，Milestone Flow 负责解释“为什么这些工作按这个逻辑串起来”。两者不能互相替代。
+
+### 42.1 可视化与颜色语义
+
+Project Map 继续输出单一、自包含、`file://` 可打开的静态 HTML：
+
+- 不引入 React、Mermaid runtime、Graphviz runtime、外部 CDN 或 HTTP daemon；
+- architecture / flow 优先使用确定性 HTML/CSS 与 inline SVG；
+- SVG 只作为 renderer 输出，不成为新的私有事实格式；
+- 节点文本、状态和 provenance 必须在不看颜色时仍然可理解。
+
+建议视觉语义：
+
+| 含义 | 建议色系 |
+| --- | --- |
+| Overall Goal | Indigo |
+| Architecture category | Blue / Cyan / Violet |
+| Completed | Emerald |
+| Current / Active | Blue |
+| Maintenance | Purple |
+| Waiting | Amber |
+| Warning | Orange |
+| Critical / Blocked | Red |
+| Future / Planned | Slate |
+
+颜色用于形成视觉层级，不替代文字、图标和 canonical status。
+
+### 42.2 与 Production Observer 的关系
+
+Project Narrative 的刷新仍由正式 Production Observer 流程驱动。Maintenance Writer 可以在实现/修复验证、release smoke 或 installed-state dogfood 时显式生成测试数据，但普通 `:04` wake 不得为了让 Project Map 看起来“更新了”而例行刷新 production Observer runtime。
+
+因此 WS012 的 anti-masking contract 对新增 Project Narrative 同样有效：如果 `:34` scheduler 没有真正运行，Dashboard/Project Map 应该自然变 stale，而不是由 Maintenance 替它续命。
