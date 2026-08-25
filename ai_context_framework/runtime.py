@@ -1409,29 +1409,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(continuation_prompt_parser)
     continuation_prompt_parser.set_defaults(func=continuation_commands.continuation_prompt_command)
 
-    continuation_issue_parser = continuation_subparsers.add_parser(
-        "issue",
-        help="record one structured reusable dogfood issue in the user-level ACF log",
-    )
-    continuation_issue_parser.add_argument("path", nargs="?", type=Path)
-    continuation_issue_parser.add_argument("--task-id", default=None)
-    continuation_issue_parser.add_argument("--category", default="other")
-    continuation_issue_parser.add_argument(
-        "--severity",
-        choices=("low", "medium", "high", "critical"),
-        default="medium",
-    )
-    continuation_issue_parser.add_argument("--text", required=True)
-    continuation_issue_parser.add_argument(
-        "--resolve-fingerprint",
-        default=None,
-        help="append a resolution event for an existing aggregated issue fingerprint",
-    )
-    continuation_issue_parser.add_argument("--evidence-ref", action="append", default=None)
-    continuation_issue_parser.add_argument("--related-command", default=None)
-    continuation_issue_parser.add_argument("--runner-id", default="agent")
-    add_json_argument(continuation_issue_parser)
-    continuation_issue_parser.set_defaults(func=continuation_commands.continuation_issue_command)
+    continuation_commands.register_issue_parser(continuation_subparsers, add_json_argument)
 
     plan_parser = subparsers.add_parser("plan", help="manage active/Task_Plan.md")
     plan_subparsers = plan_parser.add_subparsers(dest="plan_command", required=True)
