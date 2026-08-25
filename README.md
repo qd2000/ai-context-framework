@@ -142,7 +142,7 @@ ACF 不追求保存更多上下文，而是维护一个低噪声、高权威、�
 `acf` 已经通过 `pyproject.toml` 暴露为标准 console script。Windows 和 WSL/Linux 是两套独立环境：在哪个环境里运行 `acf`，就需要在哪个环境里安装一次。
 
 - 正式用户安装发布版本：`uv tool install ai-context-framework`
-- 已安装发布版本后一键更新：`uv tool upgrade ai-context-framework`
+- 已安装发布版本后一键更新：交互式、确认没有其他 ACF 进程时可用 `uv tool upgrade ai-context-framework`；Windows 自动化/并行 Writer 环境优先使用 `scripts/update_acf.ps1`
 - 安装或更新后刷新 shell PATH：`uv tool update-shell`
 - 仓库维护者安装当前源码快照：`uv tool install .`
 - 开发安装（仅调试 CLI 修改时使用）：`uv tool install -e .`
@@ -159,9 +159,10 @@ uv tool update-shell
 正式发布版本更新：
 
 ```powershell
-uv tool upgrade ai-context-framework
-uv tool update-shell
+pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1
 ```
+
+Windows 更新脚本会在任何全局 ACF tool 进程仍占用 `uv` tool 环境时先 fail-closed，避免 `uv` 已开始替换文件后因句柄占用留下半损坏环境；确认静默后，它使用未固定版本的 `uv tool install --force --upgrade ai-context-framework`，既能发现最新 PyPI 稳定版，也能修复先前中断造成的缺失包。需要强制重装当前最新稳定版时使用 `-Reinstall`。直接 `uv tool upgrade` 仍适合确定没有并发 ACF 进程且安装 receipt 未被精确版本固定的交互式环境。
 
 如果已经取得本仓库源码，也可以使用一键脚本：
 

@@ -332,11 +332,11 @@ Global-first progressive disclosure：没有明确选择时，无论存在多少
 常见安装方式：
 
 - 正式发布版本安装：`uv tool install ai-context-framework`
-- 正式发布版本更新：`uv tool upgrade ai-context-framework`
+- 正式发布版本更新：Windows 自动化/并行环境优先运行 `pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1`；确认没有并发 ACF 进程的普通交互式环境也可使用 `uv tool upgrade ai-context-framework`
 - 安装或更新后刷新 shell PATH：`uv tool update-shell`
 - 仓库维护者安装当前源码快照：`uv tool install .`
 - 调试 CLI 改动或安装链路时使用 editable 安装：`uv tool install -e .`
-- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1` 或 `sh scripts/install_acf.sh`。
+- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1`、`pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1` 或对应的 `sh` 入口。Windows PowerShell 脚本会在 ACF tool 环境仍被进程占用时 fail-closed；更新脚本使用未固定版本的 `uv tool install --force --upgrade`，避免 pinned receipt 阻止发现新稳定版，并可在无占用进程时用 `-Reinstall` 修复中断安装。
 
 验证命令：
 
