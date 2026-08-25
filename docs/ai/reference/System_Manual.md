@@ -330,6 +330,10 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 
 `new worklog --append` 的 JSON 面向 AI 稳定解析：`target` 和 `changed_files` 使用 repo-relative POSIX slash 路径；成功输出包含结构化 `warnings` 数组；`insert_after_line` 是 1-based 行号；`--dry-run --json` 不写文件；append 不是幂等操作，每运行一次都会新增一段内容。目标已存在但未传 `--append` 或 `--force` 时，`error_code=TARGET_EXISTS_APPEND_REQUIRED`；`--append --force` 返回 `APPEND_FORCE_CONFLICT`；anchor 缺失返回 `ANCHOR_NOT_FOUND`。
 
+### Continuation compact authority retirement
+
+`constraints / open_questions` 是 continuation compact state 中的**当前 authority hint**，不是 append-only 历史。newer authority 明确推翻旧 constraint 或关闭旧 question 后，authenticated owner 可在 `continuation checkpoint` 使用 exact-match `--supersede-constraint` / `--resolve-open-question` 并提供 durable `--evidence-ref`，把旧项退休与新的 stage/status/next_action/constraint 在同一 checkpoint 中原子收口。CLI 只做机械 exact-match 状态维护：不存在的条目、缺少 evidence 或模糊文本匹配均拒绝，不会自行判断自然语言是否已经失效。
+
 ---
 
 ## 人工反馈处理

@@ -958,6 +958,134 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, f"{stderr}\n{prompt}")
         self.assertEqual("rendered", prompt["status"])
 
+    def test_checkpoint_retires_superseded_constraints_and_resolved_questions(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+
+        code, seeded, stderr = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--constraint",
+                "Old runtime host is mandatory.",
+                "--open-question",
+                "Is the old runtime host still available?",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{seeded}")
+
+        code, missing_evidence, _ = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--supersede-constraint",
+                "Old runtime host is mandatory.",
+            ]
+        )
+        self.assertEqual(2, code)
+        self.assertEqual("state_authority_evidence_required", missing_evidence["error_code"])
+
+        code, retired, stderr = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--supersede-constraint",
+                "Old runtime host is mandatory.",
+                "--resolve-open-question",
+                "Is the old runtime host still available?",
+                "--constraint",
+                "Use the current runtime host inventory.",
+                "--evidence-ref",
+                "directive:dir-current-authority",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{retired}")
+        self.assertIn("Use the current runtime host inventory.", retired["state"]["constraints"])
+        self.assertNotIn("Old runtime host is mandatory.", retired["state"]["constraints"])
+        self.assertEqual([], retired["state"]["open_questions"])
+        self.assertEqual(
+            ["Old runtime host is mandatory."],
+            retired["retired_state_items"]["constraints"],
+        )
+        self.assertEqual(
+            ["Is the old runtime host still available?"],
+            retired["retired_state_items"]["open_questions"],
+        )
+        self.assertIn("directive:dir-current-authority", retired["state"]["evidence_refs"])
+
+        code, prompt, stderr = self.run_json(
+            ["continuation", "prompt", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{prompt}")
+        self.assertIn("Use the current runtime host inventory.", prompt["prompt"])
+        self.assertNotIn("Old runtime host is mandatory.", prompt["prompt"])
+        self.assertIn("--supersede-constraint", prompt["prompt"])
+        self.assertIn("--resolve-open-question", prompt["prompt"])
+
+    def test_checkpoint_rejects_retiring_noncurrent_state_item(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        code, payload, _ = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--supersede-constraint",
+                "Not a current constraint.",
+                "--evidence-ref",
+                "authority:test",
+            ]
+        )
+        self.assertEqual(2, code)
+        self.assertEqual("state_item_not_found", payload["error_code"])
+
     def test_doctor_and_claim_compact_preexisting_state_list_overflow(self) -> None:
         init = self.init_task()
         state_path = Path(str(init["state_dir"])) / "state.json"

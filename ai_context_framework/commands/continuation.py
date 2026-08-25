@@ -914,6 +914,35 @@ def _append_unique(existing: Iterable[Any], additions: Iterable[Any]) -> list[An
     return result
 
 
+def _retire_exact_state_items(
+    existing: Iterable[Any],
+    retirements: Iterable[str],
+    *,
+    field: str,
+) -> tuple[list[Any], list[str]]:
+    """Retire exact current semantic-state entries without guessing identity.
+
+    ``constraints`` and ``open_questions`` are current compact authority hints,
+    not append-only history.  When newer authority invalidates one of them, an
+    authenticated checkpoint may retire the exact old text.  Exact matching is
+    deliberate: fuzzy or substring removal could silently discard a different
+    still-authoritative constraint/question.
+    """
+
+    result = list(existing)
+    removed: list[str] = []
+    for raw_value in _append_unique([], retirements):
+        value = _validate_text(raw_value, field=field)
+        if value not in result:
+            raise ContinuationError(
+                f"{field} item is not current: {value}",
+                code="state_item_not_found",
+            )
+        result.remove(value)
+        removed.append(value)
+    return result, removed
+
+
 def _emit(args: argparse.Namespace, command: str, payload: Mapping[str, Any], exit_code: int = 0) -> int:
     result = {
         "schema_version": 1,
@@ -1666,6 +1695,23 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
                 state["stage"] = _validate_text(args.stage, field="stage")
             if args.next_action:
                 state["next_action"] = _validate_text(args.next_action, field="next_action")
+            superseded_constraints = args.supersede_constraint or []
+            resolved_open_questions = args.resolve_open_question or []
+            if (superseded_constraints or resolved_open_questions) and not args.evidence_ref:
+                raise ContinuationError(
+                    "retiring a current constraint/open question requires --evidence-ref",
+                    code="state_authority_evidence_required",
+                )
+            state["constraints"], retired_constraints = _retire_exact_state_items(
+                state.get("constraints", []),
+                superseded_constraints,
+                field="constraint",
+            )
+            state["open_questions"], retired_open_questions = _retire_exact_state_items(
+                state.get("open_questions", []),
+                resolved_open_questions,
+                field="open_question",
+            )
             updates = {
                 "completed": args.completed or [],
                 "constraints": args.constraint or [],
@@ -1678,7 +1724,15 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
                 state[field] = _append_unique(state.get(field, []), values)
             state["updated_at"] = _iso()
             state = _write_state(paths["state"], state)
-            return {"status": "checkpointed", "state": state, "next_action": state["next_action"]}
+            return {
+                "status": "checkpointed",
+                "state": state,
+                "next_action": state["next_action"],
+                "retired_state_items": {
+                    "constraints": retired_constraints,
+                    "open_questions": retired_open_questions,
+                },
+            }
 
     return _guarded(args, "continuation checkpoint", operation)
 

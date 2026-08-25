@@ -1337,8 +1337,20 @@ def build_parser() -> argparse.ArgumentParser:
     continuation_checkpoint_parser.add_argument("--next-action", default=None)
     continuation_checkpoint_parser.add_argument("--completed", action="append", default=None)
     continuation_checkpoint_parser.add_argument("--constraint", action="append", default=None)
+    continuation_checkpoint_parser.add_argument(
+        "--supersede-constraint",
+        action="append",
+        default=None,
+        help="retire one exact current constraint superseded by newer authority; requires --evidence-ref",
+    )
     continuation_checkpoint_parser.add_argument("--evidence-ref", action="append", default=None)
     continuation_checkpoint_parser.add_argument("--open-question", action="append", default=None)
+    continuation_checkpoint_parser.add_argument(
+        "--resolve-open-question",
+        action="append",
+        default=None,
+        help="retire one exact current open question resolved by newer authority; requires --evidence-ref",
+    )
     continuation_checkpoint_parser.add_argument("--plan-ref", action="append", default=None)
     continuation_checkpoint_parser.add_argument("--verification", action="append", default=None)
     add_json_argument(continuation_checkpoint_parser)
