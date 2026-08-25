@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import uuid
 from pathlib import Path
 
@@ -19,10 +20,15 @@ from ai_context_framework.observer import (
 )
 from ai_context_framework.observer_storage import (
     OBSERVER_SEMANTIC_CONFIDENCE,
+    ProjectNarrativeSourceMismatch,
     SemanticSensitiveValueError,
     SemanticSourceMismatch,
     acquire_observer_lock,
+    apply_project_narrative,
     apply_semantic_interpretation,
+    project_narrative_source_projection,
+    project_narrative_source_fingerprint,
+    project_narrative_status,
     read_glossary,
     read_observer_history_stream,
     release_observer_lock,
@@ -110,12 +116,37 @@ def register_observer_parser(subparsers, add_json_argument) -> None:
     history_parser.add_argument("path", nargs="?", type=Path)
     history_parser.add_argument(
         "--stream",
-        choices=("timeline", "observations", "alerts", "runs", "interpretations"),
+        choices=("timeline", "observations", "alerts", "runs", "interpretations", "narratives"),
         default="timeline",
     )
     history_parser.add_argument("--limit", type=int, default=20)
     add_json_argument(history_parser)
     history_parser.set_defaults(func=observer_history_command)
+    narrative_source_parser = observer_subparsers.add_parser(
+        "narrative-source",
+        help="read the exact Project Narrative source projection and fingerprint without writing",
+    )
+    narrative_source_parser.add_argument("path", nargs="?", type=Path)
+    narrative_source_parser.add_argument("--source-path", action="append", default=[], required=True)
+    add_json_argument(narrative_source_parser)
+    narrative_source_parser.set_defaults(func=observer_narrative_source_command)
+    narrative_apply_parser = observer_subparsers.add_parser(
+        "narrative-apply",
+        help="persist a versioned Project Narrative against an exact project authority fingerprint",
+    )
+    narrative_apply_parser.add_argument("path", nargs="?", type=Path)
+    narrative_apply_parser.add_argument("--source-fingerprint", required=True)
+    narrative_apply_parser.add_argument("--source-path", action="append", default=[], required=True)
+    narrative_apply_parser.add_argument("--input", type=Path, required=True, help="JSON file containing the derived Project Narrative payload")
+    add_json_argument(narrative_apply_parser)
+    narrative_apply_parser.set_defaults(func=observer_narrative_apply_command)
+    narrative_show_parser = observer_subparsers.add_parser(
+        "narrative",
+        help="show current Project Narrative status against fresh project authority without writing",
+    )
+    narrative_show_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(narrative_show_parser)
+    narrative_show_parser.set_defaults(func=observer_narrative_command)
 
 
 def observer_status_command(args: argparse.Namespace) -> int:
@@ -368,6 +399,160 @@ def observer_glossary_command(args: argparse.Namespace) -> int:
             "glossary": glossary,
             "term_count": len(glossary.get("terms") or {}),
             "message": "Observer glossary read from user-level runtime state.",
+        },
+    )
+
+
+def _snapshot_project_facts(snapshot: dict[str, object]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    workstreams = [row for row in snapshot.get("workstreams") or [] if isinstance(row, dict)]
+    continuations = [row for row in snapshot.get("continuations") or [] if isinstance(row, dict)]
+    return workstreams, continuations
+
+
+def observer_narrative_source_command(args: argparse.Namespace) -> int:
+    project = resolve_observer_project(getattr(args, "path", None))
+    snapshot = build_observer_snapshot(project)
+    workstreams, continuations = _snapshot_project_facts(snapshot)
+    try:
+        projection = project_narrative_source_projection(
+            project,
+            workstreams,
+            continuations,
+            list(args.source_path),
+        )
+        source_fingerprint = project_narrative_source_fingerprint(
+            project,
+            workstreams,
+            continuations,
+            list(args.source_path),
+        )
+    except (OSError, ValueError) as exc:
+        return _emit(
+            args,
+            {
+                **_base_payload("observer narrative-source"),
+                "ok": False,
+                "error_code": "observer_project_narrative_source_invalid",
+                "message": str(exc),
+            },
+            EXIT_SAFETY_REFUSED,
+        )
+    return _emit(
+        args,
+        {
+            **_base_payload("observer narrative-source"),
+            "project": project.to_payload(),
+            "source_fingerprint": source_fingerprint,
+            "source_projection": projection,
+            "message": "Project Narrative source projection read from fresh project authority without writing Observer runtime state.",
+        },
+    )
+
+
+def observer_narrative_apply_command(args: argparse.Namespace) -> int:
+    project = resolve_observer_project(getattr(args, "path", None))
+    input_path = Path(args.input)
+    try:
+        narrative_input = json.loads(input_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return _emit(
+            args,
+            {
+                **_base_payload("observer narrative-apply"),
+                "ok": False,
+                "error_code": "observer_project_narrative_input_invalid",
+                "message": f"cannot read Project Narrative JSON: {exc}",
+            },
+            EXIT_SAFETY_REFUSED,
+        )
+    run_id = f"project-narrative-{uuid.uuid4()}"
+    try:
+        lock_path, _recovered = acquire_observer_lock(project, run_id)
+    except ObserverLockedError as exc:
+        return _emit(
+            args,
+            {
+                **_base_payload("observer narrative-apply"),
+                "ok": False,
+                "error_code": "observer_locked",
+                "lock_path": str(exc.path),
+                "message": "Observer Project Narrative state is already owned by another active Observer run.",
+            },
+            EXIT_SAFETY_REFUSED,
+        )
+    try:
+        snapshot = build_observer_snapshot(project)
+        workstreams, continuations = _snapshot_project_facts(snapshot)
+        try:
+            narrative, changed = apply_project_narrative(
+                project,
+                workstreams=workstreams,
+                continuations=continuations,
+                expected_source_fingerprint=args.source_fingerprint,
+                source_paths=list(args.source_path),
+                narrative=narrative_input,
+            )
+        except ProjectNarrativeSourceMismatch as exc:
+            return _emit(
+                args,
+                {
+                    **_base_payload("observer narrative-apply"),
+                    "ok": False,
+                    "error_code": "observer_project_narrative_source_changed",
+                    "expected_source_fingerprint": exc.expected,
+                    "current_source_fingerprint": exc.current,
+                    "message": "Project authority changed after the Project Narrative source was read; refresh the narrative source before writing derived state.",
+                },
+                EXIT_SAFETY_REFUSED,
+            )
+        except SemanticSensitiveValueError as exc:
+            return _emit(
+                args,
+                {
+                    **_base_payload("observer narrative-apply"),
+                    "ok": False,
+                    "error_code": "observer_sensitive_value_refused",
+                    "message": str(exc),
+                },
+                EXIT_SAFETY_REFUSED,
+            )
+        except (OSError, ValueError) as exc:
+            return _emit(
+                args,
+                {
+                    **_base_payload("observer narrative-apply"),
+                    "ok": False,
+                    "error_code": "observer_project_narrative_invalid",
+                    "message": str(exc),
+                },
+                EXIT_SAFETY_REFUSED,
+            )
+        return _emit(
+            args,
+            {
+                **_base_payload("observer narrative-apply"),
+                "project": project.to_payload(),
+                "changed": changed,
+                "narrative": narrative,
+                "message": "Observer Project Narrative updated user-level derived semantic state." if changed else "Observer Project Narrative is already current.",
+            },
+        )
+    finally:
+        release_observer_lock(lock_path, run_id)
+
+
+def observer_narrative_command(args: argparse.Namespace) -> int:
+    project = resolve_observer_project(getattr(args, "path", None))
+    snapshot = build_observer_snapshot(project)
+    workstreams, continuations = _snapshot_project_facts(snapshot)
+    narrative = project_narrative_status(project, workstreams, continuations)
+    return _emit(
+        args,
+        {
+            **_base_payload("observer narrative"),
+            "project": project.to_payload(),
+            "project_narrative": narrative,
+            "message": "Project Narrative status evaluated against fresh project authority without writing Observer runtime state.",
         },
     )
 

@@ -27,6 +27,8 @@ ACF 自身的 WS012 Maintenance Writer 负责把该跨项目 issue 池真正消�
 - 第一轮 dogfood 使用该渠道正式注入并消费“Observer Project Narrative / Project Map”和“Global continuation issue maintenance”两个真实需求；
 - 正式稳定版发布/安装前，worktree candidate 只在隔离 ACF_HOME 测试该接口，不得用候选实现改写 canonical continuation；发布后再用安装态命令对 WS012 做真实 steering dogfood。
 
+WS012 已使用安装态 directive channel 对上述两个真实需求完成 add → prompt exposure → authority refresh → adopt dogfood。Project Map 的实现保持 Observer anti-masking：Maintenance Writer 只构建/验证产品代码与隔离 runtime，正式 `:34` Production Observer 仍独立负责 canonical snapshot/render。项目级叙事由 `observer narrative-source` 对显式 authority 文件和稳定项目 meaning facts 计算 fingerprint，再由 `observer narrative-apply` 保存版本化 derived state；Dashboard 只渲染已经通过 fingerprint/provenance 校验的 Overall Goal、Architecture Map、Logical Milestone Flow、Current Position 和 evidence，不从整个仓库自动猜项目故事。authority 变化后 narrative 必须 stale，直到新的显式语义解释被应用。
+
 `acf.py` 先覆盖确定性工作：
 
 - 可安装入口：`pyproject.toml` 提供 `acf` console script；正式用户从 PyPI 使用 `uv tool install ai-context-framework`，更新使用 `uv tool upgrade ai-context-framework`；仓库开发期可用 `uv tool install -e .`，本仓库开发入口仍保留 `uv run python acf.py ...`。

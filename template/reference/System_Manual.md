@@ -435,6 +435,10 @@ acf observer snapshot --dry-run --json
 acf observer snapshot --json
 acf observer history --stream timeline --limit 20 --json
 acf observer glossary --json
+acf observer narrative-source . --source-path reference/Project_Brief.md --json
+acf observer narrative-apply . --source-fingerprint <fingerprint> `
+  --source-path reference/Project_Brief.md --input project-narrative.json --json
+acf observer narrative . --json
 ```
 
 `snapshot` 使用开始/结束 fingerprint 形成一致性快照；读取期间发生变化会重读一次，仍不稳定则标记 critical Alert。Observer 使用自己的轻量锁，不复用 continuation lease；current/status/dashboard 原子替换，render 失败保留 last-good Dashboard。meaningful history 默认永久保留，只按月无损 rotation/index，不按时间自动删除。Execution / Progress / Health 分离；正常 `waiting_external` 不自动等于异常，缺少明确分母时不生成假百分比。
@@ -457,6 +461,10 @@ acf observer glossary-set . --term "术语" --human-term "人类解释" `
 ```
 
 confidence 支持 `authoritative / high / medium / low`；medium/low 在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。结构化 Observer state 与 HTML 都过滤 credential-like 值，API key、password、token、private key、license、fence token 等不得进入 Observer 产物。
+
+Project Narrative 是项目级 derived semantic state，不替代 Context/Task Plan/Workstream/ADR。`narrative-source` 只读取调用方明确列出的项目相对 authority 文件，并把文件内容摘要与稳定 Workstream/continuation meaning projection 组成 source fingerprint；`narrative-apply` 只验证、版本化和持久化 `overall_goal / architecture / milestones / current_position / confidence / provenance`，不会扫描整个仓库或自动创造项目事实。未知 graph 引用、credential-like 文本或 source fingerprint 漂移都会 fail-closed；旧 narrative 在 authority 变化后必须标记 stale。Project Narrative 的 live/history 都保存在用户级 Observer namespace，并与其他 Observer history 一样无损 rotation。
+
+Dashboard 将 Project Narrative 作为长期项目地图单独展示 Overall Goal、Architecture Map、Logical Milestone Flow / Project Evolution、Current Position 和 milestone evidence/provenance；Workstream 卡片与 Meaningful Timeline 继续保留，分别回答“现在”和“最近变化”。地图仍是确定性静态 HTML/CSS、自包含 `file://` 页面，不引入 Mermaid/Graphviz/React runtime、CDN、HTTP server 或外部 fetch；颜色只能作为辅助语义，并始终配套状态文字/符号。
 
 `dashboard.html` 是静态、自包含、直接 `file://` 打开的派生视图，不启动 HTTP/daemon，不依赖外部资源。颜色表达必须同时配文字/符号：红=critical、琥珀=warning、绿=healthy/verified、蓝=active/info、灰=canonical/history/metadata；字体保持连续阅读尺度，不用巨大字号制造重点。Observer structured state/history 的 canonical 时间戳保持 UTC；所有人类可见 Dashboard 时间统一显示为北京时间 `UTC+08:00`，展示层转换不得改写底层 UTC 数据。
 

@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.81` 是当前推荐版本。它新增 `acf continuation directive add|list|show|adopt|resolve|supersede` 用户级 live-steering inbox：pending directive 作为新的 user-authority signal 高于旧 persisted `next_action`，`continuation prompt --json` 暴露 directive revision/digest/pending 摘要，claim 记录已观察版本，heartbeat/renew 在 inbox 变化时返回 steering signal。directive journal 保持 append-only/auditable、bounded、secret-safe，CLI 只机械记录和状态迁移，不创建第二套 Task Plan；持久 requirement/constraint/plan change 仍由 Agent authority refresh 后同步到正确 Markdown authority。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。
+`v0.0.3.81` 是当前推荐版本。它新增 `acf continuation directive add|list|show|adopt|resolve|supersede` 用户级 live-steering inbox：pending directive 作为新的 user-authority signal 高于旧 persisted `next_action`，`continuation prompt --json` 暴露 directive revision/digest/pending 摘要，claim 记录已观察版本，heartbeat/renew 在 inbox 变化时返回 steering signal。directive journal 保持 append-only/auditable、bounded、secret-safe，CLI 只机械记录和状态迁移，不创建第二套 Task Plan；持久 requirement/constraint/plan change 仍由 Agent authority refresh 后同步到正确 Markdown authority。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。当前 WS012 development candidate 进一步加入 provenance-bound Project Narrative / Project Map：先只读取得显式 authority source fingerprint，再写入版本化 derived narrative；Dashboard 展示 Overall Goal、Architecture Map、Logical Milestone Flow 与 Current Position，authority 变化后旧 narrative 会 fail-visible stale。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
@@ -298,6 +298,9 @@ acf observer snapshot --dry-run --json
 acf observer snapshot --json
 acf observer history --stream timeline --limit 20 --json
 acf observer glossary --json
+acf observer narrative-source . --source-path docs/ai/reference/Project_Brief.md --json
+acf observer narrative-apply . --source-fingerprint <fingerprint> --source-path docs/ai/reference/Project_Brief.md --input project-narrative.json --json
+acf observer narrative . --json
 acf new task --title "实现一个维护任务" --goal "写清当前目标。"
 acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
 acf new reference --title "设计文档标题" --summary "一句话说明。" --body "核心内容。"

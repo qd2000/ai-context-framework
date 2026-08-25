@@ -24,6 +24,8 @@ OBSERVER_LOCK_SCHEMA = "acf.observer.lock.v1"
 OBSERVER_SEMANTIC_SCHEMA = "acf.observer.semantic.v1"
 OBSERVER_INTERPRETATION_SCHEMA = "acf.observer.interpretation.v1"
 OBSERVER_GLOSSARY_SCHEMA = "acf.observer.glossary.v1"
+OBSERVER_PROJECT_NARRATIVE_SCHEMA = "acf.observer.project-narrative.v1"
+OBSERVER_PROJECT_NARRATIVE_EVENT_SCHEMA = "acf.observer.project-narrative-event.v1"
 OBSERVER_DASHBOARD_SCHEMA = "acf.observer.dashboard.v1"
 OBSERVER_DASHBOARD_TIMEZONE = timezone(timedelta(hours=8), name="UTC+08:00")
 OBSERVER_LOCK_RECLAIM_GRACE_SECONDS = 60
@@ -64,6 +66,8 @@ def observer_paths(project: Any) -> dict[str, Path]:
         "semantic": root / "semantic",
         "interpretations": root / "semantic" / "interpretations.jsonl",
         "glossary": root / "semantic" / "glossary.json",
+        "project_narrative": root / "semantic" / "project_narrative.json",
+        "project_narratives": root / "semantic" / "project_narratives.jsonl",
         "workstreams": root / "workstreams",
     }
 
@@ -313,6 +317,348 @@ def apply_semantic_interpretation(
     payload["previous_interpretation_id"] = previous.get("interpretation_id") if previous else None
     write_json_atomic(current_path, payload)
     append_jsonl_unique(observer_paths(project)["interpretations"], payload, id_field="interpretation_id")
+    return payload, True
+
+
+_PROJECT_NARRATIVE_STATUSES = {
+    "completed",
+    "current",
+    "active",
+    "maintenance",
+    "waiting",
+    "warning",
+    "critical",
+    "blocked",
+    "planned",
+    "future",
+    "unknown",
+}
+
+
+class ProjectNarrativeSourceMismatch(RuntimeError):
+    def __init__(self, expected: str, current: str):
+        self.expected = expected
+        self.current = current
+        super().__init__("observer_project_narrative_source_changed")
+
+
+def _project_narrative_source_file(project: Any, raw_path: str) -> dict[str, object]:
+    text = raw_path.strip()
+    if not text:
+        raise ValueError("project narrative source path is required")
+    source = Path(text)
+    if source.is_absolute() or ".." in source.parts:
+        raise ValueError(f"project narrative source path must be project-relative: {text}")
+    relative = Path(*source.parts)
+    candidates = [
+        (Path(project.invocation_root).resolve() / relative).resolve(),
+        (Path(project.canonical_root).resolve() / relative).resolve(),
+    ]
+    selected: Path | None = None
+    for candidate in candidates:
+        root = Path(project.invocation_root).resolve() if candidate == candidates[0] else Path(project.canonical_root).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            continue
+        if candidate.is_file():
+            selected = candidate
+            break
+    if selected is None:
+        raise ValueError(f"project narrative source file does not exist: {relative.as_posix()}")
+    import hashlib
+
+    data = selected.read_bytes()
+    return {
+        "path": relative.as_posix(),
+        "content_digest": hashlib.sha256(data).hexdigest(),
+        "size_bytes": len(data),
+    }
+
+
+def project_narrative_source_projection(
+    project: Any,
+    workstreams: list[dict[str, object]],
+    continuations: list[dict[str, object]],
+    source_paths: list[str],
+) -> dict[str, object]:
+    normalized_sources = [_project_narrative_source_file(project, item) for item in source_paths]
+    unique_sources = {
+        str(item["path"]): item
+        for item in normalized_sources
+    }
+    workstream_rows: list[dict[str, object]] = []
+    for row in workstreams:
+        registry = row.get("registry") if isinstance(row.get("registry"), dict) else {}
+        machine = row.get("machine_state") if isinstance(row.get("machine_state"), dict) else {}
+        workstream_rows.append(
+            {
+                "id": row.get("id"),
+                "title": row.get("title"),
+                "status": row.get("status"),
+                "attention": row.get("attention"),
+                "goal": row.get("goal"),
+                "source_consistency": row.get("source_consistency"),
+                "registry_state": registry.get("state"),
+                "execution": machine.get("execution"),
+                "health": machine.get("health"),
+            }
+        )
+    workstream_rows.sort(key=lambda row: str(row.get("id") or ""))
+    continuation_rows: list[dict[str, object]] = []
+    for row in continuations:
+        effects = row.get("effects") if isinstance(row.get("effects"), dict) else {}
+        continuation_rows.append(
+            {
+                "task_id": row.get("task_id"),
+                "workstream_id": row.get("workstream_id"),
+                "stage": row.get("stage"),
+                "status": row.get("status"),
+                "objective": row.get("objective"),
+                "next_action": row.get("next_action"),
+                "unresolved_effect_count": int(effects.get("unresolved_count") or 0),
+            }
+        )
+    continuation_rows.sort(key=lambda row: (str(row.get("workstream_id") or ""), str(row.get("task_id") or "")))
+    return {
+        "project_id": project.project_id,
+        "sources": [unique_sources[key] for key in sorted(unique_sources)],
+        "workstreams": workstream_rows,
+        "continuations": continuation_rows,
+    }
+
+
+def project_narrative_source_fingerprint(
+    project: Any,
+    workstreams: list[dict[str, object]],
+    continuations: list[dict[str, object]],
+    source_paths: list[str],
+) -> str:
+    return _stable_digest(
+        project_narrative_source_projection(project, workstreams, continuations, source_paths)
+    )
+
+
+def project_narrative_status(
+    project: Any,
+    workstreams: list[dict[str, object]],
+    continuations: list[dict[str, object]],
+) -> dict[str, object]:
+    current = _read_json_object(observer_paths(project)["project_narrative"])
+    if current is None:
+        return {
+            "schema_version": OBSERVER_PROJECT_NARRATIVE_SCHEMA,
+            "status": "not_interpreted",
+            "source_fingerprint": None,
+            "narrative_version": 0,
+            "narrative": None,
+        }
+    source_paths = [str(item) for item in current.get("source_paths") or [] if str(item).strip()]
+    try:
+        source_fingerprint = project_narrative_source_fingerprint(
+            project,
+            workstreams,
+            continuations,
+            source_paths,
+        )
+        status = "current" if current.get("source_fingerprint") == source_fingerprint else "stale"
+        source_error = None
+    except (OSError, ValueError) as exc:
+        source_fingerprint = None
+        status = "stale"
+        source_error = str(exc)
+    return {
+        "schema_version": OBSERVER_PROJECT_NARRATIVE_SCHEMA,
+        "status": status,
+        "source_fingerprint": source_fingerprint,
+        "narrative_version": current.get("narrative_version") or 0,
+        "source_error": source_error,
+        "narrative": current,
+    }
+
+
+def _narrative_text(value: object, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"project narrative {field} must be text")
+    cleaned = _validate_semantic_text(value, field)
+    if not cleaned:
+        raise ValueError(f"project narrative {field} is required")
+    return cleaned
+
+
+def _narrative_refs(value: object, field: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"project narrative {field} must be a list")
+    refs = [_narrative_text(item, field) for item in value]
+    if not refs:
+        raise ValueError(f"project narrative {field} requires at least one reference")
+    return list(dict.fromkeys(refs))
+
+
+def _narrative_status(value: object, field: str) -> str:
+    status = _narrative_text(value, field).casefold()
+    if status not in _PROJECT_NARRATIVE_STATUSES:
+        raise ValueError(f"unsupported project narrative status for {field}: {status}")
+    return status
+
+
+def validate_project_narrative_payload(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("project narrative input must be a JSON object")
+    confidence = _narrative_text(value.get("confidence"), "confidence").casefold()
+    if confidence not in OBSERVER_SEMANTIC_CONFIDENCE:
+        raise ValueError(f"invalid project narrative confidence: {confidence}")
+    overall = value.get("overall_goal")
+    if not isinstance(overall, dict):
+        raise ValueError("project narrative overall_goal must be an object")
+    overall_goal = {
+        "summary": _narrative_text(overall.get("summary"), "overall_goal.summary"),
+        "provenance": _narrative_refs(overall.get("provenance"), "overall_goal.provenance"),
+    }
+    architecture = value.get("architecture")
+    if not isinstance(architecture, dict):
+        raise ValueError("project narrative architecture must be an object")
+    raw_nodes = architecture.get("nodes")
+    raw_edges = architecture.get("edges")
+    if not isinstance(raw_nodes, list) or not raw_nodes:
+        raise ValueError("project narrative architecture.nodes requires at least one node")
+    if not isinstance(raw_edges, list):
+        raise ValueError("project narrative architecture.edges must be a list")
+    nodes: list[dict[str, object]] = []
+    node_ids: set[str] = set()
+    for index, raw in enumerate(raw_nodes):
+        if not isinstance(raw, dict):
+            raise ValueError(f"project narrative architecture.nodes[{index}] must be an object")
+        node_id = _narrative_text(raw.get("id"), f"architecture.nodes[{index}].id")
+        if node_id in node_ids:
+            raise ValueError(f"duplicate project narrative architecture node id: {node_id}")
+        node_ids.add(node_id)
+        nodes.append(
+            {
+                "id": node_id,
+                "title": _narrative_text(raw.get("title"), f"architecture.nodes[{index}].title"),
+                "category": _narrative_text(raw.get("category"), f"architecture.nodes[{index}].category"),
+                "status": _narrative_status(raw.get("status"), f"architecture.nodes[{index}].status"),
+                "summary": _narrative_text(raw.get("summary"), f"architecture.nodes[{index}].summary"),
+                "provenance": _narrative_refs(raw.get("provenance"), f"architecture.nodes[{index}].provenance"),
+            }
+        )
+    edges: list[dict[str, object]] = []
+    for index, raw in enumerate(raw_edges):
+        if not isinstance(raw, dict):
+            raise ValueError(f"project narrative architecture.edges[{index}] must be an object")
+        source_id = _narrative_text(raw.get("from"), f"architecture.edges[{index}].from")
+        target_id = _narrative_text(raw.get("to"), f"architecture.edges[{index}].to")
+        if source_id not in node_ids or target_id not in node_ids:
+            raise ValueError(f"project narrative architecture edge references unknown node: {source_id}->{target_id}")
+        edges.append(
+            {
+                "from": source_id,
+                "to": target_id,
+                "relation": _narrative_text(raw.get("relation"), f"architecture.edges[{index}].relation"),
+                "summary": _narrative_text(raw.get("summary"), f"architecture.edges[{index}].summary"),
+                "provenance": _narrative_refs(raw.get("provenance"), f"architecture.edges[{index}].provenance"),
+            }
+        )
+    raw_milestones = value.get("milestones")
+    if not isinstance(raw_milestones, list) or not raw_milestones:
+        raise ValueError("project narrative milestones requires at least one milestone")
+    milestone_ids: set[str] = set()
+    for index, raw in enumerate(raw_milestones):
+        if not isinstance(raw, dict):
+            raise ValueError(f"project narrative milestones[{index}] must be an object")
+        milestone_id = _narrative_text(raw.get("id"), f"milestones[{index}].id")
+        if milestone_id in milestone_ids:
+            raise ValueError(f"duplicate project narrative milestone id: {milestone_id}")
+        milestone_ids.add(milestone_id)
+    milestones: list[dict[str, object]] = []
+    for index, raw in enumerate(raw_milestones):
+        milestone_id = str(raw.get("id"))
+        depends_on = [_narrative_text(item, f"milestones[{index}].depends_on") for item in raw.get("depends_on") or []]
+        next_ids = [_narrative_text(item, f"milestones[{index}].next") for item in raw.get("next") or []]
+        unknown = [item for item in depends_on + next_ids if item not in milestone_ids]
+        if unknown:
+            raise ValueError(f"project narrative milestone {milestone_id} references unknown milestone: {unknown[0]}")
+        milestones.append(
+            {
+                "id": milestone_id,
+                "title": _narrative_text(raw.get("title"), f"milestones[{index}].title"),
+                "status": _narrative_status(raw.get("status"), f"milestones[{index}].status"),
+                "depends_on": list(dict.fromkeys(depends_on)),
+                "next": list(dict.fromkeys(next_ids)),
+                "summary": _narrative_text(raw.get("summary"), f"milestones[{index}].summary"),
+                "implication": _narrative_text(raw.get("implication"), f"milestones[{index}].implication"),
+                "evidence": _narrative_refs(raw.get("evidence"), f"milestones[{index}].evidence"),
+                "provenance": _narrative_refs(raw.get("provenance"), f"milestones[{index}].provenance"),
+            }
+        )
+    current = value.get("current_position")
+    if not isinstance(current, dict):
+        raise ValueError("project narrative current_position must be an object")
+    current_milestone = _narrative_text(current.get("milestone_id"), "current_position.milestone_id")
+    if current_milestone not in milestone_ids:
+        raise ValueError(f"project narrative current_position references unknown milestone: {current_milestone}")
+    current_position = {
+        "milestone_id": current_milestone,
+        "summary": _narrative_text(current.get("summary"), "current_position.summary"),
+        "next_logic": _narrative_text(current.get("next_logic"), "current_position.next_logic"),
+        "provenance": _narrative_refs(current.get("provenance"), "current_position.provenance"),
+    }
+    return {
+        "confidence": confidence,
+        "confidence_notice": _confidence_notice(confidence),
+        "overall_goal": overall_goal,
+        "architecture": {"nodes": nodes, "edges": edges},
+        "milestones": milestones,
+        "current_position": current_position,
+        "provenance": _narrative_refs(value.get("provenance"), "provenance"),
+    }
+
+
+def apply_project_narrative(
+    project: Any,
+    *,
+    workstreams: list[dict[str, object]],
+    continuations: list[dict[str, object]],
+    expected_source_fingerprint: str,
+    source_paths: list[str],
+    narrative: object,
+) -> tuple[dict[str, object], bool]:
+    validated = validate_project_narrative_payload(narrative)
+    projection = project_narrative_source_projection(project, workstreams, continuations, source_paths)
+    source_fingerprint = _stable_digest(projection)
+    if source_fingerprint != expected_source_fingerprint:
+        raise ProjectNarrativeSourceMismatch(expected_source_fingerprint, source_fingerprint)
+    normalized_paths = [str(row.get("path")) for row in projection.get("sources") or [] if isinstance(row, dict)]
+    comparable = {
+        "source_fingerprint": source_fingerprint,
+        "source_paths": normalized_paths,
+        **validated,
+    }
+    current_path = observer_paths(project)["project_narrative"]
+    previous = _read_json_object(current_path)
+    if previous is not None and {key: previous.get(key) for key in comparable} == comparable:
+        return previous, False
+    previous_version = int(previous.get("narrative_version") or 0) if previous else 0
+    interpreted_at = utc_now_iso()
+    payload = {
+        "schema_version": OBSERVER_PROJECT_NARRATIVE_EVENT_SCHEMA,
+        "project_id": project.project_id,
+        "narrative_version": previous_version + 1,
+        "interpreted_at": interpreted_at,
+        **comparable,
+    }
+    identity = {
+        "project_id": project.project_id,
+        "narrative_version": payload["narrative_version"],
+        "source_fingerprint": source_fingerprint,
+        "content": validated,
+    }
+    payload["narrative_id"] = f"project-narrative-{_stable_digest(identity)[:20]}"
+    payload["event_kind"] = "project_narrative_updated"
+    payload["previous_narrative_id"] = previous.get("narrative_id") if previous else None
+    write_json_atomic(current_path, payload)
+    append_jsonl_unique(observer_paths(project)["project_narratives"], payload, id_field="narrative_id")
     return payload, True
 
 
@@ -648,6 +994,104 @@ def _timeline_html(machine_events: list[dict[str, object]], interpretations: lis
     return "".join(body for _when, body in combined[:60]) or '<p class="muted">暂无 meaningful progress event。</p>'
 
 
+def _narrative_tone(status: object) -> str:
+    value = str(status or "unknown").casefold()
+    if value in {"critical", "blocked"}:
+        return "critical"
+    if value in {"warning", "waiting"}:
+        return "warning"
+    if value == "completed":
+        return "healthy"
+    if value in {"current", "active"}:
+        return "active"
+    if value == "maintenance":
+        return "maintenance"
+    return "muted"
+
+
+def _narrative_provenance_html(refs: object) -> str:
+    values = [str(item) for item in refs or [] if str(item).strip()] if isinstance(refs, list) else []
+    if not values:
+        return '<span class="muted">provenance unavailable</span>'
+    return "".join(f'<code class="provenance-ref">{_html_text(item)}</code>' for item in values)
+
+
+def _project_narrative_html(current: dict[str, object]) -> str:
+    semantic = current.get("project_narrative") if isinstance(current.get("project_narrative"), dict) else {}
+    status = str(semantic.get("status") or "not_interpreted")
+    narrative = semantic.get("narrative") if isinstance(semantic.get("narrative"), dict) else None
+    if narrative is None:
+        return (
+            '<section class="panel project-map"><h2>Project Narrative / 项目地图</h2>'
+            '<div class="semantic-notice"><strong>○ 尚未生成项目级叙事</strong>'
+            '<p>Observer 仍可展示当前 Workstream 和 Timeline；缺少足够 authority 时不会为了填满项目地图而推造历史。</p></div></section>'
+        )
+    stale_notice = ""
+    if status == "stale":
+        stale_notice = (
+            '<div class="semantic-notice tone-border-warning"><strong>▲ Project Narrative 已陈旧</strong>'
+            '<p>底层项目 authority 已变化；旧项目地图仅保留为可追溯解释，不再当作当前事实。</p></div>'
+        )
+    confidence = str(narrative.get("confidence") or "unknown")
+    overall = narrative.get("overall_goal") if isinstance(narrative.get("overall_goal"), dict) else {}
+    architecture = narrative.get("architecture") if isinstance(narrative.get("architecture"), dict) else {}
+    nodes = [row for row in architecture.get("nodes") or [] if isinstance(row, dict)]
+    edges = [row for row in architecture.get("edges") or [] if isinstance(row, dict)]
+    milestones = [row for row in narrative.get("milestones") or [] if isinstance(row, dict)]
+    current_position = narrative.get("current_position") if isinstance(narrative.get("current_position"), dict) else {}
+    current_milestone = str(current_position.get("milestone_id") or "")
+
+    node_html = "".join(
+        (
+            f'<article class="map-node tone-border-{_narrative_tone(row.get("status"))}">'
+            f'<div class="map-node-head"><strong>{_html_text(row.get("title"))}</strong>'
+            f'<span class="badge tone-{_narrative_tone(row.get("status"))}">{_html_text(row.get("status"))}</span></div>'
+            f'<div class="canonical"><code>{_html_text(row.get("id"))}</code> · {_html_text(row.get("category"))}</div>'
+            f'<p>{_html_text(row.get("summary"))}</p><details><summary>Provenance</summary>'
+            f'<div class="provenance-list">{_narrative_provenance_html(row.get("provenance"))}</div></details></article>'
+        )
+        for row in nodes
+    ) or '<p class="muted">暂无 architecture node。</p>'
+    edge_html = "".join(
+        (
+            '<li class="map-edge">'
+            f'<code>{_html_text(row.get("from"))}</code> <span aria-hidden="true">→</span> '
+            f'<code>{_html_text(row.get("to"))}</code> · <strong>{_html_text(row.get("relation"))}</strong>'
+            f'<span>{_html_text(row.get("summary"))}</span>'
+            f'<details><summary>Provenance</summary>{_narrative_provenance_html(row.get("provenance"))}</details></li>'
+        )
+        for row in edges
+    ) or '<li class="muted">暂无 architecture edge。</li>'
+    milestone_html = "".join(
+        (
+            f'<article class="milestone {_narrative_tone(row.get("status"))} '
+            f'{"is-current" if str(row.get("id") or "") == current_milestone else ""}">'
+            f'<div class="milestone-marker" aria-hidden="true">{"●" if str(row.get("id") or "") == current_milestone else "○"}</div>'
+            '<div class="milestone-body">'
+            f'<div class="map-node-head"><strong>{_html_text(row.get("title"))}</strong>'
+            f'<span class="badge tone-{_narrative_tone(row.get("status"))}">{_html_text(row.get("status"))}</span></div>'
+            f'<div class="canonical"><code>{_html_text(row.get("id"))}</code></div>'
+            f'<p>{_html_text(row.get("summary"))}</p><p class="muted"><strong>意味着：</strong>{_html_text(row.get("implication"))}</p>'
+            f'<div class="flow-meta"><span>depends_on: {_html_text(", ".join(str(item) for item in row.get("depends_on") or []) or "—")}</span>'
+            f'<span>next: {_html_text(", ".join(str(item) for item in row.get("next") or []) or "—")}</span></div>'
+            f'<details><summary>Evidence / Provenance</summary><div class="provenance-list">'
+            f'{_narrative_provenance_html(row.get("evidence"))}{_narrative_provenance_html(row.get("provenance"))}'
+            '</div></details></div></article>'
+        )
+        for row in milestones
+    ) or '<p class="muted">暂无 milestone。</p>'
+    return f"""
+  <section class="panel project-map" id="project-map">
+    <div class="section-heading"><div><h2>Project Narrative / 项目地图</h2><p class="muted">长期逻辑骨架，与最近事件 Timeline 分离。</p></div><span class="badge tone-{_narrative_tone(status)}">{_html_text(status)} · v{_html_text(narrative.get('narrative_version'))}</span></div>
+    {stale_notice}
+    <section class="goal-card"><h3>Overall Goal / 整体目标</h3><p>{_html_text(overall.get('summary'))}</p><div class="provenance-list">{_narrative_provenance_html(overall.get('provenance'))}</div></section>
+    <section class="map-section"><h3>Architecture Map / 架构地图</h3><div class="architecture-grid">{node_html}</div><ul class="architecture-edges">{edge_html}</ul></section>
+    <section class="map-section"><h3>Logical Milestone Flow / Project Evolution</h3><div class="milestone-flow">{milestone_html}</div></section>
+    <section class="current-position tone-border-active"><h3>Current Position / 当前所在位置</h3><p><code>{_html_text(current_milestone)}</code> · {_html_text(current_position.get('summary'))}</p><p><strong>下一步逻辑：</strong>{_html_text(current_position.get('next_logic'))}</p><div class="provenance-list">{_narrative_provenance_html(current_position.get('provenance'))}</div></section>
+    <details><summary>Project Narrative technical provenance</summary><div class="technical-grid"><div><span class="muted">confidence</span><br><code>{_html_text(confidence)}</code></div><div><span class="muted">source fingerprint</span><br><code class="breakable">{_html_text(semantic.get('source_fingerprint'))}</code></div><div class="span-two"><span class="muted">source paths</span><br>{_narrative_provenance_html(narrative.get('source_paths'))}</div><div class="span-two"><span class="muted">root provenance</span><br>{_narrative_provenance_html(narrative.get('provenance'))}</div></div></details>
+  </section>"""
+
+
 def render_dashboard_html(
     project: Any,
     *,
@@ -681,6 +1125,7 @@ def render_dashboard_html(
         safe_events if isinstance(safe_events, list) else [],
         safe_interpretations if isinstance(safe_interpretations, list) else [],
     )
+    project_map_html = _project_narrative_html(safe_current)
     latest_proof: list[str] = []
     for row in workstreams:
         semantic = row.get("semantic") if isinstance(row.get("semantic"), dict) else {}
@@ -717,8 +1162,8 @@ def render_dashboard_html(
 <title>{_html_text(title)}</title>
 <style>
 :root{{--bg:#f6f8fb;--surface:#fff;--text:#1d2433;--muted:#667085;--line:#d9dee8;--blue:#1769d2;--blue-bg:#eef5ff;--green:#16784a;--green-bg:#edf9f2;--amber:#9a6700;--amber-bg:#fff8df;--red:#b42318;--red-bg:#fff0ee;--gray-bg:#f2f4f7;--shadow:0 1px 2px rgba(16,24,40,.06)}}
-*{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.62 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}} a{{color:var(--blue)}} code{{font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#344054}} .page{{max-width:1280px;margin:auto;padding:24px}} h1{{font-size:24px;line-height:1.25;margin:0 0 4px}} h2{{font-size:19px;margin:0 0 14px}} h3{{font-size:17px;margin:0}} h4{{font-size:14px;margin:0 0 6px}} p{{margin:6px 0 12px}} ul{{margin:6px 0 12px;padding-left:20px}} .muted{{color:var(--muted)}} .canonical{{color:var(--muted);font-size:13px;margin-top:4px}} .top{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px}} .summary-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 22px}} .metric,.panel,.workstream-card{{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}} .metric{{padding:14px}} .metric strong{{display:block;font-size:18px;margin-top:3px}} .panel{{padding:18px;margin:0 0 18px}} .toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}} input,select{{font:inherit;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;min-height:38px}} input{{flex:1;min-width:220px}} .workstream-list{{display:grid;gap:14px}} .workstream-card{{padding:18px}} .card-header{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .badge-row{{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}} .badge{{display:inline-flex;align-items:center;gap:4px;border:1px solid currentColor;border-radius:999px;padding:2px 8px;font-size:12.5px;white-space:nowrap}} .tone-critical,.tone-text-critical{{color:var(--red)}} .tone-warning,.tone-text-warning{{color:var(--amber)}} .tone-healthy{{color:var(--green)}} .tone-active{{color:var(--blue)}} .tone-muted{{color:var(--muted)}} .tone-border-critical{{border-left:4px solid var(--red)!important}} .tone-border-warning{{border-left:4px solid var(--amber)!important}} .tone-border-active{{border-left:4px solid var(--blue)!important}} .semantic-notice{{background:var(--gray-bg);border-radius:8px;padding:9px 11px;margin:12px 0;font-size:13px}} .logic-grid,.technical-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;margin-top:14px}} .logic-grid section{{border-top:1px solid var(--line);padding-top:10px}} .span-two{{grid-column:1/-1}} details{{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}} summary{{cursor:pointer;font-weight:600;color:#344054}} .breakable{{word-break:break-all}} .alert{{border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:9px 0;background:#fff}} .alert-title{{font-weight:700}} .timeline-item{{display:grid;grid-template-columns:160px 1fr;gap:14px;border-left:2px solid var(--line);padding:5px 0 14px 14px;margin-left:5px}} .timeline-item time{{font-size:12.5px;color:var(--muted)}} .semantic-event{{border-left-color:var(--blue)}} .glossary-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .glossary-item{{border:1px solid var(--line);border-radius:8px;padding:12px}} .hidden{{display:none!important}} .empty{{padding:18px;color:var(--muted);text-align:center}} footer{{color:var(--muted);font-size:12.5px;padding:6px 0 20px}}
-@media(max-width:760px){{.page{{padding:14px}}.top,.card-header{{display:block}}.summary-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.logic-grid,.technical-grid,.glossary-grid{{grid-template-columns:1fr}}.span-two{{grid-column:auto}}.badge-row{{justify-content:flex-start;margin-top:10px}}.timeline-item{{grid-template-columns:1fr;gap:2px}}}}
+*{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.62 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}} a{{color:var(--blue)}} code{{font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#344054}} .page{{max-width:1280px;margin:auto;padding:24px}} h1{{font-size:24px;line-height:1.25;margin:0 0 4px}} h2{{font-size:19px;margin:0 0 14px}} h3{{font-size:17px;margin:0}} h4{{font-size:14px;margin:0 0 6px}} p{{margin:6px 0 12px}} ul{{margin:6px 0 12px;padding-left:20px}} .muted{{color:var(--muted)}} .canonical{{color:var(--muted);font-size:13px;margin-top:4px}} .top,.section-heading{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .top{{margin-bottom:18px}} .summary-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 22px}} .metric,.panel,.workstream-card{{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}} .metric{{padding:14px}} .metric strong{{display:block;font-size:18px;margin-top:3px}} .panel{{padding:18px;margin:0 0 18px}} .toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}} input,select{{font:inherit;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;min-height:38px}} input{{flex:1;min-width:220px}} .workstream-list{{display:grid;gap:14px}} .workstream-card{{padding:18px}} .card-header{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .badge-row{{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}} .badge{{display:inline-flex;align-items:center;gap:4px;border:1px solid currentColor;border-radius:999px;padding:2px 8px;font-size:12.5px;white-space:nowrap}} .tone-critical,.tone-text-critical{{color:var(--red)}} .tone-warning,.tone-text-warning{{color:var(--amber)}} .tone-healthy{{color:var(--green)}} .tone-active{{color:var(--blue)}} .tone-maintenance{{color:#6941c6}} .tone-muted{{color:var(--muted)}} .tone-border-critical{{border-left:4px solid var(--red)!important}} .tone-border-warning{{border-left:4px solid var(--amber)!important}} .tone-border-healthy{{border-left:4px solid var(--green)!important}} .tone-border-active{{border-left:4px solid var(--blue)!important}} .tone-border-maintenance{{border-left:4px solid #6941c6!important}} .tone-border-muted{{border-left:4px solid #98a2b3!important}} .semantic-notice{{background:var(--gray-bg);border-radius:8px;padding:9px 11px;margin:12px 0;font-size:13px}} .logic-grid,.technical-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;margin-top:14px}} .logic-grid section{{border-top:1px solid var(--line);padding-top:10px}} .span-two{{grid-column:1/-1}} details{{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}} summary{{cursor:pointer;font-weight:600;color:#344054}} .breakable{{word-break:break-all}} .alert{{border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:9px 0;background:#fff}} .alert-title{{font-weight:700}} .timeline-item{{display:grid;grid-template-columns:160px 1fr;gap:14px;border-left:2px solid var(--line);padding:5px 0 14px 14px;margin-left:5px}} .timeline-item time{{font-size:12.5px;color:var(--muted)}} .semantic-event{{border-left-color:var(--blue)}} .glossary-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .glossary-item{{border:1px solid var(--line);border-radius:8px;padding:12px}} .project-map{{border-top:3px solid #4f46e5}} .goal-card{{background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:14px;margin:12px 0 18px}} .map-section{{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}} .architecture-grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}} .map-node{{border:1px solid var(--line);border-radius:9px;padding:12px;background:#fff}} .map-node-head{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}} .architecture-edges{{list-style:none;padding:0;margin:12px 0}} .map-edge{{display:grid;grid-template-columns:auto auto auto 1fr;gap:8px;align-items:center;border-top:1px dashed var(--line);padding:8px 0}} .milestone-flow{{display:grid;gap:0;margin-top:12px}} .milestone{{display:grid;grid-template-columns:28px 1fr;gap:10px;position:relative;padding-bottom:15px}} .milestone:not(:last-child)::before{{content:"";position:absolute;left:8px;top:22px;bottom:0;border-left:2px solid var(--line)}} .milestone-marker{{font-size:16px;color:#98a2b3;z-index:1;background:var(--surface)}} .milestone.is-current .milestone-marker{{color:var(--blue)}} .milestone.is-current .milestone-body{{background:var(--blue-bg);border-color:#b2d4ff}} .milestone-body{{border:1px solid var(--line);border-radius:9px;padding:11px 13px}} .flow-meta{{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12.5px}} .current-position{{margin-top:14px;background:var(--blue-bg);border:1px solid #b2d4ff;border-radius:9px;padding:13px}} .provenance-list{{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}} .provenance-ref{{background:var(--gray-bg);border-radius:4px;padding:2px 5px}} .hidden{{display:none!important}} .empty{{padding:18px;color:var(--muted);text-align:center}} footer{{color:var(--muted);font-size:12.5px;padding:6px 0 20px}}
+@media(max-width:760px){{.page{{padding:14px}}.top,.section-heading,.card-header{{display:block}}.summary-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.logic-grid,.technical-grid,.glossary-grid,.architecture-grid{{grid-template-columns:1fr}}.span-two{{grid-column:auto}}.badge-row{{justify-content:flex-start;margin-top:10px}}.timeline-item{{grid-template-columns:1fr;gap:2px}}.map-edge{{grid-template-columns:auto auto auto;align-items:start}}.map-edge>span:last-of-type{{grid-column:1/-1}}}}
 </style>
 </head>
 <body>
@@ -730,6 +1175,7 @@ def render_dashboard_html(
     <div class="metric"><span class="muted">Observer data age</span><strong>{_html_text(current_data_age.get('state'))}</strong></div>
     <div class="metric"><span class="muted">Semantic coverage</span><strong>{_html_text((safe_current.get('semantic') or {}).get('status') if isinstance(safe_current.get('semantic'),dict) else None)}</strong></div>
   </section>
+  {project_map_html}
   <section class="panel"><h2>最近重大进展</h2><ul>{latest_html}</ul></section>
   <section class="panel" id="alerts"><h2>当前 Alerts</h2>{alerts_html}</section>
   <section class="panel"><h2>Workstreams</h2><div class="toolbar"><input id="search" type="search" placeholder="搜索 Workstream、canonical term、目标或下一步" aria-label="搜索"><select id="health-filter" aria-label="按健康状态筛选"><option value="all">全部健康状态</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="healthy">Healthy</option></select></div><div class="workstream-list" id="workstreams">{cards or '<p class="empty">当前没有 Workstream。</p>'}</div></section>
@@ -1012,6 +1458,7 @@ def refresh_history_index(project: Any) -> dict[str, object]:
         ("alerts", "alerts", "observed_at"),
         ("runs", "runs", "started_at"),
         ("interpretations", "interpretations", "interpreted_at"),
+        ("narratives", "project_narratives", "interpreted_at"),
     ):
         rows = _read_jsonl_objects(paths[path_key_name])
         timestamps = [
@@ -1053,6 +1500,7 @@ def read_observer_history_stream(project: Any, stream_name: str) -> list[dict[st
         "alerts": ("alerts", "alert_event_id", "observed_at"),
         "runs": ("runs", "run_id", "started_at"),
         "interpretations": ("interpretations", "interpretation_id", "interpreted_at"),
+        "narratives": ("project_narratives", "narrative_id", "interpreted_at"),
     }
     if stream_name not in specs:
         raise ValueError(f"unknown observer history stream: {stream_name}")
@@ -1088,6 +1536,7 @@ def rotate_observer_history(project: Any) -> list[dict[str, object]]:
         ("alerts", "alerts", "observed_at", "alert_event_id"),
         ("runs", "runs", "started_at", "run_id"),
         ("interpretations", "interpretations", "interpreted_at", "interpretation_id"),
+        ("project_narratives", "narratives", "interpreted_at", "narrative_id"),
     )
     rotations: list[dict[str, object]] = []
     for path_key_name, stream_name, timestamp_field, id_field in stream_specs:
