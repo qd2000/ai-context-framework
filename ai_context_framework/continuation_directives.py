@@ -106,7 +106,15 @@ def validate_journal(payload: Mapping[str, Any], *, task_id: str) -> dict[str, A
             f"directive journal exceeds {MAX_DIRECTIVE_JOURNAL_BYTES} bytes",
             code="directive_capacity_exceeded",
         )
-    _project_events(events)
+    projected = _project_events(events)
+    active_count = sum(
+        1 for item in projected.values() if item["status"] in {"pending", "adopted"}
+    )
+    if active_count > MAX_ACTIVE_DIRECTIVES:
+        raise DirectiveError(
+            f"active directive inbox exceeds {MAX_ACTIVE_DIRECTIVES} items",
+            code="directive_capacity_exceeded",
+        )
     return {
         "schema_version": DIRECTIVE_JOURNAL_SCHEMA,
         "task_id": task_id,
@@ -227,27 +235,41 @@ def supersede_directive(
             f"directive cannot be superseded from status {prior['status']}",
             code="directive_transition_invalid",
         )
-    replacement_journal, replacement = add_directive(
-        current,
-        kind=kind,
-        priority=priority,
-        text=text,
-        created_at=occurred_at,
-        actor=actor,
-        evidence_refs=evidence_refs,
-        supersedes=[directive_id],
-    )
+    normalized_kind = _kind(kind)
+    normalized_priority = _priority(priority)
+    normalized_text = _text(text, field="text")
+    normalized_actor = _text(actor, field="actor", max_bytes=256)
+    normalized_refs = _refs(evidence_refs)
+    replacement_id = _new_id("dir")
+    replacement_event = {
+        "schema_version": DIRECTIVE_EVENT_SCHEMA,
+        "event_id": _new_id("dev"),
+        "event_kind": "added",
+        "directive_id": replacement_id,
+        "occurred_at": _timestamp(occurred_at, field="occurred_at"),
+        "actor": normalized_actor,
+        "kind": normalized_kind,
+        "priority": normalized_priority,
+        "text": normalized_text,
+        "supersedes": [str(prior["id"])],
+        "evidence_refs": normalized_refs,
+        "note": None,
+    }
     event = _transition_event(
         directive_id=directive_id,
         event_kind="superseded",
         occurred_at=occurred_at,
         actor=actor,
         evidence_refs=evidence_refs,
-        note=note or f"Superseded by {replacement['id']}",
-        replacement_id=str(replacement["id"]),
+        note=note or f"Superseded by {replacement_id}",
+        replacement_id=replacement_id,
     )
-    updated = _append_event(replacement_journal, event)
-    return updated, show_directive(updated, directive_id), show_directive(updated, str(replacement["id"]))
+    # A supersede is one logical replacement and has zero net active-inbox
+    # growth.  Append the replacement+transition as one in-memory batch so a
+    # full (64/64) inbox can still replace an active directive without ever
+    # persisting an over-capacity intermediate journal.
+    updated = _append_events(current, [replacement_event, event])
+    return updated, show_directive(updated, directive_id), show_directive(updated, replacement_id)
 
 
 def list_directives(journal: Mapping[str, Any], *, status: str | None = None) -> list[dict[str, Any]]:
@@ -372,11 +394,20 @@ def _transition_event(
 
 
 def _append_event(journal: Mapping[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
+    return _append_events(journal, [event])
+
+
+def _append_events(
+    journal: Mapping[str, Any], events_to_add: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
     current = validate_journal(journal, task_id=str(journal.get("task_id") or ""))
-    revision = int(current["revision"]) + 1
-    value = dict(event)
-    value["revision"] = revision
-    events = [*current["events"], value]
+    revision = int(current["revision"])
+    events = list(current["events"])
+    for event in events_to_add:
+        revision += 1
+        value = dict(event)
+        value["revision"] = revision
+        events.append(value)
     candidate = {
         "schema_version": DIRECTIVE_JOURNAL_SCHEMA,
         "task_id": current["task_id"],

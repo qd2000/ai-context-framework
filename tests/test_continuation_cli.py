@@ -369,6 +369,38 @@ class ContinuationCliTests(unittest.TestCase):
             len(continuation_directives.project_directives(journal)),
         )
 
+    def test_directive_supersede_replaces_at_full_active_capacity(self) -> None:
+        journal = continuation_directives.empty_journal("WS900")
+        directive_ids: list[str] = []
+        for index in range(continuation_directives.MAX_ACTIVE_DIRECTIVES):
+            journal, directive = continuation_directives.add_directive(
+                journal,
+                kind="requirement",
+                priority=50,
+                text=f"Bounded directive {index}",
+                created_at="2026-08-25T03:00:00Z",
+                actor="user",
+            )
+            directive_ids.append(str(directive["id"]))
+
+        journal, superseded, replacement = continuation_directives.supersede_directive(
+            journal,
+            directive_id=directive_ids[0],
+            kind="priority_change",
+            priority=90,
+            text="Replacement remains possible when the active inbox is full.",
+            occurred_at="2026-08-25T03:01:00Z",
+            actor="user",
+        )
+
+        projected = continuation_directives.project_directives(journal)
+        active = [item for item in projected if item["status"] in {"pending", "adopted"}]
+        self.assertEqual(continuation_directives.MAX_ACTIVE_DIRECTIVES, len(active))
+        self.assertEqual("superseded", superseded["status"])
+        self.assertEqual(replacement["id"], superseded["superseded_by"])
+        self.assertEqual("pending", replacement["status"])
+        self.assertEqual([directive_ids[0]], replacement["supersedes"])
+
     def test_pending_directive_surfaces_in_prompt_and_heartbeat_change_signal(self) -> None:
         self.init_task()
         code, claim, stderr = self.run_json(
