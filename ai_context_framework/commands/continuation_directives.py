@@ -39,6 +39,34 @@ def directive_context(paths: Mapping[str, Path], control: Mapping[str, Any]) -> 
         raise _directive_error(exc) from exc
 
 
+def observe_directive_context(
+    lease: dict[str, Any],
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    previous_revision = lease.get("directive_revision_seen")
+    previous_digest = lease.get("directive_digest_seen")
+    revision = int(context.get("revision") or 0)
+    digest = str(context.get("digest") or "")
+    changed = previous_revision is not None and (
+        previous_revision != revision or previous_digest != digest
+    )
+    lease["directive_revision_seen"] = revision
+    lease["directive_digest_seen"] = digest
+    latest = context.get("latest_directive")
+    latest_id = latest.get("id") if isinstance(latest, Mapping) else None
+    return {
+        "schema_version": continuation_directives.DIRECTIVE_CONTEXT_SCHEMA,
+        "revision": revision,
+        "digest": digest,
+        "pending_count": int(context.get("pending_count") or 0),
+        "latest_directive_id": latest_id,
+        "authority_refresh_required": bool(context.get("authority_refresh_required")),
+        "changed_since_last_observation": changed,
+        "previous_revision": previous_revision,
+        "previous_digest": previous_digest,
+    }
+
+
 def write_journal(paths: Mapping[str, Path], journal: Mapping[str, Any]) -> None:
     _continuation()._write_json(paths["directives"], journal)
 
@@ -280,5 +308,6 @@ __all__ = [
     "continuation_directive_supersede_command",
     "directive_context",
     "load_journal",
+    "observe_directive_context",
     "register_directive_parser",
 ]

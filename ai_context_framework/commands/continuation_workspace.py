@@ -21,6 +21,7 @@ from ai_context_framework import (
     continuation_rounds,
     continuation_workspace,
 )
+from ai_context_framework.commands import continuation_directives as continuation_directive_commands
 from ai_context_framework.front_matter import parse_front_matter, split_typed_scope, validate_front_matter
 from ai_context_framework.git_support import discover_git_project
 from ai_context_framework.observability import acf_home
@@ -580,7 +581,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
         runner_id = str(getattr(args, "runner_id", None) or "").strip() or None
         plan_refs = list(state.get("plan_refs") or [])
         constraints = list(state.get("constraints") or [])
-        directive_context = core._directive_context(paths, control)
+        directive_context = continuation_directive_commands.directive_context(paths, control)
 
         effect_summary = effect_snapshot.get("summary")
         if not isinstance(effect_summary, dict):
