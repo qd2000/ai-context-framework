@@ -906,6 +906,7 @@ Current execution state:
 Authority rule:
 - Refresh local authority with `acf continuation doctor {json.dumps(str(root))}{task_flag} --json` plus the project-specific Git/plan/Runtime/evidence checks required by the scheduler wrapper.
 - The persisted default execution plan may lag newer authority. Newer authoritative evidence supersedes it; otherwise execute it as the next plan instead of merely reading, explaining, or reporting it.
+- If newer authority explicitly invalidates a persisted compact constraint or closes an old open question, an authenticated owner must retire the exact stale entry at checkpoint with `--supersede-constraint` / `--resolve-open-question` plus durable `--evidence-ref`; do not leave contradictory high-salience state beside the newer plan.
 - Completing the default plan is not a work quota or stopping boundary. Reassess the overall objective and continue with the next safe, non-repetitive, valuable action while useful work remains.
 - Never replay an already-observed side effect merely because persisted recovery metadata is old.
 

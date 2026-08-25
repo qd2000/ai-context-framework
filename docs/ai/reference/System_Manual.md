@@ -49,11 +49,11 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 常见安装方式：
 
 - 正式发布版本安装：`uv tool install ai-context-framework`
-- 正式发布版本更新：`uv tool upgrade ai-context-framework`
+- 正式发布版本更新：Windows 自动化/并行环境优先运行 `pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1`；确认没有并发 ACF 进程的普通交互式环境也可使用 `uv tool upgrade ai-context-framework`
 - 安装或更新后刷新 shell PATH：`uv tool update-shell`
 - 仓库维护者安装当前源码快照：`uv tool install .`
 - 调试 CLI 改动或安装链路时使用 editable 安装：`uv tool install -e .`
-- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1` 或 `sh scripts/install_acf.sh`。
+- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1`、`pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1` 或对应的 `sh` 入口。Windows PowerShell 脚本会在 ACF tool 环境仍被进程占用时 fail-closed；更新脚本使用未固定版本的 `uv tool install --force --upgrade`，避免 pinned receipt 阻止发现新稳定版，并可在无占用进程时用 `-Reinstall` 修复中断安装。
 
 如果需要把 CLI 装进当前 Python 环境而不是 `uv tool` 工具目录，可以使用 `python -m pip install .`。不要把全局 `acf` 长期 editable install 指向开发工作区；只有调试安装链路或 CLI 改动时才临时使用 editable。正式用户应从 PyPI 安装，Git URL 只适合临时测试。
 
@@ -207,11 +207,21 @@ acf observer snapshot --dry-run --json
 # 原子更新 current/history/self-health，并生成自包含 dashboard.html
 acf observer snapshot --json
 
-# 读取 live + rotated 历史；stream 可选 timeline/observations/alerts/runs/interpretations
+# 读取 live + rotated 历史；stream 可选 timeline/observations/alerts/runs/interpretations/narratives
 acf observer history --stream timeline --limit 20 --json
 
 # 读取项目级 semantic glossary
 acf observer glossary --json
+
+# 只读计算 Project Narrative 的显式 authority source projection/fingerprint
+acf observer narrative-source . --source-path docs/ai/reference/Project_Brief.md --json
+
+# 把模型/Agent 生成的 Project Narrative JSON 绑定到精确 source fingerprint 后写入 derived semantic state
+acf observer narrative-apply . --source-fingerprint <fingerprint> `
+  --source-path docs/ai/reference/Project_Brief.md --input project-narrative.json --json
+
+# 只读检查当前 Project Narrative 是否仍与最新 authority 一致
+acf observer narrative . --json
 ```
 
 `snapshot` 会对项目事实做开始/结束 fingerprint；第一次读取期间发生变化时自动重读一次，仍不稳定则把 `snapshot_consistency=unstable` 并生成 critical Alert，不把混合快照包装成高置信度事实。Observer 自己使用独立轻量锁，正常 overlap fail-closed；只有锁已超过 grace 且本机只读进程检查明确证明旧 PID 不存在时才回收 abandoned lock。`current.json`、`observer_status.json` 和 `dashboard.html` 都用 temp → validate → atomic replace；HTML render 失败会保留上一份 last-good Dashboard。meaningful timeline/observation/alert/run/interpretation 默认永久保留，只按月无损 rotation 到 `history/<stream>/YYYY-MM.jsonl` 并维护 `history/index.json`，不做按时间删除。
@@ -238,6 +248,10 @@ acf observer glossary-set . --term "LM/TR" --human-term "LM/信赖域优化" `
 ```
 
 confidence 支持 `authoritative / high / medium / low`；medium/low 会在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。interpretation 以 append-only 版本历史记录，`observer history --stream interpretations` 可追溯 old/new interpretation、source fingerprint 和 provenance。结构化 Observer state 与 HTML 共用 credential-like 值过滤；API key、password、token、private key、license、fence token 等值拒绝写入或替换为 `[redacted]`。
+
+Project Narrative 是 Workstream interpretation 之上的**项目级 derived semantic state**，不是新的 Markdown authority。`narrative-source` 只接受显式、项目相对的 authority 文件路径；它记录文件 content digest，并把稳定的 Workstream/continuation meaning projection 一起纳入 source fingerprint，不默认全仓扫描。`narrative-apply` 只负责机械验证/版本化/原子写入，要求 JSON 明确提供 `overall_goal`、architecture nodes/edges、milestones、`current_position`、confidence 和逐项 provenance/evidence；未知 node/milestone 引用、credential-like 文本或读取后 authority fingerprint 漂移都会 fail-closed。当前 narrative 写入 `semantic/project_narrative.json`，历史追加到 `semantic/project_narratives.jsonl` 并参与无损 monthly rotation；source 文件或相关项目 authority 改变后，下一次只读 snapshot 会把旧 narrative 标记 `stale` 并生成 warning Alert，而不是继续当作 current project story。
+
+Dashboard 将 Project Narrative 与 Meaningful Timeline 明确分层：Project Map 展示 Overall Goal、Architecture Map、Logical Milestone Flow / Project Evolution、Current Position 和 milestone Evidence/Provenance；Workstream 卡片继续解释“现在”，Timeline 继续表达“最近发生了什么”。项目地图仍使用确定性 HTML/CSS、文本/符号和静态自包含数据，不引入 Mermaid/Graphviz/React runtime、CDN、HTTP server 或外部 fetch；颜色只做稳定语义引导，并始终同时保留文字状态。
 
 `dashboard.html` 是纯静态、自包含、可直接 `file://` 打开的展示层，不启动 HTTP/daemon，也不依赖外部 CSS/JS/fetch。红色只用于 critical，琥珀用于 warning，绿色用于 healthy/verified，蓝色用于 active/info，灰色用于 canonical/历史/metadata；颜色必须同时配文字/符号，主标题约 24px、Workstream 标题约 17px，不用巨大字号制造重点。Observer structured state/history 中的 canonical 时间戳保持 UTC；Dashboard 头部和 Meaningful Timeline 等人类可见时间统一转换为北京时间 `UTC+08:00` 并明确标注，底层 UTC 不因展示需求改写。Dashboard 是派生视图，Observer structured state 才是观测事实层。
 
@@ -315,6 +329,10 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 | anchor 缺失 | 不自动修复 | 返回 `ANCHOR_NOT_FOUND` |
 
 `new worklog --append` 的 JSON 面向 AI 稳定解析：`target` 和 `changed_files` 使用 repo-relative POSIX slash 路径；成功输出包含结构化 `warnings` 数组；`insert_after_line` 是 1-based 行号；`--dry-run --json` 不写文件；append 不是幂等操作，每运行一次都会新增一段内容。目标已存在但未传 `--append` 或 `--force` 时，`error_code=TARGET_EXISTS_APPEND_REQUIRED`；`--append --force` 返回 `APPEND_FORCE_CONFLICT`；anchor 缺失返回 `ANCHOR_NOT_FOUND`。
+
+### Continuation compact authority retirement
+
+`constraints / open_questions` 是 continuation compact state 中的**当前 authority hint**，不是 append-only 历史。newer authority 明确推翻旧 constraint 或关闭旧 question 后，authenticated owner 可在 `continuation checkpoint` 使用 exact-match `--supersede-constraint` / `--resolve-open-question` 并提供 durable `--evidence-ref`，把旧项退休与新的 stage/status/next_action/constraint 在同一 checkpoint 中原子收口。CLI 只做机械 exact-match 状态维护：不存在的条目、缺少 evidence 或模糊文本匹配均拒绝，不会自行判断自然语言是否已经失效。
 
 ---
 

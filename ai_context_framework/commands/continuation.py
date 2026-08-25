@@ -45,15 +45,12 @@ from ai_context_framework import (
 from ai_context_framework.commands import continuation_parsers
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
 from ai_context_framework.commands import continuation_directives as continuation_directive_commands
+from ai_context_framework.commands import continuation_issue as continuation_issue_commands
 from ai_context_framework.commands import continuation_recovery as continuation_recovery_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
 from ai_context_framework.observability import (
-    append_usage_event,
     atomic_write_text,
-    usage_log_enabled,
-    usage_log_path,
     usage_project_dir,
-    utc_now_iso,
 )
 from ai_context_framework.worktree_service import target_from_registry, verify_target
 from ai_context_framework.git_support import discover_git_project
@@ -914,6 +911,35 @@ def _append_unique(existing: Iterable[Any], additions: Iterable[Any]) -> list[An
     return result
 
 
+def _retire_exact_state_items(
+    existing: Iterable[Any],
+    retirements: Iterable[str],
+    *,
+    field: str,
+) -> tuple[list[Any], list[str]]:
+    """Retire exact current semantic-state entries without guessing identity.
+
+    ``constraints`` and ``open_questions`` are current compact authority hints,
+    not append-only history.  When newer authority invalidates one of them, an
+    authenticated checkpoint may retire the exact old text.  Exact matching is
+    deliberate: fuzzy or substring removal could silently discard a different
+    still-authoritative constraint/question.
+    """
+
+    result = list(existing)
+    removed: list[str] = []
+    for raw_value in _append_unique([], retirements):
+        value = _validate_text(raw_value, field=field)
+        if value not in result:
+            raise ContinuationError(
+                f"{field} item is not current: {value}",
+                code="state_item_not_found",
+            )
+        result.remove(value)
+        removed.append(value)
+    return result, removed
+
+
 def _emit(args: argparse.Namespace, command: str, payload: Mapping[str, Any], exit_code: int = 0) -> int:
     result = {
         "schema_version": 1,
@@ -1666,6 +1692,23 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
                 state["stage"] = _validate_text(args.stage, field="stage")
             if args.next_action:
                 state["next_action"] = _validate_text(args.next_action, field="next_action")
+            superseded_constraints = args.supersede_constraint or []
+            resolved_open_questions = args.resolve_open_question or []
+            if (superseded_constraints or resolved_open_questions) and not args.evidence_ref:
+                raise ContinuationError(
+                    "retiring a current constraint/open question requires --evidence-ref",
+                    code="state_authority_evidence_required",
+                )
+            state["constraints"], retired_constraints = _retire_exact_state_items(
+                state.get("constraints", []),
+                superseded_constraints,
+                field="constraint",
+            )
+            state["open_questions"], retired_open_questions = _retire_exact_state_items(
+                state.get("open_questions", []),
+                resolved_open_questions,
+                field="open_question",
+            )
             updates = {
                 "completed": args.completed or [],
                 "constraints": args.constraint or [],
@@ -1678,7 +1721,15 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
                 state[field] = _append_unique(state.get(field, []), values)
             state["updated_at"] = _iso()
             state = _write_state(paths["state"], state)
-            return {"status": "checkpointed", "state": state, "next_action": state["next_action"]}
+            return {
+                "status": "checkpointed",
+                "state": state,
+                "next_action": state["next_action"],
+                "retired_state_items": {
+                    "constraints": retired_constraints,
+                    "open_questions": retired_open_questions,
+                },
+            }
 
     return _guarded(args, "continuation checkpoint", operation)
 
@@ -1866,71 +1917,6 @@ def continuation_resume_command(args: argparse.Namespace) -> int:
     return _guarded(args, "continuation resume", operation)
 
 
-def continuation_issue_command(args: argparse.Namespace) -> int:
-    def operation() -> dict[str, Any]:
-        root = _workspace_root(args.path)
-        paths = _paths(root, args.task_id)
-        control = _load_control(paths, root)
-        state = _load_state(paths)
-        if not usage_log_enabled(root):
-            raise ContinuationError(
-                "usage logging is disabled for this worktree",
-                code="usage_log_disabled",
-                next_actions=["Run `acf log enable` from the project context before recording dogfood issues."],
-            )
-        category = str(args.category or "other").strip().lower() or "other"
-        severity = str(args.severity or "medium").strip().lower()
-        if severity not in {"low", "medium", "high", "critical"}:
-            raise ContinuationError("unsupported issue severity", code="issue_invalid")
-        text = _validate_text(args.text, field="text")
-        related_command = str(args.related_command or "").strip()
-        resolve_fingerprint = str(args.resolve_fingerprint or "").strip().lower()
-        if resolve_fingerprint:
-            if not re.fullmatch(r"[0-9a-f]{20}", resolve_fingerprint):
-                raise ContinuationError("issue fingerprint must be 20 lowercase hex characters", code="issue_invalid")
-            fingerprint = resolve_fingerprint
-            event_kind = "continuation_issue_resolution"
-            command_status = "issue_resolved"
-        else:
-            normalized_text = " ".join(text.lower().split())
-            fingerprint_seed = "|".join((category, related_command.lower(), normalized_text))
-            fingerprint = hashlib.sha256(fingerprint_seed.encode("utf-8")).hexdigest()[:20]
-            event_kind = "continuation_issue"
-            command_status = "issue_recorded"
-        event: dict[str, object] = {
-            "schema_version": 1,
-            "timestamp": utc_now_iso(),
-            "event_kind": event_kind,
-            "command": "continuation issue",
-            "project_root": str(root),
-            "workspace_root": str(root),
-            "task_id": control["task_id"],
-            "workstream_id": control.get("workstream_id"),
-            "stage": state["stage"],
-            "state_status": state["status"],
-            "category": category,
-            "severity": severity,
-            "text": text,
-            "fingerprint": fingerprint,
-            "evidence_refs": list(dict.fromkeys(args.evidence_ref or []))[:MAX_LIST_ITEMS],
-            "related_command": related_command or None,
-            "runner_id": str(args.runner_id or "agent").strip() or "agent",
-            "ok": True,
-            "exit_code": 0,
-            "error_code": None,
-        }
-        append_usage_event(root, event)
-        return {
-            "status": command_status,
-            "task_id": control["task_id"],
-            "fingerprint": fingerprint,
-            "log_path": str(usage_log_path(root)),
-            "issue": event,
-        }
-
-    return _guarded(args, "continuation issue", operation)
-
-
 def register_round_effect_parsers(subparsers, add_json_argument) -> None:
     continuation_directive_commands.register_directive_parser(subparsers, add_json_argument)
     continuation_parsers.register_round_effect_parsers(
@@ -1957,9 +1943,11 @@ continuation_coordination_status_command = continuation_coordination_commands.co
 continuation_coordination_attempt_command = continuation_coordination_commands.continuation_coordination_attempt_command
 continuation_coordination_challenge_command = continuation_coordination_commands.continuation_coordination_challenge_command
 continuation_reconcile_command = continuation_recovery_commands.continuation_reconcile_command
+continuation_issue_command = continuation_issue_commands.continuation_issue_command
 register_workspace_parsers = continuation_workspace_commands.register_workspace_parsers
 register_configure_parser = continuation_workspace_commands.register_configure_parser
 register_coordination_parsers = continuation_coordination_commands.register_coordination_parsers
+register_issue_parser = continuation_issue_commands.register_issue_parser
 
 
 __all__ = [
@@ -1993,4 +1981,5 @@ __all__ = [
     "register_coordination_parsers",
     "register_configure_parser",
     "register_workspace_parsers",
+    "register_issue_parser",
 ]

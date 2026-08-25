@@ -1229,6 +1229,212 @@ class ObserverCliTests(unittest.TestCase):
             project_model = resolve_observer_project(project)
             self.assertFalse(observer_paths(project_model)["glossary"].exists())
 
+    def test_project_narrative_is_versioned_source_bound_and_rendered_as_project_map(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, _context = self.make_project(root)
+            source_path = "AGENTS.md"
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "narrative-source", str(project), "--source-path", source_path, "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            source_payload = json.loads(stdout)
+            source_fingerprint = source_payload["source_fingerprint"]
+            self.assertEqual(source_payload["source_projection"]["sources"][0]["path"], source_path)
+
+            narrative_input = root / "project-narrative.json"
+            narrative_input.write_text(
+                json.dumps(
+                    {
+                        "confidence": "authoritative",
+                        "overall_goal": {
+                            "summary": "让项目级 Observer 同时解释长期目标、架构、逻辑里程碑和当前位置。",
+                            "provenance": ["AGENTS.md"],
+                        },
+                        "architecture": {
+                            "nodes": [
+                                {
+                                    "id": "authority",
+                                    "title": "项目 Authority",
+                                    "category": "authority",
+                                    "status": "completed",
+                                    "summary": "Markdown 与运行事实提供 canonical authority。",
+                                    "provenance": ["AGENTS.md"],
+                                },
+                                {
+                                    "id": "observer",
+                                    "title": "Project Observer",
+                                    "category": "observability",
+                                    "status": "current",
+                                    "summary": "Observer 将 authority 转换为可追溯的人类语义。",
+                                    "provenance": ["AGENTS.md"],
+                                },
+                            ],
+                            "edges": [
+                                {
+                                    "from": "authority",
+                                    "to": "observer",
+                                    "relation": "interpreted_by",
+                                    "summary": "Observer 只解释 authority，不替代它。",
+                                    "provenance": ["AGENTS.md"],
+                                }
+                            ],
+                        },
+                        "milestones": [
+                            {
+                                "id": "foundation",
+                                "title": "Observer 基础能力",
+                                "status": "completed",
+                                "depends_on": [],
+                                "next": ["project-map"],
+                                "summary": "完成 snapshot、semantic、history 和 static Dashboard。",
+                                "implication": "可以继续构建长期项目地图。",
+                                "evidence": ["AGENTS.md"],
+                                "provenance": ["AGENTS.md"],
+                            },
+                            {
+                                "id": "project-map",
+                                "title": "Project Narrative / Map",
+                                "status": "current",
+                                "depends_on": ["foundation"],
+                                "next": [],
+                                "summary": "把长期项目逻辑链加入 Dashboard。",
+                                "implication": "用户无需只靠最近 Timeline 理解项目。",
+                                "evidence": ["AGENTS.md"],
+                                "provenance": ["AGENTS.md"],
+                            },
+                        ],
+                        "current_position": {
+                            "milestone_id": "project-map",
+                            "summary": "当前正在实现长期项目地图。",
+                            "next_logic": "验证 source fingerprint、历史和静态 HTML 安全。",
+                            "provenance": ["AGENTS.md"],
+                        },
+                        "provenance": ["AGENTS.md"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            apply_args = [
+                "observer",
+                "narrative-apply",
+                str(project),
+                "--source-fingerprint",
+                source_fingerprint,
+                "--source-path",
+                source_path,
+                "--input",
+                str(narrative_input),
+                "--json",
+            ]
+            exit_code, stdout, stderr = self.run_cli(apply_args)
+            self.assertEqual(exit_code, 0, stderr)
+            applied = json.loads(stdout)
+            self.assertTrue(applied["changed"])
+            self.assertEqual(applied["narrative"]["narrative_version"], 1)
+
+            exit_code, stdout, stderr = self.run_cli(apply_args)
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertFalse(json.loads(stdout)["changed"])
+            exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            snapshot = json.loads(stdout)["snapshot"]
+            self.assertEqual(snapshot["project_narrative"]["status"], "current")
+            observer_project = resolve_observer_project(project)
+            html = observer_paths(observer_project)["dashboard"].read_text(encoding="utf-8")
+            self.assertIn("Project Narrative / 项目地图", html)
+            self.assertIn("Architecture Map / 架构地图", html)
+            self.assertIn("Logical Milestone Flow / Project Evolution", html)
+            self.assertIn("Current Position / 当前所在位置", html)
+            self.assertNotIn("http://", html)
+            self.assertNotIn("https://", html)
+            self.assertNotIn("fetch(", html)
+
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "history", str(project), "--stream", "narratives", "--limit", "10", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            history = json.loads(stdout)
+            self.assertEqual(history["total_count"], 1)
+            self.assertEqual(history["records"][0]["event_kind"], "project_narrative_updated")
+
+            agents = project / source_path
+            agents.write_text(agents.read_text(encoding="utf-8") + "\n# authority changed\n", encoding="utf-8")
+            exit_code, stdout, stderr = self.run_cli(["observer", "narrative", str(project), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            narrative_status = json.loads(stdout)["project_narrative"]
+            self.assertEqual(narrative_status["status"], "stale")
+            self.assertNotEqual(narrative_status["source_fingerprint"], source_fingerprint)
+            exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--dry-run", "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            alerts = json.loads(stdout)["snapshot"]["alerts"]
+            self.assertIn("project:narrative-stale", [row["alert_key"] for row in alerts])
+
+    def test_project_narrative_refuses_sensitive_or_invalid_graph_input_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, _context = self.make_project(root)
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "narrative-source", str(project), "--source-path", "AGENTS.md", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            fingerprint = json.loads(stdout)["source_fingerprint"]
+            input_path = root / "unsafe-narrative.json"
+            input_path.write_text(
+                json.dumps(
+                    {
+                        "confidence": "high",
+                        "overall_goal": {"summary": "password=do-not-store", "provenance": ["AGENTS.md"]},
+                        "architecture": {
+                            "nodes": [
+                                {
+                                    "id": "one",
+                                    "title": "One",
+                                    "category": "test",
+                                    "status": "current",
+                                    "summary": "safe",
+                                    "provenance": ["AGENTS.md"],
+                                }
+                            ],
+                            "edges": [{"from": "one", "to": "missing", "relation": "bad", "summary": "bad", "provenance": ["AGENTS.md"]}],
+                        },
+                        "milestones": [
+                            {
+                                "id": "m1",
+                                "title": "M1",
+                                "status": "current",
+                                "depends_on": [],
+                                "next": [],
+                                "summary": "safe",
+                                "implication": "safe",
+                                "evidence": ["AGENTS.md"],
+                                "provenance": ["AGENTS.md"],
+                            }
+                        ],
+                        "current_position": {"milestone_id": "m1", "summary": "safe", "next_logic": "safe", "provenance": ["AGENTS.md"]},
+                        "provenance": ["AGENTS.md"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            exit_code, stdout, _stderr = self.run_cli(
+                [
+                    "observer", "narrative-apply", str(project),
+                    "--source-fingerprint", fingerprint,
+                    "--source-path", "AGENTS.md",
+                    "--input", str(input_path),
+                    "--json",
+                ]
+            )
+            self.assertNotEqual(exit_code, 0)
+            self.assertIn(json.loads(stdout)["error_code"], {"observer_sensitive_value_refused", "observer_project_narrative_invalid"})
+            observer_project = resolve_observer_project(project)
+            self.assertFalse(observer_paths(observer_project)["project_narrative"].exists())
+            self.assertFalse(observer_paths(observer_project)["project_narratives"].exists())
+
     def test_status_after_snapshot_reports_self_health(self):
         with tempfile.TemporaryDirectory() as tmp:
             project, _context = self.make_project(Path(tmp))

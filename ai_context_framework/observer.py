@@ -30,6 +30,7 @@ from ai_context_framework.observer_storage import (
     ObserverLockedError, _continuation_lease_liveness, _parse_utc_iso, _read_json_object,
     _read_jsonl_objects, acquire_observer_lock, append_jsonl, append_jsonl_unique,
     attach_semantic_interpretations, ensure_jsonl_file, observer_lock_health, observer_paths,
+    project_narrative_status,
     read_glossary, read_observer_history_stream, refresh_history_index, release_observer_lock,
     rotate_jsonl_monthly, rotate_observer_history, sanitize_observer_payload, utc_now_iso,
     write_dashboard, write_json_atomic,
@@ -805,6 +806,26 @@ def derive_snapshot_alerts(project: ObserverProject, snapshot: dict[str, object]
             ],
         )
 
+    project_narrative = snapshot.get("project_narrative")
+    if isinstance(project_narrative, dict) and project_narrative.get("status") == "stale":
+        narrative = project_narrative.get("narrative") if isinstance(project_narrative.get("narrative"), dict) else {}
+        add_alert(
+            alert_key="project:narrative-stale",
+            severity="warning",
+            title="Project Narrative 已落后于当前项目 authority",
+            explanation="项目地图的 source fingerprint 与当前项目事实或显式 authority 文件不再一致；Dashboard 会保留旧叙事用于追溯，但不会把它当作 current project story。",
+            canonical_identity={"type": "project", "id": project.project_id},
+            provenance=[
+                {
+                    "source": "project_narrative",
+                    "narrative_version": narrative.get("narrative_version"),
+                    "stored_source_fingerprint": narrative.get("source_fingerprint"),
+                    "current_source_fingerprint": project_narrative.get("source_fingerprint"),
+                    "source_error": project_narrative.get("source_error"),
+                }
+            ],
+        )
+
     for row in snapshot.get("workstreams") or []:
         if not isinstance(row, dict):
             continue
@@ -1569,6 +1590,7 @@ def build_observer_snapshot(
     workstreams = list(final.get("workstreams") or [])
     continuations = list(final.get("continuations") or [])
     workstreams, semantic_summary = attach_semantic_interpretations(project, workstreams, continuations)
+    narrative_summary = project_narrative_status(project, workstreams, continuations)
     snapshot = {
         "schema_version": OBSERVER_CURRENT_SCHEMA,
         "project_id": project.project_id,
@@ -1589,6 +1611,7 @@ def build_observer_snapshot(
         "continuations": continuations,
         "alerts": [],
         "semantic": semantic_summary,
+        "project_narrative": narrative_summary,
     }
     snapshot["alerts"] = derive_snapshot_alerts(project, snapshot)
     sanitized = sanitize_observer_payload(snapshot)

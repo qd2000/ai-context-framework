@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+## v0.0.3.82 — 2026-08-25
+
+### Project Map and maintenance hardening
+
+- Project Observer 新增 provenance-bound Project Narrative / Project Map：从显式 authority source 生成版本化 derived narrative，在静态 Dashboard 中展示 Overall Goal、Architecture Map、Logical Milestone Flow / Project Evolution 与 Current Position；source fingerprint 变化后旧 narrative 自动 fail-visible stale，仍保留 canonical Workstream、timeline 与 provenance。
+- `acf continuation checkpoint` 新增精确、证据绑定的 `--supersede-constraint` 与 `--resolve-open-question`，允许 newer authority 收口已经失效的 compact-state constraint/open question；只允许删除当前确实存在的精确文本，并要求 `--evidence-ref`，避免旧高显著提示在后续 scheduler wake 重新把任务带回错误阻塞。
+- Windows `scripts/install_acf.ps1` / `scripts/update_acf.ps1` 在修改全局 `uv` tool 前先检测仍占用 ACF tool environment / launcher 的进程并 fail-closed；更新脚本改用未固定版本的 `uv tool install --force --upgrade`，避免 exact-version receipt 阻止发现新稳定版，并支持 `-Reinstall` 修复中断安装。
+- 新增 Windows fake-uv/process-lock regression，覆盖 unpinned latest discovery、reinstall 与“存在真实 tool-env 进程时在任何 uv mutation 之前拒绝更新”；continuation retirement 也加入成功、证据要求和 noncurrent-item 拒绝回归。
+
 ## v0.0.3.81 — 2026-08-25
 
 ### Dynamic continuation user directives

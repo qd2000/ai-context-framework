@@ -332,11 +332,11 @@ Global-first progressive disclosure：没有明确选择时，无论存在多少
 常见安装方式：
 
 - 正式发布版本安装：`uv tool install ai-context-framework`
-- 正式发布版本更新：`uv tool upgrade ai-context-framework`
+- 正式发布版本更新：Windows 自动化/并行环境优先运行 `pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1`；确认没有并发 ACF 进程的普通交互式环境也可使用 `uv tool upgrade ai-context-framework`
 - 安装或更新后刷新 shell PATH：`uv tool update-shell`
 - 仓库维护者安装当前源码快照：`uv tool install .`
 - 调试 CLI 改动或安装链路时使用 editable 安装：`uv tool install -e .`
-- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1` 或 `sh scripts/install_acf.sh`。
+- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1`、`pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1` 或对应的 `sh` 入口。Windows PowerShell 脚本会在 ACF tool 环境仍被进程占用时 fail-closed；更新脚本使用未固定版本的 `uv tool install --force --upgrade`，避免 pinned receipt 阻止发现新稳定版，并可在无占用进程时用 `-Reinstall` 修复中断安装。
 
 验证命令：
 
@@ -423,7 +423,7 @@ Worktree lifecycle 与 continuation workspace 共用 read-only semantic-clean：
 
 同一 stale generation 若同时存在多个已有 durable external id、且由外部 authority 明确证明 terminal 的 unresolved effects，可在一次 `reconcile` 中按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，以一个 receipt 原子绑定全部 assertions；它们共享本次 `--effect-evidence-ref` 集合，数量、identity 或 digest 不一致继续 fail-closed。write-ahead `effect prepare` 后若尚未真正 submit，仍允许一条单 effect 的显式 no-start 恢复路径：只有 effect 仍为 `prepared`、`external_id=null`，并有外部 authority 证明 submit 从未启动时，owner 结束/forfeiture 后才可用 `reconcile --effect-not-started --effect-terminal-status failed --effect-evidence-ref <ref>` 生成 receipt，并由 `recover` 标记 failed。对于已经实际执行、但没有 external id 而停在 `prepared|active + external_id=null` 的**本地确定性 effect**，可在 owner-ended/forfeiture 且 durable local authority evidence 明确证明 terminal 结果时使用 `--effect-local-terminal`；它可一次收口多个 local effects，但与 external-id / not-started 模式互斥，`unknown` 或证据不足仍严格拒绝。
 
-continuation state 固定存放于 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；默认根目录是 `~/.acf`，`ACF_HOME` override 只替换这个根。`directives.json` 与 control/state/round/effect 同属该用户级 namespace，不进入项目 Git。compact `state.json` 的 `completed / evidence_refs / verification` 是最多 64 项的 rolling history summary；旧版本遗留的 current-schema history overflow 会在读取时惰性压缩，并在下一次合法 state write 持久化。`constraints / open_questions / plan_refs` 继续严格限 64 项，超限 fail-closed，不会为了容量静默丢掉仍有效的安全/计划语义；裁剪前仍检查 forbidden raw-history 和单项大小。`acf continuation list <worktree> --json` 与 `--all-projects` 只读报告 task/workstream identity、timing、control generation、各 state schema 及 compatibility。支持的 legacy workspace schema 使用 `acf continuation migrate ... --dry-run` 预览，并只在没有 lease record 时显式 `--apply --reason ...`；migration receipt 记录 schema/digest 变化和其余 history 文件（包含 directive journal）的 byte digest，未知/future schema 继续 fail-closed。不要直接编辑 ACF_HOME JSON。
+continuation state 固定存放于 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；默认根目录是 `~/.acf`，`ACF_HOME` override 只替换这个根。`directives.json` 与 control/state/round/effect 同属该用户级 namespace，不进入项目 Git。compact `state.json` 的 `completed / evidence_refs / verification` 是最多 64 项的 rolling history summary；旧版本遗留的 current-schema history overflow 会在读取时惰性压缩，并在下一次合法 state write 持久化。`constraints / open_questions / plan_refs` 继续严格限 64 项，超限 fail-closed，不会为了容量静默丢掉仍有效的安全/计划语义；其中 `constraints / open_questions` 属于当前 compact authority hint，newer authority 明确 supersede/resolve 后只能由 authenticated checkpoint exact-match `--supersede-constraint` / `--resolve-open-question` 并带 durable `--evidence-ref` 退休，不能靠模糊匹配或容量裁剪静默删除；裁剪前仍检查 forbidden raw-history 和单项大小。`acf continuation list <worktree> --json` 与 `--all-projects` 只读报告 task/workstream identity、timing、control generation、各 state schema 及 compatibility。支持的 legacy workspace schema 使用 `acf continuation migrate ... --dry-run` 预览，并只在没有 lease record 时显式 `--apply --reason ...`；migration receipt 记录 schema/digest 变化和其余 history 文件（包含 directive journal）的 byte digest，未知/future schema 继续 fail-closed。不要直接编辑 ACF_HOME JSON。
 
 ### Project Observer
 
@@ -435,6 +435,10 @@ acf observer snapshot --dry-run --json
 acf observer snapshot --json
 acf observer history --stream timeline --limit 20 --json
 acf observer glossary --json
+acf observer narrative-source . --source-path reference/Project_Brief.md --json
+acf observer narrative-apply . --source-fingerprint <fingerprint> `
+  --source-path reference/Project_Brief.md --input project-narrative.json --json
+acf observer narrative . --json
 ```
 
 `snapshot` 使用开始/结束 fingerprint 形成一致性快照；读取期间发生变化会重读一次，仍不稳定则标记 critical Alert。Observer 使用自己的轻量锁，不复用 continuation lease；current/status/dashboard 原子替换，render 失败保留 last-good Dashboard。meaningful history 默认永久保留，只按月无损 rotation/index，不按时间自动删除。Execution / Progress / Health 分离；正常 `waiting_external` 不自动等于异常，缺少明确分母时不生成假百分比。
@@ -457,6 +461,10 @@ acf observer glossary-set . --term "术语" --human-term "人类解释" `
 ```
 
 confidence 支持 `authoritative / high / medium / low`；medium/low 在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。结构化 Observer state 与 HTML 都过滤 credential-like 值，API key、password、token、private key、license、fence token 等不得进入 Observer 产物。
+
+Project Narrative 是项目级 derived semantic state，不替代 Context/Task Plan/Workstream/ADR。`narrative-source` 只读取调用方明确列出的项目相对 authority 文件，并把文件内容摘要与稳定 Workstream/continuation meaning projection 组成 source fingerprint；`narrative-apply` 只验证、版本化和持久化 `overall_goal / architecture / milestones / current_position / confidence / provenance`，不会扫描整个仓库或自动创造项目事实。未知 graph 引用、credential-like 文本或 source fingerprint 漂移都会 fail-closed；旧 narrative 在 authority 变化后必须标记 stale。Project Narrative 的 live/history 都保存在用户级 Observer namespace，并与其他 Observer history 一样无损 rotation。
+
+Dashboard 将 Project Narrative 作为长期项目地图单独展示 Overall Goal、Architecture Map、Logical Milestone Flow / Project Evolution、Current Position 和 milestone evidence/provenance；Workstream 卡片与 Meaningful Timeline 继续保留，分别回答“现在”和“最近变化”。地图仍是确定性静态 HTML/CSS、自包含 `file://` 页面，不引入 Mermaid/Graphviz/React runtime、CDN、HTTP server 或外部 fetch；颜色只能作为辅助语义，并始终配套状态文字/符号。
 
 `dashboard.html` 是静态、自包含、直接 `file://` 打开的派生视图，不启动 HTTP/daemon，不依赖外部资源。颜色表达必须同时配文字/符号：红=critical、琥珀=warning、绿=healthy/verified、蓝=active/info、灰=canonical/history/metadata；字体保持连续阅读尺度，不用巨大字号制造重点。Observer structured state/history 的 canonical 时间戳保持 UTC；所有人类可见 Dashboard 时间统一显示为北京时间 `UTC+08:00`，展示层转换不得改写底层 UTC 数据。
 

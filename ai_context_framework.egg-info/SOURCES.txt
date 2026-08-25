@@ -46,6 +46,7 @@ ai_context_framework/commands/archive.py
 ai_context_framework/commands/continuation.py
 ai_context_framework/commands/continuation_coordination.py
 ai_context_framework/commands/continuation_directives.py
+ai_context_framework/commands/continuation_issue.py
 ai_context_framework/commands/continuation_parsers.py
 ai_context_framework/commands/continuation_recovery.py
 ai_context_framework/commands/continuation_workspace.py
@@ -133,6 +134,7 @@ tests/test_context_matrix.py
 tests/test_context_routing.py
 tests/test_continuation_cli.py
 tests/test_entrypoint_smoke.py
+tests/test_install_scripts.py
 tests/test_log_inventory.py
 tests/test_observer_cli.py
 tests/test_package_skeleton.py
