@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import re
+from pathlib import Path
 
 from ai_context_framework.observability import (
     append_usage_event,
@@ -99,7 +100,7 @@ def register_issue_parser(subparsers, add_json_argument) -> None:
         "issue",
         help="record one structured reusable dogfood issue in the user-level ACF log",
     )
-    parser.add_argument("path", nargs="?", type=core_path_type())
+    parser.add_argument("path", nargs="?", type=Path)
     parser.add_argument("--task-id", default=None)
     parser.add_argument("--category", default="other")
     parser.add_argument(
@@ -118,12 +119,4 @@ def register_issue_parser(subparsers, add_json_argument) -> None:
     parser.add_argument("--runner-id", default="agent")
     add_json_argument(parser)
     parser.set_defaults(func=continuation_issue_command)
-
-
-def core_path_type():
-    # Keep argparse's public type contract identical without importing the
-    # continuation core eagerly.
-    from pathlib import Path
-
-    return Path
 
