@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+## v0.0.3.81 — 2026-08-25
+
+### Dynamic continuation user directives
+
+- 新增 `acf continuation directive add|list|show|adopt|resolve|supersede`，为长时间 continuation 提供用户级、可审计的 live-steering inbox；第一版 kind 固定为 `requirement / priority_change / constraint / plan_change`，CLI 只机械记录、校验和迁移状态，不把自然语言自动裁决成项目事实或第二套 Task Plan。
+- directive journal 位于用户级 continuation namespace，事件历史 append-only；原始输入不会被 resolve/supersede 静默覆盖。实现加入 active inbox、事件数、单项和总字节容量边界，并拒绝 credential-like 文本进入 durable state。
+- `continuation prompt --json` 新增 `directive_context`，pending directive 明确高于旧 persisted `next_action`；claim 保存当时看到的 directive revision/digest，heartbeat 与 renew 返回 change signal，使长 session 能在下一次 scheduler wake 前发现用户 steering。
+- README、Automation、项目/模板 System Manual 与 continuation schema/inventory 同步；focused directive lifecycle、supersede、prompt/heartbeat/renew steering、secret refusal、active-inbox capacity、inventory/schema 回归以及 WS012 file-scoped guard、template/strict/diff checks 通过。
+
 ## v0.0.3.80 — 2026-08-24
 
 ### Long-lived Maintenance closeout

@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.80` 是当前推荐版本。它继承 `.79` 的长期 Workstream reactivation/sync 修复，并补齐 release 后维护闭环：长期 Maintenance Workstream 可以通过 ACF 状态机从 `Merging` 重新进入 `Active`；`acf worktree merge` 清理临时 integration worktree 时会区分真实 Git dirty 与内容等价的 tracked stat-only 变化，只对语义干净、仅含 stat-only 变化的临时 worktree 使用受限 force removal，避免 uv/check 过程改写 egg-info metadata 后遗留 integration worktree。Project Observer 的 semantic freshness 同时跟踪 ownership generation 与 unresolved effect risk，避免 owner/effect 已变化时旧叙述仍被错误标为 current，同时忽略纯 terminal effect 计数增长以避免无意义抖动。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。
+`v0.0.3.81` 是当前推荐版本。它新增 `acf continuation directive add|list|show|adopt|resolve|supersede` 用户级 live-steering inbox：pending directive 作为新的 user-authority signal 高于旧 persisted `next_action`，`continuation prompt --json` 暴露 directive revision/digest/pending 摘要，claim 记录已观察版本，heartbeat/renew 在 inbox 变化时返回 steering signal。directive journal 保持 append-only/auditable、bounded、secret-safe，CLI 只机械记录和状态迁移，不创建第二套 Task Plan；持久 requirement/constraint/plan change 仍由 Agent authority refresh 后同步到正确 Markdown authority。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
