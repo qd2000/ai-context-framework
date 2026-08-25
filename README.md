@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.82` 是当前推荐版本。它在 `v0.0.3.81` live-steering directive 基础上加入 provenance-bound Project Narrative / Project Map：Observer 从显式 authority source fingerprint 生成版本化 derived narrative，Dashboard 展示 Overall Goal、Architecture Map、Logical Milestone Flow / Project Evolution 与 Current Position，authority 变化后旧 narrative 会 fail-visible stale。continuation checkpoint 同时支持证据绑定的 stale constraint/open-question 精确 retirement，防止 newer authority 已纠正后旧高显著提示再次误导 scheduler；Windows 安装/更新脚本增加 global uv-tool 进程占用 preflight，并用 unpinned `uv tool install --force --upgrade` 避免 pinned receipt 与文件锁把 canonical ACF 留在半损坏状态。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。
+`v0.0.3.83` 是当前推荐版本。它在 `v0.0.3.82` Project Narrative / Project Map 基础上修正 active Workstream source-lineage 判定：当 primary checkout clean 且 primary HEAD 是 bound active worktree HEAD 的 ancestor 时，尚未集成的 branch-forward Workstream authority 被视为有序推进而不是 source divergence；两份来源继续完整保留 provenance，无法由 Git lineage 解释的真实并发 authority 分叉仍 fail-visible。Project Observer 继续保持 **read broad / write narrow / control none**，structured state/history 使用 UTC，静态 Dashboard 人类可见时间显示北京时间 `UTC+08:00`。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)

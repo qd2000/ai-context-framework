@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+## v0.0.3.83 — 2026-08-26
+
+### Observer source-lineage authority
+
+- Project Observer 不再把 active registered Workstream 的正常 branch-forward authority 误报为 source divergence：当 primary checkout clean，且 primary HEAD 是 bound active worktree HEAD 的 ancestor 时，两份不同 Workstream 文本仍保留 provenance，但 `source_consistency` 判为 consistent，并记录 `active_registered_worktree_descends_clean_primary` basis。
+- 真实并发 authority 分叉仍 fail-visible：如果 primary 与 bound active worktree 已形成不可由 ancestor lineage 解释的独立提交，Observer 继续产生 divergence/Alert；primary archive/terminal authority 规则保持不变。
+- 新增 forward-lineage 与 true-branch-divergence regression；真实 ACF candidate dry-run 已验证 WS012 的正常 Active/Waiting worktree 相对旧 primary merge baseline 不再触发 critical source-divergent Alert。
+
 ## v0.0.3.82 — 2026-08-25
 
 ### Project Map and maintenance hardening
