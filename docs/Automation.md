@@ -29,6 +29,8 @@ ACF 自身的 WS012 Maintenance Writer 负责把该跨项目 issue 池真正消�
 
 WS012 已使用安装态 directive channel 对上述两个真实需求完成 add → prompt exposure → authority refresh → adopt dogfood。Project Map 的实现保持 Observer anti-masking：Maintenance Writer 只构建/验证产品代码与隔离 runtime，正式 `:34` Production Observer 仍独立负责 canonical snapshot/render。项目级叙事由 `observer narrative-source` 对显式 authority 文件和稳定项目 meaning facts 计算 fingerprint，再由 `observer narrative-apply` 保存版本化 derived state；Dashboard 只渲染已经通过 fingerprint/provenance 校验的 Overall Goal、Architecture Map、Logical Milestone Flow、Current Position 和 evidence，不从整个仓库自动猜项目故事。authority 变化后 narrative 必须 stale，直到新的显式语义解释被应用。
 
+正式 Production Observer 的 narrative 刷新不能只停留在“检测 stale”：每次 `:34` activation 的初始 snapshot 若显示 Project Narrative 为 `stale | not_interpreted`，Observer Agent 必须读取显式 `narrative-source` projection/fingerprint，以当前项目 authority 生成 secret-safe derived narrative payload，再用**同一** fingerprint/source-path 集合执行 `narrative-apply`，最后重新 snapshot/render；source 在 source→apply 间变化或证据不足时保持 stale/fail-visible。该语义写入属于 Production Observer 的用户级 `.acf/.../observer/` narrow-write，不得由 `:04` Maintenance 普通 wake 代刷。临时 payload 只能放 OS scratch/temp 并在 apply 后删除，不得写进项目或形成第二份 Dashboard。只有最终 production snapshot 的 Project Narrative 为 `current`（或初始即 current）的 activation 才可计入 WS012 连续 acceptance。
+
 `acf.py` 先覆盖确定性工作：
 
 - 可安装入口：`pyproject.toml` 提供 `acf` console script；正式用户从 PyPI 使用 `uv tool install ai-context-framework`，更新使用 `uv tool upgrade ai-context-framework`；仓库开发期可用 `uv tool install -e .`，本仓库开发入口仍保留 `uv run python acf.py ...`。
