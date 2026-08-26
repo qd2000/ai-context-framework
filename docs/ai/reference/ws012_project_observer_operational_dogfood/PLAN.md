@@ -277,6 +277,14 @@ Batch 一旦启动，本轮目标是把当时已经进入 `Ready Batch`、安全
 
 至少观察 24 个连续 hourly Production Observer activation，期间 Maintenance 不做例行 snapshot。
 
+Production Observer 的 Project Narrative 刷新属于正式 `:34` activation 自身，而不是 Maintenance 补写。每个 production activation 在初始 snapshot 后必须检查 `project_narrative.status`：
+
+- `current`：保持当前 narrative，不制造重复版本；
+- `stale | not_interpreted`：使用安装态 `acf observer narrative-source` 对**显式** authority source paths 读取精确 projection/fingerprint，由当前 Observer Agent 基于该 projection 与最小必要 authority 生成 derived narrative JSON，再用同一 fingerprint/source-path 集合执行 `acf observer narrative-apply`，最后重新 snapshot/render；
+- 生成 narrative payload 所需 scratch 只能放 OS 临时目录，不得写项目文件、continuation/workstream/effect control state 或新增第二份 canonical Dashboard；完成后删除 scratch；
+- source fingerprint 在 source→apply 之间变化、证据不足或 credential-like 内容触发拒绝时 fail-visible，保留 stale 并记录该 production activation 未通过 narrative freshness gate，禁止 Maintenance 事后刷新冒充 production 成功；
+- 只有最终 production snapshot 中 narrative 已 `current`（或初始即 `current`）的 activation 才能计入连续 24 次 acceptance。
+
 验收至少包括：
 
 - scheduler run cadence 正常；
@@ -327,13 +335,11 @@ Observer 修复进入稳定版前必须：
 
 ## 7. Immediate next action
 
-2026-08-25 用户 authority 已明确 supersede 原“继续等待 24h”的默认计划。当前执行顺序：
+截至 2026-08-26，WS012.3/4/5 已随 `v0.0.3.83` 之前的稳定版本完成实现、release/global install 与 installed-state dogfood；ordered source-lineage 修复也已随 `v0.0.3.83` 安装并验证。当前默认执行顺序改为：
 
-1. 先实现 WS012.3 `acf continuation directive` 最小完整闭环，并同步 CLI help / JSON contract / docs / template manual / tests；
-2. 用新 directive 渠道把“Observer Project Map”和“Global issue maintenance”作为真实 pending directives 注入 WS012，再由同一 WS012 消费并 adopt，证明 live steering 生效；
-3. 实现 WS012.4 Observer Project Narrative / architecture / logical milestone flow 和 richer semantic colors；
-4. 实现 WS012.5 global issue current-stable triage、Immediate/Ready Batch/Observe 策略和批处理启动规则；
-5. 按 release discipline 发布新的稳定 ACF、全局安装并做 installed-state dogfood；
-6. 从该稳定版本重新开始 WS012.6 的 24 个连续 `:34` Production Observer activation 验收。
+1. 修复并验证正式 `ACF Project Observer` 的 Project Narrative production refresh operational flow（issue `530d8683b093945f0b4a`）；首个 `.83` 独立 production revision 175 已证明 snapshot/Workstream semantic/source/self-health/history 正常，但 narrative 仍 stale，因此不能计为通过样本；
+2. 修复后从下一次独立 `:34` activation 重新开始连续 24 次 acceptance，严格按本节 production-only 证据计数；
+3. 并行保持 `5067de152f19558f2d8b` 为 current-stable Ready Batch candidate；只有达到 WS012.5 的 Immediate/Batch 门槛才启动代码 maintenance release，不为了单个普通 high issue 高频发版；
+4. 每个 `:04` wake 继续先查 pending directive / Immediate issue / batch threshold，再做 production acceptance 只读核验；无当前安全有价值工作则不 claim、不制造 control-plane busywork。
 
-在上述实现阶段继续遵守 anti-masking：普通 WS012 Maintenance wake 不为了让 Dashboard 看起来新鲜而例行调用 production `observer snapshot/interpret`。
+继续遵守 anti-masking：普通 WS012 Maintenance wake 不为了让 Dashboard 或 Project Narrative 看起来新鲜而例行调用 production `observer snapshot/interpret/narrative-apply`。
