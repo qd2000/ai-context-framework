@@ -20,7 +20,7 @@ from typing import Any, Iterable
 from ai_context_framework.front_matter import parse_front_matter
 from ai_context_framework.git_support import (
     GitCommandError,
-    discover_git_project,
+    discover_git_project, is_ancestor,
     list_registries,
     list_worktrees,
     path_key,
@@ -352,6 +352,11 @@ def capture_project_workstreams(
     registry_rows = _safe_registry_rows(project)
     registry_managed_domain = bool(registry_rows)
     primary_key = path_key(project.canonical_root)
+    worktree_by_path = {
+        path_key(str(row["path"])): row
+        for row in worktrees
+        if isinstance(row.get("path"), str)
+    }
     primary_archived_ids = _archived_workstream_ids_for_root(project.canonical_root)
     by_id: dict[str, list[dict[str, object]]] = {}
     for row in occurrences:
@@ -439,6 +444,27 @@ def capture_project_workstreams(
             for row in sources
             if not row.get("read_error")
         }
+        source_consistency = "consistent" if len(comparable) <= 1 else "divergent"
+        source_consistency_basis = "identical_authoritative_sources" if len(comparable) <= 1 else "conflicting_authoritative_sources"
+        if source_consistency == "divergent" and registry and isinstance(registry.get("path"), str):
+            selected_key = path_key(str(registry["path"]))
+            primary_worktree = worktree_by_path.get(primary_key)
+            selected_worktree = worktree_by_path.get(selected_key)
+            source_keys = {path_key(str(row["source_worktree"])) for row in sources if row.get("source_worktree")}
+            primary_head = primary_worktree.get("head") if primary_worktree else None
+            selected_head = selected_worktree.get("head") if selected_worktree else None
+            # Ordered active-worktree progress is lineage, not contradictory authority.
+            if (
+                str(registry.get("state") or "").casefold() == "active"
+                and source_keys <= {primary_key, selected_key}
+                and primary_worktree is not None
+                and bool(primary_worktree.get("clean"))
+                and isinstance(primary_head, str) and primary_head
+                and isinstance(selected_head, str) and selected_head
+                and is_ancestor(project.canonical_root, primary_head, selected_head)
+            ):
+                source_consistency = "consistent"
+                source_consistency_basis = "active_registered_worktree_descends_clean_primary"
         result.append(
             {
                 "schema_version": OBSERVER_WORKSTREAM_SCHEMA,
@@ -448,7 +474,8 @@ def capture_project_workstreams(
                 "attention": selected.get("attention"),
                 "owner": selected.get("owner"),
                 "goal": selected.get("goal"),
-                "source_consistency": "consistent" if len(comparable) <= 1 else "divergent",
+                "source_consistency": source_consistency,
+                "source_consistency_basis": source_consistency_basis,
                 "selected_source": selected.get("source_worktree"),
                 "registry": registry,
                 "sources": sources,

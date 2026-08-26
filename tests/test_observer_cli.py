@@ -210,6 +210,163 @@ class ObserverCliTests(unittest.TestCase):
             self.assertEqual(payload["snapshot"]["project_id"], observer_project.project_id)
             self.assertFalse(observer_project.observer_dir.exists())
 
+    def test_active_registered_worktree_forward_progress_is_not_source_divergence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, context = self.make_project(root)
+            detail_dir = context / "active" / "workstreams"
+            detail_dir.mkdir(parents=True, exist_ok=True)
+            detail = detail_dir / "WS123.md"
+            detail.write_text(
+                "---\n"
+                "id: WS123\n"
+                "type: Maintenance\n"
+                "status: Merging\n"
+                "attention: Now\n"
+                "owner: agent\n"
+                "title: Long-lived observer maintenance\n"
+                "---\n"
+                "# WS123\n\n"
+                "## 目标\n\n"
+                "长期维护 Observer。\n",
+                encoding="utf-8",
+            )
+            self.init_git_project(project)
+
+            owner_worktree = root / "owner-worktree"
+            subprocess.run(
+                ["git", "worktree", "add", "-b", "ws123-owner", str(owner_worktree)],
+                cwd=project,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            owner_detail = owner_worktree / "docs" / "ai" / "active" / "workstreams" / "WS123.md"
+            owner_detail.write_text(
+                owner_detail.read_text(encoding="utf-8")
+                .replace("status: Merging", "status: Active")
+                .replace("attention: Now", "attention: Waiting"),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "docs/ai/active/workstreams/WS123.md"], cwd=owner_worktree, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "test: advance active maintenance authority"],
+                cwd=owner_worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            git_project = discover_git_project(project)
+            write_registry(
+                git_project.common_dir,
+                "WS123",
+                {
+                    "workstream": "WS123",
+                    "branch": "ws123-owner",
+                    "path": str(owner_worktree),
+                    "state": "active",
+                    "slug": "long-lived-observer-maintenance",
+                },
+            )
+
+            observer_project = resolve_observer_project(project)
+            workstreams = capture_project_workstreams(
+                observer_project,
+                capture_project_worktrees(observer_project),
+            )
+            workstream = next(row for row in workstreams if row["id"] == "WS123")
+
+            self.assertEqual(workstream["status"], "Active")
+            self.assertEqual(workstream["attention"], "Waiting")
+            self.assertEqual(workstream["source_consistency"], "consistent")
+            self.assertEqual(
+                workstream["source_consistency_basis"],
+                "active_registered_worktree_descends_clean_primary",
+            )
+            self.assertEqual(len(workstream["sources"]), 2)
+
+    def test_active_registered_worktree_true_branch_divergence_remains_source_divergent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, context = self.make_project(root)
+            detail_dir = context / "active" / "workstreams"
+            detail_dir.mkdir(parents=True, exist_ok=True)
+            detail = detail_dir / "WS123.md"
+            detail.write_text(
+                "---\n"
+                "id: WS123\n"
+                "type: Maintenance\n"
+                "status: Active\n"
+                "attention: Now\n"
+                "owner: agent\n"
+                "title: Long-lived observer maintenance\n"
+                "---\n"
+                "# WS123\n\n"
+                "## 目标\n\n"
+                "长期维护 Observer。\n",
+                encoding="utf-8",
+            )
+            self.init_git_project(project)
+
+            owner_worktree = root / "owner-worktree"
+            subprocess.run(
+                ["git", "worktree", "add", "-b", "ws123-owner", str(owner_worktree)],
+                cwd=project,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            owner_detail = owner_worktree / "docs" / "ai" / "active" / "workstreams" / "WS123.md"
+            owner_detail.write_text(
+                owner_detail.read_text(encoding="utf-8").replace("attention: Now", "attention: Waiting"),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "docs/ai/active/workstreams/WS123.md"], cwd=owner_worktree, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "test: advance worktree authority"],
+                cwd=owner_worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            detail.write_text(
+                detail.read_text(encoding="utf-8").replace("attention: Now", "attention: Later"),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "docs/ai/active/workstreams/WS123.md"], cwd=project, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "test: independently advance primary authority"],
+                cwd=project,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            git_project = discover_git_project(project)
+            write_registry(
+                git_project.common_dir,
+                "WS123",
+                {
+                    "workstream": "WS123",
+                    "branch": "ws123-owner",
+                    "path": str(owner_worktree),
+                    "state": "active",
+                    "slug": "long-lived-observer-maintenance",
+                },
+            )
+
+            observer_project = resolve_observer_project(project)
+            workstreams = capture_project_workstreams(
+                observer_project,
+                capture_project_worktrees(observer_project),
+            )
+            workstream = next(row for row in workstreams if row["id"] == "WS123")
+
+            self.assertEqual(workstream["source_consistency"], "divergent")
+            self.assertEqual(workstream["source_consistency_basis"], "conflicting_authoritative_sources")
+
     def test_registry_managed_workstream_does_not_fallback_to_unrelated_stale_source_after_primary_archive(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
