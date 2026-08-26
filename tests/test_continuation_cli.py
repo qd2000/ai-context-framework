@@ -9,9 +9,11 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import acf
 from ai_context_framework import (
+    continuation_directive_archive,
     continuation_directives,
     continuation_inventory,
     continuation_rounds,
@@ -493,6 +495,113 @@ class ContinuationCliTests(unittest.TestCase):
             prompt["execution_policy"]["pending_user_directive_supersedes_persisted_next_action"]
         )
 
+    def test_external_directive_injection_and_supersede_do_not_take_writer_ownership(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            ["continuation", "claim", str(self.root), "--task-id", "WS900", "--runner-id", "writer-a"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
+
+        code, added, stderr = self.run_json(
+            [
+                "continuation", "directive", "add", str(self.root), "--task-id", "WS900",
+                "--kind", "priority_change", "--priority", "90", "--lifetime", "durable",
+                "--text", "External user authority changes the next safe control-point priority.",
+                "--actor", "external-steering-agent",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{added}")
+        old_id = str(added["directive"]["id"])
+        code, heartbeat, stderr = self.run_json(
+            ["continuation", "heartbeat", str(self.root), "--task-id", "WS900", *owner]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{heartbeat}")
+        self.assertTrue(heartbeat["directive_signal"]["changed_since_last_observation"])
+        self.assertEqual(str(claim["lease"]["lease_id"]), heartbeat["lease"]["lease_id"])
+        self.assertEqual("writer-a", heartbeat["lease"]["runner_id"])
+
+        code, superseded, stderr = self.run_json(
+            [
+                "continuation", "directive", "supersede", str(self.root), "--task-id", "WS900",
+                "--directive-id", old_id, "--kind", "priority_change", "--priority", "100",
+                "--text", "External user authority replaces the prior active priority version.",
+                "--actor", "external-steering-agent",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{superseded}")
+        code, renewed, stderr = self.run_json(
+            ["continuation", "renew", str(self.root), "--task-id", "WS900", *owner]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{renewed}")
+        self.assertTrue(renewed["directive_signal"]["changed_since_last_observation"])
+        self.assertEqual(str(claim["lease"]["lease_id"]), renewed["lease"]["lease_id"])
+        self.assertEqual("writer-a", renewed["lease"]["runner_id"])
+        self.assertEqual("superseded", superseded["superseded"]["status"])
+        self.assertEqual("pending", superseded["replacement"]["status"])
+
+    def test_directive_cli_list_and_show_include_terminal_archive_history(self) -> None:
+        init = self.init_task()
+        code, added, stderr = self.run_json(
+            [
+                "continuation", "directive", "add", str(self.root), "--task-id", "WS900",
+                "--kind", "requirement", "--lifetime", "transient",
+                "--text", "One-shot directive that should roll into archive.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{added}")
+        directive_id = str(added["directive"]["id"])
+        with (
+            patch.object(continuation_directive_archive, "ROLLOVER_EVENT_RATIO", 0.0),
+            patch.object(continuation_directive_archive, "ROLLOVER_BYTE_RATIO", 2.0),
+        ):
+            code, resolved, stderr = self.run_json(
+                [
+                    "continuation", "directive", "resolve", str(self.root), "--task-id", "WS900",
+                    "--directive-id", directive_id, "--evidence-ref", "result:one-shot-complete",
+                ]
+            )
+        self.assertEqual(0, code, f"{stderr}\n{resolved}")
+        self.assertTrue(resolved["rollover"]["rolled_over"])
+        state_dir = Path(str(init["state_dir"]))
+        self.assertTrue(list(state_dir.glob("directives.archive.*.json")))
+
+        code, shown, stderr = self.run_json(
+            [
+                "continuation", "directive", "show", str(self.root), "--task-id", "WS900",
+                "--directive-id", directive_id,
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{shown}")
+        self.assertEqual("resolved", shown["directive"]["status"])
+        self.assertGreaterEqual(shown["history_audit"]["archive_count"], 1)
+
+        code, listed, stderr = self.run_json(
+            [
+                "continuation", "directive", "list", str(self.root), "--task-id", "WS900",
+                "--status", "resolved",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{listed}")
+        self.assertEqual([directive_id], [item["id"] for item in listed["directives"]])
+
+    def test_directive_legacy_v1_journal_without_lifetime_remains_compatible(self) -> None:
+        journal = continuation_directives.empty_journal("WS900")
+        journal, directive = continuation_directives.add_directive(
+            journal,
+            kind="requirement",
+            priority=50,
+            text="Legacy-compatible directive.",
+            created_at="2026-08-25T00:00:00Z",
+            actor="user",
+        )
+        legacy = json.loads(json.dumps(journal))
+        legacy["events"][0].pop("lifetime", None)
+        loaded = continuation_directives.validate_journal(legacy, task_id="WS900")
+        projected = continuation_directives.project_directives(loaded)
+        self.assertEqual(directive["id"], projected[0]["id"])
+        self.assertEqual("unspecified", projected[0]["lifetime"])
+
     def test_directive_refuses_credential_like_text(self) -> None:
         self.init_task()
         code, payload, _ = self.run_json(
@@ -511,6 +620,237 @@ class ContinuationCliTests(unittest.TestCase):
         )
         self.assertNotEqual(0, code)
         self.assertEqual("directive_sensitive_value_refused", payload["error_code"])
+
+    def test_directive_lifetime_withdraw_and_evidence_backed_adoption(self) -> None:
+        self.init_task()
+        code, added, stderr = self.run_json(
+            [
+                "continuation", "directive", "add", str(self.root), "--task-id", "WS900",
+                "--kind", "plan_change", "--lifetime", "durable", "--priority", "100",
+                "--text", "Persist this lifecycle plan in project authority before adoption.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{added}")
+        directive_id = str(added["directive"]["id"])
+        self.assertEqual("durable", added["directive"]["lifetime"])
+
+        code, refused, _ = self.run_json(
+            [
+                "continuation", "directive", "adopt", str(self.root), "--task-id", "WS900",
+                "--directive-id", directive_id,
+            ]
+        )
+        self.assertNotEqual(0, code)
+        self.assertEqual("directive_adoption_evidence_required", refused["error_code"])
+
+        code, adopted, stderr = self.run_json(
+            [
+                "continuation", "directive", "adopt", str(self.root), "--task-id", "WS900",
+                "--directive-id", directive_id, "--evidence-ref", "commit:authority-sync",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{adopted}")
+        self.assertEqual("adopted", adopted["directive"]["status"])
+        self.assertEqual(["commit:authority-sync"], adopted["directive"]["adoption_evidence_refs"])
+
+        code, refused_withdraw, _ = self.run_json(
+            [
+                "continuation", "directive", "withdraw", str(self.root), "--task-id", "WS900",
+                "--directive-id", directive_id,
+            ]
+        )
+        self.assertNotEqual(0, code)
+        self.assertEqual("directive_withdrawal_evidence_required", refused_withdraw["error_code"])
+
+        code, withdrawn, stderr = self.run_json(
+            [
+                "continuation", "directive", "withdraw", str(self.root), "--task-id", "WS900",
+                "--directive-id", directive_id, "--evidence-ref", "user:cancelled",
+                "--note", "User cancelled this durable plan change.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{withdrawn}")
+        self.assertEqual("withdrawn", withdrawn["directive"]["status"])
+
+        code, invalid_resolve, _ = self.run_json(
+            [
+                "continuation", "directive", "resolve", str(self.root), "--task-id", "WS900",
+                "--directive-id", directive_id, "--evidence-ref", "commit:later",
+            ]
+        )
+        self.assertNotEqual(0, code)
+        self.assertEqual("directive_transition_invalid", invalid_resolve["error_code"])
+
+        code, transient, stderr = self.run_json(
+            [
+                "continuation", "directive", "add", str(self.root), "--task-id", "WS900",
+                "--kind", "requirement", "--lifetime", "transient",
+                "--text", "Run one bounded diagnostic once.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{transient}")
+        code, resolved, stderr = self.run_json(
+            [
+                "continuation", "directive", "resolve", str(self.root), "--task-id", "WS900",
+                "--directive-id", str(transient["directive"]["id"]), "--evidence-ref", "result:diagnostic",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{resolved}")
+        self.assertEqual("resolved", resolved["directive"]["status"])
+
+    def test_directive_terminal_rollover_keeps_active_authority_and_archived_history_queryable(self) -> None:
+        task_id = "WS900"
+        journal = continuation_directives.empty_journal(task_id)
+        journal, terminal = continuation_directives.add_directive(
+            journal,
+            kind="requirement",
+            priority=70,
+            text="Terminal directive that is safe to archive.",
+            created_at="2026-08-26T00:00:00Z",
+            actor="user",
+            lifetime="transient",
+        )
+        journal, _, _ = continuation_directives.resolve_directive(
+            journal,
+            directive_id=str(terminal["id"]),
+            occurred_at="2026-08-26T00:01:00Z",
+            actor="agent",
+            evidence_refs=["result:complete"],
+        )
+        journal, active = continuation_directives.add_directive(
+            journal,
+            kind="constraint",
+            priority=90,
+            text="Active authority must remain in the current journal.",
+            created_at="2026-08-26T00:02:00Z",
+            actor="user",
+            lifetime="durable",
+        )
+        current_path = Path(self._home.name) / "directives-rollover.json"
+        with (
+            patch.object(continuation_directive_archive, "ROLLOVER_EVENT_RATIO", 0.0),
+            patch.object(continuation_directive_archive, "ROLLOVER_BYTE_RATIO", 2.0),
+        ):
+            current, rollover = continuation_directive_archive.store_with_rollover(
+                current_path, journal, task_id=task_id
+            )
+        self.assertTrue(rollover["rolled_over"])
+        self.assertEqual(3, current["revision"])
+        self.assertEqual([3], [event["revision"] for event in current["events"]])
+        self.assertEqual([active["id"]], [item["id"] for item in continuation_directives.project_directives(current)])
+        history, audit = continuation_directive_archive.history_directives(
+            current_path, current, task_id=task_id
+        )
+        self.assertEqual(3, audit["history_event_count"])
+        self.assertEqual({terminal["id"], active["id"]}, {item["id"] for item in history})
+        shown, _ = continuation_directive_archive.show_history_directive(
+            current_path, current, task_id=task_id, directive_id=str(terminal["id"])
+        )
+        self.assertEqual("resolved", shown["status"])
+
+        # A crash after archive-first but before current replacement leaves exact
+        # duplicates. History loading must deduplicate them without losing audit continuity.
+        archive_path = Path(str(rollover["archive_file_created"]))
+        archived_payload = json.loads(archive_path.read_text(encoding="utf-8"))
+        duplicate_current = continuation_directives.validate_journal(journal, task_id=task_id)
+        _, duplicate_audit = continuation_directive_archive.history_journal(
+            current_path, duplicate_current, task_id=task_id
+        )
+        self.assertEqual(3, duplicate_audit["history_event_count"])
+        self.assertEqual(archived_payload["event_digest"], continuation_directive_archive._event_digest(archived_payload["events"]))
+
+    def test_directive_rollover_never_archives_pending_or_adopted_prefix(self) -> None:
+        task_id = "WS900"
+        journal = continuation_directives.empty_journal(task_id)
+        journal, pending = continuation_directives.add_directive(
+            journal,
+            kind="constraint",
+            priority=95,
+            text="Keep this pending authority current.",
+            created_at="2026-08-26T00:00:00Z",
+            actor="user",
+            lifetime="durable",
+        )
+        current_path = Path(self._home.name) / "directives-active.json"
+        current, rollover = continuation_directive_archive.store_with_rollover(
+            current_path, journal, task_id=task_id, force=True
+        )
+        self.assertFalse(rollover["rolled_over"])
+        self.assertTrue(rollover["blocked_by_active_authority"])
+        self.assertEqual(pending["id"], continuation_directives.project_directives(current)[0]["id"])
+        self.assertEqual([], continuation_directive_archive.archive_paths(current_path))
+
+    def test_directive_rollover_archives_terminal_chains_after_older_active_authority(self) -> None:
+        task_id = "WS900"
+        journal = continuation_directives.empty_journal(task_id)
+        journal, active = continuation_directives.add_directive(
+            journal,
+            kind="constraint",
+            priority=95,
+            text="Older active authority must not block later terminal history rollover.",
+            created_at="2026-08-26T00:00:00Z",
+            actor="user",
+            lifetime="durable",
+        )
+        journal, terminal = continuation_directives.add_directive(
+            journal,
+            kind="requirement",
+            priority=60,
+            text="Later one-shot work becomes terminal.",
+            created_at="2026-08-26T00:01:00Z",
+            actor="user",
+            lifetime="transient",
+        )
+        journal, _, _ = continuation_directives.resolve_directive(
+            journal,
+            directive_id=str(terminal["id"]),
+            occurred_at="2026-08-26T00:02:00Z",
+            actor="agent",
+            evidence_refs=["result:terminal"],
+        )
+        current_path = Path(self._home.name) / "directives-interleaved.json"
+        current, rollover = continuation_directive_archive.store_with_rollover(
+            current_path, journal, task_id=task_id, force=True
+        )
+        self.assertTrue(rollover["rolled_over"])
+        self.assertEqual(3, current["revision"])
+        self.assertEqual([1], [event["revision"] for event in current["events"]])
+        self.assertEqual([active["id"]], [item["id"] for item in continuation_directives.project_directives(current)])
+        history, audit = continuation_directive_archive.history_directives(
+            current_path, current, task_id=task_id
+        )
+        self.assertEqual(3, audit["history_event_count"])
+        by_id = {item["id"]: item for item in history}
+        self.assertEqual("pending", by_id[active["id"]]["status"])
+        self.assertEqual("resolved", by_id[terminal["id"]]["status"])
+
+    def test_doctor_reports_directive_hygiene_without_semantic_auto_resolution(self) -> None:
+        init = self.init_task()
+        journal = continuation_directives.empty_journal("WS900")
+        journal, pending = continuation_directives.add_directive(
+            journal,
+            kind="requirement",
+            priority=95,
+            text="Old high-priority pending directive.",
+            created_at="2020-01-01T00:00:00Z",
+            actor="user",
+        )
+        Path(str(init["state_dir"]), "directives.json").write_text(
+            json.dumps(journal), encoding="utf-8"
+        )
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        hygiene = doctor["directive_hygiene"]
+        self.assertFalse(hygiene["auto_resolve"])
+        self.assertFalse(hygiene["semantic_completion_inferred"])
+        self.assertTrue(
+            any(
+                item["code"] == "stale_high_priority_pending" and item["directive_id"] == pending["id"]
+                for item in hygiene["findings"]
+            )
+        )
 
     def test_list_all_projects_discovers_namespaced_tasks(self) -> None:
         self.init_task("WS900")
@@ -4304,7 +4644,7 @@ merge_resolution: merged
         self.assertEqual("invalid", doctor["effect_journal"]["state"])
         self.assertFalse(doctor["can_claim"])
 
-    def test_continuation_migration_history_digests_include_effect_archives(self) -> None:
+    def test_continuation_migration_history_digests_include_effect_and_directive_archives(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
         archive = continuation_rounds.empty_effect_journal("WS900")
@@ -4331,9 +4671,36 @@ merge_resolution: merged
             now=continuation._iso(),
         )
         continuation._write_json(state_dir / "effects.archive.000001.json", archive)
+
+        directive_journal = continuation_directives.empty_journal("WS900")
+        directive_journal, directive = continuation_directives.add_directive(
+            directive_journal,
+            kind="requirement",
+            priority=50,
+            text="Archive this terminal directive for migration digest coverage.",
+            created_at=continuation._iso(),
+            actor="user",
+            lifetime="transient",
+        )
+        directive_journal, _, _ = continuation_directives.resolve_directive(
+            directive_journal,
+            directive_id=str(directive["id"]),
+            occurred_at=continuation._iso(),
+            actor="agent",
+            evidence_refs=["result:terminal"],
+        )
+        continuation_directive_archive.store_with_rollover(
+            state_dir / "directives.json",
+            directive_journal,
+            task_id="WS900",
+            force=True,
+        )
         digests = continuation_inventory.preserved_history_digests(state_dir)
         self.assertIn("effects.archive.000001.json", digests)
         self.assertEqual(64, len(digests["effects.archive.000001.json"]))
+        directive_archive_name = next(path.name for path in state_dir.glob("directives.archive.*.json"))
+        self.assertIn(directive_archive_name, digests)
+        self.assertEqual(64, len(digests[directive_archive_name]))
 
     def test_expired_running_round_with_effects_requires_reconciliation_before_reclaim(self) -> None:
         init = self.init_task()

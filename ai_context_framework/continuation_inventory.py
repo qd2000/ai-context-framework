@@ -235,6 +235,12 @@ def preserved_history_digests(directory: Path) -> dict[str, str]:
         digest = file_digest(path)
         if digest is not None:
             result[path.name] = digest
+    for path in sorted(directory.glob("directives.archive.*.json")):
+        if not path.is_file():
+            continue
+        digest = file_digest(path)
+        if digest is not None:
+            result[path.name] = digest
     return result
 
 

@@ -1007,6 +1007,12 @@ def continuation_doctor_command(args: argparse.Namespace) -> int:
             "blocked_files": compatibility["blocked_files"],
             "schemas": compatibility["schemas"],
         }
+        control = _load_control(paths, root)
+        result["directive_hygiene"] = continuation_directive_commands.directive_hygiene(
+            paths,
+            control,
+            now=_iso(),
+        )
         next_actions: list[str] = []
         if bool(compatibility["migration_required"]):
             next_actions.append(
@@ -1018,6 +1024,10 @@ def continuation_doctor_command(args: argparse.Namespace) -> int:
                     "Review every path in workspace.unclassified_paths, then run `acf continuation workspace adopt` with an explicit `--task-owned` or `--baseline-external` classification for each path plus durable evidence refs.",
                     "If any changed path cannot be attributed confidently, do not adopt it; preserve the worktree and keep recovery fail-closed until provenance is resolved.",
                 ]
+            )
+        if result["directive_hygiene"]["finding_count"]:
+            next_actions.append(
+                "Review directive_hygiene mechanically; do not auto-resolve, withdraw, supersede, or infer semantic completion from age/pressure alone."
             )
         result["next_actions"] = next_actions
         return result

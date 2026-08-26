@@ -658,6 +658,8 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "next_action_requires_authority_refresh": True,
             "next_action_may_be_superseded_by_newer_authority": True,
             "pending_user_directive_supersedes_persisted_next_action": True,
+            "consumed_user_directive_requires_disposition": True,
+            "directive_dispositions": ["resolve", "adopt", "supersede", "withdraw", "keep_pending_with_reason"],
             "checkpoint_is_stop": False,
             "commit_is_stop": False,
             "gate_completion_is_stop": False,
@@ -911,9 +913,12 @@ Authority rule:
 - Never replay an already-observed side effect merely because persisted recovery metadata is old.
 
 User directive authority:
-- Directive revision: {directive_context['revision']}; pending: {directive_context['pending_count']}; digest: {directive_context['digest']}.
+- Directive revision: {directive_context['revision']}; pending: {directive_context['pending_count']}; adopted: {directive_context.get('adopted_count', 0)}; active: {directive_context.get('active_count', 0)}; digest: {directive_context['digest']}.
 - Pending directives are new user-authority signals and supersede the persisted default execution plan until authority refresh decides how each applies.
 - The directive inbox is not a second Task Plan. Persistent requirements/constraints/plan changes must be synchronized into the correct project Markdown authority before being marked adopted; temporary runtime steering may be adopted with durable evidence.
+- Every directive actually consumed in this session must reach an explicit safe-control-point disposition: resolve when completed, adopt only after the required durable authority/execution evidence exists, supersede when replaced by a newer version, withdraw only with explicit cancellation authority, or deliberately remain pending with a recorded reason. Merely reading directive text is never adoption evidence.
+- `resolve`, `withdraw`, and `supersede` are distinct terminal meanings. Do not reopen resolved history; use a new add/supersede event for new user authority.
+- Directive pressure is mechanical observability only: {json.dumps(directive_context.get('pressure') or {}, ensure_ascii=False, sort_keys=True)}. Never infer semantic completion from age or capacity pressure.
 {render_directives(pending_directives)}
 
 Ownership now:
