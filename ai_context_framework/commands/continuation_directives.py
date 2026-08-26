@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from typing import Any, Mapping
 
-from ai_context_framework import continuation_directives
+from ai_context_framework import continuation_directive_archive, continuation_directives
 
 
 def _continuation():
@@ -24,17 +24,28 @@ def _directive_error(exc: continuation_directives.DirectiveError):
 
 def load_journal(paths: Mapping[str, Path], control: Mapping[str, Any]) -> dict[str, Any]:
     try:
-        return continuation_directives.load_journal(
+        journal = continuation_directives.load_journal(
             paths["directives"],
             task_id=str(control["task_id"]),
         )
+        continuation_directive_archive.history_journal(
+            paths["directives"], journal, task_id=str(control["task_id"])
+        )
+        return journal
     except continuation_directives.DirectiveError as exc:
         raise _directive_error(exc) from exc
 
 
 def directive_context(paths: Mapping[str, Path], control: Mapping[str, Any]) -> dict[str, Any]:
     try:
-        return continuation_directives.directive_context(load_journal(paths, control))
+        journal = load_journal(paths, control)
+        context = continuation_directives.directive_context(journal)
+        _, audit = continuation_directive_archive.history_journal(
+            paths["directives"], journal, task_id=str(control["task_id"])
+        )
+        context["archive_count"] = audit["archive_count"]
+        context["history_digest"] = audit["history_digest"]
+        return context
     except continuation_directives.DirectiveError as exc:
         raise _directive_error(exc) from exc
 
@@ -59,6 +70,11 @@ def observe_directive_context(
         "revision": revision,
         "digest": digest,
         "pending_count": int(context.get("pending_count") or 0),
+        "adopted_count": int(context.get("adopted_count") or 0),
+        "active_count": int(context.get("active_count") or 0),
+        "pressure": dict(context.get("pressure") or {}),
+        "archive_count": int(context.get("archive_count") or 0),
+        "history_digest": context.get("history_digest"),
         "latest_directive_id": latest_id,
         "authority_refresh_required": bool(context.get("authority_refresh_required")),
         "changed_since_last_observation": changed,
@@ -67,8 +83,29 @@ def observe_directive_context(
     }
 
 
-def write_journal(paths: Mapping[str, Path], journal: Mapping[str, Any]) -> None:
-    _continuation()._write_json(paths["directives"], journal)
+def write_journal(
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    journal: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        return continuation_directive_archive.store_with_rollover(
+            paths["directives"],
+            journal,
+            task_id=str(control["task_id"]),
+        )
+    except continuation_directives.DirectiveError as exc:
+        raise _directive_error(exc) from exc
+
+
+def directive_hygiene(paths: Mapping[str, Path], control: Mapping[str, Any], *, now: str) -> dict[str, Any]:
+    current = load_journal(paths, control)
+    try:
+        return continuation_directive_archive.hygiene_findings(
+            paths["directives"], current, task_id=str(control["task_id"]), now=now
+        )
+    except continuation_directives.DirectiveError as exc:
+        raise _directive_error(exc) from exc
 
 
 def continuation_directive_add_command(args: argparse.Namespace) -> int:
@@ -88,16 +125,18 @@ def continuation_directive_add_command(args: argparse.Namespace) -> int:
                     text=args.text,
                     created_at=core._iso(),
                     actor=args.actor,
+                    lifetime=args.lifetime,
                     evidence_refs=args.evidence_ref or [],
                 )
             except continuation_directives.DirectiveError as exc:
                 raise _directive_error(exc) from exc
-            write_journal(paths, journal)
+            journal, rollover = write_journal(paths, control, journal)
             return {
                 "status": "directive_added",
                 "task_id": control["task_id"],
                 "directive": directive,
-                "directive_context": continuation_directives.directive_context(journal),
+                "directive_context": directive_context(paths, control),
+                "rollover": rollover,
                 "journal_path": str(paths["directives"]),
             }
 
@@ -113,8 +152,13 @@ def continuation_directive_list_command(args: argparse.Namespace) -> int:
         control = core._load_control(paths, root)
         journal = load_journal(paths, control)
         try:
-            directives = continuation_directives.list_directives(journal, status=args.status)
-            context = continuation_directives.directive_context(journal)
+            directives, history_audit = continuation_directive_archive.history_directives(
+                paths["directives"],
+                journal,
+                task_id=str(control["task_id"]),
+                status=args.status,
+            )
+            context = directive_context(paths, control)
         except continuation_directives.DirectiveError as exc:
             raise _directive_error(exc) from exc
         return {
@@ -123,6 +167,7 @@ def continuation_directive_list_command(args: argparse.Namespace) -> int:
             "directive_count": len(directives),
             "directives": directives,
             "directive_context": context,
+            "history_audit": history_audit,
             "journal_path": str(paths["directives"]),
         }
 
@@ -138,14 +183,20 @@ def continuation_directive_show_command(args: argparse.Namespace) -> int:
         control = core._load_control(paths, root)
         journal = load_journal(paths, control)
         try:
-            directive = continuation_directives.show_directive(journal, args.directive_id)
+            directive, history_audit = continuation_directive_archive.show_history_directive(
+                paths["directives"],
+                journal,
+                task_id=str(control["task_id"]),
+                directive_id=args.directive_id,
+            )
         except continuation_directives.DirectiveError as exc:
             raise _directive_error(exc) from exc
         return {
             "status": "directive_shown",
             "task_id": control["task_id"],
             "directive": directive,
-            "directive_context": continuation_directives.directive_context(journal),
+            "directive_context": directive_context(paths, control),
+            "history_audit": history_audit,
             "journal_path": str(paths["directives"]),
         }
 
@@ -160,6 +211,10 @@ def continuation_directive_resolve_command(args: argparse.Namespace) -> int:
     return _transition_command(args, transition="resolve")
 
 
+def continuation_directive_withdraw_command(args: argparse.Namespace) -> int:
+    return _transition_command(args, transition="withdraw")
+
+
 def _transition_command(args: argparse.Namespace, *, transition: str) -> int:
     core = _continuation()
 
@@ -170,11 +225,11 @@ def _transition_command(args: argparse.Namespace, *, transition: str) -> int:
             control = core._load_control(paths, root)
             journal = load_journal(paths, control)
             try:
-                function = (
-                    continuation_directives.adopt_directive
-                    if transition == "adopt"
-                    else continuation_directives.resolve_directive
-                )
+                function = {
+                    "adopt": continuation_directives.adopt_directive,
+                    "resolve": continuation_directives.resolve_directive,
+                    "withdraw": continuation_directives.withdraw_directive,
+                }[transition]
                 journal, directive, changed = function(
                     journal,
                     directive_id=args.directive_id,
@@ -185,15 +240,23 @@ def _transition_command(args: argparse.Namespace, *, transition: str) -> int:
                 )
             except continuation_directives.DirectiveError as exc:
                 raise _directive_error(exc) from exc
+            rollover = {"rolled_over": False}
             if changed:
-                write_journal(paths, journal)
-            past_tense = "adopted" if transition == "adopt" else "resolved"
+                journal, rollover = write_journal(paths, control, journal)
+                directive, _ = continuation_directive_archive.show_history_directive(
+                    paths["directives"],
+                    journal,
+                    task_id=str(control["task_id"]),
+                    directive_id=args.directive_id,
+                )
+            past_tense = {"adopt": "adopted", "resolve": "resolved", "withdraw": "withdrawn"}[transition]
             return {
                 "status": f"directive_{past_tense}" if changed else f"directive_already_{past_tense}",
                 "task_id": control["task_id"],
                 "changed": changed,
                 "directive": directive,
-                "directive_context": continuation_directives.directive_context(journal),
+                "directive_context": directive_context(paths, control),
+                "rollover": rollover,
                 "journal_path": str(paths["directives"]),
             }
 
@@ -218,18 +281,26 @@ def continuation_directive_supersede_command(args: argparse.Namespace) -> int:
                     text=args.text,
                     occurred_at=core._iso(),
                     actor=args.actor,
+                    lifetime=args.lifetime,
                     evidence_refs=args.evidence_ref or [],
                     note=args.note,
                 )
             except continuation_directives.DirectiveError as exc:
                 raise _directive_error(exc) from exc
-            write_journal(paths, journal)
+            journal, rollover = write_journal(paths, control, journal)
+            superseded, _ = continuation_directive_archive.show_history_directive(
+                paths["directives"], journal, task_id=str(control["task_id"]), directive_id=str(superseded["id"])
+            )
+            replacement, _ = continuation_directive_archive.show_history_directive(
+                paths["directives"], journal, task_id=str(control["task_id"]), directive_id=str(replacement["id"])
+            )
             return {
                 "status": "directive_superseded",
                 "task_id": control["task_id"],
                 "superseded": superseded,
                 "replacement": replacement,
-                "directive_context": continuation_directives.directive_context(journal),
+                "directive_context": directive_context(paths, control),
+                "rollover": rollover,
                 "journal_path": str(paths["directives"]),
             }
 
@@ -247,6 +318,7 @@ def register_directive_parser(subparsers, add_json_argument) -> None:
     _identity_args(add)
     add.add_argument("--kind", choices=tuple(sorted(continuation_directives.DIRECTIVE_KINDS)), required=True)
     add.add_argument("--priority", type=int, default=50)
+    add.add_argument("--lifetime", choices=tuple(sorted(continuation_directives.DIRECTIVE_LIFETIMES)), default="unspecified")
     add.add_argument("--text", required=True)
     add.add_argument("--evidence-ref", action="append", default=None)
     add.add_argument("--actor", default="user")
@@ -268,6 +340,7 @@ def register_directive_parser(subparsers, add_json_argument) -> None:
     for name, command, help_text in (
         ("adopt", continuation_directive_adopt_command, "mark a pending directive adopted after authority refresh"),
         ("resolve", continuation_directive_resolve_command, "mark a pending/adopted directive resolved"),
+        ("withdraw", continuation_directive_withdraw_command, "mark a pending/adopted directive withdrawn by explicit user or higher authority"),
     ):
         parser = actions.add_parser(name, help=help_text)
         _identity_args(parser)
@@ -286,6 +359,7 @@ def register_directive_parser(subparsers, add_json_argument) -> None:
     supersede.add_argument("--directive-id", required=True)
     supersede.add_argument("--kind", choices=tuple(sorted(continuation_directives.DIRECTIVE_KINDS)), required=True)
     supersede.add_argument("--priority", type=int, default=50)
+    supersede.add_argument("--lifetime", choices=tuple(sorted(continuation_directives.DIRECTIVE_LIFETIMES)), default=None)
     supersede.add_argument("--text", required=True)
     supersede.add_argument("--evidence-ref", action="append", default=None)
     supersede.add_argument("--note", default=None)
@@ -306,7 +380,9 @@ __all__ = [
     "continuation_directive_resolve_command",
     "continuation_directive_show_command",
     "continuation_directive_supersede_command",
+    "continuation_directive_withdraw_command",
     "directive_context",
+    "directive_hygiene",
     "load_journal",
     "observe_directive_context",
     "register_directive_parser",

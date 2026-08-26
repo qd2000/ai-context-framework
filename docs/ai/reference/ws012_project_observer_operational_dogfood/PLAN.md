@@ -178,6 +178,90 @@ acf continuation directive supersede
 1. Observer Project Narrative / Project Map；
 2. Global continuation issue intake / triage / batch maintenance。
 
+#### WS012.3A — Directive lifecycle hardening（2026-08-26 final authority）
+
+在继续 passive Production Observer acceptance 之前，先完成 continuation directive lifecycle 的正式加固。目标是让长时、多 Agent 项目中的 user live steering 可审计、可恢复、可长期运行，同时保持 directive 只是 **user-authority inbox**，不演化成第二套 Task Plan。
+
+本阶段以 directive `dir-30af839cd72e4feca7de` 为最新用户 authority；它已正式 supersede 早先 provisional lifecycle directive `dir-302f383282b34c8185ff`。实现和 dogfood 必须遵守以下顺序：**P0 lifecycle semantics → P1 hygiene → P2 rollover/archive → release/global install → installed-state dogfood → restart Production Observer acceptance**。
+
+##### P0 — Lifecycle semantics / owner separation
+
+Directive schema/CLI 至少支持：
+
+- lifetime：`transient | durable | unspecified`（或语义完全等价、可确定验证的 metadata）；
+- projected status：`pending | adopted | resolved | superseded | withdrawn`；
+- `resolve` = 工作/要求已完成；
+- `withdraw` = 用户或更高 authority 明确取消，不等价于完成；
+- `supersede` = 同一 active requirement 的新版本替换旧版本，并保留完整 lineage；
+- 独立新增需求继续使用 `add`；已 resolved 的历史 directive 不允许被“重新打开”。
+
+状态约束：
+
+- transient one-shot 可 `pending -> resolved`，不要求为了形式先 adopt；
+- 需要跨 round 执行的 transient directive 只有在 durable execution state 已建立后才允许 adopt；
+- durable requirement / constraint / priority_change / plan_change 在 adopt 前必须完成 authority refresh，并把持久语义同步到正确 Markdown authority（PLAN / Workstream / Rules / Task 等），同时清理或 supersede 与新 authority 冲突的旧表述；
+- durable adopt 必须携带可审计 evidence；**禁止仅因为 Agent“读到了文本”就 adopt**；
+- 当前 session 实际消费过的 directive 在控制点必须有明确 disposition：`resolve / adopt / supersede / withdraw / keep pending with reason`，不得静默遗留；
+- pending user authority 持续高于 stale persisted `next_action`。
+
+Owner separation 是硬边界：
+
+- 非当前 Writer owner 的 Agent 可以代表新的用户 authority 执行 `directive add/supersede`，不需要获取 Writer lease / generation / fence / workspace write authority；
+- 当前 Writer 通过 `continuation prompt`、`heartbeat` 或 `renew` 暴露的 revision/digest 变化，在下一 safe control point 发现并处理；
+- 外部 directive 注入本身不得偷偷获得项目文件写权限或 continuation owner 权限。
+
+安全边界继续保留：credential-like value refusal、bounded text/evidence refs、schema migration compatibility，以及 CLI 只做机械校验/状态迁移、不自动判定自然语言事实真伪或任务是否语义完成。
+
+##### P1 — Directive hygiene / doctor observability
+
+`acf continuation doctor --json` 增加机械、非语义裁决式 hygiene findings，至少覆盖：
+
+- stale adopted directive；
+- stale high-priority pending directive；
+- durable adopt 缺少 adoption evidence；
+- active directive count pressure；
+- journal event/byte rollover pressure；
+- active directives 自身接近/达到 capacity 的 fail-closed 风险。
+
+Doctor 只能报告机械事实和风险，不允许：
+
+- 按年龄自动 resolve；
+- 推断某条自然语言 requirement 已完成；
+- 自动 withdraw/supersede；
+- 把 hygiene warning 当作写 authority。
+
+Generated continuation guidance 必须在有 consumed/pending directive 时高显著提示 disposition 义务，并且 heartbeat/renew 至少稳定暴露 pending/active 摘要、revision/digest 变化和 hygiene pressure，使长 session 不需要等下一个 scheduler wake。
+
+##### P2 — Crash-safe terminal rollover / archive
+
+当前 directive journal 不能依赖“达到 hard event/byte limit 后直接失败”作为长期运行策略。新增 terminal rollover/archive：
+
+- 只允许归档 **完整 event chain 已终态** 的 directive：`resolved / superseded / withdrawn`；
+- `pending / adopted` 及其链条绝不能归档；
+- rollover 必须在 hard event/byte limits 之前由 deterministic pressure threshold 触发；
+- active directives 自身已经占满 capacity 时继续 fail-closed，不通过丢 active authority 腾空间；
+- current history 维持 bounded，archive history 继续可通过 CLI 查询；
+- current + archive 必须保留 digest/audit 可验证性，能够证明 event chain 未丢失、未重排、未篡改；
+- rollover 写入必须 crash-safe：新 archive 与 current journal 的切换不能产生半归档、双计数或丢链；
+- schema migration / upgrade 必须保留 archived lineage 与 current projection compatibility。
+
+CLI 需提供足够的 list/show/history 或等价查询能力，使 archived terminal directive 仍可被按 id/lineage 审计，而不是“归档后不可见”。
+
+##### Required dogfood acceptance before next stable release
+
+必须在真实 WS012 continuation 与隔离 `ACF_HOME` stress 中至少完成：
+
+1. final lifecycle plan_change：PLAN/Workstream authority 同步后，以 evidence-backed adopt 消费；
+2. transient one-shot：`pending -> resolved`；
+3. durable directive：先 authority sync/evidence-backed `adopt`，再在完成后 `resolve`；
+4. same-requirement edit：`supersede`，验证 old/new lineage；
+5. explicit user cancellation：`withdraw`，验证与 resolve 语义不同；
+6. fresh-owner external injection：另一个非 owner context 注入 directive，当前 owner 通过 revision/digest 在 safe control point 发现；
+7. isolated `ACF_HOME` rollover stress：跨 event/byte pressure 执行 terminal rollover，验证 pending/adopted 不归档、terminal chain 完整、archive 可查询、digest 可审计、crash-safe；
+8. credential-like refusal 与旧 schema migration regression 继续通过。
+
+实现完成后同步 CLI help / JSON contracts / README / `docs/Automation.md` / dogfooding System Manual / template System Manual / tests / changelog/version/package metadata，并按风险运行 focused、full unit、strict/template、upgrade/package、完整 release gate。稳定 release + global install + installed-state dogfood 完成后，**此前 v0.0.3.83 的 `6/24` acceptance 只保留为历史证据；新的 directive lifecycle stable baseline 从 0 重新开始 24 次连续 Production Observer acceptance，不与旧窗口拼接。**
+
 ### WS012.4 — Observer Project Narrative / Project Map
 
 当前 Dashboard 已能展示 overall health、Workstream 当前解释和 meaningful timeline，但页面仍偏“最近发生了什么”。新增项目级长期叙事层，第一屏还要回答：
@@ -275,7 +359,17 @@ Batch 一旦启动，本轮目标是把当时已经进入 `Ready Batch`、安全
 
 原 24 小时 acceptance window 保留，但因为 WS012.3/4/5 将改变 continuation 和 Observer 产品，应在这些能力完成 release + global install 后**重新从新的稳定基线开始计数**。
 
+2026-08-26 的 final directive lifecycle hardening（WS012.3A）再次改变 continuation 产品与稳定安装态，因此 `v0.0.3.83` 已取得的 `6/24` 只作为历史 dogfood evidence 保存；WS012.3A 完成 stable release + global install + installed-state directive dogfood 后，Production Observer acceptance 必须从新 stable baseline 的第 1 次独立 activation 重新计为 `1/24`，不得把 `v0.0.3.83` 的旧样本拼接到新窗口。
+
 至少观察 24 个连续 hourly Production Observer activation，期间 Maintenance 不做例行 snapshot。
+
+Production Observer 的 Project Narrative 刷新属于正式 `:34` activation 自身，而不是 Maintenance 补写。每个 production activation 在初始 snapshot 后必须检查 `project_narrative.status`：
+
+- `current`：保持当前 narrative，不制造重复版本；
+- `stale | not_interpreted`：使用安装态 `acf observer narrative-source` 对**显式** authority source paths 读取精确 projection/fingerprint，由当前 Observer Agent 基于该 projection 与最小必要 authority 生成 derived narrative JSON，再用同一 fingerprint/source-path 集合执行 `acf observer narrative-apply`，最后重新 snapshot/render；
+- 生成 narrative payload 所需 scratch 只能放 OS 临时目录，不得写项目文件、continuation/workstream/effect control state 或新增第二份 canonical Dashboard；完成后删除 scratch；
+- source fingerprint 在 source→apply 之间变化、证据不足或 credential-like 内容触发拒绝时 fail-visible，保留 stale 并记录该 production activation 未通过 narrative freshness gate，禁止 Maintenance 事后刷新冒充 production 成功；
+- 只有最终 production snapshot 中 narrative 已 `current`（或初始即 `current`）的 activation 才能计入连续 24 次 acceptance。
 
 验收至少包括：
 
@@ -327,13 +421,11 @@ Observer 修复进入稳定版前必须：
 
 ## 7. Immediate next action
 
-2026-08-25 用户 authority 已明确 supersede 原“继续等待 24h”的默认计划。当前执行顺序：
+截至 2026-08-26，WS012.3/4/5 已随 `v0.0.3.83` 之前的稳定版本完成实现、release/global install 与 installed-state dogfood；ordered source-lineage 修复也已随 `v0.0.3.83` 安装并验证。当前默认执行顺序改为：
 
-1. 先实现 WS012.3 `acf continuation directive` 最小完整闭环，并同步 CLI help / JSON contract / docs / template manual / tests；
-2. 用新 directive 渠道把“Observer Project Map”和“Global issue maintenance”作为真实 pending directives 注入 WS012，再由同一 WS012 消费并 adopt，证明 live steering 生效；
-3. 实现 WS012.4 Observer Project Narrative / architecture / logical milestone flow 和 richer semantic colors；
-4. 实现 WS012.5 global issue current-stable triage、Immediate/Ready Batch/Observe 策略和批处理启动规则；
-5. 按 release discipline 发布新的稳定 ACF、全局安装并做 installed-state dogfood；
-6. 从该稳定版本重新开始 WS012.6 的 24 个连续 `:34` Production Observer activation 验收。
+1. 修复并验证正式 `ACF Project Observer` 的 Project Narrative production refresh operational flow（issue `530d8683b093945f0b4a`）；首个 `.83` 独立 production revision 175 已证明 snapshot/Workstream semantic/source/self-health/history 正常，但 narrative 仍 stale，因此不能计为通过样本；
+2. 修复后从下一次独立 `:34` activation 重新开始连续 24 次 acceptance，严格按本节 production-only 证据计数；
+3. 并行保持 `5067de152f19558f2d8b` 为 current-stable Ready Batch candidate；只有达到 WS012.5 的 Immediate/Batch 门槛才启动代码 maintenance release，不为了单个普通 high issue 高频发版；
+4. 每个 `:04` wake 继续先查 pending directive / Immediate issue / batch threshold，再做 production acceptance 只读核验；无当前安全有价值工作则不 claim、不制造 control-plane busywork。
 
-在上述实现阶段继续遵守 anti-masking：普通 WS012 Maintenance wake 不为了让 Dashboard 看起来新鲜而例行调用 production `observer snapshot/interpret`。
+继续遵守 anti-masking：普通 WS012 Maintenance wake 不为了让 Dashboard 或 Project Narrative 看起来新鲜而例行调用 production `observer snapshot/interpret/narrative-apply`。

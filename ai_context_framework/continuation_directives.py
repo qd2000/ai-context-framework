@@ -22,8 +22,10 @@ DIRECTIVE_SCHEMA = "acf.continuation.directive.v1"
 DIRECTIVE_CONTEXT_SCHEMA = "acf.continuation.directive-context.v1"
 
 DIRECTIVE_KINDS = frozenset({"requirement", "priority_change", "constraint", "plan_change"})
-DIRECTIVE_STATUSES = frozenset({"pending", "adopted", "resolved", "superseded"})
-DIRECTIVE_EVENT_KINDS = frozenset({"added", "adopted", "resolved", "superseded"})
+DIRECTIVE_LIFETIMES = frozenset({"transient", "durable", "unspecified"})
+DIRECTIVE_STATUSES = frozenset({"pending", "adopted", "resolved", "superseded", "withdrawn"})
+DIRECTIVE_EVENT_KINDS = frozenset({"added", "adopted", "resolved", "superseded", "withdrawn"})
+TERMINAL_DIRECTIVE_STATUSES = frozenset({"resolved", "superseded", "withdrawn"})
 
 MAX_DIRECTIVE_TEXT_BYTES = 4096
 MAX_DIRECTIVE_REF_BYTES = 4096
@@ -87,9 +89,27 @@ def validate_journal(payload: Mapping[str, Any], *, task_id: str) -> dict[str, A
             f"directive journal exceeds {MAX_DIRECTIVE_EVENTS} events",
             code="directive_capacity_exceeded",
         )
-    events = [_validate_event(value, expected_revision=index) for index, value in enumerate(raw_events, 1)]
-    if revision != len(events):
-        raise DirectiveError("directive journal revision does not match event count", code="directive_journal_invalid")
+    events: list[dict[str, Any]] = []
+    previous_revision = 0
+    for value in raw_events:
+        if not isinstance(value, Mapping):
+            raise DirectiveError("directive event must be an object", code="directive_journal_invalid")
+        event_revision = value.get("revision")
+        if (
+            isinstance(event_revision, bool)
+            or not isinstance(event_revision, int)
+            or event_revision < 1
+            or event_revision <= previous_revision
+            or event_revision > revision
+        ):
+            raise DirectiveError(
+                "directive event revision sequence is invalid",
+                code="directive_journal_invalid",
+            )
+        events.append(_validate_event(value, expected_revision=event_revision))
+        previous_revision = event_revision
+    if events and int(events[-1]["revision"]) > revision:
+        raise DirectiveError("directive journal revision is behind events", code="directive_journal_invalid")
     encoded = json.dumps(
         {
             "schema_version": DIRECTIVE_JOURNAL_SCHEMA,
@@ -131,6 +151,7 @@ def add_directive(
     text: str,
     created_at: str,
     actor: str,
+    lifetime: str = "unspecified",
     evidence_refs: Sequence[str] = (),
     supersedes: Sequence[str] = (),
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -146,6 +167,7 @@ def add_directive(
     normalized_priority = _priority(priority)
     normalized_text = _text(text, field="text")
     normalized_actor = _text(actor, field="actor", max_bytes=256)
+    normalized_lifetime = _lifetime(lifetime)
     normalized_refs = _refs(evidence_refs)
     normalized_supersedes = _directive_ids(supersedes, field="supersedes")
     known = {str(item["id"]) for item in projected}
@@ -161,6 +183,7 @@ def add_directive(
         "occurred_at": _timestamp(created_at, field="created_at"),
         "actor": normalized_actor,
         "kind": normalized_kind,
+        "lifetime": normalized_lifetime,
         "priority": normalized_priority,
         "text": normalized_text,
         "supersedes": normalized_supersedes,
@@ -181,8 +204,17 @@ def adopt_directive(
     evidence_refs: Sequence[str] = (),
     note: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    current = validate_journal(journal, task_id=str(journal.get("task_id") or ""))
+    item = show_directive(current, directive_id)
+    if item["status"] == "adopted":
+        return current, item, False
+    if item["lifetime"] in {"durable", "transient"} and not _refs(evidence_refs):
+        raise DirectiveError(
+            f"{item['lifetime']} directive adoption requires durable evidence",
+            code="directive_adoption_evidence_required",
+        )
     return _transition(
-        journal,
+        current,
         directive_id=directive_id,
         event_kind="adopted",
         allowed_from={"pending"},
@@ -216,6 +248,33 @@ def resolve_directive(
     )
 
 
+def withdraw_directive(
+    journal: Mapping[str, Any],
+    *,
+    directive_id: str,
+    occurred_at: str,
+    actor: str,
+    evidence_refs: Sequence[str] = (),
+    note: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    if not _refs(evidence_refs):
+        raise DirectiveError(
+            "directive withdrawal requires user or authoritative cancellation evidence",
+            code="directive_withdrawal_evidence_required",
+        )
+    return _transition(
+        journal,
+        directive_id=directive_id,
+        event_kind="withdrawn",
+        allowed_from={"pending", "adopted"},
+        idempotent_status="withdrawn",
+        occurred_at=occurred_at,
+        actor=actor,
+        evidence_refs=evidence_refs,
+        note=note,
+    )
+
+
 def supersede_directive(
     journal: Mapping[str, Any],
     *,
@@ -225,6 +284,7 @@ def supersede_directive(
     text: str,
     occurred_at: str,
     actor: str,
+    lifetime: str | None = None,
     evidence_refs: Sequence[str] = (),
     note: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -239,6 +299,7 @@ def supersede_directive(
     normalized_priority = _priority(priority)
     normalized_text = _text(text, field="text")
     normalized_actor = _text(actor, field="actor", max_bytes=256)
+    normalized_lifetime = _lifetime(lifetime or str(prior.get("lifetime") or "unspecified"))
     normalized_refs = _refs(evidence_refs)
     replacement_id = _new_id("dir")
     replacement_event = {
@@ -249,6 +310,7 @@ def supersede_directive(
         "occurred_at": _timestamp(occurred_at, field="occurred_at"),
         "actor": normalized_actor,
         "kind": normalized_kind,
+        "lifetime": normalized_lifetime,
         "priority": normalized_priority,
         "text": normalized_text,
         "supersedes": [str(prior["id"])],
@@ -324,11 +386,16 @@ def directive_context(journal: Mapping[str, Any]) -> dict[str, Any]:
         json.dumps(digest_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     latest = max(pending, key=lambda item: int(item["last_revision"])) if pending else None
+    adopted = [item for item in projected if item["status"] == "adopted"]
+    active = [item for item in projected if item["status"] in {"pending", "adopted"}]
     return {
         "schema_version": DIRECTIVE_CONTEXT_SCHEMA,
         "revision": int(current["revision"]),
         "digest": digest,
         "pending_count": len(pending),
+        "adopted_count": len(adopted),
+        "active_count": len(active),
+        "pressure": journal_pressure(current),
         "authority_refresh_required": bool(pending),
         "latest_directive": _context_item(latest) if latest else None,
         "pending": [_context_item(item) for item in pending],
@@ -431,6 +498,7 @@ def _project_events(events: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, 
                 "created_at": event["occurred_at"],
                 "updated_at": event["occurred_at"],
                 "kind": event["kind"],
+                "lifetime": event.get("lifetime", "unspecified"),
                 "priority": event["priority"],
                 "text": event["text"],
                 "status": "pending",
@@ -438,6 +506,8 @@ def _project_events(events: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, 
                 "superseded_by": None,
                 "evidence_refs": list(event.get("evidence_refs") or []),
                 "last_revision": event["revision"],
+                "status_changed_at": event["occurred_at"],
+                "adoption_evidence_refs": [],
             }
             continue
         item = projected.get(directive_id)
@@ -448,6 +518,7 @@ def _project_events(events: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, 
             "adopted": {"pending"},
             "resolved": {"pending", "adopted"},
             "superseded": {"pending", "adopted"},
+            "withdrawn": {"pending", "adopted"},
         }[event_kind]
         target = event_kind
         if status not in expected_from:
@@ -458,9 +529,12 @@ def _project_events(events: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, 
         item["status"] = target
         item["updated_at"] = event["occurred_at"]
         item["last_revision"] = event["revision"]
+        item["status_changed_at"] = event["occurred_at"]
         item["evidence_refs"] = list(
             dict.fromkeys([*item["evidence_refs"], *(event.get("evidence_refs") or [])])
         )[-MAX_DIRECTIVE_REFS:]
+        if event_kind == "adopted":
+            item["adoption_evidence_refs"] = list(event.get("evidence_refs") or [])
         if event_kind == "superseded":
             replacement_id = event.get("replacement_id")
             if replacement_id not in projected:
@@ -502,6 +576,7 @@ def _validate_event(value: Any, *, expected_revision: int) -> dict[str, Any]:
         event.update(
             {
                 "kind": _kind(str(value.get("kind") or "")),
+                "lifetime": _lifetime(str(value.get("lifetime") or "unspecified")),
                 "priority": _priority(value.get("priority")),
                 "text": _text(str(value.get("text") or ""), field="text"),
                 "supersedes": _directive_ids(value.get("supersedes") or [], field="supersedes"),
@@ -518,11 +593,37 @@ def _context_item(item: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "id": item["id"],
         "kind": item["kind"],
+        "lifetime": item.get("lifetime", "unspecified"),
         "priority": item["priority"],
         "text": item["text"],
         "created_at": item["created_at"],
         "supersedes": list(item.get("supersedes") or []),
         "evidence_refs": list(item.get("evidence_refs") or []),
+    }
+
+
+def journal_pressure(journal: Mapping[str, Any]) -> dict[str, Any]:
+    current = validate_journal(journal, task_id=str(journal.get("task_id") or ""))
+    projected = list(_project_events(current["events"]).values())
+    active_count = sum(1 for item in projected if item["status"] in {"pending", "adopted"})
+    encoded = json.dumps(
+        current,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    event_count = len(current["events"])
+    byte_count = len(encoded)
+    return {
+        "active_count": active_count,
+        "active_limit": MAX_ACTIVE_DIRECTIVES,
+        "event_count": event_count,
+        "event_limit": MAX_DIRECTIVE_EVENTS,
+        "byte_count": byte_count,
+        "byte_limit": MAX_DIRECTIVE_JOURNAL_BYTES,
+        "event_ratio": event_count / MAX_DIRECTIVE_EVENTS,
+        "byte_ratio": byte_count / MAX_DIRECTIVE_JOURNAL_BYTES,
+        "active_ratio": active_count / MAX_ACTIVE_DIRECTIVES,
     }
 
 
@@ -592,6 +693,13 @@ def _kind(value: str) -> str:
     return cleaned
 
 
+def _lifetime(value: str) -> str:
+    cleaned = value.strip().lower()
+    if cleaned not in DIRECTIVE_LIFETIMES:
+        raise DirectiveError(f"unsupported directive lifetime: {value}")
+    return cleaned
+
+
 def _priority(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise DirectiveError("directive priority must be an integer")
@@ -617,13 +725,16 @@ __all__ = [
     "DIRECTIVE_EVENT_SCHEMA",
     "DIRECTIVE_JOURNAL_SCHEMA",
     "DIRECTIVE_KINDS",
+    "DIRECTIVE_LIFETIMES",
     "DIRECTIVE_SCHEMA",
     "DIRECTIVE_STATUSES",
+    "TERMINAL_DIRECTIVE_STATUSES",
     "DirectiveError",
     "add_directive",
     "adopt_directive",
     "directive_context",
     "empty_journal",
+    "journal_pressure",
     "list_directives",
     "load_journal",
     "project_directives",
@@ -631,4 +742,5 @@ __all__ = [
     "show_directive",
     "supersede_directive",
     "validate_journal",
+    "withdraw_directive",
 ]

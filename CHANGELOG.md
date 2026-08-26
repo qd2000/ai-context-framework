@@ -4,6 +4,18 @@
 
 ## Unreleased
 
+## v0.0.3.84 — 2026-08-26
+
+### Continuation directive lifecycle hardening
+
+- `acf continuation directive` 增加 `lifetime=transient|durable|unspecified` 与 `withdraw`；状态扩展为 `pending / adopted / resolved / superseded / withdrawn`。resolve 明确表示完成，withdraw 表示用户或更高 authority 明确取消，supersede 表示同一 active requirement 被新版本替换，resolved 历史不得重新打开。
+- durable/transient directive 的 `adopt` 必须携带 durable evidence；持久 requirement / constraint / priority / plan change 必须先同步到正确 Markdown PLAN / Workstream / Rules / Task authority，再 evidence-backed adopt。transient one-shot 可在证据充分时直接 `pending -> resolved`，不为形式制造无意义 adopt。
+- generated continuation prompt/`execution_policy` 增加 consumed-directive disposition obligation；claim/heartbeat/renew 继续用 revision/digest 发现 live steering，并额外暴露 pending/adopted/active count、current journal pressure、archive audit。非 Writer owner 可代表新用户 authority 执行 add/supersede，但不会因此获得 writer lease/generation/fence/workspace write authority。
+- `continuation doctor --json` 增加纯机械 directive hygiene：stale adopted、stale high-priority pending、durable adoption evidence 缺失、active-count pressure 与 event/byte rollover pressure；doctor 不按年龄自动 resolve/withdraw/supersede，也不推断自然语言 requirement 已完成。
+- 新增 crash-safe terminal directive rollover：current journal 达到 soft event/byte pressure 时，可把任意完整 `resolved|superseded|withdrawn` directive event chains 移入 `directives.archive.NNNNNN.json`，即使其 revision 与更早的 pending/adopted authority 交错也不会被 active 前缀永久阻塞。current journal 保留稀疏但全局单调的 revision；archive + current 必须无 revision gap，exact crash-window duplicate 可按 event identity 去重，不一致 duplicate 直接 fail-closed。
+- archived terminal history 继续参与 `directive list/show`、history digest 与 migration-preservation audit；pending/adopted chains 永不归档，active authority 自身耗尽容量时继续 fail-closed。隔离 `ACF_HOME` 回归覆盖 transient resolve、durable evidence-backed adopt、withdraw/supersede lineage、外部 fresh-owner steering、interleaved terminal rollover、crash duplicate recovery、archive query、doctor hygiene、legacy v1 compatibility 与 archive migration digests。
+- README、Automation、项目/模板 System Manual 与 WS012 PLAN/Workstream authority 同步更新；新的稳定安装态完成后，WS012 Production Observer 24 次连续 acceptance 从新 baseline 的 `0/24` 重新开始，旧 `v0.0.3.83` 的 `6/24` 仅保留为历史 evidence。
+
 ## v0.0.3.83 — 2026-08-26
 
 ### Observer source-lineage authority
