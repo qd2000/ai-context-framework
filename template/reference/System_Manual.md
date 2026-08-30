@@ -331,12 +331,12 @@ Global-first progressive disclosure：没有明确选择时，无论存在多少
 
 常见安装方式：
 
-- 正式发布版本安装：`uv tool install ai-context-framework`
+- 正式发布版本安装：Windows 已取得仓库/发布包脚本时优先 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1`；macOS/Linux 使用 `uv tool install ai-context-framework`
 - 正式发布版本更新：Windows 自动化/并行环境优先运行 `pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1`；确认没有并发 ACF 进程的普通交互式环境也可使用 `uv tool upgrade ai-context-framework`
 - 安装或更新后刷新 shell PATH：`uv tool update-shell`
 - 仓库维护者安装当前源码快照：`uv tool install .`
 - 调试 CLI 改动或安装链路时使用 editable 安装：`uv tool install -e .`
-- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1`、`pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1` 或对应的 `sh` 入口。Windows PowerShell 脚本会在 ACF tool 环境仍被进程占用时 fail-closed；更新脚本使用未固定版本的 `uv tool install --force --upgrade`，避免 pinned receipt 阻止发现新稳定版，并可在无占用进程时用 `-Reinstall` 修复中断安装。
+- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1`、`pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1` 或对应的 `sh` 入口。Windows PowerShell 脚本会在 ACF tool 环境仍被进程占用时 fail-closed；安装/更新成功后原子生成 uv tool bin 下的 canonical `acf.cmd`，由该 uv tool environment 的 Python 执行 `-m acf`，并删除同目录 uv 自动生成的 `acf.exe`，避免 `.EXE` 的 `PATHEXT` 优先级绕过 CMD shim。若 tool bin 已在 PATH，脚本会机械验证 `Get-Command acf` 首先解析到 `acf.cmd`。更新脚本使用未固定版本的 `uv tool install --force --upgrade`，避免 pinned receipt 阻止发现新稳定版，并可在无占用进程时用 `-Reinstall` 修复中断安装。裸 `uv tool install/upgrade` 会重新生成 `acf.exe`，因此只作为 bootstrap/debug 路径，正式 Windows installed-state 应再次通过脚本 canonicalize；CMD shim 不复制业务逻辑，也不引入 signing/certificate 子系统。
 
 验证命令：
 
@@ -345,6 +345,8 @@ Global-first progressive disclosure：没有明确选择时，无论存在多少
 - macOS/Linux：`which acf`
 - 通用：`acf --help`
 - 查看版本：`acf --version`
+
+Windows canonical installed-state 中，`where.exe acf` / `Get-Command acf` 的首个 ACF application 应是 uv tool bin 下的 `acf.cmd`，同目录不应再保留 `acf.exe`。
 
 请注意：能在任意目录运行 `acf`，不等于任意目录都有 AI 上下文。`acf status --json` 只有在当前目录位于某个包含 `docs/ai`、`docs-acf/ai` 或上下文根目录的项目中时才会成功。否则应先进入项目目录、显式传入上下文路径，或运行 `acf init docs/ai` 初始化。正式用户应从 PyPI 安装；Git URL 只适合临时测试，避免失去发布源升级能力。
 

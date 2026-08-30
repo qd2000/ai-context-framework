@@ -149,11 +149,10 @@ ACF 不追求保存更多上下文，而是维护一个低噪声、高权威、�
 
 #### Windows PowerShell
 
-正式发布版本安装（推荐）：
+正式发布版本安装（Windows canonical 路径，已取得仓库/发布包脚本时推荐）：
 
 ```powershell
-uv tool install ai-context-framework
-uv tool update-shell
+pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1
 ```
 
 正式发布版本更新：
@@ -162,7 +161,7 @@ uv tool update-shell
 pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1
 ```
 
-Windows 更新脚本会在任何全局 ACF tool 进程仍占用 `uv` tool 环境时先 fail-closed，避免 `uv` 已开始替换文件后因句柄占用留下半损坏环境；确认静默后，它使用未固定版本的 `uv tool install --force --upgrade ai-context-framework`，既能发现最新 PyPI 稳定版，也能修复先前中断造成的缺失包。需要强制重装当前最新稳定版时使用 `-Reinstall`。直接 `uv tool upgrade` 仍适合确定没有并发 ACF 进程且安装 receipt 未被精确版本固定的交互式环境。
+Windows install/update 脚本会在任何全局 ACF tool 进程仍占用 `uv` tool 环境时先 fail-closed，避免 `uv` 已开始替换文件后因句柄占用留下半损坏环境；安装完成后会在 uv tool bin 中生成 canonical `acf.cmd`，让它通过该 tool environment 自己的 Python 执行 `python -m acf`，并删除同目录 uv 生成的 `acf.exe`，避免 Windows `PATHEXT` 让 `.EXE` 抢在 `.CMD` 前面。更新脚本使用未固定版本的 `uv tool install --force --upgrade ai-context-framework`，既能发现最新 PyPI 稳定版，也能修复先前中断造成的缺失包。需要强制重装当前最新稳定版时使用 `-Reinstall`。裸 `uv tool install/upgrade` 仍是底层 bootstrap/debug 路径，但在 Windows 上会重新生成 `acf.exe`，因此自动化和正式 installed-state 应再经过上述脚本 canonicalize。
 
 如果已经取得本仓库源码，也可以使用一键脚本：
 
@@ -187,7 +186,7 @@ acf --version
 acf status --json
 ```
 
-Windows CMD 可用 `where.exe acf` 查看命令位置。
+Windows 正式 installed-state 中，`Get-Command acf` 应解析到 uv tool bin 下的 `acf.cmd`；Windows CMD 可用 `where.exe acf` 查看命令位置，同目录不应再存在 `acf.exe`。`acf.cmd` 只是 launcher shim，不复制 ACF 业务逻辑，也不引入 binary signing/certificate 子系统。
 
 #### WSL / Linux / macOS
 

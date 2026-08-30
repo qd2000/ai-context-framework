@@ -10,6 +10,11 @@
 - raw `--fence-token` 继续兼容；token file 缺失、非普通文件、为空、超出容量或不可读写时 fail-closed，错误不回显 credential。token file 不写入 canonical continuation state，`~/.acf` 仍只保存 hash；generated prompt、README、Automation 和项目/模板 System Manual 同步引导 credential-redacting scheduler 使用 temp file 并在 release 后清理。
 - 新增 claim/assert-owner/heartbeat/workspace-intent/checkpoint/release 与 challenge-backed recover 的真实 file-transport 回归，验证 raw token 不进入 JSON/canonical state 且 recovered owner 可直接继续 authenticated heartbeat。
 
+### Canonical Windows command shim
+
+- Windows `scripts/install_acf.ps1` / `scripts/update_acf.ps1` 在 uv tool mutation 完成后生成 canonical `acf.cmd`，通过该 tool environment 自己的 Python 执行 `-m acf`，随后删除同目录 uv 自动生成的 `acf.exe`，机械避免常见 `PATHEXT` 中 `.EXE` 抢先于 `.CMD`；CMD shim 不复制业务逻辑，也不引入 binary signing/certificate 子系统。
+- tool bin 已在 PATH 时，安装/更新脚本要求 `Get-Command acf` 的第一 application 解析为新 `acf.cmd`；fake-uv Windows regression 同时覆盖 install/update、shim 内容、`acf.exe` 移除、`Get-Command` 解析和经 CMD shim 的 `--version` 调用。裸 `uv tool install/upgrade` 仍可作为 bootstrap/debug，但会重新生成 `acf.exe`，正式 Windows installed-state 需要脚本再次 canonicalize。
+
 ## v0.0.3.84 — 2026-08-26
 
 ### Continuation directive lifecycle hardening

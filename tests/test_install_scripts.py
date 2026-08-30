@@ -24,6 +24,18 @@ class InstallScriptTests(unittest.TestCase):
         tool_bin.mkdir()
         log_path = root / "uv.log"
 
+        scripts_dir = tool_dir / "ai-context-framework" / "Scripts"
+        scripts_dir.mkdir(parents=True)
+        fake_python = scripts_dir / "python.cmd"
+        fake_python.write_text(
+            "@echo off\r\n"
+            "echo %*>>\"%FAKE_PYTHON_LOG%\"\r\n"
+            "if \"%1\"==\"-m\" if \"%2\"==\"acf\" if \"%3\"==\"--version\" (echo acf vFAKE& exit /b 0)\r\n"
+            "exit /b 0\r\n",
+            encoding="utf-8",
+        )
+        (tool_bin / "acf.exe").write_bytes(b"fake uv console launcher")
+
         uv_cmd = fake_bin / "uv.cmd"
         uv_cmd.write_text(
             "@echo off\r\n"
@@ -35,10 +47,11 @@ class InstallScriptTests(unittest.TestCase):
         )
 
         env = os.environ.copy()
-        env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
+        env["PATH"] = f"{fake_bin}{os.pathsep}{tool_bin}{os.pathsep}{env.get('PATH', '')}"
         env["FAKE_UV_TOOL_DIR"] = str(tool_dir)
         env["FAKE_UV_TOOL_BIN"] = str(tool_bin)
         env["FAKE_UV_LOG"] = str(log_path)
+        env["FAKE_PYTHON_LOG"] = str(root / "python.log")
         return env, log_path, tool_dir
 
     def _run_script(self, script: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
@@ -71,6 +84,45 @@ class InstallScriptTests(unittest.TestCase):
             log = log_path.read_text(encoding="utf-8")
             self.assertIn("tool install --force --upgrade --reinstall ai-context-framework", log)
 
+    def test_install_and_update_replace_uv_exe_with_canonical_cmd(self) -> None:
+        for script in (INSTALL_SCRIPT, UPDATE_SCRIPT):
+            with self.subTest(script=script.name), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                env, _log_path, tool_dir = self._fake_uv_environment(root)
+                tool_bin = Path(env["FAKE_UV_TOOL_BIN"])
+                result = self._run_script(script, env)
+                self.assertEqual(result.returncode, 0, result.stdout)
+
+                acf_cmd = tool_bin / "acf.cmd"
+                self.assertTrue(acf_cmd.exists(), result.stdout)
+                self.assertFalse((tool_bin / "acf.exe").exists(), result.stdout)
+                cmd_text = acf_cmd.read_text(encoding="utf-8")
+                self.assertIn("-m acf %*", cmd_text)
+                self.assertIn(str(tool_dir / "ai-context-framework" / "Scripts" / "python.cmd"), cmd_text)
+                self.assertIn("Canonical Windows ACF command", result.stdout)
+
+                python_log = (root / "python.log").read_text(encoding="utf-8")
+                self.assertIn("-m acf --version", python_log)
+
+                resolved = subprocess.run(
+                    [
+                        "pwsh",
+                        "-NoLogo",
+                        "-NoProfile",
+                        "-Command",
+                        "(Get-Command acf -CommandType Application -All | Select-Object -First 1).Source",
+                    ],
+                    cwd=ROOT,
+                    env=env,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    timeout=30,
+                    check=False,
+                )
+                self.assertEqual(resolved.returncode, 0, resolved.stdout)
+                self.assertEqual(Path(resolved.stdout.strip()).resolve(), acf_cmd.resolve())
+
     def test_install_and_update_fail_before_uv_mutation_when_tool_process_is_live(self) -> None:
         system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
         source_exe = system_root / "System32" / "ping.exe"
@@ -80,7 +132,7 @@ class InstallScriptTests(unittest.TestCase):
             with self.subTest(script=script.name), tempfile.TemporaryDirectory() as raw:
                 env, log_path, tool_dir = self._fake_uv_environment(Path(raw))
                 scripts_dir = tool_dir / "ai-context-framework" / "Scripts"
-                scripts_dir.mkdir(parents=True)
+                scripts_dir.mkdir(parents=True, exist_ok=True)
                 fake_tool_process = scripts_dir / "python.exe"
                 shutil.copy2(source_exe, fake_tool_process)
                 process = subprocess.Popen(
