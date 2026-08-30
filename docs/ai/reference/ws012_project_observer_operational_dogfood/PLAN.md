@@ -19,7 +19,74 @@ WS011 保持历史事实：核心 Project Observer 产品已经完成、发布�
 
 ---
 
-## 2. Scheduler topology
+
+## Current authority — Observer V2 / control-plane safety
+
+本节由当前 durable user directives 同步而来；**与后续历史章节冲突时，以本节为准**。历史版本号、旧 acceptance 计数、旧页面模板与旧 scheduler minute 只保留 provenance，不再作为永久执行约束。
+
+### Release terminal fact
+
+`v0.0.3.84` 的 merge、`origin/master` 与 annotated tag 已形成历史 identity，但 exact GitHub Actions run `32984611066` 已取得终态 `completed/cancelled`，且 PyPI `ai-context-framework==0.0.3.84` 未发布。因此 `.84` publishing effect 只允许按同一 external identity reconcile 为 failed/cancelled；禁止 re-merge、re-push、再次 retrigger 或把新代码塞入 `.84`。`.84` 不是可 global-install 的 stable baseline，后续能力进入新的稳定候选，版本号由当时 release authority 决定。
+
+### P0 — control-plane reliability first
+
+P0 必须先形成独立 checkpoint，不与大型 Observer UI 重构混在一起。
+
+1. **Fenced credential transport**：支持 `ACF_CONTINUATION_FENCE_TOKEN_FILE=<caller-controlled-temp-file>`。claim/recover 必须在提交 generation/lease 前完成 token delivery；启用 file transport 后 JSON 不回显 raw token；后续 assert-owner/heartbeat/renew/workspace/progress/effect/checkpoint/release 省略 `--fence-token` 时从同一 handle 读取；raw 参数保持兼容；非法/缺失/不可读写/空/异常尺寸 fail-closed；canonical state 只保存 hash；临时明文不进项目 Git/`~/.acf` canonical state；installed-state dogfood 必须证明 recover 后跨 execution-context 仍可继续 authenticated control-plane writes。
+2. **Canonical Windows `acf.cmd`**：Windows 正式入口改为 CMD shim，通过 uv-tool environment 的 Python/module 进入 ACF，不复制业务逻辑。install/update scripts 必须创建/刷新/验证 `acf.cmd`，并机械保证同目录 `acf.exe` 不因 PATHEXT 优先级赢过 CMD；`Get-Command acf` installed-state regression 必须解析为 `acf.cmd`，并通过 CMD 验证 version/status/continuation/observer。不要新增 binary signing/certificate subsystem；文档只声明避免直接执行 ACF 自身 unsigned launcher，不声称绕过所有企业脚本/Python policy。
+3. **Closeout authorization resolver**：durable scoped auto-close policy 与 explicit per-Workstream approval evidence 必须分离。记录至少可表达 project、WS id/type/class、action、authority/evidence source、revision/fingerprint、validity、supersession/revocation、optional expiry。narrower/newer explicit authority 优先；WS-specific manual gate 可覆盖项目默认；approval 不跨 WS/action 转移；material authority change 后 stale approval 必须重新评估；agent 不能靠裸 `--human-approved` 自行满足 Gate。Ready/merge/done/archive 及低层等价 closeout path 必须消费同一 resolver，AI-facing JSON 稳定给出 `auto_authorized | human_approved | approval_required | denied` 及 evidence/next-actions。必须覆盖 long-lived auto policy、manual override、non-transfer、revoked/superseded policy、stale approval、migration 与旁路回归。
+
+### Observer V2 product authority
+
+Observer V2 的目标是：**只展示用户实际注册并由外部自动化推进的目标，以中文 human-first 方式解释最终目标、完整路线、当前位置、问题、最近 Agent 执行、证据和下一步。**
+
+#### Target Registry / display scope
+
+新增显式 user-level Observer Target Registry，概念位置 `~/.acf/projects/<project-id>/observer/targets.json`（允许等价可审阅 runtime 文件）。它不写项目 Git、不成为事实源、不依赖数据库/ChatGPT 私有格式，也不要求 ACF 猜 Web Scheduled Task。Worktree/Workstream 存在不等于应该显示；只有显式注册的 scheduled-automation target 进入 Dashboard 主展示。第一阶段至少支持 fixed Workstream target 与 project-level dynamic automation target。每个 target 有独立 tab/page、timeline、problems、run chain、narrative/map。
+
+Project Overview 是条件能力：只有认真读取当前 authority 后确实存在可解释统一目标/路线/架构时才 enable；异构项目可 evidence-backed disable，只显示 target pages；不得以偷懒为理由关闭。
+
+#### Target Narrative / adaptive map / mandatory Map Review Gate
+
+新增独立于 Project Narrative 的 target/workstream narrative，拥有 target-local sources、fingerprint/staleness、当前位置、problems/evidence；单个 target 变化不能让所有 target 一起 stale。derived semantic state 永不替代 Markdown authority。
+
+可视化必须保持 single-file/self-contained/file:// safe HTML/CSS/inline SVG，不引入 React/Mermaid runtime/Graphviz runtime/CDN/daemon。Agent 根据真实语义选择 linear/branching/architecture/dependency/roadmap/state-machine/timeline/multi-lane/tree/text/hybrid，不固定模板。
+
+每次 scheduled semantic refresh 强制执行 auditable **Map Review Gate**，至少记录 `decision=unchanged|patch|rebuild|presentation_change|project_overview_enable|project_overview_disable`、reason、evidence、authority_fingerprint。Review 必须检查 PLAN/Task Plan/Workstream/Current Task/planning references/ADR/user directives/current stage/key evidence、执行偏离、新问题、失效节点、新并行路径及当前图形是否仍真实。Fingerprint 只做 cheap triage；任何 map-relevant signal 变化都要重读必要 authority 并显式决定。重复 unchanged 也需审计，防止浅层复用；历史 map/route version 保留 provenance。
+
+#### Problems / run observability
+
+问题是 route/map 一等元素，并尽量绑定受影响 node/route。至少按正交维度表达：
+`expectedness=expected|unexpected|unknown`；
+`handler=agent_self|human_approval|human_action|external_system|other_project`；
+`scope_relation=in_scope|cross_cutting|out_of_scope|tooling_dependency|external_dependency`；
+`blocking_impact=non_blocking|degrading|blocks_current_step|blocks_task`；
+`plan_impact=none|local_adjustment|route_change|major_replan`；
+以及 detected/investigating/working/waiting/transferred/deferred/resolved 等 lifecycle。
+route-impacting problem 必须触发真实 map review/update；跨项目问题只展示 dependency/impact/transfer linkage，不越权修改 foreign project。
+
+每个 scheduled activation 尽量展示 start/end/duration/result/major outcome/route link。优先 continuation round 时间；无 continuation 时使用窄范围 user-level Observer start/finish marker。异常或不完整 run 禁止伪造 end time，只展示 last activity 与 lower-bound/approximate duration。主 timeline 只保留 Agent start/end、milestone/stage、plan/strategy change、problem、human action、route change、release、key validation；heartbeat/generation/fence/fingerprint 等噪声折叠技术详情。
+
+#### Chinese human-first Dashboard V2
+
+主视图必须直接给出足够细节：最终目标、完整计划/路线、当前位置/focus、为什么做当前步骤、最近证明/排除/改变了什么、当前问题及其 plan impact、下一步及理由、执行健康、是否需要人工介入、最近 Agent run 时间/时长/结果/主要产出。HEAD/generation/lease/fence/effects/schema/fingerprint/raw provenance 折叠技术详情，但有意义的 reasoning/progress 不得全部藏起来。人类可见时间按当前 authority（目前 UTC+08:00）展示，structured state 保持 canonical time semantics。
+
+### P1–P4 implementation / dogfood
+
+- **P1**：Target Registry、target-local scope/tabs、run timing/history、conditional Project Overview decision state。
+- **P2**：target narrative、independent fingerprint/staleness、Map Review Gate、adaptive map、problem model、route binding、cross-project transfer。
+- **P3**：基于 P1/P2 重建 Chinese human-first self-contained Dashboard V2。
+- **P4**：真实项目 dogfood：ACF 只显示注册的 WS012 target；FCC 注册的 WS079/WS080/WS086 各自独立 tab，并认真判断是否应有 Project Overview；AStockT_AI 注册自动推进 target，若 authority 支持统一 project route 才启用 overview。必须真实覆盖 plan/strategy change、unexpected blocker、route-impacting issue、external/tooling transfer、abnormal run、map presentation change、overview enable/disable、Windows CMD、fenced credential installed-state 与 anti-masking。
+
+最终 Production acceptance 只能从包含 P0 + P1–P4、正式 release + global install 的稳定安装态开始；旧 `.83`/过渡 activation 只作历史 evidence，不拼接。具体连续次数与 reset 条件读取当时最新 acceptance authority。Maintenance snapshot/narrative refresh 永远不冒充 Production activation；acceptance pass 也不结束 WS012 long-lived mission。
+
+### Directive lifecycle / execution order
+
+本节 durable authority 同步完成后，相关 current directives 应以本 PLAN/Workstream evidence `adopt`；对应能力真正完成后再 `resolve`。当前顺序：P0 credential → P0 Windows CMD → P0 closeout authorization → P1 → P2 → P3 → P4 → full release/global install/installed-state dogfood → latest-authority Production acceptance → ongoing maintenance。
+
+---
+
+## 2. Historical scheduler topology（已被 Current authority 动态 cadence 规则 supersede）
 
 当前 ACF dogfood 固定采用两个职责完全不同的 Scheduled Task：
 
@@ -355,11 +422,17 @@ Batch 一旦启动，本轮目标是把当时已经进入 `Ready Batch`、安全
 
 一个 issue 完成 triage/repair plan 后，后续 wake 只检查 occurrence/reproduction/severity 是否变化，不重复从零规划，避免 maintenance busywork。
 
+**2026-08-27 current-stable Immediate triage：** 全局 issue intake 在稳定安装态 `v0.0.3.83` 上确认了同一 fenced-owner credential transport 根因，至少已影响 WS079 与 WS080。代表 fingerprint 包括 `2571acfc1377ae41f0ce`、`590e29d4596887eacaa6`、`517bb8cb2f78705383de` 与 `a315b38f1c4bf13b429e`：`claim/recover` 返回 plaintext `fence_token`，而真实 project-access / scheduler command safety 会拒绝后续携带高熵 token 的 `assert-owner / heartbeat / workspace / checkpoint / release` 命令，导致已经完成 authenticated recovery 的 fresh owner 仍无法继续 fenced control-plane writes。该缺陷同时满足“阻断 Scheduled Task 持续运行”和“同一 current-stable root cause 影响多个真实 Workstream”，因此升级为 `Immediate`，不等待普通 Ready Batch 门槛。
+
+本轮 repair contract 是 backward-compatible 的本地 credential handle：当调用方预先设置 `ACF_CONTINUATION_FENCE_TOKEN_FILE` 时，`claim/recover` 必须在提交新 generation/lease 前把新 token 写入调用方控制的临时文件，JSON 不再返回明文；同一环境变量随后允许所有 fenced owner command 在省略 `--fence-token` 时读取该 credential。raw `--fence-token` 继续兼容；token file 缺失、非法或不可读写必须 fail-closed；canonical continuation state 继续只持久化 hash，临时明文文件不进入 `~/.acf` 或项目 Git，并由调用方在 release/session closeout 后删除。修复必须覆盖 claim 与 challenge-backed recover 两条 credential issuance 路径，以及 assert-owner/heartbeat/workspace/checkpoint/release 的 installed-state dogfood。
+
+该 Immediate 在 `v0.0.3.84` 已完成 merge/tag、但 trusted-publishing workflow 尚处于既有 queued identity 时被发现。**不得为此重写、重推或再次 retrigger `v0.0.3.84` tag，也不得把新代码塞入已经签定的 `.84` release identity。** 修复作为 `.84` 之后的下一稳定候选进入独立 release；在 `.84` 外部发布状态未终态前，只允许继续验证/提交本修复和只读查询现有 publish authority，禁止制造第二个 `.84` side effect。
+
 ### WS012.6 — 24-hour production watchdog window
 
 原 24 小时 acceptance window 保留，但因为 WS012.3/4/5 将改变 continuation 和 Observer 产品，应在这些能力完成 release + global install 后**重新从新的稳定基线开始计数**。
 
-2026-08-26 的 final directive lifecycle hardening（WS012.3A）再次改变 continuation 产品与稳定安装态，因此 `v0.0.3.83` 已取得的 `6/24` 只作为历史 dogfood evidence 保存；WS012.3A 完成 stable release + global install + installed-state directive dogfood 后，Production Observer acceptance 必须从新 stable baseline 的第 1 次独立 activation 重新计为 `1/24`，不得把 `v0.0.3.83` 的旧样本拼接到新窗口。
+2026-08-26 的 final directive lifecycle hardening（WS012.3A）再次改变 continuation 产品与稳定安装态，因此 `v0.0.3.83` 已取得的 `6/24` 只作为历史 dogfood evidence 保存。2026-08-27 又确认 fenced-owner credential transport 属于 current-stable Immediate，并将继续改变 continuation 产品；因此真正的新 acceptance baseline 必须是**包含该 Immediate 修复的最新稳定 global install**。即使 `v0.0.3.84` 先完成 publish/install，在 credential-transport 修复尚未进入后续稳定版前产生的 production activation 也只能作为 pre-baseline diagnostic evidence，不得计入最终连续 `24/24`。待该修复 stable release + global install + installed-state fenced-owner dogfood 完成后，从其后的第 1 次独立 Production Observer activation 重新计为 `1/24`，不得拼接 `.83` 或过渡 `.84` 样本。
 
 至少观察 24 个连续 hourly Production Observer activation，期间 Maintenance 不做例行 snapshot。
 
@@ -421,11 +494,12 @@ Observer 修复进入稳定版前必须：
 
 ## 7. Immediate next action
 
-截至 2026-08-26，WS012.3/4/5 已随 `v0.0.3.83` 之前的稳定版本完成实现、release/global install 与 installed-state dogfood；ordered source-lineage 修复也已随 `v0.0.3.83` 安装并验证。当前默认执行顺序改为：
+截至 2026-08-27，`v0.0.3.84` 已完成 human-approved ACF-managed merge、`origin/master` 与 annotated tag identity 校验；唯一既有 trusted-publishing workflow `32984611066` 仍 queued 且未分配 job，PyPI `0.0.3.84` 仍不存在。与此同时，WS079/WS080 暴露的 fenced-owner credential transport 已按 WS012.5 升级为 current-stable `Immediate`。当前默认执行顺序改为：
 
-1. 修复并验证正式 `ACF Project Observer` 的 Project Narrative production refresh operational flow（issue `530d8683b093945f0b4a`）；首个 `.83` 独立 production revision 175 已证明 snapshot/Workstream semantic/source/self-health/history 正常，但 narrative 仍 stale，因此不能计为通过样本；
-2. 修复后从下一次独立 `:34` activation 重新开始连续 24 次 acceptance，严格按本节 production-only 证据计数；
-3. 并行保持 `5067de152f19558f2d8b` 为 current-stable Ready Batch candidate；只有达到 WS012.5 的 Immediate/Batch 门槛才启动代码 maintenance release，不为了单个普通 high issue 高频发版；
-4. 每个 `:04` wake 继续先查 pending directive / Immediate issue / batch threshold，再做 production acceptance 只读核验；无当前安全有价值工作则不 claim、不制造 control-plane busywork。
+1. 在不触碰 `.84` release identity 的前提下完成 `ACF_CONTINUATION_FENCE_TOKEN_FILE` 修复、deterministic regressions、文档同步、file-scoped guard / strict / template / full-unit 等候选验证并形成独立 Git checkpoint；
+2. 对 `.84` 仅查询既有 GitHub Actions/PyPI authority，禁止 re-merge、re-push 或再次 retrigger tag；`.84` 一旦真实出现在 PyPI，再按原 deterministic identity 完成 global install / installed-state directive smoke，但把它视为过渡 stable，不启动最终 24h acceptance 计数；
+3. 在 `.84` 外部发布链终态后，为 credential transport 形成**下一稳定 release**，完成 full release gate、ACF-managed merge/tag/publish/global install，并用 installed-state ACF 对真实 file-handle claim/recover + authenticated heartbeat/workspace/checkpoint/release 做 dogfood；随后以 durable evidence 收口该 Immediate root-cause cluster；
+4. 将 WS012 恢复/保持 `Active / Waiting Maintenance`，不得 Done/Cancelled/Archive；从包含 credential-transport fix 的最新稳定基线 `0/24` 重新开始 Production Observer 独立 acceptance；Maintenance 仍不得例行刷新 Observer；
+5. `5067de152f19558f2d8b` 继续保持普通 Ready Batch candidate，除非新的 current-stable evidence 满足 WS012.5 门槛，不为了凑 batch 强行合并到本 Immediate；每个后续 wake 仍先查 pending directive / Immediate issue / batch threshold。
 
 继续遵守 anti-masking：普通 WS012 Maintenance wake 不为了让 Dashboard 或 Project Narrative 看起来新鲜而例行调用 production `observer snapshot/interpret/narrative-apply`。
