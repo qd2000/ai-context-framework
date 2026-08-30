@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any, Mapping
@@ -24,7 +25,7 @@ from ai_context_framework import (
 from ai_context_framework.commands import continuation_directives as continuation_directive_commands
 from ai_context_framework.front_matter import parse_front_matter, split_typed_scope, validate_front_matter
 from ai_context_framework.git_support import discover_git_project
-from ai_context_framework.observability import acf_home
+from ai_context_framework.observability import acf_home, atomic_write_text
 from ai_context_framework.runtime_parts.archive_workstream import (
     normalize_scope_path,
     read_workstream_detail,
@@ -43,6 +44,8 @@ LONG_RUNNING_RENEW_INTERVAL_MINUTES = 45
 LONG_RUNNING_HEARTBEAT_INTERVAL_MINUTES = 10
 LONG_RUNNING_STALE_AFTER_MINUTES = 25
 MAX_LEASE_TTL_MINUTES = 24 * 60
+FENCE_TOKEN_FILE_ENV = "ACF_CONTINUATION_FENCE_TOKEN_FILE"
+MAX_FENCE_TOKEN_FILE_BYTES = 4096
 
 TIMING_PROFILES: dict[str, dict[str, int]] = {
     "standard": {
@@ -192,6 +195,110 @@ def _continuation():
     from ai_context_framework.commands import continuation
 
     return continuation
+
+
+def _fence_token_file_from_env() -> Path | None:
+    raw = os.environ.get(FENCE_TOKEN_FILE_ENV)
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        core = _continuation()
+        raise core.ContinuationError(
+            f"{FENCE_TOKEN_FILE_ENV} cannot be empty",
+            code="fence_token_transport_invalid",
+        )
+    return Path(value).expanduser()
+
+
+def resolve_fence_token(args: argparse.Namespace) -> str | None:
+    """Resolve a fenced-owner credential without requiring it in argv."""
+
+    literal = getattr(args, "fence_token", None)
+    if literal:
+        return str(literal)
+    path = _fence_token_file_from_env()
+    if path is None:
+        return None
+    core = _continuation()
+    try:
+        if not path.is_file():
+            raise core.ContinuationError(
+                "configured fence token file is not a regular file",
+                code="fence_token_transport_unavailable",
+                details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
+                exit_code=3,
+            )
+        size = path.stat().st_size
+        if size < 1 or size > MAX_FENCE_TOKEN_FILE_BYTES:
+            raise core.ContinuationError(
+                "configured fence token file has an invalid size",
+                code="fence_token_transport_invalid",
+                details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
+                exit_code=3,
+            )
+        value = path.read_text(encoding="utf-8").strip()
+    except core.ContinuationError:
+        raise
+    except OSError as exc:
+        raise core.ContinuationError(
+            "configured fence token file could not be read",
+            code="fence_token_transport_unavailable",
+            details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
+            exit_code=3,
+        ) from exc
+    if not value:
+        raise core.ContinuationError(
+            "configured fence token file is empty",
+            code="fence_token_transport_invalid",
+            details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
+            exit_code=3,
+        )
+    return value
+
+
+def deliver_fence_token(fence_token: str) -> dict[str, Any]:
+    """Return the legacy token or externalize it to an opt-in local file.
+
+    Delivery happens before lease/control generation state is committed, so a
+    bad credential transport cannot create a fresh owner that the caller cannot
+    authenticate.  The plaintext file is caller-controlled and stays outside
+    canonical continuation state; only the token hash is durable there.
+    """
+
+    path = _fence_token_file_from_env()
+    if path is None:
+        return {"fence_token": fence_token}
+    core = _continuation()
+    try:
+        parent = path.parent
+        if not parent.exists() or not parent.is_dir():
+            raise core.ContinuationError(
+                "configured fence token file parent does not exist",
+                code="fence_token_transport_unavailable",
+                details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
+            )
+        atomic_write_text(path, fence_token + "\n")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            # Windows ACLs are inherited from the caller-controlled parent;
+            # chmod is only a best-effort narrowing on platforms that honor it.
+            pass
+    except core.ContinuationError:
+        raise
+    except OSError as exc:
+        raise core.ContinuationError(
+            "configured fence token file could not be written",
+            code="fence_token_transport_unavailable",
+            details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
+        ) from exc
+    return {
+        "fence_token": None,
+        "fence_token_transport": "file",
+        "fence_token_file": str(path),
+        "fence_token_environment": FENCE_TOKEN_FILE_ENV,
+    }
 
 
 def workspace_error(exc: continuation_workspace.ContinuationWorkspaceError):
@@ -799,6 +906,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             conditional_sections.append(
                 "Current writer safety:\n"
                 "- Before project writes, declare concrete workspace intent and preserve unrelated external dirty state.\n"
+                "- If the project-access/scheduler transport rejects high-entropy owner credentials, set `ACF_CONTINUATION_FENCE_TOKEN_FILE` to a caller-controlled local temp file before claim/recover. ACF will write the new fence token there and omit the raw token from JSON; keep the same environment variable on fenced owner commands and delete the file after release.\n"
                 "- Before each non-idempotent or long-lived writer side effect, use deterministic effect identity; never replay an uncertain outcome.\n"
                 "- Narrow ACF control-plane lifecycle exception: after the authenticated runner itself executes deterministic `acf workstream scope-add|merge-request|ready|merge-start|done` for the bound Workstream, the exact generated `docs/ai/active/Workstreams.md` plus that Workstream detail may be reviewed and committed as a dedicated control-plane checkpoint; this does not extend ordinary Task write scope or permit any third baseline/external path.\n"
                 "- Checkpoints and Git commits are persistence points, not stop signals. Release only when this execution session is actually handing off or ending."
@@ -847,7 +955,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             conditional_sections.append(
                 "Expired-owner recovery:\n"
                 "- Reconcile current workspace, HEAD, effect journal, identity, and prior generation before recovery when required.\n"
-                "- Reuse credentials returned by recover; do not claim a second time after successful recovery."
+                "- Reuse credentials returned by recover; do not claim a second time after successful recovery. If raw credentials cannot safely cross the command transport, set `ACF_CONTINUATION_FENCE_TOKEN_FILE` before recover and reuse that file handle for fenced commands."
             )
         elif status_snapshot.get("can_claim"):
             control_actions.extend(
@@ -863,6 +971,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                 "- The coordination attempt is a compact intent record, not a bounded work quota. `--objective-summary` names the current goal; it does not limit how much useful work the session may complete.\n"
                 "- A scheduler wake, coordination attempt, or claim is control-plane bookkeeping. It must not be counted as the real/external state change required by a conditional wait plan, and it must not be used to create synthetic progress solely so the task can observe itself.\n"
                 "- Claim only when refreshed authority identifies safe useful work that is executable now. If a wait condition is still unsatisfied and no other useful work exists, ending this wake without claim leaves the mission running and is not a pause, blocker, or completion.\n"
+                "- For credential-redacting command transports, set `ACF_CONTINUATION_FENCE_TOKEN_FILE` to a caller-controlled local temp file before claim so ACF returns a non-secret file handle instead of the raw token.\n"
                 "- After claim, declare concrete workspace intent before writes and use deterministic effect identity before non-idempotent side effects."
             )
         else:
@@ -1054,7 +1163,7 @@ def continuation_workspace_intent_command(args: argparse.Namespace) -> int:
                 control,
                 lease_snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=resolve_fence_token(args),
                 generation=args.generation,
             )
             generation = core._require_fenced_generation(lease)
@@ -1128,7 +1237,7 @@ def continuation_workspace_reclassify_command(args: argparse.Namespace) -> int:
                 control,
                 lease_snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=resolve_fence_token(args),
                 generation=args.generation,
             )
             generation = core._require_fenced_generation(lease)
@@ -1357,7 +1466,7 @@ def continuation_workspace_refresh_command(args: argparse.Namespace) -> int:
                 control,
                 lease_snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=resolve_fence_token(args),
                 generation=args.generation,
             )
             generation = core._require_fenced_generation(lease)

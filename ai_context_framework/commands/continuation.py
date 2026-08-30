@@ -1149,6 +1149,7 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 )
             except continuation_workspace.ContinuationWorkspaceError as exc:
                 raise continuation_workspace_commands.workspace_error(exc) from exc
+            fence_token_delivery = continuation_workspace_commands.deliver_fence_token(fence_token)
             control["generation"] = generation
             control["updated_at"] = _iso(now)
             _write_json(paths["control"], control)
@@ -1166,7 +1167,7 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 "status": "claimed",
                 "task_id": control["task_id"],
                 "lease": _public_lease(lease),
-                "fence_token": fence_token,
+                **fence_token_delivery,
                 "generation": generation,
                 "round": round_record,
                 "workspace": continuation_workspace.summary(
@@ -1197,7 +1198,7 @@ def continuation_assert_owner_command(args: argparse.Namespace) -> int:
                 control,
                 snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=continuation_workspace_commands.resolve_fence_token(args),
                 generation=args.generation,
             )
             git = _git_identity(root)
@@ -1225,7 +1226,7 @@ def continuation_heartbeat_command(args: argparse.Namespace) -> int:
                 control,
                 snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=continuation_workspace_commands.resolve_fence_token(args),
                 generation=args.generation,
             )
             git = _git_identity(root)
@@ -1265,7 +1266,7 @@ def continuation_progress_command(args: argparse.Namespace) -> int:
                 control,
                 snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=continuation_workspace_commands.resolve_fence_token(args),
                 generation=args.generation,
             )
             generation = _require_fenced_generation(lease)
@@ -1305,7 +1306,7 @@ def continuation_effect_prepare_command(args: argparse.Namespace) -> int:
                 control,
                 snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=continuation_workspace_commands.resolve_fence_token(args),
                 generation=args.generation,
             )
             generation = _require_fenced_generation(lease)
@@ -1351,7 +1352,7 @@ def continuation_effect_update_command(args: argparse.Namespace) -> int:
                 control,
                 snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=continuation_workspace_commands.resolve_fence_token(args),
                 generation=args.generation,
             )
             generation = _require_fenced_generation(lease)
@@ -1603,6 +1604,7 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 "coordination_digest": observation["coordination_digest"],
                 "challenge_resolution": challenge_resolution,
             }
+            fence_token_delivery = continuation_workspace_commands.deliver_fence_token(fence_token)
             _write_json(paths["control"], control)
             _write_json(paths["lease"], lease)
             _write_json(paths["rounds"], round_journal)
@@ -1617,7 +1619,7 @@ def continuation_recover_command(args: argparse.Namespace) -> int:
                 "status": "recovered",
                 "task_id": control["task_id"],
                 "lease": _public_lease(lease),
-                "fence_token": fence_token,
+                **fence_token_delivery,
                 "generation": generation,
                 "round": round_record,
                 "recovery": recovery,
@@ -1650,7 +1652,7 @@ def continuation_renew_command(args: argparse.Namespace) -> int:
                 control,
                 snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=continuation_workspace_commands.resolve_fence_token(args),
                 generation=args.generation,
             )
             git = _git_identity(root)
@@ -1690,7 +1692,7 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
                 control,
                 snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=continuation_workspace_commands.resolve_fence_token(args),
                 generation=args.generation,
             )
             state = _load_state(paths)
@@ -1754,7 +1756,7 @@ def continuation_release_command(args: argparse.Namespace) -> int:
             lease = _assert_lease_owner(
                 snapshot,
                 lease_id=args.lease_id,
-                fence_token=args.fence_token,
+                fence_token=continuation_workspace_commands.resolve_fence_token(args),
                 generation=args.generation,
             )
             generation = lease.get("generation")

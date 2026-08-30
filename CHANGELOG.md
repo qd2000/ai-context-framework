@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Continuation fenced credential transport
+
+- 新增 `ACF_CONTINUATION_FENCE_TOKEN_FILE` 非明文命令行传递路径：在 `claim` / `recover` 前设置调用方控制的临时文件后，ACF 会在提交新 generation/lease 之前把新 fence token 写入该文件，并在 JSON 中返回 `fence_token=null` 与非敏感 file-transport metadata；后续 fenced owner 命令在省略 `--fence-token` 时从同一文件读取 credential。
+- raw `--fence-token` 继续兼容；token file 缺失、非普通文件、为空、超出容量或不可读写时 fail-closed，错误不回显 credential。token file 不写入 canonical continuation state，`~/.acf` 仍只保存 hash；generated prompt、README、Automation 和项目/模板 System Manual 同步引导 credential-redacting scheduler 使用 temp file 并在 release 后清理。
+- 新增 claim/assert-owner/heartbeat/workspace-intent/checkpoint/release 与 challenge-backed recover 的真实 file-transport 回归，验证 raw token 不进入 JSON/canonical state 且 recovered owner 可直接继续 authenticated heartbeat。
+
 ## v0.0.3.84 — 2026-08-26
 
 ### Continuation directive lifecycle hardening
