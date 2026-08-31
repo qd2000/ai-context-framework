@@ -22,6 +22,10 @@ from ai_context_framework import (
     continuation_rounds,
     continuation_workspace,
 )
+from ai_context_framework.automation_contracts import (
+    automation_prompt_execution_contract,
+    writer_scheduler_wrapper_contract,
+)
 from ai_context_framework.commands import continuation_directives as continuation_directive_commands
 from ai_context_framework.front_matter import parse_front_matter, split_typed_scope, validate_front_matter
 from ai_context_framework.git_support import discover_git_project
@@ -1086,26 +1090,10 @@ Reusable product issues:
             "task_id": control["task_id"],
             "workstream_id": control.get("workstream_id"),
         }
-        scheduler_wrapper_contract = {
-            "schema_version": "acf.continuation.scheduler_wrapper.v1",
-            "generic_protocol_source": "acf continuation prompt",
-            "refresh_prompt_each_run": True,
-            "bootstrap_policy": "sufficient_high_salience",
-            "identity": identity,
-            "project_constraint_classes": project_context["wrapper_constraint_slot"]["classes"],
-            "project_specific_constraints_slot": project_context["wrapper_constraint_slot"],
-            "required_bootstrap_topics": [
-                "exact_existing_workspace",
-                "project_access_tool_mode",
-                "stable_acf_upgrade_adaptation",
-                "authority_refresh",
-                "execute_generated_plan",
-                "owner_liveness_disclosure",
-                "project_constraints",
-                "final_response_contract",
-            ],
-            "copy_generic_state_machine": False,
-        }
+        scheduler_wrapper_contract = writer_scheduler_wrapper_contract(
+            identity,
+            project_context["wrapper_constraint_slot"],
+        )
         value = {
             "status": "rendered",
             "task_id": control["task_id"],
@@ -1121,6 +1109,7 @@ Reusable product issues:
             "execution_policy": execution_policy,
             "project_context": project_context,
             "scheduler_wrapper_contract": scheduler_wrapper_contract,
+            "automation_prompt_execution_contract": automation_prompt_execution_contract(),
             "prompt": prompt,
             "next_actions": control_actions,
         }

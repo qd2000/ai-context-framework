@@ -85,6 +85,29 @@ class ObserverCliTests(unittest.TestCase):
             self.assertEqual(payload["command"], "observer status")
             self.assertFalse(payload["initialized"])
             self.assertEqual(payload["changed_files"], [])
+            automation_contract = payload["automation_prompt_execution_contract"]
+            self.assertEqual("acf.automation.prompt-execution.v1", automation_contract["schema_version"])
+            observer_wrapper = automation_contract["production_observer_scheduler_wrapper"]
+            self.assertEqual("broad", observer_wrapper["access_boundary"]["read"])
+            self.assertEqual("narrow_user_level_observer_state", observer_wrapper["access_boundary"]["write"])
+            self.assertEqual("none", observer_wrapper["access_boundary"]["control"])
+            self.assertTrue(automation_contract["observer_semantic_review"]["required_each_semantic_refresh"])
+            self.assertFalse(
+                automation_contract["presentation_maintenance"]["transient_patch"][
+                    "direct_dashboard_edit_allowed"
+                ]
+            )
+            self.assertEqual(
+                ["reviewed_intent", "scope", "rationale", "evidence_refs"],
+                automation_contract["presentation_maintenance"]["review_before_record"][
+                    "required_fields"
+                ],
+            )
+            self.assertTrue(
+                automation_contract["presentation_maintenance"]["transient_patch"][
+                    "deterministic_rerender_required"
+                ]
+            )
             self.assertTrue(Path(payload["observer_dir"]).is_relative_to(Path(os.environ["ACF_HOME"])))
             after = sorted(path.relative_to(project).as_posix() for path in project.rglob("*"))
             self.assertEqual(after, before)

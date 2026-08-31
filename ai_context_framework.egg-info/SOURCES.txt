@@ -27,6 +27,7 @@ ai_context_framework/observability.py
 ai_context_framework/observer.py
 ai_context_framework/observer_storage.py
 ai_context_framework/observer_targets.py
+ai_context_framework/automation_contracts.py
 ai_context_framework/paths.py
 ai_context_framework/runtime.py
 ai_context_framework/tables.py

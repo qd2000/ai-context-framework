@@ -7,6 +7,7 @@ import json
 import uuid
 from pathlib import Path
 
+from ai_context_framework.automation_contracts import automation_prompt_execution_contract
 from ai_context_framework.constants import EXIT_RUNTIME_ERROR, EXIT_SAFETY_REFUSED, JSON_SCHEMA_VERSION
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
 from ai_context_framework.observer import (
@@ -231,6 +232,7 @@ def observer_status_command(args: argparse.Namespace) -> int:
     payload = {
         **_base_payload("observer status"),
         **observer_status(project),
+        "automation_prompt_execution_contract": automation_prompt_execution_contract(),
     }
     return _emit(args, payload)
 

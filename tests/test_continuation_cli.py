@@ -7360,6 +7360,20 @@ merge_resolution: merged
         self.assertTrue(wrapper["refresh_prompt_each_run"])
         self.assertEqual("sufficient_high_salience", wrapper["bootstrap_policy"])
         self.assertFalse(wrapper["copy_generic_state_machine"])
+        self.assertEqual("writer", wrapper["wrapper_family"])
+        self.assertEqual("maintenance_writer", wrapper["role"])
+        self.assertEqual("execution_policy", wrapper["runtime_execution_policy_source"])
+        self.assertEqual(
+            "project_task_specific_constraints",
+            wrapper["named_extension_slot"]["name"],
+        )
+        self.assertIn("write_scope_and_effect_safety", wrapper["p15_required_bootstrap_topics"])
+        self.assertIn("semantic_stage", wrapper["execution_evidence_fields"])
+        self.assertIn("problem", wrapper["execution_evidence_fields"])
+        self.assertIn("plan_impact", wrapper["execution_evidence_fields"])
+        self.assertIn("next_logic", wrapper["execution_evidence_fields"])
+        self.assertIn("generation", wrapper["volatile_fields_not_static"])
+        self.assertFalse(wrapper["checkpoint_commit_gate_are_stop"])
         self.assertEqual(
             [
                 "exact_existing_workspace",
@@ -7372,6 +7386,37 @@ merge_resolution: merged
                 "final_response_contract",
             ],
             wrapper["required_bootstrap_topics"],
+        )
+
+        automation_contract = payload["automation_prompt_execution_contract"]
+        self.assertEqual("acf.automation.prompt-execution.v1", automation_contract["schema_version"])
+        self.assertTrue(automation_contract["separation_required"])
+        self.assertEqual(
+            "writer_runtime_generated",
+            automation_contract["writer_runtime_generated"]["role"],
+        )
+        self.assertEqual(
+            "production_observer",
+            automation_contract["production_observer_scheduler_wrapper"]["role"],
+        )
+        self.assertTrue(
+            automation_contract["observer_semantic_review"]["required_each_semantic_refresh"]
+        )
+        self.assertFalse(
+            automation_contract["presentation_maintenance"]["transient_patch"][
+                "direct_dashboard_edit_allowed"
+            ]
+        )
+        self.assertEqual(
+            ["reviewed_intent", "scope", "rationale", "evidence_refs"],
+            automation_contract["presentation_maintenance"]["review_before_record"][
+                "required_fields"
+            ],
+        )
+        self.assertTrue(
+            automation_contract["presentation_maintenance"]["transient_patch"][
+                "deterministic_rerender_required"
+            ]
         )
 
         policy = payload["execution_policy"]
