@@ -71,18 +71,29 @@ route-impacting problem 必须触发真实 map review/update；跨项目问题�
 
 主视图必须直接给出足够细节：最终目标、完整计划/路线、当前位置/focus、为什么做当前步骤、最近证明/排除/改变了什么、当前问题及其 plan impact、下一步及理由、执行健康、是否需要人工介入、最近 Agent run 时间/时长/结果/主要产出。HEAD/generation/lease/fence/effects/schema/fingerprint/raw provenance 折叠技术详情，但有意义的 reasoning/progress 不得全部藏起来。人类可见时间按当前 authority（目前 UTC+08:00）展示，structured state 保持 canonical time semantics。
 
-### P1–P4 implementation / dogfood
+### P1 / P1.5 / P2–P4 implementation / dogfood
 
-- **P1**：Target Registry、target-local scope/tabs、run timing/history、conditional Project Overview decision state。
-- **P2**：target narrative、independent fingerprint/staleness、Map Review Gate、adaptive map、problem model、route binding、cross-project transfer。
-- **P3**：基于 P1/P2 重建 Chinese human-first self-contained Dashboard V2。
+- **P1**：Target Registry、target-local scope/tabs、run timing/history、conditional Project Overview decision state。已在 `200c75f989319ae708acdf3ce8e4f8b4dfe1c1bc` 形成独立 checkpoint；验证包括 58 个 focused Observer tests、615 个 full unit tests、file-scoped WS012 guard、`git diff --check`、strict docs 与 template check。
+- **P1.5 — Automation / Prompt Execution Contract**：在 P1 之后、P2 之前建立可审阅的自动化提示词执行合同。正确模型固定为“两类 Scheduled Task wrapper + 一个 Writer runtime-generated continuation prompt”，但不引入第二套 generic state machine：
+  - **Writer Scheduled Task wrapper common core** 必须是 sufficient high-salience first-read bootstrap，而不是为了省 token 人为削薄。固定包含稳定 project/task/worktree/branch/Workstream identity、existing-worktree 的精确 project-access/DevSpace 打开语义、stable ACF upgrade/adaptation、authority refresh、每轮强制消费 `acf continuation prompt + execution_policy`、live-vs-stale owner 用户可见处理、安全/write-scope/exit 边界、checkpoint/commit/Gate 不等于 stop，以及缺失后会显著增加误执行风险的首读规则。volatile owner/generation/stage/next_action 不写死；项目/任务专属 scientific/Runtime/resource/permission/security/validation/issue-reporting 通过显式 extension slot/overlay 保留。
+  - **Production Observer Scheduled Task wrapper common core** 同样是完整首读合同，至少固定 `read broad / write narrow / control none`、existing-checkout、Target Registry display scope、anti-masking、semantic review、Map Review Gate、human-first-but-detailed information policy、truthful run history、cross-project non-interference 与 local authority/source rules；项目/target 专属规则进入命名 extension slot。Observer wrapper 不复制 Writer ownership/recovery/fencing state machine。
+  - **Writer runtime-generated prompt** 继续由 stable `acf continuation prompt + execution_policy` 唯一动态提供 owner/claim/recover/fencing/directive/current-plan/progress/checkpoint/release/exit generic authority；不得重复静态项目约束，也不得承载 Observer semantic state machine。
+  - separation 必须成为 reviewable machine/docs/template/tests contract，而不只停留在 CLI help。已有 `scheduler_wrapper_contract` 的 sufficient-bootstrap 语义作为兼容基础，P1.5 在此基础上补齐 wrapper-family/role/static-vs-runtime/extension/evidence contracts，不回退到历史 thin-wrapper 设计。
+  - **Observer anti-laziness 是硬 prompt contract**：每次 scheduled semantic refresh 必须显式审查 narrative/map/presentation/Project Overview 是否仍真实，并审计记录 `unchanged|patch|rebuild|presentation_change|project_overview_enable|project_overview_disable`、reason、evidence、authority fingerprint。fingerprint 只做 cheap triage；PLAN/Task Plan/Workstream/current task/planning refs/ADR/user directives/current stage/key evidence、执行偏离、架构、问题、依赖、并行路径或策略发生 map-relevant 变化时，必须重读必要 authority 后再决策。`unchanged` 也必须有 reason/evidence，连续 unchanged 仍可审计。
+  - presentation type 必须从真实语义选择 flow/branch/architecture/dependency/roadmap/state-machine/timeline/multi-lane/tree/text/hybrid；Project Overview 只有 evidence-backed 证明不存在可信统一路线时才可 disable，并随 authority 变化重新评估。human-first 只折叠 control-plane 噪声，不得隐藏最终目标、路线、当前位置/why-now、已证明/排除/改变、问题及 plan impact、下一步及理由、health/人工介入与最新 run outcome。
+  - Writer execution evidence 要能被 Observer 使用：stage/milestone、major outcome、proven/excluded result、blocker/problem + plan/route impact、next logic；heartbeat/generation/fence 噪声不足以替代语义 evidence。run observability 必须保持 start/end/duration/result 真值与顺序；无 continuation 的 target 使用 user-level marker；crash/incomplete run 禁止伪造 end time。
+  - **Interactive presentation-maintenance contract** 分三种生命周期：① immediate transient presentation-only patch；② 下一次 Production Map Review 消费的 transient one-shot semantic/presentation review request；③ 明确 durable 的 presentation rule。Agent 必须先理解当前 derived semantic/presentation state，把用户意图转换为 reviewed intent/scope/rationale/evidence，ACF 只做确定性记录/并发校验，不自动解释自然语言。任何 immediate patch 只能通过窄范围 user-level derived presentation interface + deterministic re-render，禁止直接编辑 `dashboard.html`；可能改变/误导 route order、node relationship、dependency、stage/completion、architecture、mainline/branch 等语义时必须升级为 Map Review + authority reread。
+  - interactive presentation write 不取得 Writer ownership，仍遵守 `read broad / write narrow / control none` 与 foreign-project non-interference；以 current presentation revision/fingerprint 做轻量 optimistic concurrency，冲突 fail-closed 并要求 reread/re-evaluate，不新增 lease/fence state machine。one-shot 成功应用/复核后必须退出 active context，仅保留审计历史；durable rule 仅在明确长期有效时进入 active contract，并支持 supersede/withdraw，防止 resolved transient guidance 被后续 Production Observer 复活。
+  - P1.5 acceptance 必须同步 PLAN/Workstream、README/Automation/System Manual/template、相关 CLI/machine contracts 与 regression tests，并真实 dogfood ACF、FCC WS079/WS080/WS086、AStockT_AI 的 Writer/Observer Scheduled Task families：验证 shared core 一致、各项目唯一约束不丢失、existing wrapper 可安全迁移、真实 scheduled Agent 确实消费新合同；同时覆盖 immediate interactive correction、next-run semantic review、transient cleanup、durable rule persistence 与 Production render 不覆盖/复活旧 one-shot。
+- **P2**：target narrative、independent fingerprint/staleness、Map Review Gate、adaptive map、problem model、route binding、cross-project transfer，并实现 P1.5 已冻结的 semantic review / presentation-maintenance runtime 语义。
+- **P3**：基于 P1/P1.5/P2 重建 Chinese human-first self-contained Dashboard V2，并实现 narrow derived presentation maintenance surface。
 - **P4**：真实项目 dogfood：ACF 只显示注册的 WS012 target；FCC 注册的 WS079/WS080/WS086 各自独立 tab，并认真判断是否应有 Project Overview；AStockT_AI 注册自动推进 target，若 authority 支持统一 project route 才启用 overview。必须真实覆盖 plan/strategy change、unexpected blocker、route-impacting issue、external/tooling transfer、abnormal run、map presentation change、overview enable/disable、Windows CMD、fenced credential installed-state 与 anti-masking。
 
-最终 Production acceptance 只能从包含 P0 + P1–P4、正式 release + global install 的稳定安装态开始；旧 `.83`/过渡 activation 只作历史 evidence，不拼接。具体连续次数与 reset 条件读取当时最新 acceptance authority。Maintenance snapshot/narrative refresh 永远不冒充 Production activation；acceptance pass 也不结束 WS012 long-lived mission。
+最终 Production acceptance 只能从包含 P0 + P1 + P1.5 + P2–P4、正式 release + global install 的稳定安装态开始；旧 `.83`/过渡 activation 只作历史 evidence，不拼接。具体连续次数与 reset 条件读取当时最新 acceptance authority。Maintenance snapshot/narrative refresh 永远不冒充 Production activation；acceptance pass 也不结束 WS012 long-lived mission。
 
 ### Directive lifecycle / execution order
 
-本节 durable authority 同步完成后，相关 current directives 应以本 PLAN/Workstream evidence `adopt`；对应能力真正完成后再 `resolve`。当前顺序：P0 credential → P0 Windows CMD → P0 closeout authorization → P1 → P2 → P3 → P4 → full release/global install/installed-state dogfood → latest-authority Production acceptance → ongoing maintenance。
+本节 durable authority 同步完成后，相关 current directives 应以本 PLAN/Workstream evidence `adopt`；对应能力真正完成后再 `resolve`。当前顺序：P0 credential → P0 Windows CMD → P0 closeout authorization → P1 → **P1.5 Automation / Prompt Execution + interactive presentation-maintenance contract** → P2 → P3 → P4 → full release/global install/installed-state dogfood → latest-authority Production acceptance → ongoing maintenance。
 
 ---
 
@@ -494,12 +505,12 @@ Observer 修复进入稳定版前必须：
 
 ## 7. Immediate next action
 
-截至 2026-08-27，`v0.0.3.84` 已完成 human-approved ACF-managed merge、`origin/master` 与 annotated tag identity 校验；唯一既有 trusted-publishing workflow `32984611066` 仍 queued 且未分配 job，PyPI `0.0.3.84` 仍不存在。与此同时，WS079/WS080 暴露的 fenced-owner credential transport 已按 WS012.5 升级为 current-stable `Immediate`。当前默认执行顺序改为：
+截至 2026-08-31，P0 credential transport、canonical Windows `acf.cmd`、closeout authorization 与 Observer V2 P1 已分别形成独立 checkpoint；P1 checkpoint 为 `200c75f989319ae708acdf3ce8e4f8b4dfe1c1bc`，focused/full-unit/guard/strict/template/diff validation 已通过。directive revision 32 将当前 authority 提升为 **Observer V2 P1.5 Automation / Prompt Execution + interactive presentation-maintenance contract**，并明确阻止 P2 在 P1.5 完成前被接受。当前默认执行顺序为：
 
-1. 在不触碰 `.84` release identity 的前提下完成 `ACF_CONTINUATION_FENCE_TOKEN_FILE` 修复、deterministic regressions、文档同步、file-scoped guard / strict / template / full-unit 等候选验证并形成独立 Git checkpoint；
-2. 对 `.84` 仅查询既有 GitHub Actions/PyPI authority，禁止 re-merge、re-push 或再次 retrigger tag；`.84` 一旦真实出现在 PyPI，再按原 deterministic identity 完成 global install / installed-state directive smoke，但把它视为过渡 stable，不启动最终 24h acceptance 计数；
-3. 在 `.84` 外部发布链终态后，为 credential transport 形成**下一稳定 release**，完成 full release gate、ACF-managed merge/tag/publish/global install，并用 installed-state ACF 对真实 file-handle claim/recover + authenticated heartbeat/workspace/checkpoint/release 做 dogfood；随后以 durable evidence 收口该 Immediate root-cause cluster；
-4. 将 WS012 恢复/保持 `Active / Waiting Maintenance`，不得 Done/Cancelled/Archive；从包含 credential-transport fix 的最新稳定基线 `0/24` 重新开始 Production Observer 独立 acceptance；Maintenance 仍不得例行刷新 Observer；
-5. `5067de152f19558f2d8b` 继续保持普通 Ready Batch candidate，除非新的 current-stable evidence 满足 WS012.5 门槛，不为了凑 batch 强行合并到本 Immediate；每个后续 wake 仍先查 pending directive / Immediate issue / batch threshold。
+1. 将 revision 32 的三个 durable requirement 以本 PLAN + WS012 Workstream 作为 adoption evidence 正式 `adopt`；能力完成前保持 adopted，不提前 `resolve`。
+2. 在现有 `scheduler_wrapper_contract` sufficient-bootstrap 基础上实现 reviewable Writer wrapper / Production Observer wrapper / Writer runtime-generated prompt 三层结构，补齐 named extension slots、static-vs-dynamic boundary、Observer-useful execution evidence 与 anti-laziness semantic review contract；保持 generic continuation state machine 单一权威。
+3. 实现/冻结 interactive presentation-maintenance 的三生命周期、narrow derived-state interface、semantic-escalation、optimistic concurrency、transient cleanup 与 durable supersede/withdraw contract，并把 runtime realization 与 P2/P3 对齐。
+4. 同步 README/Automation/System Manual/template、CLI/machine contracts/tests；验证 focused + relevant full unit + file-scoped guard + strict/template + `git diff --check`，形成独立 P1.5 checkpoint。
+5. 对 ACF、FCC WS079/WS080/WS086、AStockT_AI 的真实 Writer/Observer Scheduled Task families 做迁移/dogfood evidence，确认 common core 一致且项目专属 Runtime/scientific/permission/validation 规则未丢失，然后才进入 P2/P3/P4 acceptance。
 
-继续遵守 anti-masking：普通 WS012 Maintenance wake 不为了让 Dashboard 或 Project Narrative 看起来新鲜而例行调用 production `observer snapshot/interpret/narrative-apply`。
+继续遵守 anti-masking：普通 WS012 Maintenance wake 不为维持 Dashboard 或 Project Narrative 新鲜而主动调用 production `observer snapshot/interpret/narrative-apply`；任何 Production acceptance 仍只能来自独立 Production Observer activation。
