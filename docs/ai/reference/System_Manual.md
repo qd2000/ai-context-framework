@@ -234,7 +234,25 @@ acf observer narrative-apply . --source-fingerprint <fingerprint> `
 
 # 只读检查当前 Project Narrative 是否仍与最新 authority 一致
 acf observer narrative . --json
+
+# Observer V2：只有显式注册的 scheduled-automation target 才进入 Dashboard 可见范围
+acf observer targets . --json
+acf observer target-set . --target-id ws012-writer --mode fixed_workstream `
+  --title "WS012 Writer" --automation-ref automation:ws012-writer `
+  --workstream WS012 --continuation-task-id WS012 --json
+
+# 没有 continuation round 的自动任务用窄范围 marker 记录真实 start/finish；中断时不要补造 finish
+acf observer target-run-start . --target-id ws012-writer --run-id activation-001 --json
+acf observer target-run-finish . --target-id ws012-writer --run-id activation-001 `
+  --result success --major-outcome "activation completed" --json
+
+# 统一 Project Overview 必须是显式 authority decision；enabled/disabled 需要 evidence + fingerprint
+acf observer project-overview-set . --decision disabled `
+  --reason "Targets are intentionally heterogeneous." `
+  --evidence-ref docs/ai/active/Task_Plan.md --authority-fingerprint <fingerprint> --json
 ```
+
+Observer V2 不把 Workstream/worktree 的存在自动解释成“用户正在观察这个 Scheduled Task”。Target Registry 是用户级 derived runtime contract：当前支持 `fixed_workstream` 与 `project_dynamic`，每个 target 拥有独立 tab/page、Workstream/continuation scope、run chain、Alerts 与 Timeline。未注册 Workstream 的 health/Alert 不得改变 target 可见的 Overall Health；Project Overview 只有 authority 明确 `enabled` 时才渲染统一 Narrative/Map，`disabled` 或 `undecided` 时保持边界可见而不强拼异构目标。continuation round 可直接投影 run timing；外部任务 marker 若没有 finish，只展示 last activity 与 lower-bound duration，不伪造 end time。
 
 `snapshot` 会对项目事实做开始/结束 fingerprint；第一次读取期间发生变化时自动重读一次，仍不稳定则把 `snapshot_consistency=unstable` 并生成 critical Alert，不把混合快照包装成高置信度事实。Observer 自己使用独立轻量锁，正常 overlap fail-closed；只有锁已超过 grace 且本机只读进程检查明确证明旧 PID 不存在时才回收 abandoned lock。`current.json`、`observer_status.json` 和 `dashboard.html` 都用 temp → validate → atomic replace；HTML render 失败会保留上一份 last-good Dashboard。meaningful timeline/observation/alert/run/interpretation 默认永久保留，只按月无损 rotation 到 `history/<stream>/YYYY-MM.jsonl` 并维护 `history/index.json`，不做按时间删除。
 

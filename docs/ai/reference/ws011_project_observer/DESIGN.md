@@ -1043,7 +1043,7 @@ ACF Project Observer 的核心原则：
 
 ## 42. WS012 计划扩展：Project Narrative / Architecture Map / Logical Milestone Flow
 
-> 状态：**Planned in WS012，当前稳定版尚未实现。**
+> 状态：**Project Narrative 已进入稳定版；Observer V2 的显式 Target Registry / target-local Dashboard 正由 WS012 继续演进，最终 authority 以 WS012 当前 PLAN 为准。**
 
 现有 Dashboard 已经能回答“项目现在是否健康”“当前 Workstream 在做什么”“最近发生了什么”，但仍然缺少长期阅读所需的项目级叙事骨架。WS012 将增加一个独立的 **Project Narrative** derived semantic layer，使 Dashboard 还能稳定回答：
 
@@ -1126,3 +1126,18 @@ Project Map 继续输出单一、自包含、`file://` 可打开的静态 HTML�
 Project Narrative 的刷新仍由正式 Production Observer 流程驱动。Maintenance Writer 可以在实现/修复验证、release smoke 或 installed-state dogfood 时显式生成测试数据，但普通 `:04` wake 不得为了让 Project Map 看起来“更新了”而例行刷新 production Observer runtime。
 
 因此 WS012 的 anti-masking contract 对新增 Project Narrative 同样有效：如果 `:34` scheduler 没有真正运行，Dashboard/Project Map 应该自然变 stale，而不是由 Maintenance 替它续命。
+
+### 42.3 Observer V2：显式 Target Registry 与 target-local 观测边界
+
+Project Narrative 落地后，WS012 的下一阶段把 Dashboard 的第一层对象从“仓库里恰好存在的 Workstream/worktree”提升为“用户明确注册并由外部自动化持续推进的 Observer target”。这一层只描述观测意图，不接管 scheduler，也不把 ACF 内部对象反向当作用户意图来源。
+
+当前正式设计约束如下：
+
+- Target Registry 是 user-level derived runtime state，位于项目 Observer namespace，不写入项目 Git；只有显式注册的 target 才进入 Dashboard target tabs/pages。
+- 当前支持 `fixed_workstream` 与 `project_dynamic` 两类 target。前者绑定固定 Workstream，可选绑定 continuation task；后者绑定长期动态项目自动化，至少要有可验证的 continuation task identity。
+- target-local page 只显示属于该 target 的 Workstream/continuation、run chain、Alerts 与 Timeline。未注册 Workstream 即使处于 warning/critical，也不能泄漏进另一个 target 的可见 health 汇总；Observer self-health 仍保持项目级 fail-visible。
+- continuation round 可以直接投影为 scheduled activation run；没有 continuation round 的自动化只能通过窄范围 `target-run-start` / `target-run-finish` marker 记录。缺少 finish 的异常 run 不补造 end time，只展示真实 last activity 与 lower-bound/approximate duration。
+- Project Overview 是独立 authority decision，而不是“target 数量大于 1”之类的启发式推断。只有 authority 明确 `enabled` 时才展示统一 Overall Goal / Architecture Map / Milestone Flow；`disabled` 必须保留 reason/evidence，`undecided` 保持未知，不能把异构 targets 强行拼成一个路线图。
+- Target Registry 仍遵守 Production Observer / Maintenance anti-masking：Maintenance 可以实现和隔离测试 registry/rendering，但普通 wake 不能用 target marker、snapshot 或 narrative refresh 冒充真实 Production activation。
+
+这些 V2 约束扩展 WS011 的产品设计，但不改变 Global Observer 的安全边界：**read broad / write narrow / control none**。更细的 P1–P4 顺序、Map Review Gate、problem model、真实项目 dogfood 与发布/acceptance 条件由 WS012 当前 PLAN 继续维护。

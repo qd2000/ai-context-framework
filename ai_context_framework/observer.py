@@ -19,22 +19,20 @@ from typing import Any, Iterable
 
 from ai_context_framework.front_matter import parse_front_matter
 from ai_context_framework.git_support import (
-    GitCommandError,
-    discover_git_project, is_ancestor,
-    list_registries,
-    list_worktrees,
-    path_key,
+    GitCommandError, discover_git_project, is_ancestor, list_registries,
+    list_worktrees, path_key,
 )
 from ai_context_framework.observability import acf_home, atomic_write_text, usage_project_dir
 from ai_context_framework.observer_storage import (
     ObserverLockedError, _continuation_lease_liveness, _parse_utc_iso, _read_json_object,
     _read_jsonl_objects, acquire_observer_lock, append_jsonl, append_jsonl_unique,
     attach_semantic_interpretations, ensure_jsonl_file, observer_lock_health, observer_paths,
-    project_narrative_status,
-    read_glossary, read_observer_history_stream, refresh_history_index, release_observer_lock,
+    project_narrative_status, read_glossary, read_observer_history_stream, refresh_history_index,
+    release_observer_lock,
     rotate_jsonl_monthly, rotate_observer_history, sanitize_observer_payload, utc_now_iso,
     write_dashboard, write_json_atomic,
 )
+from ai_context_framework.observer_targets import build_target_views
 from ai_context_framework.paths import discover_context, resolve_status_location, slugify_project_name
 from ai_context_framework.version import VERSION
 from ai_context_framework.worktree_status import capture_git_worktree_snapshot
@@ -1618,6 +1616,7 @@ def build_observer_snapshot(
     continuations = list(final.get("continuations") or [])
     workstreams, semantic_summary = attach_semantic_interpretations(project, workstreams, continuations)
     narrative_summary = project_narrative_status(project, workstreams, continuations)
+    target_views = build_target_views(project, {"workstreams": workstreams, "continuations": continuations})
     snapshot = {
         "schema_version": OBSERVER_CURRENT_SCHEMA,
         "project_id": project.project_id,
@@ -1639,6 +1638,7 @@ def build_observer_snapshot(
         "alerts": [],
         "semantic": semantic_summary,
         "project_narrative": narrative_summary,
+        "targets": target_views,
     }
     snapshot["alerts"] = derive_snapshot_alerts(project, snapshot)
     sanitized = sanitize_observer_payload(snapshot)

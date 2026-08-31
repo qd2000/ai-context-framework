@@ -5,6 +5,7 @@ acf.py
 pyproject.toml
 ai_context_framework/__init__.py
 ai_context_framework/cli.py
+ai_context_framework/closeout_authorization.py
 ai_context_framework/constants.py
 ai_context_framework/context_budget.py
 ai_context_framework/continuation_coordination.py
@@ -25,6 +26,7 @@ ai_context_framework/models.py
 ai_context_framework/observability.py
 ai_context_framework/observer.py
 ai_context_framework/observer_storage.py
+ai_context_framework/observer_targets.py
 ai_context_framework/paths.py
 ai_context_framework/runtime.py
 ai_context_framework/tables.py
@@ -70,6 +72,7 @@ ai_context_framework/commands/status_check.py
 ai_context_framework/commands/versioning.py
 ai_context_framework/commands/worklog.py
 ai_context_framework/commands/workstream.py
+ai_context_framework/commands/workstream_authorization.py
 ai_context_framework/commands/workstream_reserve.py
 ai_context_framework/commands/worktree.py
 ai_context_framework/domains/__init__.py

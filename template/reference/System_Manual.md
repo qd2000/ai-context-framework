@@ -444,7 +444,25 @@ acf observer narrative-source . --source-path reference/Project_Brief.md --json
 acf observer narrative-apply . --source-fingerprint <fingerprint> `
   --source-path reference/Project_Brief.md --input project-narrative.json --json
 acf observer narrative . --json
+
+# Observer V2：只有显式注册的 scheduled-automation target 才进入 Dashboard 可见范围
+acf observer targets . --json
+acf observer target-set . --target-id ws012-writer --mode fixed_workstream `
+  --title "WS012 Writer" --automation-ref automation:ws012-writer `
+  --workstream WS012 --continuation-task-id WS012 --json
+
+# 没有 continuation round 的自动任务用窄范围 marker 记录真实 start/finish；中断时不要补造 finish
+acf observer target-run-start . --target-id ws012-writer --run-id activation-001 --json
+acf observer target-run-finish . --target-id ws012-writer --run-id activation-001 `
+  --result success --major-outcome "activation completed" --json
+
+# 统一 Project Overview 必须是显式 authority decision；enabled/disabled 需要 evidence + fingerprint
+acf observer project-overview-set . --decision disabled `
+  --reason "Targets are intentionally heterogeneous." `
+  --evidence-ref docs/ai/active/Task_Plan.md --authority-fingerprint <fingerprint> --json
 ```
+
+Observer V2 不把 Workstream/worktree 的存在自动解释成“用户正在观察这个 Scheduled Task”。Target Registry 是用户级 derived runtime contract：当前支持 `fixed_workstream` 与 `project_dynamic`，每个 target 拥有独立 tab/page、Workstream/continuation scope、run chain、Alerts 与 Timeline。未注册 Workstream 的 health/Alert 不得改变 target 可见的 Overall Health；Project Overview 只有 authority 明确 `enabled` 时才渲染统一 Narrative/Map，`disabled` 或 `undecided` 时保持边界可见而不强拼异构目标。continuation round 可直接投影 run timing；外部任务 marker 若没有 finish，只展示 last activity 与 lower-bound duration，不伪造 end time。
 
 `snapshot` 使用开始/结束 fingerprint 形成一致性快照；读取期间发生变化会重读一次，仍不稳定则标记 critical Alert。Observer 使用自己的轻量锁，不复用 continuation lease；current/status/dashboard 原子替换，render 失败保留 last-good Dashboard。meaningful history 默认永久保留，只按月无损 rotation/index，不按时间自动删除。Execution / Progress / Health 分离；正常 `waiting_external` 不自动等于异常，缺少明确分母时不生成假百分比。
 

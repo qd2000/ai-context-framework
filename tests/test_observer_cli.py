@@ -614,11 +614,35 @@ class ObserverCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project, _context = self.make_project(Path(tmp))
             observer_project = resolve_observer_project(project)
+            workstream = {
+                "id": "WS001",
+                "title": "Example target workstream",
+                "status": "Active",
+                "machine_state": {"execution": "running", "progress": "unknown", "health": "healthy"},
+            }
             current = {
                 "observed_at": "2026-08-24T01:51:10Z",
-                "workstreams": [],
+                "workstreams": [workstream],
                 "alerts": [],
                 "semantic": {"status": "current"},
+                "targets": {
+                    "project_overview": {"decision": "undecided"},
+                    "targets": [
+                        {
+                            "target": {
+                                "target_id": "example-target",
+                                "mode": "fixed_workstream",
+                                "title": "Example target",
+                                "automation_ref": "automation:example",
+                                "workstream_id": "WS001",
+                            },
+                            "workstreams": [workstream],
+                            "continuations": [],
+                            "runs": [],
+                            "latest_run": None,
+                        }
+                    ],
+                },
             }
             status = {"data_age": {"state": "fresh"}}
             machine_events = [
@@ -1495,6 +1519,23 @@ class ObserverCliTests(unittest.TestCase):
             exit_code, stdout, stderr = self.run_cli(apply_args)
             self.assertEqual(exit_code, 0, stderr)
             self.assertFalse(json.loads(stdout)["changed"])
+            exit_code, stdout, stderr = self.run_cli(
+                [
+                    "observer",
+                    "project-overview-set",
+                    str(project),
+                    "--decision",
+                    "enabled",
+                    "--reason",
+                    "This synthetic test authority intentionally defines one coherent project map.",
+                    "--evidence-ref",
+                    source_path,
+                    "--authority-fingerprint",
+                    source_fingerprint,
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
             exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--json"])
             self.assertEqual(exit_code, 0, stderr)
             snapshot = json.loads(stdout)["snapshot"]

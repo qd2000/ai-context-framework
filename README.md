@@ -303,6 +303,11 @@ acf observer glossary --json
 acf observer narrative-source . --source-path docs/ai/reference/Project_Brief.md --json
 acf observer narrative-apply . --source-fingerprint <fingerprint> --source-path docs/ai/reference/Project_Brief.md --input project-narrative.json --json
 acf observer narrative . --json
+acf observer targets . --json
+acf observer target-set . --target-id ws012-writer --mode fixed_workstream --title "WS012 Writer" --automation-ref automation:ws012-writer --workstream WS012 --continuation-task-id WS012 --json
+acf observer target-run-start . --target-id ws012-writer --run-id activation-001 --json
+acf observer target-run-finish . --target-id ws012-writer --run-id activation-001 --result success --major-outcome "activation completed" --json
+acf observer project-overview-set . --decision disabled --reason "Targets are intentionally heterogeneous." --evidence-ref docs/ai/active/Task_Plan.md --authority-fingerprint <fingerprint> --json
 acf new task --title "实现一个维护任务" --goal "写清当前目标。"
 acf new source --title "资料标题" --type "文档" --location "https://example.com" --relation "说明为什么相关。"
 acf new reference --title "设计文档标题" --summary "一句话说明。" --body "核心内容。"
