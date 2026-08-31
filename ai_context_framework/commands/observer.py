@@ -10,6 +10,7 @@ from pathlib import Path
 from ai_context_framework.automation_contracts import automation_prompt_execution_contract
 from ai_context_framework.constants import EXIT_RUNTIME_ERROR, EXIT_SAFETY_REFUSED, JSON_SCHEMA_VERSION
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
+from ai_context_framework.commands.observer_presentation import register_observer_presentation_parsers
 from ai_context_framework.observer import (
     ObserverLockedError,
     build_observer_snapshot,
@@ -225,6 +226,7 @@ def register_observer_parser(subparsers, add_json_argument) -> None:
     run_finish_parser.add_argument("--evidence-ref", action="append", default=[])
     add_json_argument(run_finish_parser)
     run_finish_parser.set_defaults(func=observer_target_run_finish_command)
+    register_observer_presentation_parsers(observer_subparsers, add_json_argument)
 
 
 def observer_status_command(args: argparse.Namespace) -> int:

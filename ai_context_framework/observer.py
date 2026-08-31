@@ -33,6 +33,7 @@ from ai_context_framework.observer_storage import (
     write_dashboard, write_json_atomic,
 )
 from ai_context_framework.observer_targets import build_target_views
+from ai_context_framework.observer_presentation import attach_presentation_status, presentation_alert_specs
 from ai_context_framework.paths import discover_context, resolve_status_location, slugify_project_name
 from ai_context_framework.version import VERSION
 from ai_context_framework.worktree_status import capture_git_worktree_snapshot
@@ -789,29 +790,14 @@ def derive_snapshot_alerts(project: ObserverProject, snapshot: dict[str, object]
     observed_at = str(snapshot.get("observed_at") or utc_now_iso())
     alerts: list[dict[str, object]] = []
 
-    def add_alert(
-        *,
-        alert_key: str,
-        severity: str,
-        title: str,
-        explanation: str,
-        canonical_identity: dict[str, object],
-        provenance: list[dict[str, object]],
-    ) -> None:
-        alerts.append(
-            {
-                "schema_version": OBSERVER_ALERT_SCHEMA,
-                "project_id": project.project_id,
-                "alert_key": alert_key,
-                "severity": severity,
-                "status": "active",
-                "title": title,
-                "explanation": explanation,
-                "canonical_identity": canonical_identity,
-                "observed_at": observed_at,
-                "provenance": provenance,
-            }
-        )
+    def add_alert(**fields: object) -> None:
+        alerts.append({
+            "schema_version": OBSERVER_ALERT_SCHEMA,
+            "project_id": project.project_id,
+            "status": "active",
+            "observed_at": observed_at,
+            **fields,
+        })
 
     consistency = snapshot.get("snapshot_consistency")
     if isinstance(consistency, dict) and consistency.get("state") == "unstable":
@@ -850,6 +836,9 @@ def derive_snapshot_alerts(project: ObserverProject, snapshot: dict[str, object]
                 }
             ],
         )
+
+    for spec in presentation_alert_specs(snapshot.get("presentation")):
+        add_alert(**spec)
 
     for row in snapshot.get("workstreams") or []:
         if not isinstance(row, dict):
@@ -1617,6 +1606,7 @@ def build_observer_snapshot(
     workstreams, semantic_summary = attach_semantic_interpretations(project, workstreams, continuations)
     narrative_summary = project_narrative_status(project, workstreams, continuations)
     target_views = build_target_views(project, {"workstreams": workstreams, "continuations": continuations})
+    target_presentation = attach_presentation_status(project, target_views)
     snapshot = {
         "schema_version": OBSERVER_CURRENT_SCHEMA,
         "project_id": project.project_id,
@@ -1639,6 +1629,7 @@ def build_observer_snapshot(
         "semantic": semantic_summary,
         "project_narrative": narrative_summary,
         "targets": target_views,
+        "presentation": target_presentation,
     }
     snapshot["alerts"] = derive_snapshot_alerts(project, snapshot)
     sanitized = sanitize_observer_payload(snapshot)
