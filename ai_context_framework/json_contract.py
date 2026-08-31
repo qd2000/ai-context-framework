@@ -150,7 +150,27 @@ def error_next_actions(error_code: str) -> list[str]:
     if error_code == "workstream_missing_merge_request":
         return ["Run `acf workstream merge-request ...` with target and summary before `ready`."]
     if error_code == "workstream_human_approval_required":
-        return ["Ask the human owner to confirm completion, then rerun with `--human-approved`."]
+        return [
+            "Inspect `acf workstream authorization status <WS> --action <action> --json`.",
+            "Record durable approval evidence or an applicable auto-close policy only when explicit user authority exists; a naked `--human-approved` assertion cannot satisfy this gate.",
+        ]
+    if error_code == "workstream_closeout_denied":
+        return [
+            "Inspect the effective closeout authorization policy and its evidence before retrying.",
+            "Revoke or supersede a deny policy only from newer/narrower explicit user authority.",
+        ]
+    if error_code in {
+        "closeout_authorization_invalid",
+        "closeout_authorization_ledger_invalid",
+        "closeout_authorization_migration_required",
+        "closeout_authorization_capacity_exceeded",
+        "closeout_authorization_record_not_found",
+        "closeout_authorization_locked",
+    }:
+        return [
+            "Inspect the user-level closeout authorization ledger and current Workstream authority; do not bypass the resolver.",
+            "Repair or migrate the durable authorization evidence with the supported `acf workstream authorization ...` flow before retrying the closeout action.",
+        ]
     if error_code == "workstream_missing_evidence":
         return ["Provide `--evidence` so completion remains traceable."]
     if error_code == "workstream_missing_merge_resolution":
@@ -354,6 +374,13 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "workstream_reason_required",
         "workstream_missing_merge_request",
         "workstream_human_approval_required",
+        "workstream_closeout_denied",
+        "closeout_authorization_invalid",
+        "closeout_authorization_ledger_invalid",
+        "closeout_authorization_migration_required",
+        "closeout_authorization_capacity_exceeded",
+        "closeout_authorization_record_not_found",
+        "closeout_authorization_locked",
         "workstream_missing_evidence",
         "workstream_missing_merge_resolution",
         "workstream_section_not_allowed",

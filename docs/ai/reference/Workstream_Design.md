@@ -247,7 +247,7 @@ Open/Active/Blocked/ReadyToMerge -> Cancelled
 | Open | Active | `set --status Active` | 无 | 开始推进目标线。 |
 | Active | Blocked | `block` | reason | 记录阻塞原因。 |
 | Blocked | Active | `set --status Active` | 无 | 阻塞解除后继续。 |
-| Active | ReadyToMerge | `ready --human-approved` | 人工确认、合并请求、summary | 必须已有合并请求和候选变更摘要，并由人工显式确认。 |
+| Active | ReadyToMerge | `ready` | closeout authorization、合并请求、summary | 必须已有合并请求和候选变更摘要，并通过统一 closeout authorization resolver。 |
 | ReadyToMerge | Active | `set --status Active` | 无 | 合并审查发现需要返工。 |
 | ReadyToMerge | Done | `done` | evidence | 结论已合并、归档或明确不需要合并。 |
 | Open/Active/Blocked/ReadyToMerge | Cancelled | `cancel` | reason | 明确取消，不再推进。 |
@@ -347,7 +347,8 @@ uv run acf workstream show WS001 --json
 uv run acf workstream set WS001 --status Active
 uv run acf workstream claim WS001 --owner "agent-a" --write "assigned: src/foo.py"
 uv run acf workstream note WS001 --section "当前发现" --text "..."
-uv run acf workstream ready WS001 --human-approved
+uv run acf workstream authorization approve WS001 --action ready --actor "human-owner" --authority-source "user-authority:review" --evidence-ref "review:WS001-ready"
+uv run acf workstream ready WS001
 uv run acf workstream done WS001 --evidence "docs/ai/reference/Workstream_Design" --merge-resolution no_merge_required
 ```
 
@@ -466,13 +467,15 @@ uv run acf workstream add [path] --id WS001 --title "并行任务治理模型" -
 uv run acf workstream set WS001 [path] --status Active --json
 uv run acf workstream block WS001 [path] --reason "等待人工判断" --json
 uv run acf workstream cancel WS001 [path] --reason "不再适用" --json
-uv run acf workstream ready WS001 [path] --human-approved --json
+uv run acf workstream authorization status WS001 [path] --action ready --json
+uv run acf workstream authorization approve WS001 [path] --action ready --actor "human-owner" --authority-source "user-authority:review" --evidence-ref "review:WS001-ready" --json
+uv run acf workstream ready WS001 [path] --json
 uv run acf workstream done WS001 [path] --evidence "worklog/daily/2026-04-30" --merge-resolution merged --json
 ```
 
 行为：
 
-1. `ready` 必须先收到人工确认参数 `--human-approved`。
+1. `ready`、`merge-start`、`done`、`archive` 以及对应的低层 worktree closeout apply 必须统一通过 durable closeout authorization resolver；默认 disposition 为 `approval_required`，可由精确人工 approval 或适用的 durable `auto` policy 满足，`deny` policy 则 fail-closed。
 2. 校验状态转换是否合法。
 3. 更新详情 front matter。
 4. 同步索引摘要。
@@ -497,6 +500,25 @@ uv run acf workstream done WS001 [path] --evidence "worklog/daily/2026-04-30" --
 6. `workstream_stage_dependency_blocked`
 7. `workstream_missing_evidence`
 8. `workstream_schema_failed`
+
+### Closeout authorization
+
+Workstream 生命周期中的 closeout 权限属于用户级控制面 authority，不存入项目 Markdown，也不能由执行者通过命令行布尔参数自证。canonical ledger 位于用户级 ACF state，并以 append-only policy / approval / revoke / supersession 事件保留 provenance。
+
+支持的 closeout action 为 `ready`、`merge`、`done`、`archive`。policy decision 为 `auto`、`manual`、`deny`；policy 可按 project、Workstream ID、type、class 与 action 收窄，并保留 authority source/revision/fingerprint、evidence、有效期、supersession 与 revoke。更具体的有效 policy 优先于更宽泛 policy；`deny` disposition 不可被旧 approval 绕过。
+
+人工 approval 只对**精确 Workstream + 精确 action + 当前 material Workstream authority fingerprint**有效，不跨 Workstream、不跨 action 转移；material authority 变化会使旧 approval stale。Activity Log 等非 material 追加不应无意义地使 approval 失效。
+
+典型入口：
+
+```bash
+uv run acf workstream authorization status WS001 --action ready --json
+uv run acf workstream authorization policy-set --decision auto --action ready --workstream-class ordinary --actor "human-owner" --authority-source "user-authority:project-policy" --evidence-ref "decision:ordinary-auto-ready" --json
+uv run acf workstream authorization approve WS001 --action ready --actor "human-owner" --authority-source "user-authority:review" --evidence-ref "review:WS001-ready" --json
+uv run acf workstream authorization revoke <record-id> --actor "human-owner" --authority-source "user-authority:revoke" --evidence-ref "decision:revoke" --json
+```
+
+`--human-approved` 仅作为兼容旧调用方的 legacy assertion 保留；它**不会创建 approval evidence，也不会绕过 resolver**。调用方应根据稳定 JSON disposition `auto_authorized | human_approved | approval_required | denied` 决定下一步，而不是重复附加 `--human-approved`。
 
 ### claim
 

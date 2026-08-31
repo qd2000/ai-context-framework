@@ -82,6 +82,30 @@ def lifecycle(acf_prefix: Sequence[str], root: Path) -> dict[str, Any]:
     context = repo / "docs" / "ai"
     acf_json(acf_prefix, repo, "init", str(context), "--profile", "standard")
     acf_json(acf_prefix, repo, "workstream", "init", str(context))
+    acf_json(
+        acf_prefix,
+        repo,
+        "workstream",
+        "authorization",
+        "policy-set",
+        str(context),
+        "--decision",
+        "auto",
+        "--action",
+        "ready",
+        "--action",
+        "merge",
+        "--action",
+        "done",
+        "--action",
+        "archive",
+        "--actor",
+        "release-smoke-human-owner",
+        "--authority-source",
+        "user-authority:installed-lifecycle-smoke",
+        "--evidence-ref",
+        "release-smoke:auto-close-policy",
+    )
     git(repo, "add", "--all")
     git(repo, "commit", "-m", "initial context")
 
@@ -181,7 +205,6 @@ def lifecycle(acf_prefix: Sequence[str], root: Path) -> dict[str, Any]:
         "ready",
         workstream_id,
         str(target_context),
-        "--human-approved",
     )
     git(target, "add", "--all")
     git(target, "commit", "-m", "mark installed lifecycle ready")

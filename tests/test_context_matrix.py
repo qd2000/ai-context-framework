@@ -84,6 +84,35 @@ class ContextMatrixTests(unittest.TestCase):
         )
         return target
 
+    def authorize_fixture_closeout(self, target: Path) -> None:
+        self.assertEqual(
+            self.run_cli(
+                [
+                    "workstream",
+                    "authorization",
+                    "policy-set",
+                    str(target),
+                    "--decision",
+                    "auto",
+                    "--action",
+                    "ready",
+                    "--action",
+                    "merge",
+                    "--action",
+                    "done",
+                    "--action",
+                    "archive",
+                    "--actor",
+                    "context-matrix-human-owner",
+                    "--authority-source",
+                    "user-authority:context-matrix-fixture",
+                    "--evidence-ref",
+                    "test-evidence:context-matrix-auto-close",
+                ]
+            ),
+            0,
+        )
+
     def test_context_matrix_fixture_inventory(self):
         expected = {
             "minimal_clean",
@@ -241,7 +270,8 @@ class ContextMatrixTests(unittest.TestCase):
                 )
 
             self.assertEqual(self.run_cli(["workstream", "set", "WS031", str(target), "--status", "Active"]), 0)
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS031", str(target), "--human-approved"]), 0)
+            self.authorize_fixture_closeout(target)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS031", str(target)]), 0)
 
             done_detail = target / "active" / "workstreams" / "WS032.md"
             done_detail.write_text(
@@ -337,7 +367,8 @@ class ContextMatrixTests(unittest.TestCase):
                 ),
                 0,
             )
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS005", str(target), "--human-approved"]), 0)
+            self.authorize_fixture_closeout(target)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS005", str(target)]), 0)
             self.assertEqual(
                 self.run_cli(
                     [
@@ -640,7 +671,8 @@ class ContextMatrixTests(unittest.TestCase):
                 ),
                 0,
             )
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS020", str(target), "--human-approved"]), 0)
+            self.authorize_fixture_closeout(target)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS020", str(target)]), 0)
             self.assertEqual(
                 self.run_cli(
                     [
@@ -766,7 +798,8 @@ class ContextMatrixTests(unittest.TestCase):
                 ),
                 0,
             )
-            self.assertEqual(self.run_cli(["workstream", "ready", "WS021", str(target), "--human-approved"]), 0)
+            self.authorize_fixture_closeout(target)
+            self.assertEqual(self.run_cli(["workstream", "ready", "WS021", str(target)]), 0)
             self.assertEqual(
                 self.run_cli(
                     [

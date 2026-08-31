@@ -137,7 +137,9 @@ class CliTests(unittest.TestCase):
             ),
             0,
         )
+        self.authorize_closeout(target, workstream_id, "ready")
         self.assertEqual(self.run_cli(["workstream", "ready", workstream_id, str(target), "--human-approved"]), 0)
+        self.authorize_closeout(target, workstream_id, "done")
         self.assertEqual(
             self.run_cli(
                 [
@@ -153,6 +155,49 @@ class CliTests(unittest.TestCase):
             ),
             0,
         )
+
+    def authorize_closeout(self, target, workstream_id, action):
+        self.assertEqual(
+            self.run_cli(
+                [
+                    "workstream",
+                    "authorization",
+                    "approve",
+                    workstream_id,
+                    str(target),
+                    "--action",
+                    action,
+                    "--actor",
+                    "human-owner",
+                    "--authority-source",
+                    "user-authority:test-fixture",
+                    "--evidence-ref",
+                    f"test-evidence:{workstream_id}:{action}",
+                ]
+            ),
+            0,
+        )
+
+    def set_auto_closeout_policy(self, target, *actions, workstream_class="ordinary"):
+        argv = [
+            "workstream",
+            "authorization",
+            "policy-set",
+            str(target),
+            "--decision",
+            "auto",
+            "--workstream-class",
+            workstream_class,
+            "--actor",
+            "human-owner",
+            "--authority-source",
+            "user-authority:test-fixture",
+            "--evidence-ref",
+            "test-evidence:auto-close-policy",
+        ]
+        for action in actions:
+            argv.extend(["--action", action])
+        self.assertEqual(self.run_cli(argv), 0)
 
     def write_workstream_stage_table(self, target, workstream_id, rows):
         detail_path = target / "active" / "workstreams" / f"{workstream_id}.md"
@@ -870,10 +915,82 @@ class CliTests(unittest.TestCase):
             payload = json.loads(stdout)
             self.assert_failure_json_contract(payload, "workstream_human_approval_required", "workstream")
             self.assertIn("--human-approved", payload["message"])
-            self.assertIn("--human-approved", " ".join(payload["next_actions"]))
+            self.assertIn("explicit approval evidence", " ".join(payload["next_actions"]))
+            self.assertIn("naked --human-approved", " ".join(payload["next_actions"]))
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "ready", "WS002", str(target), "--human-approved", "--json"]
+            )
+            self.assertNotEqual(exit_code, 0)
+            payload = json.loads(stdout)
+            self.assert_failure_json_contract(payload, "workstream_human_approval_required", "workstream")
 
             detail_text = (target / "active" / "workstreams" / "WS002.md").read_text(encoding="utf-8")
             self.assertIn("status: Active", detail_text)
+
+    def test_workstream_ready_reports_closeout_ledger_migration_error(self):
+        from ai_context_framework import closeout_authorization as auth
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+            self.assertEqual(self.run_cli(["workstream", "set", "WS002", str(target), "--status", "Active"]), 0)
+            self.assertEqual(
+                self.run_cli(
+                    [
+                        "workstream",
+                        "merge-request",
+                        "WS002",
+                        str(target),
+                        "--target",
+                        "active/Context.md",
+                        "--summary",
+                        "No authority change required.",
+                        "--verification",
+                        "Unit test fixture.",
+                    ]
+                ),
+                0,
+            )
+            self.authorize_closeout(target, "WS002", "ready")
+            project_root, _context_root = auth.project_identity(target)
+            ledger_path = auth.ledger_path(project_root)
+            payload = json.loads(ledger_path.read_text(encoding="utf-8"))
+            payload["schema_version"] = "legacy"
+            ledger_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "ready", "WS002", str(target), "--json"]
+            )
+            self.assertNotEqual(exit_code, 0)
+            result = json.loads(stdout)
+            self.assert_failure_json_contract(
+                result,
+                "closeout_authorization_migration_required",
+                "workstream",
+            )
+            self.assertIn("authorization ledger", " ".join(result["next_actions"]))
+
+    def test_workstream_authorization_list_preserves_global_json_contract(self):
+        from ai_context_framework import closeout_authorization as auth
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.set_auto_closeout_policy(target, "ready")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "authorization", "list", str(target), "--json"]
+            )
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assert_success_json_contract(payload, "workstream authorization list")
+            ledger = payload["authorization_ledger"]
+            self.assertEqual(ledger["schema_version"], auth.LEDGER_SCHEMA)
+            self.assertGreaterEqual(ledger["revision"], 1)
+            self.assertEqual(len(ledger["policies"]), 1)
 
     def test_workstream_ready_with_human_approval_still_rejects_unfinished_stage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -965,6 +1082,7 @@ class CliTests(unittest.TestCase):
                 ),
                 0,
             )
+            self.authorize_closeout(target, "WS002", "ready")
             exit_code, stdout, stderr = self.run_cli_output(
                 ["workstream", "ready", "WS002", str(target), "--human-approved", "--json"]
             )
@@ -1021,6 +1139,7 @@ class CliTests(unittest.TestCase):
                 ),
                 0,
             )
+            self.authorize_closeout(target, "WS002", "ready")
             self.assertEqual(self.run_cli(["workstream", "ready", "WS002", str(target), "--human-approved"]), 0)
 
             exit_code, stdout, _stderr = self.run_cli_output(
@@ -1035,6 +1154,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 2)
             self.assertEqual(json.loads(stdout)["error_code"], "workstream_missing_merge_resolution")
 
+            self.authorize_closeout(target, "WS002", "done")
             exit_code, stdout, stderr = self.run_cli_output(
                 [
                     "workstream",
@@ -1455,7 +1575,16 @@ class CliTests(unittest.TestCase):
                 ),
                 0,
             )
+            self.authorize_closeout(target, "WS010", "ready")
             self.assertEqual(self.run_cli(["workstream", "ready", "WS010", str(target), "--human-approved"]), 0)
+
+            exit_code, stdout, _stderr = self.run_cli_output(
+                ["workstream", "set", "WS010", str(target), "--status", "Merging", "--json"]
+            )
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(json.loads(stdout)["error_code"], "workstream_invalid_transition")
+
+            self.authorize_closeout(target, "WS010", "merge")
 
             exit_code, stdout, stderr = self.run_cli_output(
                 ["workstream", "merge-start", "WS010", str(target), "--summary", "Start merge.", "--json"]
@@ -1511,7 +1640,9 @@ class CliTests(unittest.TestCase):
                 ),
                 0,
             )
+            self.authorize_closeout(target, "WS010", "ready")
             self.assertEqual(self.run_cli(["workstream", "ready", "WS010", str(target), "--human-approved"]), 0)
+            self.authorize_closeout(target, "WS010", "merge")
             self.assertEqual(
                 self.run_cli(
                     ["workstream", "merge-start", "WS010", str(target), "--summary", "Start maintenance merge."]
@@ -1671,7 +1802,9 @@ class CliTests(unittest.TestCase):
                     "验证通过",
                 ]
             )
+            self.authorize_closeout(target, "WS002", "ready")
             self.run_cli(["workstream", "ready", "WS002", str(target), "--human-approved"])
+            self.authorize_closeout(target, "WS002", "done")
             self.run_cli(
                 [
                     "workstream",
@@ -2491,6 +2624,7 @@ class CliTests(unittest.TestCase):
                 ]
             )
             self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"])
+            self.authorize_closeout(target, "WS004", "ready")
             self.run_cli(["workstream", "ready", "WS004", str(target), "--human-approved"])
 
             result = acf.check_context(target, "minimal", strict=True)
@@ -2565,7 +2699,9 @@ class CliTests(unittest.TestCase):
                 ),
                 0,
             )
+            self.authorize_closeout(target, "WS010", "ready")
             self.assertEqual(self.run_cli(["workstream", "ready", "WS010", str(target), "--human-approved"]), 0)
+            self.authorize_closeout(target, "WS010", "done")
             self.assertEqual(
                 self.run_cli(
                     [
@@ -2679,6 +2815,7 @@ class CliTests(unittest.TestCase):
             self.init_minimal_workstream_context(target)
             self.add_workstream(target, "WS013")
             self.complete_workstream(target, "WS013")
+            self.authorize_closeout(target, "WS013", "archive")
 
             exit_code, stdout, stderr = self.run_cli_output(
                 [
@@ -2767,6 +2904,7 @@ class CliTests(unittest.TestCase):
             self.init_minimal_workstream_context(target)
             self.add_workstream(target, "WS015")
             self.complete_workstream(target, "WS015")
+            self.authorize_closeout(target, "WS015", "archive")
             index_path = target / "active" / "Workstreams.md"
             index_path.write_text(
                 "\n".join(line for line in index_path.read_text(encoding="utf-8").splitlines() if "| WS015 |" not in line)
@@ -5119,7 +5257,9 @@ class CliTests(unittest.TestCase):
                     "verified",
                 ]
             )
+            self.authorize_closeout(target, "WS004", "ready")
             self.run_cli(["workstream", "ready", "WS004", str(target), "--human-approved"])
+            self.authorize_closeout(target, "WS004", "done")
             self.run_cli(["workstream", "done", "WS004", str(target), "--evidence", "done", "--merge-resolution", "no_merge_required"])
             (target / "active" / "Current_Task.md").write_text(
                 "## 当前任务状态\n\nActive\n\n## 子任务 ID\n\nT001\n\n## 当前执行线\n\nWS004\n",
@@ -5150,7 +5290,9 @@ class CliTests(unittest.TestCase):
                     "verified",
                 ]
             )
+            self.authorize_closeout(target, "WS004", "ready")
             self.run_cli(["workstream", "ready", "WS004", str(target), "--human-approved"])
+            self.authorize_closeout(target, "WS004", "done")
             self.run_cli(["workstream", "done", "WS004", str(target), "--evidence", "done", "--merge-resolution", "no_merge_required"])
             self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal", "--force"])
             self.run_cli(["plan", "add-task", str(target), "--id", "T001", "--title", "First"])
@@ -6802,6 +6944,7 @@ This records a reusable write-safety pattern instead of a current task fact.
                 0,
             )
             self.assertEqual(self.run_cli(["workstream", "set", "WS004", str(target), "--status", "Active"]), 0)
+            self.authorize_closeout(target, "WS004", "ready")
             self.assertEqual(self.run_cli(["workstream", "ready", "WS004", str(target), "--human-approved"]), 0)
 
             exit_code, stdout, stderr = self.run_cli_output(["audit", "context", str(target), "--json"])

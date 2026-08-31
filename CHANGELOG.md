@@ -15,6 +15,13 @@
 - Windows `scripts/install_acf.ps1` / `scripts/update_acf.ps1` 在 uv tool mutation 完成后生成 canonical `acf.cmd`，通过该 tool environment 自己的 Python 执行 `-m acf`，随后删除同目录 uv 自动生成的 `acf.exe`，机械避免常见 `PATHEXT` 中 `.EXE` 抢先于 `.CMD`；CMD shim 不复制业务逻辑，也不引入 binary signing/certificate 子系统。
 - tool bin 已在 PATH 时，安装/更新脚本要求 `Get-Command acf` 的第一 application 解析为新 `acf.cmd`；fake-uv Windows regression 同时覆盖 install/update、shim 内容、`acf.exe` 移除、`Get-Command` 解析和经 CMD shim 的 `--version` 调用。裸 `uv tool install/upgrade` 仍可作为 bootstrap/debug，但会重新生成 `acf.exe`，正式 Windows installed-state 需要脚本再次 canonicalize。
 
+### Workstream closeout authorization
+
+- 新增用户级 `acf workstream authorization status|list|policy-set|approve|revoke`：把 durable scoped `auto|manual|deny` closeout policy 与具体 Workstream 的 explicit approval evidence 分离，记录 project/Workstream scope、action、authority/evidence、revision/fingerprint、expiry、supersession 与 revocation。更窄、更新的 policy 优先，WS-specific manual/deny 可以覆盖 broad auto；approval 只对一个 Workstream/action/current material authority fingerprint 有效，不能跨 action 或 Workstream 转移。
+- `ready / merge / done / archive` 与 worktree merge/close 路径统一经过同一个 resolver，并稳定返回 `auto_authorized | human_approved | approval_required | denied`；裸 `--human-approved` 保留为兼容 assertion，但不能创建批准证据或绕过 Gate。material Workstream authority 改变会使旧 approval stale，Activity Log 追加不会；authorization ledger 保存在用户级 ACF_HOME，不写项目 Git。
+- `merge` approval 对同一次 deterministic `ReadyToMerge -> Merging` closeout phase 保持有效：`merge-start` 自身写入的状态与 `当前发现` 不会迫使用户为同一次 merge 重复批准，但 goal/scope/merge request/evidence 等其他 material authority 变化仍会使 approval stale；这样 lifecycle command 与随后 worktree merge 的二次 resolver 检查可以复用同一份明确批准证据，而不会形成双批准死锁。
+- ledger load 增加 fail-closed 语义校验：revision/event history、policy action/scope、authority/evidence、supersession/revocation target、approval action/fingerprint 等任何语义损坏或未知 schema 都拒绝继续投影 authority，避免 malformed/tampered JSON 通过偶发异常或宽松投影扩大权限。回归覆盖 broad auto、manual override、deny、non-transfer、stale approval、revoked/superseded、unknown schema/tampered ledger，以及 ready/merge/done/archive CLI/worktree closeout bypass。
+
 ## v0.0.3.84 — 2026-08-26
 
 ### Continuation directive lifecycle hardening
