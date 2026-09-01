@@ -17,18 +17,28 @@ from ai_context_framework.observer import build_observer_snapshot, resolve_obser
 from ai_context_framework.observer_presentation import (
     ObserverPresentationConcurrencyError,
     ObserverPresentationError,
+    ObserverPresentationSemanticEscalationRequired,
     ObserverPresentationSourceMismatch,
+    ObserverPresentationViewChanged,
     add_durable_rule,
     add_one_shot_review_request,
+    apply_transient_patch,
     apply_semantic_review,
+    attach_presentation_status,
+    clear_transient_patch,
     presentation_status,
     withdraw_durable_rule,
 )
 from ai_context_framework.observer_storage import (
     ObserverLockedError,
     SemanticSensitiveValueError,
+    _read_json_object,
     acquire_observer_lock,
+    observer_paths,
+    read_glossary,
+    read_observer_history_stream,
     release_observer_lock,
+    write_dashboard,
 )
 
 
@@ -141,6 +151,41 @@ def register_observer_presentation_parsers(observer_subparsers, add_json_argumen
     add_json_argument(review_parser)
     review_parser.set_defaults(func=observer_semantic_review_apply_command)
 
+    patch_parser = observer_subparsers.add_parser(
+        "transient-patch-apply",
+        help="apply one immediate presentation-only target patch and deterministically rerender the canonical Dashboard",
+    )
+    patch_parser.add_argument("path", nargs="?", type=Path)
+    patch_parser.add_argument("--target-id", required=True)
+    patch_parser.add_argument("--patch-id", required=True)
+    patch_parser.add_argument("--expected-target-revision", type=int, required=True)
+    patch_parser.add_argument("--expected-presentation-revision", type=int, required=True)
+    patch_parser.add_argument("--presentation-fingerprint", required=True)
+    patch_parser.add_argument("--reviewed-intent", required=True)
+    patch_parser.add_argument("--scope", required=True)
+    patch_parser.add_argument("--rationale", required=True)
+    patch_parser.add_argument("--evidence-ref", action="append", default=[], required=True)
+    patch_parser.add_argument("--density", choices=("compact", "balanced", "detailed"), default="balanced")
+    patch_parser.add_argument("--presentation-type", choices=tuple(OBSERVER_PRESENTATION_TYPES))
+    patch_parser.add_argument("--emphasize-section", action="append", default=[])
+    patch_parser.add_argument("--semantic-risk-signal", action="append", default=[])
+    add_json_argument(patch_parser)
+    patch_parser.set_defaults(func=observer_transient_patch_apply_command)
+
+    clear_parser = observer_subparsers.add_parser(
+        "transient-patch-clear",
+        help="clear the active transient presentation-only patch and deterministically rerender the canonical Dashboard",
+    )
+    clear_parser.add_argument("path", nargs="?", type=Path)
+    clear_parser.add_argument("--target-id", required=True)
+    clear_parser.add_argument("--expected-target-revision", type=int, required=True)
+    clear_parser.add_argument("--expected-presentation-revision", type=int, required=True)
+    clear_parser.add_argument("--presentation-fingerprint", required=True)
+    clear_parser.add_argument("--reason", required=True)
+    clear_parser.add_argument("--evidence-ref", action="append", default=[], required=True)
+    add_json_argument(clear_parser)
+    clear_parser.set_defaults(func=observer_transient_patch_clear_command)
+
 
 def _locked_payload(command: str, exc: ObserverLockedError) -> dict[str, object]:
     return {
@@ -175,6 +220,34 @@ def _source_mismatch_payload(command: str, exc: ObserverPresentationSourceMismat
         "current_source_fingerprint": exc.current,
         "message": "Target facts changed after semantic-review input was prepared; refresh target facts and authority before writing derived semantic state.",
         "next_actions": ["Rerun `acf observer presentation-status --json`, reread map-relevant authority, and generate a fresh review against the current source fingerprint."],
+    }
+
+
+def _presentation_view_changed_payload(command: str, exc: ObserverPresentationViewChanged) -> dict[str, object]:
+    return {
+        **_base_payload(command),
+        "ok": False,
+        "error_code": "observer_presentation_view_changed",
+        "expected_presentation_revision": exc.expected_revision,
+        "current_presentation_revision": exc.current_revision,
+        "expected_presentation_fingerprint": exc.expected_fingerprint,
+        "current_presentation_fingerprint": exc.current_fingerprint,
+        "message": "Derived presentation changed after it was reviewed; reread the exact presentation revision/fingerprint before retrying.",
+        "next_actions": ["Rerun `acf observer presentation-status --json`, review the current semantic state/rules/patch, and retry only after re-evaluating the requested presentation change."],
+    }
+
+
+def _semantic_escalation_payload(
+    command: str,
+    exc: ObserverPresentationSemanticEscalationRequired,
+) -> dict[str, object]:
+    return {
+        **_base_payload(command),
+        "ok": False,
+        "error_code": "observer_presentation_requires_map_review",
+        "semantic_risk_signals": exc.signals,
+        "message": "The requested change may alter or misrepresent project semantics, so a presentation-only patch is refused.",
+        "next_actions": ["Reread map-relevant authority and apply a formal `acf observer semantic-review-apply` instead of a transient presentation patch."],
     }
 
 
@@ -242,6 +315,10 @@ def _run_locked_write(args: argparse.Namespace, command: str, callback) -> int:
             return _emit(args, _concurrency_payload(command, exc), EXIT_SAFETY_REFUSED)
         except ObserverPresentationSourceMismatch as exc:
             return _emit(args, _source_mismatch_payload(command, exc), EXIT_SAFETY_REFUSED)
+        except ObserverPresentationViewChanged as exc:
+            return _emit(args, _presentation_view_changed_payload(command, exc), EXIT_SAFETY_REFUSED)
+        except ObserverPresentationSemanticEscalationRequired as exc:
+            return _emit(args, _semantic_escalation_payload(command, exc), EXIT_SAFETY_REFUSED)
         except SemanticSensitiveValueError as exc:
             return _emit(args, _sensitive_payload(command, exc), EXIT_SAFETY_REFUSED)
         except ObserverPresentationError as exc:
@@ -363,6 +440,101 @@ def observer_semantic_review_apply_command(args: argparse.Namespace) -> int:
         }
 
     return _run_locked_write(args, "observer semantic-review-apply", write)
+
+
+def _canonical_current_snapshot(project) -> dict[str, object]:
+    paths = observer_paths(project)
+    current = _read_json_object(paths["current"])
+    if not isinstance(current, dict) or not current:
+        raise ObserverPresentationError(
+            "observer deterministic rerender requires an existing canonical current snapshot"
+        )
+    return current
+
+
+def _rerender_from_current_state(
+    project,
+    *,
+    current: dict[str, object] | None = None,
+) -> dict[str, object]:
+    paths = observer_paths(project)
+    if current is None:
+        current = _canonical_current_snapshot(project)
+    status = _read_json_object(paths["status"])
+    if not isinstance(status, dict):
+        status = {}
+    targets = current.get("targets") if isinstance(current.get("targets"), dict) else {}
+    attach_presentation_status(project, targets)
+    return write_dashboard(
+        project,
+        current=current,
+        status=status,
+        machine_events=read_observer_history_stream(project, "timeline"),
+        interpretations=read_observer_history_stream(project, "interpretations"),
+        glossary=read_glossary(project),
+    )
+
+
+def observer_transient_patch_apply_command(args: argparse.Namespace) -> int:
+    def write(project):
+        current = _canonical_current_snapshot(project)
+        target_view = _target_view(current, args.target_id)
+        if target_view is None:
+            raise ObserverPresentationError(
+                "observer transient patch target must be explicitly registered and present in the canonical current target projection"
+            )
+        target_state, event = apply_transient_patch(
+            project,
+            target_view=target_view,
+            patch_id=args.patch_id,
+            expected_target_revision=args.expected_target_revision,
+            expected_presentation_revision=args.expected_presentation_revision,
+            expected_presentation_fingerprint=args.presentation_fingerprint,
+            reviewed_intent=args.reviewed_intent,
+            scope=args.scope,
+            rationale=args.rationale,
+            evidence_refs=args.evidence_ref,
+            density=args.density,
+            presentation_type=args.presentation_type,
+            emphasize_sections=args.emphasize_section,
+            semantic_risk_signals=args.semantic_risk_signal,
+        )
+        dashboard = _rerender_from_current_state(project, current=current)
+        return {
+            **_base_payload("observer transient-patch-apply"),
+            "project": project.to_payload(),
+            "target_state": target_state,
+            "event": event,
+            "dashboard": dashboard,
+            "message": "Transient presentation-only patch applied to user-level derived state and canonical Dashboard deterministically rerendered without a new Observer snapshot.",
+        }
+
+    return _run_locked_write(args, "observer transient-patch-apply", write)
+
+
+def observer_transient_patch_clear_command(args: argparse.Namespace) -> int:
+    def write(project):
+        current = _canonical_current_snapshot(project)
+        target_state, event = clear_transient_patch(
+            project,
+            target_id=args.target_id,
+            expected_target_revision=args.expected_target_revision,
+            expected_presentation_revision=args.expected_presentation_revision,
+            expected_presentation_fingerprint=args.presentation_fingerprint,
+            reason=args.reason,
+            evidence_refs=args.evidence_ref,
+        )
+        dashboard = _rerender_from_current_state(project, current=current)
+        return {
+            **_base_payload("observer transient-patch-clear"),
+            "project": project.to_payload(),
+            "target_state": target_state,
+            "event": event,
+            "dashboard": dashboard,
+            "message": "Transient presentation-only patch cleared and canonical Dashboard deterministically rerendered without changing project facts.",
+        }
+
+    return _run_locked_write(args, "observer transient-patch-clear", write)
 
 
 __all__ = [

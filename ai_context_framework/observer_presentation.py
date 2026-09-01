@@ -32,6 +32,7 @@ OBSERVER_PRESENTATION_TARGET_SCHEMA = "acf.observer.presentation-target.v1"
 OBSERVER_SEMANTIC_REVIEW_STATE_SCHEMA = "acf.observer.semantic-review-state.v1"
 OBSERVER_PRESENTATION_REQUEST_SCHEMA = "acf.observer.presentation-request.v1"
 OBSERVER_PRESENTATION_RULE_SCHEMA = "acf.observer.presentation-rule.v1"
+OBSERVER_TRANSIENT_PATCH_SCHEMA = "acf.observer.transient-presentation-patch.v1"
 OBSERVER_PRESENTATION_EVENT_SCHEMA = "acf.observer.presentation-event.v1"
 OBSERVER_TARGET_NARRATIVE_SCHEMA = "acf.observer.target-narrative.v1"
 OBSERVER_TARGET_PROBLEM_SCHEMA = "acf.observer.target-problem.v1"
@@ -59,6 +60,17 @@ PROBLEM_STATUSES = {
     "deferred",
     "resolved",
 }
+TRANSIENT_PRESENTATION_DENSITIES = {"compact", "balanced", "detailed"}
+TRANSIENT_EMPHASIS_SECTIONS = {
+    "goal",
+    "route",
+    "current_position",
+    "recent_proof",
+    "problems",
+    "next_logic",
+    "runs",
+    "alerts",
+}
 
 
 class ObserverPresentationError(ValueError):
@@ -77,6 +89,27 @@ class ObserverPresentationSourceMismatch(ObserverPresentationError):
         self.expected = expected
         self.current = current
         super().__init__("observer_target_semantic_source_changed")
+
+
+class ObserverPresentationViewChanged(ObserverPresentationError):
+    def __init__(
+        self,
+        expected_revision: int,
+        current_revision: int,
+        expected_fingerprint: str,
+        current_fingerprint: str,
+    ):
+        self.expected_revision = expected_revision
+        self.current_revision = current_revision
+        self.expected_fingerprint = expected_fingerprint
+        self.current_fingerprint = current_fingerprint
+        super().__init__("observer_presentation_view_changed")
+
+
+class ObserverPresentationSemanticEscalationRequired(ObserverPresentationError):
+    def __init__(self, signals: list[str]):
+        self.signals = signals
+        super().__init__("observer_presentation_semantic_escalation_required")
 
 
 def _utc_now_iso() -> str:
@@ -147,8 +180,10 @@ def _default_target_state(target_id: str) -> dict[str, object]:
         "schema_version": OBSERVER_PRESENTATION_TARGET_SCHEMA,
         "target_id": target_id,
         "revision": 0,
+        "presentation_revision": 0,
         "updated_at": None,
         "current_review": None,
+        "active_transient_patch": None,
         "one_shot_requests": [],
         "durable_rules": [],
     }
@@ -216,6 +251,43 @@ def _validated_rule(value: object) -> dict[str, object]:
         "withdraw_reason": _validated_text(value.get("withdraw_reason"), "withdraw_reason"),
     }
     return result
+
+
+def _validated_transient_patch(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ObserverPresentationError("observer transient presentation patch must be an object")
+    target_id = _validated_target_id(value.get("target_id"))
+    density = value.get("density")
+    if density not in TRANSIENT_PRESENTATION_DENSITIES:
+        raise ObserverPresentationError(f"observer transient presentation density is invalid: {density}")
+    presentation_type = value.get("presentation_type")
+    if presentation_type is not None and presentation_type not in OBSERVER_PRESENTATION_TYPES:
+        raise ObserverPresentationError(
+            f"observer transient presentation_type is invalid: {presentation_type}"
+        )
+    emphasis = value.get("emphasize_sections") or []
+    if not isinstance(emphasis, list):
+        raise ObserverPresentationError("observer transient emphasize_sections must be a list")
+    normalized_emphasis: list[str] = []
+    for item in emphasis:
+        if item not in TRANSIENT_EMPHASIS_SECTIONS:
+            raise ObserverPresentationError(f"observer transient emphasis section is invalid: {item}")
+        if item not in normalized_emphasis:
+            normalized_emphasis.append(item)
+    return {
+        "schema_version": OBSERVER_TRANSIENT_PATCH_SCHEMA,
+        "patch_id": _validated_runtime_id(value.get("patch_id"), "patch_id"),
+        "target_id": target_id,
+        "reviewed_intent": _validated_text(value.get("reviewed_intent"), "reviewed_intent", required=True),
+        "scope": _validated_text(value.get("scope"), "scope", required=True),
+        "rationale": _validated_text(value.get("rationale"), "rationale", required=True),
+        "evidence_refs": _validated_refs(value.get("evidence_refs"), "evidence_refs", required=True),
+        "created_at": _validated_text(value.get("created_at"), "created_at", required=True),
+        "base_review_id": _validated_runtime_id(value.get("base_review_id"), "base_review_id"),
+        "density": density,
+        "presentation_type": presentation_type,
+        "emphasize_sections": normalized_emphasis,
+    }
 
 
 def _validated_problem(value: object) -> dict[str, object]:
@@ -364,12 +436,17 @@ def _validated_target_state(value: object, target_id: str) -> dict[str, object]:
     if _validated_target_id(value.get("target_id")) != target_id:
         raise ObserverPresentationError("observer presentation target state identity mismatch")
     current_review = value.get("current_review")
+    transient_patch = value.get("active_transient_patch")
     return {
         "schema_version": OBSERVER_PRESENTATION_TARGET_SCHEMA,
         "target_id": target_id,
         "revision": int(value.get("revision") or 0),
+        "presentation_revision": int(value.get("presentation_revision") or 0),
         "updated_at": value.get("updated_at"),
         "current_review": _validated_review(current_review) if current_review is not None else None,
+        "active_transient_patch": (
+            _validated_transient_patch(transient_patch) if transient_patch is not None else None
+        ),
         "one_shot_requests": [_validated_request(row) for row in value.get("one_shot_requests") or []],
         "durable_rules": [_validated_rule(row) for row in value.get("durable_rules") or []],
     }
@@ -439,6 +516,57 @@ def _check_target_revision(target_state: dict[str, object], expected_revision: i
     current = int(target_state.get("revision") or 0)
     if expected_revision != current:
         raise ObserverPresentationConcurrencyError(expected_revision, current)
+
+
+def _active_durable_rules(target_state: dict[str, object]) -> list[dict[str, object]]:
+    return [
+        row
+        for row in target_state.get("durable_rules") or []
+        if isinstance(row, dict) and row.get("status") == "active"
+    ]
+
+
+def target_presentation_projection(target_state: dict[str, object]) -> dict[str, object]:
+    review = target_state.get("current_review")
+    review_projection = None
+    if isinstance(review, dict):
+        review_projection = {
+            "review_id": review.get("review_id"),
+            "semantic_revision": review.get("semantic_revision"),
+            "source_fingerprint": review.get("source_fingerprint"),
+            "presentation_type": review.get("presentation_type"),
+            "narrative": review.get("narrative"),
+            "problems": review.get("problems"),
+        }
+    return {
+        "current_review": review_projection,
+        "active_durable_rules": _active_durable_rules(target_state),
+        "active_transient_patch": target_state.get("active_transient_patch"),
+    }
+
+
+def target_presentation_fingerprint(target_state: dict[str, object]) -> str:
+    return _stable_digest(target_presentation_projection(target_state))
+
+
+def _check_presentation_view(
+    target_state: dict[str, object],
+    expected_revision: int,
+    expected_fingerprint: str,
+) -> None:
+    current_revision = int(target_state.get("presentation_revision") or 0)
+    current_fingerprint = target_presentation_fingerprint(target_state)
+    if expected_revision != current_revision or expected_fingerprint != current_fingerprint:
+        raise ObserverPresentationViewChanged(
+            expected_revision,
+            current_revision,
+            expected_fingerprint,
+            current_fingerprint,
+        )
+
+
+def _bump_presentation_revision(target_state: dict[str, object]) -> None:
+    target_state["presentation_revision"] = int(target_state.get("presentation_revision") or 0) + 1
 
 
 def _mutate_target_state(
@@ -555,9 +683,12 @@ def presentation_status(project: Any, target_views: dict[str, object]) -> dict[s
             {
                 "target_id": target_id,
                 "target_revision": int(target_state.get("revision") or 0),
+                "presentation_revision": int(target_state.get("presentation_revision") or 0),
+                "presentation_fingerprint": target_presentation_fingerprint(target_state),
                 "source_fingerprint": current_fingerprint,
                 "semantic_status": semantic_status,
                 "current_review": review,
+                "active_transient_patch": target_state.get("active_transient_patch"),
                 "active_one_shot_requests": [
                     row for row in target_state.get("one_shot_requests") or []
                     if isinstance(row, dict) and row.get("status") == "active"
@@ -756,6 +887,7 @@ def add_durable_rule(
         }
     )
     rules.append(rule)
+    _bump_presentation_revision(target_state)
     return _mutate_target_state(
         project,
         state,
@@ -788,12 +920,134 @@ def withdraw_durable_rule(
     rule["status"] = "withdrawn"
     rule["withdrawn_at"] = _utc_now_iso()
     rule["withdraw_reason"] = reason
+    _bump_presentation_revision(target_state)
     return _mutate_target_state(
         project,
         state,
         target_state,
         "durable_rule_withdrawn",
         {"rule_id": rule_id, "reason": reason, "evidence_refs": refs},
+    )
+
+
+def apply_transient_patch(
+    project: Any,
+    *,
+    target_view: dict[str, object],
+    patch_id: str,
+    expected_target_revision: int,
+    expected_presentation_revision: int,
+    expected_presentation_fingerprint: str,
+    reviewed_intent: str,
+    scope: str,
+    rationale: str,
+    evidence_refs: list[str],
+    density: str = "balanced",
+    presentation_type: str | None = None,
+    emphasize_sections: list[str] | None = None,
+    semantic_risk_signals: list[str] | None = None,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Apply one immediate presentation-only patch against exact current semantics.
+
+    The patch may change visual density, presentation type, or emphasis only.  Any
+    declared semantic-risk signal is refused and escalated to formal Map Review.
+    """
+
+    target = target_view.get("target") if isinstance(target_view.get("target"), dict) else {}
+    target_id = _validated_target_id(target.get("target_id"))
+    patch_id = _validated_runtime_id(patch_id, "patch_id")
+    risks = _validated_refs(semantic_risk_signals, "semantic_risk_signals")
+    if risks:
+        raise ObserverPresentationSemanticEscalationRequired(risks)
+    state = read_presentation_state(project)
+    target_state = _target_state(state, target_id)
+    _check_target_revision(target_state, expected_target_revision)
+    expected_fingerprint = _validated_text(
+        expected_presentation_fingerprint,
+        "expected_presentation_fingerprint",
+        required=True,
+    ) or ""
+    _check_presentation_view(
+        target_state,
+        expected_presentation_revision,
+        expected_fingerprint,
+    )
+    review = target_state.get("current_review")
+    if not isinstance(review, dict):
+        raise ObserverPresentationError(
+            "observer transient presentation patch requires a current semantic review"
+        )
+    current_source_fingerprint = target_semantic_source_fingerprint(target_view)
+    if review.get("source_fingerprint") != current_source_fingerprint:
+        raise ObserverPresentationSourceMismatch(
+            str(review.get("source_fingerprint") or ""),
+            current_source_fingerprint,
+        )
+    patch = _validated_transient_patch(
+        {
+            "schema_version": OBSERVER_TRANSIENT_PATCH_SCHEMA,
+            "patch_id": patch_id,
+            "target_id": target_id,
+            "reviewed_intent": reviewed_intent,
+            "scope": scope,
+            "rationale": rationale,
+            "evidence_refs": evidence_refs,
+            "created_at": _utc_now_iso(),
+            "base_review_id": review.get("review_id"),
+            "density": density,
+            "presentation_type": presentation_type,
+            "emphasize_sections": emphasize_sections or [],
+        }
+    )
+    previous = target_state.get("active_transient_patch")
+    target_state["active_transient_patch"] = patch
+    _bump_presentation_revision(target_state)
+    return _mutate_target_state(
+        project,
+        state,
+        target_state,
+        "transient_patch_applied",
+        {"patch": patch, "replaced_patch": previous},
+    )
+
+
+def clear_transient_patch(
+    project: Any,
+    *,
+    target_id: str,
+    expected_target_revision: int,
+    expected_presentation_revision: int,
+    expected_presentation_fingerprint: str,
+    reason: str,
+    evidence_refs: list[str],
+) -> tuple[dict[str, object], dict[str, object]]:
+    target_id = _validated_target_id(target_id)
+    state = read_presentation_state(project)
+    target_state = _target_state(state, target_id)
+    _check_target_revision(target_state, expected_target_revision)
+    expected_fingerprint = _validated_text(
+        expected_presentation_fingerprint,
+        "expected_presentation_fingerprint",
+        required=True,
+    ) or ""
+    _check_presentation_view(
+        target_state,
+        expected_presentation_revision,
+        expected_fingerprint,
+    )
+    patch = target_state.get("active_transient_patch")
+    if not isinstance(patch, dict):
+        raise ObserverPresentationError("observer transient presentation patch is not active")
+    normalized_reason = _validated_text(reason, "clear_reason", required=True) or ""
+    refs = _validated_refs(evidence_refs, "clear evidence_refs", required=True)
+    target_state["active_transient_patch"] = None
+    _bump_presentation_revision(target_state)
+    return _mutate_target_state(
+        project,
+        state,
+        target_state,
+        "transient_patch_cleared",
+        {"patch": patch, "reason": normalized_reason, "evidence_refs": refs},
     )
 
 
@@ -889,7 +1143,10 @@ def apply_semantic_review(
             "active_durable_rule_ids": active_rule_ids,
         }
     )
+    expired_transient_patch = target_state.get("active_transient_patch")
     target_state["current_review"] = review
+    target_state["active_transient_patch"] = None
+    _bump_presentation_revision(target_state)
     if consume_ids:
         consumed_at = review["reviewed_at"]
         retained: list[dict[str, object]] = []
@@ -911,7 +1168,7 @@ def apply_semantic_review(
         state,
         target_state,
         "semantic_review_applied",
-        {"review": review},
+        {"review": review, "expired_transient_patch": expired_transient_patch},
     )
 
 
@@ -920,21 +1177,28 @@ __all__ = [
     "OBSERVER_PRESENTATION_REQUEST_SCHEMA",
     "OBSERVER_PRESENTATION_RULE_SCHEMA",
     "OBSERVER_PRESENTATION_STATE_SCHEMA",
+    "OBSERVER_TRANSIENT_PATCH_SCHEMA",
     "OBSERVER_SEMANTIC_REVIEW_STATE_SCHEMA",
     "OBSERVER_TARGET_NARRATIVE_SCHEMA",
     "OBSERVER_TARGET_PROBLEM_SCHEMA",
     "ObserverPresentationConcurrencyError",
     "ObserverPresentationError",
+    "ObserverPresentationSemanticEscalationRequired",
     "ObserverPresentationSourceMismatch",
+    "ObserverPresentationViewChanged",
     "add_durable_rule",
     "add_one_shot_review_request",
+    "apply_transient_patch",
     "apply_semantic_review",
     "attach_presentation_status",
+    "clear_transient_patch",
     "observer_presentation_paths",
     "presentation_alert_specs",
     "presentation_status",
     "read_presentation_state",
     "target_semantic_source_fingerprint",
     "target_semantic_source_projection",
+    "target_presentation_fingerprint",
+    "target_presentation_projection",
     "withdraw_durable_rule",
 ]

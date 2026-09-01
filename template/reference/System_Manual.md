@@ -484,11 +484,37 @@ acf observer semantic-review-apply . --target-id ws012-writer --review-id map-re
   --reason "路线语义发生变化" --evidence-ref active/Task_Plan.md `
   --map-relevant-signal "route changed" --presentation-type roadmap `
   --input target-review.json --consume-one-shot review-route-next --json
+acf observer transient-patch-apply . --target-id ws012-writer --patch-id inspect-route `
+  --expected-target-revision 4 --expected-presentation-revision 2 `
+  --presentation-fingerprint <presentation-fingerprint> `
+  --reviewed-intent "本次人工检查临时突出路线与运行证据" `
+  --scope "presentation only" --rationale "不改变事实，只调整当前 Dashboard 可读性" `
+  --evidence-ref user:review --density detailed `
+  --emphasize-section route --emphasize-section runs --json
+acf observer transient-patch-clear . --target-id ws012-writer `
+  --expected-target-revision 5 --expected-presentation-revision 3 `
+  --presentation-fingerprint <presentation-fingerprint> `
+  --reason "本次人工检查结束" --evidence-ref user:review-complete --json
+acf observer transient-patch-apply . --target-id ws012-writer --patch-id inspect-route `
+  --expected-target-revision 4 --expected-presentation-revision 2 `
+  --presentation-fingerprint <presentation-fingerprint> `
+  --reviewed-intent "本次人工检查临时突出路线与运行证据" `
+  --scope "presentation only" --rationale "不改变事实，只调整当前 Dashboard 可读性" `
+  --evidence-ref user:review --density detailed `
+  --emphasize-section route --emphasize-section runs --json
+acf observer transient-patch-clear . --target-id ws012-writer `
+  --expected-target-revision 5 --expected-presentation-revision 3 `
+  --presentation-fingerprint <presentation-fingerprint> `
+  --reason "本次人工检查结束" --evidence-ref user:review-complete --json
 ```
 
 Observer V2 不把 Workstream/worktree 的存在自动解释成“用户正在观察这个 Scheduled Task”。Target Registry 是用户级 derived runtime contract：当前支持 `fixed_workstream` 与 `project_dynamic`，每个 target 拥有独立 tab/page、Workstream/continuation scope、run chain、Alerts 与 Timeline。未注册 Workstream 的 health/Alert 不得改变 target 可见的 Overall Health；Project Overview 只有 authority 明确 `enabled` 时才渲染统一 Narrative/Map，`disabled` 或 `undecided` 时保持边界可见而不强拼异构目标。continuation round 可直接投影 run timing；外部任务 marker 若没有 finish，只展示 last activity 与 lower-bound duration，不伪造 end time。
 
 P2 target semantic state 同样严格按 Target Registry scope 隔离。snapshot/read path 暴露每个 target 的 `semantic_review` 和顶层 `presentation` summary，但纯读取不会写 Observer runtime。source fingerprint 漂移、target revision 冲突、map-relevant signal 未 authority reread、route-changing problem 配 `unchanged` 都 fail-closed。one-shot 成功 review 后退出 active context；durable rule 只有显式 active 才进入后续 review context，consumed/superseded/withdrawn 历史仅保留 audit provenance，不会自动复活。
+
+P3 target 页面使用中文 human-first 顺序展示最终目标、完整路线、当前位置/why-now、最近证明/排除/改变、problem + plan impact 与 next-logic，再保留执行范围、run chain、Alerts 和 Timeline。`transient-patch-apply|clear` 只修改 user-level derived presentation：必须同时匹配 exact target revision、presentation revision 与 presentation fingerprint，而且只允许针对已有 canonical `current.json` 中的 target view；随后对同一 canonical snapshot deterministic re-render Dashboard，不新增 snapshot/run，也不把尚未被 Production Observer 采集的新事实混入旧页面。缺少 canonical current、presentation view 冲突、semantic source drift 或 semantic-risk signal 都 fail-closed；semantic-risk 必须升级正式 Map Review + authority reread。新的 semantic review 会使 active transient patch 自动过期，clear 后不得复活；它与 one-shot consume-once、durable rule supersede/withdraw 共同构成三 lifecycle integrated acceptance。
+
+P3 target 页面使用中文 human-first 顺序展示最终目标、完整路线、当前位置/why-now、最近证明/排除/改变、problem + plan impact 与 next-logic，再保留执行范围、run chain、Alerts 和 Timeline。`transient-patch-apply|clear` 只修改 user-level derived presentation：必须同时匹配 exact target revision、presentation revision 与 presentation fingerprint，而且只允许针对已有 canonical `current.json` 中的 target view；随后对同一 canonical snapshot deterministic re-render Dashboard，不新增 snapshot/run，也不把尚未被 Production Observer 采集的新事实混入旧页面。缺少 canonical current、presentation view 冲突、semantic source drift 或 semantic-risk signal 都 fail-closed；semantic-risk 必须升级正式 Map Review + authority reread。新的 semantic review 会使 active transient patch 自动过期，clear 后不得复活；它与 one-shot consume-once、durable rule supersede/withdraw 共同构成三 lifecycle integrated acceptance。
 
 `snapshot` 使用开始/结束 fingerprint 形成一致性快照；读取期间发生变化会重读一次，仍不稳定则标记 critical Alert。Observer 使用自己的轻量锁，不复用 continuation lease；current/status/dashboard 原子替换，render 失败保留 last-good Dashboard。meaningful history 默认永久保留，只按月无损 rotation/index，不按时间自动删除。Execution / Progress / Health 分离；正常 `waiting_external` 不自动等于异常，缺少明确分母时不生成假百分比。
 

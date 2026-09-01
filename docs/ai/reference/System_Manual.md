@@ -282,11 +282,28 @@ acf observer semantic-review-apply . --target-id ws012-writer --review-id map-re
   --reason "路线语义发生变化" --evidence-ref docs/ai/active/Task_Plan.md `
   --map-relevant-signal "route changed" --presentation-type roadmap `
   --input target-review.json --consume-one-shot review-route-next --json
+
+# P3：即时 presentation-only patch；必须绑定 canonical current 的 target/presentation view
+acf observer transient-patch-apply . --target-id ws012-writer --patch-id inspect-route `
+  --expected-target-revision 4 --expected-presentation-revision 2 `
+  --presentation-fingerprint <presentation-fingerprint> `
+  --reviewed-intent "本次人工检查临时突出路线与运行证据" `
+  --scope "presentation only" --rationale "不改变事实，只调整当前 Dashboard 可读性" `
+  --evidence-ref user:review --density detailed `
+  --emphasize-section route --emphasize-section runs --json
+
+# 检查结束后显式清除；同样要求 exact presentation view
+acf observer transient-patch-clear . --target-id ws012-writer `
+  --expected-target-revision 5 --expected-presentation-revision 3 `
+  --presentation-fingerprint <presentation-fingerprint> `
+  --reason "本次人工检查结束" --evidence-ref user:review-complete --json
 ```
 
 Observer V2 不把 Workstream/worktree 的存在自动解释成“用户正在观察这个 Scheduled Task”。Target Registry 是用户级 derived runtime contract：当前支持 `fixed_workstream` 与 `project_dynamic`，每个 target 拥有独立 tab/page、Workstream/continuation scope、run chain、Alerts 与 Timeline。未注册 Workstream 的 health/Alert 不得改变 target 可见的 Overall Health；Project Overview 只有 authority 明确 `enabled` 时才渲染统一 Narrative/Map，`disabled` 或 `undecided` 时保持边界可见而不强拼异构目标。continuation round 可直接投影 run timing；外部任务 marker 若没有 finish，只展示 last activity 与 lower-bound duration，不伪造 end time。
 
 P2 target semantic state 也严格按 Target Registry scope 隔离。snapshot/read path 会把每个 target 的 `semantic_review` 与顶层 `presentation` summary 作为 derived observation 暴露，但不会因为“读取状态”写 Observer runtime。Map Review 写入只接受当前 target projection；source fingerprint 已变化、target revision 冲突、map-relevant signal 未重新读取 authority、route-changing problem 却声称 `unchanged`，都会 fail-closed。one-shot 在成功 review 后退出 active context，durable rule 只有显式 active 才会进入下一次 review context；superseded/withdrawn rule 与 consumed one-shot 保留 audit provenance，但不会再次成为 active guidance。
+
+P3 target 页面采用中文 human-first 信息顺序：最终目标 → 完整路线 → 当前位置与 why-now → 最近证明/排除/改变 → problem 与 plan impact → next-logic，再向下保留当前执行范围、run chain、Alerts 与 Timeline。即时 `transient_patch` 是 user-level derived presentation 的窄接口，不是新的 semantic authority：apply/clear 都要求 exact target revision、presentation revision 与 presentation fingerprint，并且命令先读取已经存在的 canonical `current.json`，只允许针对其中同一 target view 修改 presentation state。写入后 Dashboard 对该**同一 canonical snapshot** deterministic re-render；不会追加 snapshot/run，也不会用 fresh project scan 把尚未被 Production Observer 采集的新事实混入旧 Dashboard。canonical current 缺失、presentation view 冲突、semantic source drift 或 semantic-risk signal 都 fail-closed；semantic-risk 必须改走正式 `semantic-review-apply` 并重新读取 map-relevant authority。新的 semantic review 自动使 active transient patch 过期；显式 clear 后也不得复活。one-shot consume-once、durable rule supersede/withdraw 与 transient apply/clear 因而可以联合验收，但生命周期彼此不混淆。
 
 `snapshot` 会对项目事实做开始/结束 fingerprint；第一次读取期间发生变化时自动重读一次，仍不稳定则把 `snapshot_consistency=unstable` 并生成 critical Alert，不把混合快照包装成高置信度事实。Observer 自己使用独立轻量锁，正常 overlap fail-closed；只有锁已超过 grace 且本机只读进程检查明确证明旧 PID 不存在时才回收 abandoned lock。`current.json`、`observer_status.json` 和 `dashboard.html` 都用 temp → validate → atomic replace；HTML render 失败会保留上一份 last-good Dashboard。meaningful timeline/observation/alert/run/interpretation 默认永久保留，只按月无损 rotation 到 `history/<stream>/YYYY-MM.jsonl` 并维护 `history/index.json`，不做按时间删除。
 

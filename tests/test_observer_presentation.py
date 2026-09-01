@@ -11,20 +11,25 @@ from types import SimpleNamespace
 
 import acf
 
-from ai_context_framework.observer import derive_snapshot_alerts
+from ai_context_framework.observer import derive_snapshot_alerts, resolve_observer_project
 from ai_context_framework.observer_presentation import (
     ObserverPresentationConcurrencyError,
     ObserverPresentationError,
+    ObserverPresentationSemanticEscalationRequired,
     ObserverPresentationSourceMismatch,
+    ObserverPresentationViewChanged,
     add_durable_rule,
     add_one_shot_review_request,
+    apply_transient_patch,
     apply_semantic_review,
+    clear_transient_patch,
     presentation_status,
     read_presentation_state,
+    target_presentation_fingerprint,
     target_semantic_source_fingerprint,
     withdraw_durable_rule,
 )
-from ai_context_framework.observer_storage import SemanticSensitiveValueError
+from ai_context_framework.observer_storage import SemanticSensitiveValueError, render_dashboard_html
 
 
 class ObserverPresentationStateTests(unittest.TestCase):
@@ -400,6 +405,219 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
             self.assertEqual(current["semantic_status"], "current")
             self.assertEqual(current["active_one_shot_requests"], [])
 
+    def test_cli_transient_patch_requires_canonical_current_before_mutating_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_cli_project(Path(tmp))
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "presentation-status", str(project), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            status = json.loads(stdout)["presentation"]["targets"][0]
+            review_input = Path(tmp) / "review-preflight.json"
+            review_input.write_text(
+                json.dumps({"narrative": self.narrative(), "problems": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            exit_code, _stdout, stderr = self.run_cli(
+                [
+                    "observer",
+                    "semantic-review-apply",
+                    str(project),
+                    "--target-id",
+                    "ws012-writer",
+                    "--review-id",
+                    "review-preflight",
+                    "--expected-target-revision",
+                    "0",
+                    "--source-fingerprint",
+                    status["source_fingerprint"],
+                    "--authority-fingerprint",
+                    "authority:p3",
+                    "--authority-reread",
+                    "--decision",
+                    "presentation_change",
+                    "--reason",
+                    "Authority reviewed before presentation-only maintenance.",
+                    "--evidence-ref",
+                    "plan:p3",
+                    "--presentation-type",
+                    "roadmap",
+                    "--input",
+                    str(review_input),
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "presentation-status", str(project), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            current = json.loads(stdout)["presentation"]["targets"][0]
+
+            exit_code, stdout, _stderr = self.run_cli(
+                [
+                    "observer",
+                    "transient-patch-apply",
+                    str(project),
+                    "--target-id",
+                    "ws012-writer",
+                    "--patch-id",
+                    "patch-no-current",
+                    "--expected-target-revision",
+                    str(current["target_revision"]),
+                    "--expected-presentation-revision",
+                    str(current["presentation_revision"]),
+                    "--presentation-fingerprint",
+                    current["presentation_fingerprint"],
+                    "--reviewed-intent",
+                    "Only change dashboard density.",
+                    "--scope",
+                    "presentation only",
+                    "--rationale",
+                    "A canonical current snapshot must exist before a deterministic rerender can be promised.",
+                    "--evidence-ref",
+                    "test:preflight",
+                    "--density",
+                    "detailed",
+                    "--json",
+                ]
+            )
+            self.assertNotEqual(exit_code, 0)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["error_code"], "observer_presentation_invalid")
+            after = read_presentation_state(resolve_observer_project(project))["targets"]["ws012-writer"]
+            self.assertEqual(after["revision"], current["target_revision"])
+            self.assertIsNone(after["active_transient_patch"])
+
+    def test_cli_transient_patch_rerenders_without_creating_new_snapshot_or_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_cli_project(Path(tmp))
+            exit_code, _stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            observer_project = resolve_observer_project(project)
+            current_path = observer_project.observer_dir / "state" / "current.json"
+            runs_path = observer_project.observer_dir / "state" / "runs.jsonl"
+            current_before = current_path.read_bytes()
+            runs_before = runs_path.read_bytes()
+
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "presentation-status", str(project), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            status = json.loads(stdout)["presentation"]["targets"][0]
+            review_input = Path(tmp) / "review-rerender.json"
+            review_input.write_text(
+                json.dumps({"narrative": self.narrative(), "problems": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            exit_code, _stdout, stderr = self.run_cli(
+                [
+                    "observer",
+                    "semantic-review-apply",
+                    str(project),
+                    "--target-id",
+                    "ws012-writer",
+                    "--review-id",
+                    "review-rerender",
+                    "--expected-target-revision",
+                    "0",
+                    "--source-fingerprint",
+                    status["source_fingerprint"],
+                    "--authority-fingerprint",
+                    "authority:p3",
+                    "--authority-reread",
+                    "--decision",
+                    "presentation_change",
+                    "--reason",
+                    "Authority reviewed for the current canonical target facts.",
+                    "--evidence-ref",
+                    "plan:p3",
+                    "--presentation-type",
+                    "roadmap",
+                    "--input",
+                    str(review_input),
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "presentation-status", str(project), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            current = json.loads(stdout)["presentation"]["targets"][0]
+
+            exit_code, stdout, stderr = self.run_cli(
+                [
+                    "observer",
+                    "transient-patch-apply",
+                    str(project),
+                    "--target-id",
+                    "ws012-writer",
+                    "--patch-id",
+                    "patch-rerender",
+                    "--expected-target-revision",
+                    str(current["target_revision"]),
+                    "--expected-presentation-revision",
+                    str(current["presentation_revision"]),
+                    "--presentation-fingerprint",
+                    current["presentation_fingerprint"],
+                    "--reviewed-intent",
+                    "Temporarily emphasize route and run evidence.",
+                    "--scope",
+                    "presentation only",
+                    "--rationale",
+                    "Human inspection of Dashboard V2.",
+                    "--evidence-ref",
+                    "test:rerender",
+                    "--density",
+                    "detailed",
+                    "--emphasize-section",
+                    "route",
+                    "--emphasize-section",
+                    "runs",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["event"]["event_kind"], "transient_patch_applied")
+            self.assertEqual(current_path.read_bytes(), current_before)
+            self.assertEqual(runs_path.read_bytes(), runs_before)
+            dashboard = Path(payload["dashboard"]["path"])
+            html = dashboard.read_text(encoding="utf-8")
+            self.assertIn("临时展示调整：patch-rerender", html)
+            self.assertIn("density-detailed", html)
+
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "presentation-status", str(project), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            patched = json.loads(stdout)["presentation"]["targets"][0]
+            exit_code, stdout, stderr = self.run_cli(
+                [
+                    "observer",
+                    "transient-patch-clear",
+                    str(project),
+                    "--target-id",
+                    "ws012-writer",
+                    "--expected-target-revision",
+                    str(patched["target_revision"]),
+                    "--expected-presentation-revision",
+                    str(patched["presentation_revision"]),
+                    "--presentation-fingerprint",
+                    patched["presentation_fingerprint"],
+                    "--reason",
+                    "Inspection finished.",
+                    "--evidence-ref",
+                    "test:rerender-clear",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["event"]["event_kind"], "transient_patch_cleared")
+            self.assertEqual(current_path.read_bytes(), current_before)
+            self.assertEqual(runs_path.read_bytes(), runs_before)
+
     def test_cli_stale_target_revision_fails_closed_without_overwriting_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = self.make_cli_project(Path(tmp))
@@ -601,6 +819,386 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
                     evidence_refs=["plan:p2"],
                 )
             self.assertEqual(raised.exception.current, 1)
+
+    def test_transient_patch_uses_exact_presentation_view_and_clears_cleanly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            view = self.make_view("ws012-writer", "WS012")
+            target_state, _ = self.apply_review(
+                project,
+                view,
+                expected_target_revision=0,
+                review_id="review-p3-base",
+            )
+            self.assertEqual(target_state["revision"], 1)
+            self.assertEqual(target_state["presentation_revision"], 1)
+            base_fingerprint = target_presentation_fingerprint(target_state)
+
+            target_state, event = apply_transient_patch(
+                project,
+                target_view=view,
+                patch_id="patch-density",
+                expected_target_revision=1,
+                expected_presentation_revision=1,
+                expected_presentation_fingerprint=base_fingerprint,
+                reviewed_intent="临时提高当前路线与问题的可见性。",
+                scope="target presentation only",
+                rationale="当前人工复核需要更高信息密度，但不改变路线事实。",
+                evidence_refs=["user:presentation-review", "review:review-p3-base"],
+                density="detailed",
+                presentation_type="roadmap",
+                emphasize_sections=["route", "problems", "runs"],
+            )
+            self.assertEqual(event["event_kind"], "transient_patch_applied")
+            self.assertEqual(target_state["revision"], 2)
+            self.assertEqual(target_state["presentation_revision"], 2)
+            self.assertEqual(target_state["active_transient_patch"]["patch_id"], "patch-density")
+            self.assertNotEqual(target_presentation_fingerprint(target_state), base_fingerprint)
+
+            current_fingerprint = target_presentation_fingerprint(target_state)
+            target_state, event = clear_transient_patch(
+                project,
+                target_id="ws012-writer",
+                expected_target_revision=2,
+                expected_presentation_revision=2,
+                expected_presentation_fingerprint=current_fingerprint,
+                reason="人工检查完成，恢复正式语义复核定义的默认展示。",
+                evidence_refs=["review:transient-patch-complete"],
+            )
+            self.assertEqual(event["event_kind"], "transient_patch_cleared")
+            self.assertEqual(target_state["revision"], 3)
+            self.assertEqual(target_state["presentation_revision"], 3)
+            self.assertIsNone(target_state["active_transient_patch"])
+
+    def test_transient_patch_rejects_stale_presentation_view_even_with_current_target_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            view = self.make_view("ws012-writer", "WS012")
+            target_state, _ = self.apply_review(
+                project,
+                view,
+                expected_target_revision=0,
+                review_id="review-view-concurrency",
+            )
+            old_presentation_revision = target_state["presentation_revision"]
+            old_fingerprint = target_presentation_fingerprint(target_state)
+            target_state, _ = add_durable_rule(
+                project,
+                target_id="ws012-writer",
+                rule_id="rule-current-position",
+                expected_target_revision=1,
+                reviewed_intent="长期突出当前位置。",
+                scope="current position presentation",
+                rationale="长期 human-first readability requirement.",
+                evidence_refs=["authority:p3"],
+            )
+            self.assertEqual(target_state["revision"], 2)
+            self.assertEqual(target_state["presentation_revision"], old_presentation_revision + 1)
+
+            with self.assertRaises(ObserverPresentationViewChanged):
+                apply_transient_patch(
+                    project,
+                    target_view=view,
+                    patch_id="patch-stale-view",
+                    expected_target_revision=2,
+                    expected_presentation_revision=old_presentation_revision,
+                    expected_presentation_fingerprint=old_fingerprint,
+                    reviewed_intent="基于旧展示状态做修改。",
+                    scope="presentation only",
+                    rationale="必须 fail closed。",
+                    evidence_refs=["test:stale-presentation"],
+                )
+
+    def test_transient_patch_escalates_semantic_risk_without_persisting_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            view = self.make_view("ws012-writer", "WS012")
+            target_state, _ = self.apply_review(
+                project,
+                view,
+                expected_target_revision=0,
+                review_id="review-semantic-risk",
+            )
+            fingerprint = target_presentation_fingerprint(target_state)
+            with self.assertRaises(ObserverPresentationSemanticEscalationRequired) as raised:
+                apply_transient_patch(
+                    project,
+                    target_view=view,
+                    patch_id="patch-route-order",
+                    expected_target_revision=1,
+                    expected_presentation_revision=1,
+                    expected_presentation_fingerprint=fingerprint,
+                    reviewed_intent="把未来节点放到当前节点前面。",
+                    scope="route order",
+                    rationale="该请求会改变语义，不允许作为展示 patch。",
+                    evidence_refs=["user:route-change-request"],
+                    semantic_risk_signals=["route order would change"],
+                )
+            self.assertEqual(raised.exception.signals, ["route order would change"])
+            persisted = read_presentation_state(project)["targets"]["ws012-writer"]
+            self.assertIsNone(persisted["active_transient_patch"])
+            self.assertEqual(persisted["revision"], 1)
+
+    def test_transient_patch_rejects_semantic_source_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            original = self.make_view("ws012-writer", "WS012")
+            target_state, _ = self.apply_review(
+                project,
+                original,
+                expected_target_revision=0,
+                review_id="review-source-base",
+            )
+            changed = self.make_view(
+                "ws012-writer",
+                "WS012",
+                stage="P3",
+                next_action="Implement a newer route decision",
+            )
+            with self.assertRaises(ObserverPresentationSourceMismatch):
+                apply_transient_patch(
+                    project,
+                    target_view=changed,
+                    patch_id="patch-stale-semantics",
+                    expected_target_revision=1,
+                    expected_presentation_revision=1,
+                    expected_presentation_fingerprint=target_presentation_fingerprint(target_state),
+                    reviewed_intent="只调整展示。",
+                    scope="presentation only",
+                    rationale="源事实已经变化时必须先重新语义复核。",
+                    evidence_refs=["test:source-drift"],
+                )
+
+    def test_semantic_review_expires_active_transient_patch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            view = self.make_view("ws012-writer", "WS012")
+            target_state, _ = self.apply_review(
+                project,
+                view,
+                expected_target_revision=0,
+                review_id="review-before-transient",
+            )
+            target_state, _ = apply_transient_patch(
+                project,
+                target_view=view,
+                patch_id="patch-before-review",
+                expected_target_revision=1,
+                expected_presentation_revision=1,
+                expected_presentation_fingerprint=target_presentation_fingerprint(target_state),
+                reviewed_intent="暂时突出问题。",
+                scope="problem presentation",
+                rationale="下一次正式 Map Review 前的临时视觉调整。",
+                evidence_refs=["review:temporary"],
+                emphasize_sections=["problems"],
+            )
+            self.assertIsNotNone(target_state["active_transient_patch"])
+
+            target_state, event = self.apply_review(
+                project,
+                view,
+                expected_target_revision=2,
+                review_id="review-after-transient",
+            )
+            self.assertIsNone(target_state["active_transient_patch"])
+            self.assertEqual(target_state["presentation_revision"], 3)
+            self.assertEqual(event["expired_transient_patch"]["patch_id"], "patch-before-review")
+
+    def test_dashboard_v2_renders_human_first_story_and_transient_presentation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            view = self.make_view("ws012-writer", "WS012")
+            target_state, _ = self.apply_review(
+                project,
+                view,
+                expected_target_revision=0,
+                review_id="review-dashboard-v2",
+            )
+            target_state, _ = apply_transient_patch(
+                project,
+                target_view=view,
+                patch_id="patch-dashboard-v2",
+                expected_target_revision=1,
+                expected_presentation_revision=1,
+                expected_presentation_fingerprint=target_presentation_fingerprint(target_state),
+                reviewed_intent="临时强化路线、问题与运行历史。",
+                scope="dashboard target presentation",
+                rationale="人工检查 P3 可读性。",
+                evidence_refs=["review:p3-dashboard"],
+                density="detailed",
+                presentation_type="hybrid",
+                emphasize_sections=["route", "problems", "runs"],
+            )
+            semantic_status = presentation_status(project, {"targets": [view]})["targets"][0]
+            view["semantic_review"] = semantic_status
+            current = {
+                "observed_at": "2026-09-01T00:00:00Z",
+                "alerts": [],
+                "workstreams": view["workstreams"],
+                "continuations": view["continuations"],
+                "semantic": {"status": "current"},
+                "targets": {
+                    "targets": [view],
+                    "project_overview": {"decision": "disabled", "reason": "Single target test", "evidence_refs": ["test:p3"]},
+                },
+            }
+            html = render_dashboard_html(
+                project,
+                current=current,
+                status={"data_age": {"state": "fresh"}},
+                machine_events=[],
+                interpretations=[],
+                glossary={"terms": {}},
+            )
+            self.assertIn("目标、路线与当前决策", html)
+            self.assertIn("最终目标", html)
+            self.assertIn("完整路线", html)
+            self.assertIn("当前位置", html)
+            self.assertIn("最近证明 / 排除 / 改变", html)
+            self.assertIn("当前问题与计划影响", html)
+            self.assertIn("下一步及理由", html)
+            self.assertIn("临时展示调整：patch-dashboard-v2", html)
+            self.assertIn("density-detailed", html)
+            self.assertIn('data-story-section="route"', html)
+            self.assertIn("is-emphasized", html)
+
+    def test_integrated_presentation_lifecycles_do_not_resurrect_transient_guidance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            view = self.make_view("ws012-writer", "WS012")
+            target_state, _ = add_one_shot_review_request(
+                project,
+                target_id="ws012-writer",
+                request_id="request-next-review",
+                expected_target_revision=0,
+                reviewed_intent="下一次 Map Review 重新判断当前路线的视觉结构。",
+                scope="target route semantics",
+                rationale="一次性检查当前阶段变化后的路线表达。",
+                evidence_refs=["user:one-shot"],
+            )
+            target_state, _ = add_durable_rule(
+                project,
+                target_id="ws012-writer",
+                rule_id="rule-why-now",
+                expected_target_revision=1,
+                reviewed_intent="长期保留 why-now 与 next-logic 的 human-first 表达。",
+                scope="target narrative",
+                rationale="长期可读性规则。",
+                evidence_refs=["user:durable-rule"],
+            )
+            self.assertEqual(target_state["revision"], 2)
+            self.assertEqual(target_state["presentation_revision"], 1)
+
+            target_state, event = self.apply_review(
+                project,
+                view,
+                expected_target_revision=2,
+                review_id="review-integrated",
+                consume=["request-next-review"],
+            )
+            self.assertEqual(event["event_kind"], "semantic_review_applied")
+            self.assertEqual(target_state["one_shot_requests"], [])
+            self.assertEqual(target_state["current_review"]["active_durable_rule_ids"], ["rule-why-now"])
+            self.assertEqual(target_state["presentation_revision"], 2)
+
+            target_state, _ = apply_transient_patch(
+                project,
+                target_view=view,
+                patch_id="patch-integrated",
+                expected_target_revision=3,
+                expected_presentation_revision=2,
+                expected_presentation_fingerprint=target_presentation_fingerprint(target_state),
+                reviewed_intent="本次人工验收临时突出最近证据。",
+                scope="recent proof presentation",
+                rationale="只对当前人工检查有效。",
+                evidence_refs=["acceptance:transient"],
+                emphasize_sections=["recent_proof"],
+            )
+            self.assertEqual(target_state["active_transient_patch"]["patch_id"], "patch-integrated")
+
+            target_state, _ = clear_transient_patch(
+                project,
+                target_id="ws012-writer",
+                expected_target_revision=4,
+                expected_presentation_revision=3,
+                expected_presentation_fingerprint=target_presentation_fingerprint(target_state),
+                reason="一次性人工验收结束。",
+                evidence_refs=["acceptance:transient-cleared"],
+            )
+            self.assertIsNone(target_state["active_transient_patch"])
+            self.assertEqual(target_state["one_shot_requests"], [])
+            self.assertEqual(
+                [row["rule_id"] for row in target_state["durable_rules"] if row["status"] == "active"],
+                ["rule-why-now"],
+            )
+
+            target_state, _ = withdraw_durable_rule(
+                project,
+                target_id="ws012-writer",
+                rule_id="rule-why-now",
+                expected_target_revision=5,
+                reason="长期规则已被最新 authority 取消。",
+                evidence_refs=["authority:durable-rule-withdrawn"],
+            )
+            self.assertIsNone(target_state["active_transient_patch"])
+            self.assertEqual(target_state["one_shot_requests"], [])
+            self.assertEqual(
+                [row for row in target_state["durable_rules"] if row["status"] == "active"],
+                [],
+            )
+            event_kinds = [
+                json.loads(line)["event_kind"]
+                for line in (project.observer_dir / "presentation" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertIn("one_shot_request_added", event_kinds)
+            self.assertIn("durable_rule_added", event_kinds)
+            self.assertIn("semantic_review_applied", event_kinds)
+            self.assertIn("transient_patch_applied", event_kinds)
+            self.assertIn("transient_patch_cleared", event_kinds)
+            self.assertIn("durable_rule_withdrawn", event_kinds)
+
+    def test_dashboard_v2_keeps_stale_target_semantics_fail_visible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            original = self.make_view("ws012-writer", "WS012")
+            self.apply_review(
+                project,
+                original,
+                expected_target_revision=0,
+                review_id="review-before-drift",
+            )
+            changed = self.make_view(
+                "ws012-writer",
+                "WS012",
+                stage="P3-route-changed",
+                next_action="Use a different route",
+            )
+            changed["semantic_review"] = presentation_status(
+                project,
+                {"targets": [changed]},
+            )["targets"][0]
+            current = {
+                "observed_at": "2026-09-01T00:00:00Z",
+                "alerts": [],
+                "workstreams": changed["workstreams"],
+                "continuations": changed["continuations"],
+                "semantic": {"status": "current"},
+                "targets": {
+                    "targets": [changed],
+                    "project_overview": {"decision": "disabled", "reason": "Single target test", "evidence_refs": ["test:stale"]},
+                },
+            }
+            html = render_dashboard_html(
+                project,
+                current=current,
+                status={"data_age": {"state": "fresh"}},
+                machine_events=[],
+                interpretations=[],
+                glossary={"terms": {}},
+            )
+            self.assertIn("Target Narrative 已陈旧", html)
+            self.assertIn("不会把旧路线语义伪装成最新事实", html)
+            self.assertNotIn("目标、路线与当前决策", html)
 
     def test_semantic_review_rejects_source_drift(self):
         with tempfile.TemporaryDirectory() as tmp:
