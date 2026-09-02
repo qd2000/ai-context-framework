@@ -13,7 +13,12 @@ from ai_context_framework.automation_contracts import (
 )
 from ai_context_framework.constants import EXIT_RUNTIME_ERROR, EXIT_SAFETY_REFUSED, JSON_SCHEMA_VERSION
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
-from ai_context_framework.observer import build_observer_snapshot, resolve_observer_project
+from ai_context_framework.observer import resolve_observer_project
+from ai_context_framework.observer_target_projection import (
+    ObserverTargetReadError,
+    build_observer_target_views_bounded,
+    resolve_observer_project_bounded,
+)
 from ai_context_framework.observer_presentation import (
     ObserverPresentationConcurrencyError,
     ObserverPresentationError,
@@ -261,6 +266,18 @@ def _invalid_payload(command: str, exc: Exception) -> dict[str, object]:
     }
 
 
+def _target_read_error_payload(command: str, exc: ObserverTargetReadError) -> dict[str, object]:
+    return {
+        **_base_payload(command),
+        "ok": False,
+        "error_code": exc.error_code,
+        "message": str(exc),
+        "next_actions": [
+            "Check the project path/Git source and retry only after confirming no prior Observer target-read worker remains active."
+        ],
+    }
+
+
 def _sensitive_payload(command: str, exc: SemanticSensitiveValueError) -> dict[str, object]:
     return {
         **_base_payload(command),
@@ -283,10 +300,12 @@ def _target_view(snapshot: dict[str, object], target_id: str) -> dict[str, objec
 
 
 def observer_presentation_status_command(args: argparse.Namespace) -> int:
-    project = resolve_observer_project(getattr(args, "path", None))
     try:
-        snapshot = build_observer_snapshot(project)
-        status = presentation_status(project, snapshot.get("targets") or {})
+        project = resolve_observer_project_bounded(getattr(args, "path", None))
+        target_views = build_observer_target_views_bounded(project)
+        status = presentation_status(project, target_views)
+    except ObserverTargetReadError as exc:
+        return _emit(args, _target_read_error_payload("observer presentation-status", exc), EXIT_RUNTIME_ERROR)
     except (ObserverPresentationError, SemanticSensitiveValueError) as exc:
         payload = _sensitive_payload("observer presentation-status", exc) if isinstance(exc, SemanticSensitiveValueError) else _invalid_payload("observer presentation-status", exc)
         return _emit(args, payload, EXIT_SAFETY_REFUSED)
@@ -301,8 +320,9 @@ def observer_presentation_status_command(args: argparse.Namespace) -> int:
     )
 
 
-def _run_locked_write(args: argparse.Namespace, command: str, callback) -> int:
-    project = resolve_observer_project(getattr(args, "path", None))
+def _run_locked_write(args: argparse.Namespace, command: str, callback, *, project=None) -> int:
+    if project is None:
+        project = resolve_observer_project(getattr(args, "path", None))
     lock_owner = f"presentation-{uuid.uuid4()}"
     try:
         lock_path, _recovered = acquire_observer_lock(project, lock_owner)
@@ -323,6 +343,8 @@ def _run_locked_write(args: argparse.Namespace, command: str, callback) -> int:
             return _emit(args, _sensitive_payload(command, exc), EXIT_SAFETY_REFUSED)
         except ObserverPresentationError as exc:
             return _emit(args, _invalid_payload(command, exc), EXIT_SAFETY_REFUSED)
+        except ObserverTargetReadError as exc:
+            return _emit(args, _target_read_error_payload(command, exc), EXIT_RUNTIME_ERROR)
         except (OSError, json.JSONDecodeError) as exc:
             return _emit(args, _invalid_payload(command, exc), EXIT_RUNTIME_ERROR)
         return _emit(args, payload)
@@ -399,6 +421,11 @@ def observer_presentation_rule_withdraw_command(args: argparse.Namespace) -> int
 
 
 def observer_semantic_review_apply_command(args: argparse.Namespace) -> int:
+    try:
+        project = resolve_observer_project_bounded(getattr(args, "path", None))
+    except ObserverTargetReadError as exc:
+        return _emit(args, _target_read_error_payload("observer semantic-review-apply", exc), EXIT_RUNTIME_ERROR)
+
     def write(project):
         input_path = Path(args.input)
         raw = json.loads(input_path.read_text(encoding="utf-8"))
@@ -410,8 +437,8 @@ def observer_semantic_review_apply_command(args: argparse.Namespace) -> int:
         problems = raw.get("problems") or []
         if not isinstance(problems, list):
             raise ObserverPresentationError("observer semantic-review input field `problems` must be a list")
-        snapshot = build_observer_snapshot(project)
-        target_view = _target_view(snapshot, args.target_id)
+        target_views = build_observer_target_views_bounded(project, target_ids=[args.target_id])
+        target_view = _target_view({"targets": target_views}, args.target_id)
         if target_view is None:
             raise ObserverPresentationError("observer semantic-review target must be explicitly registered and present in the current target projection")
         target_state, event = apply_semantic_review(
@@ -439,7 +466,7 @@ def observer_semantic_review_apply_command(args: argparse.Namespace) -> int:
             "message": "Audited target semantic/Map Review state applied against exact current target facts.",
         }
 
-    return _run_locked_write(args, "observer semantic-review-apply", write)
+    return _run_locked_write(args, "observer semantic-review-apply", write, project=project)
 
 
 def _canonical_current_snapshot(project) -> dict[str, object]:

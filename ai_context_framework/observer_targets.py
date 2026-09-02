@@ -618,12 +618,20 @@ def target_marker_run_history(project: Any, target: dict[str, object]) -> list[d
     return rows
 
 
-def build_target_views(project: Any, current: dict[str, object]) -> dict[str, object]:
+def build_target_views(
+    project: Any,
+    current: dict[str, object],
+    *,
+    target_ids: set[str] | None = None,
+) -> dict[str, object]:
     registry = read_target_registry(project)
     workstreams = [row for row in current.get("workstreams") or [] if isinstance(row, dict)]
     continuations = [row for row in current.get("continuations") or [] if isinstance(row, dict)]
     views: list[dict[str, object]] = []
     for target in registry["targets"]:
+        target_id = str(target.get("target_id") or "")
+        if target_ids is not None and target_id not in target_ids:
+            continue
         matched_continuations = [row for row in continuations if _target_matches_continuation(target, row)]
         workstream_ids = {
             str(row.get("workstream_id"))

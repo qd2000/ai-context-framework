@@ -20,6 +20,10 @@ from ai_context_framework.observer import (
     observer_status,
     resolve_observer_project,
 )
+from ai_context_framework.observer_target_projection import (
+    ObserverTargetReadError,
+    resolve_observer_project_bounded,
+)
 from ai_context_framework.observer_storage import (
     OBSERVER_SEMANTIC_CONFIDENCE,
     ProjectNarrativeSourceMismatch,
@@ -71,6 +75,18 @@ def _base_payload(command: str) -> dict[str, object]:
         "changed_files": [],
         "error_code": None,
         "next_actions": [],
+    }
+
+
+def _target_read_error_payload(command: str, exc: ObserverTargetReadError) -> dict[str, object]:
+    return {
+        **_base_payload(command),
+        "ok": False,
+        "error_code": exc.error_code,
+        "message": str(exc),
+        "next_actions": [
+            "Retry only after checking the project path/Git source and confirming no prior Observer target-read worker remains active."
+        ],
     }
 
 
@@ -299,7 +315,10 @@ def observer_targets_command(args: argparse.Namespace) -> int:
 
 
 def observer_target_set_command(args: argparse.Namespace) -> int:
-    project = resolve_observer_project(getattr(args, "path", None))
+    try:
+        project = resolve_observer_project_bounded(getattr(args, "path", None))
+    except ObserverTargetReadError as exc:
+        return _emit(args, _target_read_error_payload("observer target-set", exc), EXIT_RUNTIME_ERROR)
     run_id = f"target-registry-{uuid.uuid4()}"
     try:
         lock_path, _recovered = acquire_observer_lock(project, run_id)

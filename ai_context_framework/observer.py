@@ -335,6 +335,8 @@ def _safe_registry_rows(project: ObserverProject) -> list[dict[str, object]]:
 def capture_project_workstreams(
     project: ObserverProject,
     worktrees: list[dict[str, object]],
+    *,
+    workstream_ids: set[str] | None = None,
 ) -> list[dict[str, object]]:
     roots: list[Path] = []
     scoped_worktrees = _observer_scope_worktrees(project, worktrees)
@@ -347,7 +349,10 @@ def capture_project_workstreams(
         roots.append(project.invocation_root)
     occurrences: list[dict[str, object]] = []
     for root in roots:
-        occurrences.extend(_workstream_occurrences_for_root(root))
+        rows = _workstream_occurrences_for_root(root)
+        if workstream_ids is not None:
+            rows = [row for row in rows if row.get("id") in workstream_ids]
+        occurrences.extend(rows)
     registry_rows = _safe_registry_rows(project)
     registry_managed_domain = bool(registry_rows)
     primary_key = path_key(project.canonical_root)

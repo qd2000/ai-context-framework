@@ -8,6 +8,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import acf
 
@@ -222,6 +223,13 @@ class ObserverPresentationStateTests(unittest.TestCase):
                 {row["alert_key"] for row in alerts},
             )
 
+    def test_target_source_fingerprint_keeps_source_divergence_fail_visible(self):
+        view = self.make_view("ws012-writer", "WS012")
+        consistent = target_semantic_source_fingerprint(view)
+        view["workstreams"][0]["source_consistency"] = "divergent"
+        divergent = target_semantic_source_fingerprint(view)
+        self.assertNotEqual(consistent, divergent)
+
 
 class ObserverPresentationCliTests(ObserverPresentationStateTests):
     def setUp(self):
@@ -295,6 +303,119 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
                 if path.is_file()
             }
             self.assertEqual(before, after)
+
+    def test_cli_target_status_and_semantic_review_do_not_build_full_project_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_cli_project(Path(tmp))
+            review_input = Path(tmp) / "review-target-scoped.json"
+            review_input.write_text(
+                json.dumps({"narrative": self.narrative(), "problems": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "ai_context_framework.observer.capture_project_worktrees",
+                side_effect=AssertionError("target-local presentation path must not build a full project snapshot"),
+            ):
+                exit_code, stdout, stderr = self.run_cli(
+                    ["observer", "presentation-status", str(project), "--json"]
+                )
+                self.assertEqual(exit_code, 0, stderr)
+                status = json.loads(stdout)["presentation"]["targets"][0]
+                exit_code, _stdout, stderr = self.run_cli(
+                    [
+                        "observer",
+                        "semantic-review-apply",
+                        str(project),
+                        "--target-id",
+                        "ws012-writer",
+                        "--review-id",
+                        "review-target-scoped",
+                        "--expected-target-revision",
+                        "0",
+                        "--source-fingerprint",
+                        status["source_fingerprint"],
+                        "--authority-fingerprint",
+                        "authority:target-scoped",
+                        "--authority-reread",
+                        "--decision",
+                        "rebuild",
+                        "--reason",
+                        "Target-local authority was reread against fresh scoped facts.",
+                        "--evidence-ref",
+                        "test:target-scoped",
+                        "--presentation-type",
+                        "roadmap",
+                        "--input",
+                        str(review_input),
+                        "--json",
+                    ]
+                )
+                self.assertEqual(exit_code, 0, stderr)
+
+    def test_cli_target_scoped_status_detects_source_drift_without_staling_other_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_cli_project(Path(tmp))
+            exit_code, _stdout, stderr = self.run_cli(
+                [
+                    "observer",
+                    "target-set",
+                    str(project),
+                    "--target-id",
+                    "ws013-writer",
+                    "--mode",
+                    "fixed_workstream",
+                    "--title",
+                    "WS013 Writer",
+                    "--automation-ref",
+                    "automation:ws013-writer",
+                    "--workstream",
+                    "WS013",
+                    "--continuation-task-id",
+                    "WS013",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            details = project / "docs" / "ai" / "active" / "workstreams"
+            details.mkdir(parents=True, exist_ok=True)
+            ws012 = details / "WS012.md"
+            ws013 = details / "WS013.md"
+            ws012.write_text(
+                "---\nid: WS012\ntype: Maintenance\nstatus: Active\nattention: Now\ntitle: WS012\n---\n# WS012\n\n## 目标\n\nInitial WS012 goal.\n",
+                encoding="utf-8",
+            )
+            ws013.write_text(
+                "---\nid: WS013\ntype: Task\nstatus: Active\nattention: Now\ntitle: WS013\n---\n# WS013\n\n## 目标\n\nStable WS013 goal.\n",
+                encoding="utf-8",
+            )
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "presentation-status", str(project), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            before_rows = {
+                row["target_id"]: row
+                for row in json.loads(stdout)["presentation"]["targets"]
+            }
+            ws012.write_text(
+                "---\nid: WS012\ntype: Maintenance\nstatus: Active\nattention: Now\ntitle: WS012\n---\n# WS012\n\n## 目标\n\nChanged WS012 goal after fresh authority evidence.\n",
+                encoding="utf-8",
+            )
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "presentation-status", str(project), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            after_rows = {
+                row["target_id"]: row
+                for row in json.loads(stdout)["presentation"]["targets"]
+            }
+            self.assertNotEqual(
+                before_rows["ws012-writer"]["source_fingerprint"],
+                after_rows["ws012-writer"]["source_fingerprint"],
+            )
+            self.assertEqual(
+                before_rows["ws013-writer"]["source_fingerprint"],
+                after_rows["ws013-writer"]["source_fingerprint"],
+            )
 
     def test_cli_one_shot_and_semantic_review_consume_with_exact_revision_and_source(self):
         with tempfile.TemporaryDirectory() as tmp:
