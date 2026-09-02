@@ -47,6 +47,29 @@ class ObserverTargetReadError(RuntimeError):
         self.stderr = stderr
 
 
+def _target_read_worker_command() -> list[str]:
+    """Return a worker command whose Windows top PID is killable immediately.
+
+    The expensive/sometimes policy-inspected executable here is Python.  A
+    direct ``Popen(sys.executable, ...)`` can block inside Windows process
+    creation before ``Popen`` returns, which means the parent has no PID to
+    terminate at the deadline.  On Windows, launch a system ``cmd.exe`` first
+    and let that process create the Python worker.  Once ``cmd.exe`` exists the
+    parent owns an exact top PID; if Python bootstrap stalls, ``taskkill /T`` on
+    that PID terminates the whole scoped worker tree.  POSIX keeps the direct
+    Python process-group launch.
+    """
+
+    worker = [sys.executable, "-m", "ai_context_framework.observer_target_projection", "--worker"]
+    if os.name != "nt":
+        return worker
+    comspec = os.environ.get("COMSPEC")
+    if not comspec:
+        system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+        comspec = str(Path(system_root) / "System32" / "cmd.exe") if system_root else "cmd.exe"
+    return [comspec, "/d", "/s", "/c", subprocess.list2cmdline(worker)]
+
+
 def _project_from_payload(payload: Mapping[str, object]) -> ObserverProject:
     required = ("project_id", "canonical_root", "invocation_root", "context_root", "observer_dir")
     missing = [key for key in required if not isinstance(payload.get(key), str) or not payload.get(key)]
@@ -186,7 +209,7 @@ def _run_target_read_worker(
     orphaned.
     """
 
-    command = [sys.executable, "-m", "ai_context_framework.observer_target_projection", "--worker"]
+    command = _target_read_worker_command()
     popen_kwargs: dict[str, object] = {
         "stdin": subprocess.PIPE,
         "stdout": subprocess.PIPE,

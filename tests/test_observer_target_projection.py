@@ -17,6 +17,7 @@ import acf
 from ai_context_framework.observer_target_projection import (
     ObserverTargetReadError,
     _run_target_read_worker,
+    _target_read_worker_command,
     _terminate_worker_tree,
     resolve_observer_project_bounded,
 )
@@ -56,6 +57,18 @@ class _ResultProcess:
 
 
 class ObserverTargetProjectionBoundedReadTests(unittest.TestCase):
+    def test_windows_worker_bootstrap_uses_killable_system_launcher_before_python(self):
+        with mock.patch("ai_context_framework.observer_target_projection.os.name", "nt"), mock.patch.dict(
+            os.environ,
+            {"COMSPEC": r"C:\Windows\System32\cmd.exe"},
+            clear=False,
+        ):
+            command = _target_read_worker_command()
+        self.assertEqual(command[:4], [r"C:\Windows\System32\cmd.exe", "/d", "/s", "/c"])
+        self.assertIn("observer_target_projection", command[4])
+        self.assertIn("--worker", command[4])
+        self.assertIn(Path(os.sys.executable).name, command[4])
+
     def test_windows_timeout_cleanup_targets_exact_worker_pid_tree(self):
         process = mock.Mock()
         process.pid = 4242
