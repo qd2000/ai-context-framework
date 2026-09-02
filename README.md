@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.84` 是当前推荐版本。它把 continuation live steering 从“可追加 directive inbox”加固为长期可运行的 authority lifecycle：directive 增加 lifetime 与 `withdrawn` 终态，durable/transient adopt 必须有证据，resolve/withdraw/supersede 语义分离；长 session 通过 prompt/heartbeat/renew 获得 disposition obligation、revision/digest 与容量 pressure，doctor 只做机械 hygiene 而不自动判断任务完成。terminal directive chains 可在 event/byte soft pressure 下 crash-safe rollover 到 `directives.archive.NNNNNN.json`，pending/adopted authority 永不归档，archive history 继续可 list/show 与 digest 审计；非 Writer owner 仍可注入/替换用户 authority，但不会取得 writer lease/fence/workspace 写权限。Project Observer 的 read-broad/write-narrow/control-none 与北京时间 Dashboard 语义保持不变。
+`v0.0.3.85` 是当前候选推荐版本。它在 continuation authority lifecycle 基础上补齐长期 Scheduled Writer / Project Observer dogfood 所需的控制面与展示面：支持 secret-safe fenced credential transport、canonical Windows `acf.cmd`、durable Workstream closeout authorization、Observer V2 Target Registry / semantic review / transient-one-shot-durable presentation lifecycle，以及 bounded/fail-visible target reads 与 isolated candidate continuation read-home。Scheduler wrapper 继续把 generic ownership/recovery/effect/fencing/checkpoint/release authority 下沉到 stable `acf continuation prompt + execution_policy`，并要求 mission open 时主动寻找安全替代工作而不是机械 no-op。Project Observer 仍保持 **read broad / write narrow / control none**；candidate evidence、installed-state evidence 与独立 Production Observer acceptance 严格分离。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)

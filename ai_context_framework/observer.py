@@ -28,7 +28,7 @@ from ai_context_framework.observer_storage import (
     ObserverLockedError, _continuation_lease_liveness, _parse_utc_iso, _read_json_object,
     _read_jsonl_objects, acquire_observer_lock, append_jsonl, append_jsonl_unique,
     attach_semantic_interpretations, ensure_jsonl_file, observer_lock_health, observer_paths,
-    project_narrative_status, read_glossary, read_observer_history_stream, refresh_history_index,
+    observer_status_payload, project_narrative_status, read_glossary, read_observer_history_stream, refresh_history_index,
     release_observer_lock,
     rotate_jsonl_monthly, rotate_observer_history, sanitize_observer_payload, utc_now_iso,
     write_dashboard, write_json_atomic,
@@ -1672,35 +1672,6 @@ def build_observer_snapshot(
     return sanitized
 
 
-def _status_payload(
-    project: ObserverProject,
-    *,
-    last_started: str | None,
-    last_success: str | None,
-    last_failure: str | None,
-    last_duration_ms: int | None,
-    last_run_id: str | None,
-    last_run_status: str | None,
-    worktrees_scanned: int,
-    errors: list[str],
-    data_age: dict[str, object] | None = None,
-) -> dict[str, object]:
-    return {
-        "schema_version": OBSERVER_STATUS_SCHEMA,
-        "project_id": project.project_id,
-        "acf_version": VERSION,
-        "last_started": last_started,
-        "last_success": last_success,
-        "last_failure": last_failure,
-        "last_duration_ms": last_duration_ms,
-        "last_run_id": last_run_id,
-        "last_run_status": last_run_status,
-        "worktrees_scanned": worktrees_scanned,
-        "errors": errors,
-        "data_age": data_age,
-    }
-
-
 def _estimate_observer_cadence_seconds(
     runs_path: Path,
     history_root: Path | None = None,
@@ -1841,8 +1812,9 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
             }
             previous_status = _read_json_object(paths["status"]) or {}
             data_age = observer_data_age(current, paths["runs"], paths["history"])
-            status = _status_payload(
+            status = observer_status_payload(
                 project,
+                acf_version=VERSION,
                 last_started=started_at,
                 last_success=finished_at,
                 last_failure=previous_status.get("last_failure") if isinstance(previous_status.get("last_failure"), str) else None,
@@ -1898,8 +1870,9 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
             }
             previous_status = _read_json_object(paths["status"]) or {}
             data_age = observer_data_age(_read_json_object(paths["current"]), paths["runs"], paths["history"])
-            status = _status_payload(
+            status = observer_status_payload(
                 project,
+                acf_version=VERSION,
                 last_started=started_at,
                 last_success=previous_status.get("last_success") if isinstance(previous_status.get("last_success"), str) else None,
                 last_failure=finished_at,

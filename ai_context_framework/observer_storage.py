@@ -72,6 +72,38 @@ def observer_paths(project: Any) -> dict[str, Path]:
     }
 
 
+def observer_status_payload(
+    project: Any,
+    *,
+    acf_version: str,
+    last_started: str | None,
+    last_success: str | None,
+    last_failure: str | None,
+    last_duration_ms: int | None,
+    last_run_id: str | None,
+    last_run_status: str | None,
+    worktrees_scanned: int,
+    errors: list[str],
+    data_age: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Build the persisted Observer self-health/status payload."""
+
+    return {
+        "schema_version": "acf.observer.status.v1",
+        "project_id": project.project_id,
+        "acf_version": acf_version,
+        "last_started": last_started,
+        "last_success": last_success,
+        "last_failure": last_failure,
+        "last_duration_ms": last_duration_ms,
+        "last_run_id": last_run_id,
+        "last_run_status": last_run_status,
+        "worktrees_scanned": worktrees_scanned,
+        "errors": errors,
+        "data_age": data_age,
+    }
+
+
 def semantic_workstream_path(project: Any, workstream_id: str) -> Path:
     return observer_paths(project)["workstreams"] / workstream_id / "current.json"
 
