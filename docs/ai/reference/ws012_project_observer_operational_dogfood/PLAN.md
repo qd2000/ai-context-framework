@@ -24,6 +24,18 @@ WS011 保持历史事实：核心 Project Observer 产品已经完成、发布�
 
 本节由当前 durable user directives 同步而来；**与后续历史章节冲突时，以本节为准**。历史版本号、旧 acceptance 计数、旧页面模板与旧 scheduler minute 只保留 provenance，不再作为永久执行约束。
 
+### Long-running autonomy / active alternative search
+
+directive revision 50 的 `dir-dd3b3c0fc01b452d9b3b` 将 WS012 的长期执行默认值从“等待 fresh opportunity”纠正为**主动寻找安全增量工作**：只要 WS012 长期 mission 仍 open，当前合法 Writer 就应围绕总体 mission 与当前 PLAN 大阶段持续选择 safe、useful、non-repetitive 的下一步，而不是把某一条 lane 暂时 blocked 解释为整个 activation 应 no-op/waiting。
+
+- anti-busywork 只禁止在**输入、环境、证据与策略均未变化**时机械重复同一已证明无增量的失败动作；新的 root-cause 诊断、相邻缺口实现、补验证/证据、可复用 contract 加固、可访问 target dogfood、release preparation、或能够降低不确定性的低副作用实验都属于合法替代工作；
+- 某一路径暂时 blocked 时，优先切换到不冲突的替代 lane；在没有新的安全增量工作之前，不要求通过 claim/控制面 lifecycle 人为制造进度，但也不得把 persisted `waiting for fresh opportunity` 当作默认退出理由；
+- 以 WS012 总体 mission 和 PLAN 大阶段为主要 work unit；单个 bug、实验、测试、checkpoint、release Gate 或局部验证默认留在当前 Maintenance scope 连续推进，不为调度便利拆成新的 Workstream/独立任务；
+- test、commit、checkpoint、Gate、release preparation 都只是 persistence/validation 证据，不是 stop signal；自然 checkpoint 后立即 refresh authority，并在仍有安全增量工作时继续；
+- 在没有四项 task-level hard stop（总体目标完成、用户明确暂停、需要不可替代人工授权/凭据/决策、DevSpace 经合理重试仍不可用）时，如果要结束当前 activation，必须先显式审计当前可执行替代项，并证明 blocker 诊断、相邻实现、验证、contract hardening、可访问 target dogfood、release preparation 与低副作用诊断均暂时没有增量价值。
+
+该原则属于 P1.5 Prompt Execution Contract 的 durable Writer contract：static wrapper 继续只保存高显著 bootstrap/project-specific extension，不固化 volatile owner/stage；每轮 stable `acf continuation prompt + execution_policy` 必须机器可读地表达 active alternative search、blocked-lane switching、anti-busywork 的窄拒绝范围、checkpoint 后继续与 no-useful-work alternative audit。所有既有 owner/fencing/write-scope/effect/Git/Production Observer anti-masking 边界保持不变。
+
 ### Release terminal fact
 
 `v0.0.3.84` 的 merge、`origin/master` 与 annotated tag 已形成历史 identity，但 exact GitHub Actions run `32984611066` 已取得终态 `completed/cancelled`，且 PyPI `ai-context-framework==0.0.3.84` 未发布。因此 `.84` publishing effect 只允许按同一 external identity reconcile 为 failed/cancelled；禁止 re-merge、re-push、再次 retrigger 或把新代码塞入 `.84`。`.84` 不是可 global-install 的 stable baseline，后续能力进入新的稳定候选，版本号由当时 release authority 决定。

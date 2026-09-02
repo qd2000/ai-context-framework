@@ -73,6 +73,16 @@ WRITER_EXECUTION_EVIDENCE_FIELDS = [
     "next_logic",
 ]
 
+WRITER_ACTIVE_SEARCH_ALTERNATIVE_CLASSES = [
+    "blocker_root_cause_diagnosis",
+    "adjacent_gap_implementation",
+    "validation_and_evidence",
+    "reusable_contract_hardening",
+    "accessible_target_dogfood",
+    "release_preparation",
+    "low_side_effect_diagnostics",
+]
+
 OBSERVER_SEMANTIC_REVIEW_DECISIONS = [
     "unchanged",
     "patch",
@@ -184,6 +194,24 @@ def writer_scheduler_wrapper_contract(
         },
         "copy_generic_state_machine": False,
         "checkpoint_commit_gate_are_stop": False,
+        "continuous_execution": writer_continuous_execution_contract(),
+    }
+
+
+def writer_continuous_execution_contract() -> dict[str, Any]:
+    """Return the durable long-running Writer autonomy contract."""
+
+    return {
+        "mission_open_defaults_to_active_search": True,
+        "blocked_lane_switch_to_safe_alternative": True,
+        "anti_busywork_scope": "unchanged_failed_action_without_new_evidence_input_environment_or_strategy",
+        "no_op_waiting_is_default": False,
+        "alternative_classes": list(WRITER_ACTIVE_SEARCH_ALTERNATIVE_CLASSES),
+        "prefer_work_unit": "overall_mission_and_plan_stage",
+        "avoid_micro_workstream_fragmentation": True,
+        "checkpoint_requires_authority_refresh_and_continue": True,
+        "session_end_without_hard_stop_requires_exhausted_safe_incremental_alternatives": True,
+        "no_useful_work_conclusion_requires_alternative_audit": True,
     }
 
 
@@ -212,6 +240,7 @@ def writer_runtime_prompt_contract() -> dict[str, Any]:
         ],
         "project_specific_constraints_static_in_runtime_prompt": False,
         "copy_scheduler_wrapper": False,
+        "continuous_execution": writer_continuous_execution_contract(),
     }
 
 
@@ -402,7 +431,9 @@ def automation_prompt_execution_contract() -> dict[str, Any]:
             "volatile_fields_not_static": list(WRITER_VOLATILE_FIELDS),
             "named_extension_slot": "project_task_specific_constraints",
             "copy_generic_state_machine": False,
+            "continuous_execution": writer_continuous_execution_contract(),
         },
+        "writer_continuous_execution": writer_continuous_execution_contract(),
         "writer_runtime_generated": writer_runtime_prompt_contract(),
         "production_observer_scheduler_wrapper": production_observer_wrapper_contract(),
         "observer_semantic_review": observer_semantic_review_contract(),
@@ -441,12 +472,14 @@ __all__ = [
     "OBSERVER_SEMANTIC_REVIEW_DECISIONS",
     "PRESENTATION_MAINTENANCE_LIFECYCLES",
     "WRITER_BOOTSTRAP_TOPICS",
+    "WRITER_ACTIVE_SEARCH_ALTERNATIVE_CLASSES",
     "WRITER_EXECUTION_EVIDENCE_FIELDS",
     "automation_prompt_execution_contract",
     "observer_execution_evidence_contract",
     "observer_semantic_review_contract",
     "presentation_maintenance_contract",
     "production_observer_wrapper_contract",
+    "writer_continuous_execution_contract",
     "writer_runtime_prompt_contract",
     "writer_scheduler_wrapper_contract",
 ]

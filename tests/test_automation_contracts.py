@@ -8,12 +8,14 @@ from ai_context_framework.automation_contracts import (
     OBSERVER_PRESENTATION_TYPES,
     OBSERVER_SEMANTIC_REVIEW_DECISIONS,
     PRESENTATION_MAINTENANCE_LIFECYCLES,
+    WRITER_ACTIVE_SEARCH_ALTERNATIVE_CLASSES,
     WRITER_BOOTSTRAP_TOPICS,
     WRITER_EXECUTION_EVIDENCE_FIELDS,
     automation_prompt_execution_contract,
     observer_semantic_review_contract,
     presentation_maintenance_contract,
     production_observer_wrapper_contract,
+    writer_continuous_execution_contract,
     writer_runtime_prompt_contract,
     writer_scheduler_wrapper_contract,
 )
@@ -55,6 +57,14 @@ class AutomationContractTests(unittest.TestCase):
         self.assertEqual("sufficient_high_salience", contract["bootstrap_policy"])
         self.assertFalse(contract["copy_generic_state_machine"])
         self.assertFalse(contract["checkpoint_commit_gate_are_stop"])
+        continuous = contract["continuous_execution"]
+        self.assertTrue(continuous["mission_open_defaults_to_active_search"])
+        self.assertTrue(continuous["blocked_lane_switch_to_safe_alternative"])
+        self.assertFalse(continuous["no_op_waiting_is_default"])
+        self.assertTrue(continuous["avoid_micro_workstream_fragmentation"])
+        self.assertTrue(continuous["checkpoint_requires_authority_refresh_and_continue"])
+        self.assertTrue(continuous["no_useful_work_conclusion_requires_alternative_audit"])
+        self.assertEqual(WRITER_ACTIVE_SEARCH_ALTERNATIVE_CLASSES, continuous["alternative_classes"])
         self.assertNotIn("ignored", contract["identity"])
         self.assertEqual("project_task_specific_constraints", contract["named_extension_slot"]["name"])
         self.assertEqual(self.slot["classes"], contract["project_constraint_classes"])
@@ -89,6 +99,26 @@ class AutomationContractTests(unittest.TestCase):
         self.assertIn("directive_inbox", contract["owns_dynamic_generic_authority"])
         self.assertFalse(contract["project_specific_constraints_static_in_runtime_prompt"])
         self.assertIn("production_observer_semantic_state_machine", contract["must_not_embed"])
+        self.assertEqual(writer_continuous_execution_contract(), contract["continuous_execution"])
+
+    def test_writer_continuous_execution_requires_active_alternative_search(self) -> None:
+        contract = writer_continuous_execution_contract()
+
+        self.assertTrue(contract["mission_open_defaults_to_active_search"])
+        self.assertTrue(contract["blocked_lane_switch_to_safe_alternative"])
+        self.assertEqual(
+            "unchanged_failed_action_without_new_evidence_input_environment_or_strategy",
+            contract["anti_busywork_scope"],
+        )
+        self.assertFalse(contract["no_op_waiting_is_default"])
+        self.assertEqual(WRITER_ACTIVE_SEARCH_ALTERNATIVE_CLASSES, contract["alternative_classes"])
+        self.assertEqual("overall_mission_and_plan_stage", contract["prefer_work_unit"])
+        self.assertTrue(contract["avoid_micro_workstream_fragmentation"])
+        self.assertTrue(contract["checkpoint_requires_authority_refresh_and_continue"])
+        self.assertTrue(
+            contract["session_end_without_hard_stop_requires_exhausted_safe_incremental_alternatives"]
+        )
+        self.assertTrue(contract["no_useful_work_conclusion_requires_alternative_audit"])
 
     def test_production_observer_wrapper_is_read_broad_write_narrow_control_none(self) -> None:
         contract = production_observer_wrapper_contract()
@@ -206,6 +236,14 @@ class AutomationContractTests(unittest.TestCase):
             contract["roles"],
         )
         self.assertFalse(contract["writer_scheduler_wrapper"]["copy_generic_state_machine"])
+        self.assertEqual(
+            writer_continuous_execution_contract(),
+            contract["writer_scheduler_wrapper"]["continuous_execution"],
+        )
+        self.assertEqual(
+            writer_continuous_execution_contract(),
+            contract["writer_continuous_execution"],
+        )
         self.assertEqual(
             "writer_runtime_generated",
             contract["writer_runtime_generated"]["role"],

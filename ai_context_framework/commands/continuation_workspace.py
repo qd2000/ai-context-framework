@@ -764,6 +764,12 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "protocol_is_sequential_checklist": False,
             "agent_selects_work_scope": True,
             "continue_while_safe_useful": True,
+            "mission_open_requires_active_alternative_search": True,
+            "blocked_lane_should_switch_to_safe_alternative": True,
+            "anti_busywork_scope": "unchanged_failed_action_only",
+            "no_useful_work_end_requires_alternative_audit": True,
+            "prefer_mission_stage_over_microtask_fragmentation": True,
+            "checkpoint_requires_authority_refresh_and_continue": True,
             "next_action_is_default_execution_plan": True,
             "next_action_is_work_quota": False,
             "next_action_requires_authority_refresh": True,
@@ -1054,6 +1060,7 @@ Continuous execution contract:
 - Scheduler/coordination/claim activity is not project progress and does not satisfy a plan that explicitly waits for a real external or project-state change.
 - Bounded continuation limits ownership, write scope, external side effects, and recovery risk. It does not bound the amount of useful project work.
 - The Agent chooses work scope, order, implementation strategy, and validation depth from current project authority.
+- Mission open => search safe alternatives before no-work: diagnosis, adjacent gap, validation, contract, dogfood, release prep, diagnostics. Anti-busywork blocks only unchanged failure; prefer mission/PLAN stage; checkpoint => refresh and continue.
 - Tests, fixes, commits, checkpoints, and Gates are progress evidence, not session-end signals.
 - A final assistant response ends the current execution session. Do not final merely to report progress, because time passed, because context feels long, or because a local milestone succeeded.
 - A safety refusal blocks only the unsafe action. Continue other safe diagnosis, evidence review, testing, planning, or non-conflicting work when available.
