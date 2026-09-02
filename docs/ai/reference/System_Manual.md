@@ -213,6 +213,8 @@ continuation state 的 canonical 位置是 `ACF_HOME/projects/<root-slug>-<path-
 
 `acf observer` 是项目级只读可观测入口，和 continuation Writer 控制面严格分离。一个项目只对应一个用户级 Observer namespace；primary checkout 与 ACF 注册的同项目 worktree 会被统一扫描。Observer 的固定权限边界是 **read broad / write narrow / control none**：它可以读取 Git、Workstream、continuation、计划、evidence 和必要代码，但只把派生状态写入 `~/.acf/projects/<project-id>/observer/`，不会 claim/challenge/recover continuation、不会提交 Git、不会修改 Writer 的项目文件。
 
+当 candidate/dogfood 需要把 Observer writable runtime 隔离到临时 `ACF_HOME`，但仍必须读取真实 stable continuation evidence 时，可额外设置 `ACF_OBSERVER_CONTINUATION_READ_HOME=<canonical ACF home>`。该变量**只改变 Observer 对 continuation namespace 的只读来源**；Target Registry、presentation、snapshot/dashboard 等 Observer 派生写入仍落在当前 `ACF_HOME`。override 必须是已存在的绝对目录，缺失/相对/非目录会 fail-visible，Observer 不会创建、迁移、复制或修改这个 read home，也不会因此取得 continuation control 权限。正常 installed-state/Production Observer 不需要设置该变量，默认仍从当前 `ACF_HOME` 读取 continuation。
+
 ```powershell
 # 只读查看当前 Observer runtime、自健康和数据年龄
 acf observer status --json

@@ -22,6 +22,7 @@ from ai_context_framework.observer_target_projection import (
     hard_failstop_target_read_timeout_if_needed,
     resolve_observer_project_bounded,
 )
+from ai_context_framework.observer import _observer_continuation_read_home
 
 
 class _TimeoutProcess:
@@ -58,6 +59,18 @@ class _ResultProcess:
 
 
 class ObserverTargetProjectionBoundedReadTests(unittest.TestCase):
+    def test_continuation_read_home_override_is_strict_and_never_created(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "missing-canonical-home"
+            with mock.patch.dict(
+                os.environ,
+                {"ACF_OBSERVER_CONTINUATION_READ_HOME": str(missing)},
+                clear=False,
+            ):
+                with self.assertRaisesRegex(ValueError, "does not resolve to an existing directory"):
+                    _observer_continuation_read_home()
+            self.assertFalse(missing.exists())
+
     def test_real_windows_console_timeout_flushes_then_failstops(self):
         error = ObserverTargetReadError("observer_target_read_timeout", "bounded timeout")
         stdout = mock.Mock()

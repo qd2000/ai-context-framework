@@ -15,6 +15,7 @@ from ai_context_framework.observer import (
     OBSERVER_LOCK_SCHEMA,
     OBSERVER_MACHINE_STATE_SCHEMA,
     _observation_fingerprint,
+    _usage_project_dir_from_home,
     _stable_fingerprint,
     append_jsonl_unique,
     build_observer_snapshot,
@@ -1847,6 +1848,57 @@ class ObserverCliTests(unittest.TestCase):
                 if path.is_file()
             }
             self.assertEqual(after_control_bytes, before_control_bytes)
+
+    def test_snapshot_can_read_canonical_continuation_from_separate_read_only_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            canonical_read_home = Path(tmp) / "canonical-acf-home"
+            canonical_read_home.mkdir()
+            task_dir = _usage_project_dir_from_home(project, canonical_read_home) / "continuation" / "WS123"
+            task_dir.mkdir(parents=True, exist_ok=True)
+            (task_dir / "control.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "acf.continuation.control.v1",
+                        "task_id": "WS123",
+                        "workstream_id": "WS123",
+                        "title": "Canonical continuation",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (task_dir / "state.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "acf.continuation.state.v1",
+                        "task_id": "WS123",
+                        "status": "running",
+                        "stage": "P4",
+                        "next_action": "Continue from canonical evidence",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            before = {path.relative_to(canonical_read_home): path.read_bytes() for path in task_dir.iterdir() if path.is_file()}
+
+            with patch.dict(
+                os.environ,
+                {"ACF_OBSERVER_CONTINUATION_READ_HOME": str(canonical_read_home)},
+                clear=False,
+            ):
+                exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["snapshot"]["continuation_count"], 1)
+            continuation = payload["snapshot"]["continuations"][0]
+            self.assertEqual(continuation["task_id"], "WS123")
+            self.assertEqual(continuation["stage"], "P4")
+            self.assertTrue(Path(continuation["source_dir"]).is_relative_to(canonical_read_home))
+            self.assertTrue(Path(payload["project"]["observer_dir"]).is_relative_to(Path(self._acf_home_dir.name)))
+            after = {path.relative_to(canonical_read_home): path.read_bytes() for path in task_dir.iterdir() if path.is_file()}
+            self.assertEqual(after, before)
+            self.assertFalse(any(path.name == "observer" for path in canonical_read_home.rglob("observer")))
 
     def test_workstream_machine_state_distinguishes_external_wait_from_health(self):
         with tempfile.TemporaryDirectory() as tmp:

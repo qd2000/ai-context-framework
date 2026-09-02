@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import statistics
 import time
 import uuid
@@ -57,6 +58,33 @@ OBSERVER_MIN_CRITICAL_WINDOW_SECONDS = 6 * 60 * 60
 OBSERVER_FIRST_UNCHANGED_MILESTONE_SECONDS = 6 * 60 * 60
 OBSERVER_SECOND_UNCHANGED_MILESTONE_SECONDS = 12 * 60 * 60
 OBSERVER_DAILY_UNCHANGED_MILESTONE_SECONDS = 24 * 60 * 60
+OBSERVER_CONTINUATION_READ_HOME_ENV = "ACF_OBSERVER_CONTINUATION_READ_HOME"
+
+
+def _usage_project_dir_from_home(project_root: Path, home: Path) -> Path:
+    resolved = project_root.resolve()
+    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
+    return home / "projects" / f"{slugify_project_name(resolved.name)}-{digest}"
+
+
+def _observer_continuation_read_home() -> Path:
+    """Resolve the optional read-only continuation evidence home for Observer."""
+
+    override = os.environ.get(OBSERVER_CONTINUATION_READ_HOME_ENV, "").strip()
+    if not override:
+        return acf_home()
+    candidate = Path(override).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError(f"{OBSERVER_CONTINUATION_READ_HOME_ENV} must be an absolute path")
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(
+            f"{OBSERVER_CONTINUATION_READ_HOME_ENV} does not resolve to an existing directory: {candidate}"
+        ) from exc
+    if not resolved.is_dir():
+        raise ValueError(f"{OBSERVER_CONTINUATION_READ_HOME_ENV} must resolve to a directory: {resolved}")
+    return resolved
 @dataclass(frozen=True)
 class ObserverProject:
     project_id: str
@@ -573,6 +601,7 @@ def capture_project_continuations(
     project: ObserverProject,
     worktrees: list[dict[str, object]],
 ) -> list[dict[str, object]]:
+    continuation_read_home = _observer_continuation_read_home()
     roots: list[Path] = []
     scoped_worktrees = _observer_scope_worktrees(project, worktrees)
     if scoped_worktrees:
@@ -586,7 +615,7 @@ def capture_project_continuations(
     rows: list[dict[str, object]] = []
     seen_dirs: set[str] = set()
     for root in roots:
-        parent = usage_project_dir(root.resolve()) / "continuation"
+        parent = _usage_project_dir_from_home(root.resolve(), continuation_read_home) / "continuation"
         if not parent.is_dir():
             continue
         for task_dir in sorted(path for path in parent.iterdir() if path.is_dir()):
