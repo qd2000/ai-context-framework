@@ -47,6 +47,43 @@ class ObserverTargetReadError(RuntimeError):
         self.stderr = stderr
 
 
+def hard_failstop_target_read_timeout_if_needed(
+    exc: ObserverTargetReadError,
+    exit_code: int,
+) -> None:
+    """Force a real Windows CLI process terminal after a target-read timeout.
+
+    A Windows ``CreateProcess`` stall can outlive the Python helper thread that
+    enforces the logical deadline.  In real ``acf`` console-script execution,
+    returning the structured timeout payload and then entering normal Python
+    interpreter shutdown has been observed to leave the outer CLI process
+    non-terminal.  Once the command adapter has emitted the fail-visible payload
+    *outside any Observer lock*, flush OS-backed streams and fail-stop the CLI
+    process so DevSpace/schedulers cannot inherit an unknown session.
+
+    Programmatic/test ``acf.main(...)`` calls are deliberately excluded: their
+    ``sys.argv[0]`` is not the ACF console entrypoint (and unit-test StringIO
+    streams have no usable file descriptor), so library callers still receive a
+    normal exception/result instead of process termination.
+    """
+
+    if os.name != "nt" or exc.error_code != "observer_target_read_timeout":
+        return
+    entrypoint = Path(str(sys.argv[0] or "")).name.lower()
+    if entrypoint not in {"acf.exe", "acf.py", "acf"}:
+        return
+    try:
+        sys.stdout.fileno()
+        sys.stderr.fileno()
+    except (AttributeError, OSError, ValueError):
+        return
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    finally:
+        os._exit(int(exit_code))
+
+
 def _target_read_worker_command() -> list[str]:
     """Return a worker command whose Windows top PID is killable immediately.
 

@@ -22,6 +22,7 @@ from ai_context_framework.observer import (
 )
 from ai_context_framework.observer_target_projection import (
     ObserverTargetReadError,
+    hard_failstop_target_read_timeout_if_needed,
     resolve_observer_project_bounded,
 )
 from ai_context_framework.observer_storage import (
@@ -318,7 +319,9 @@ def observer_target_set_command(args: argparse.Namespace) -> int:
     try:
         project = resolve_observer_project_bounded(getattr(args, "path", None))
     except ObserverTargetReadError as exc:
-        return _emit(args, _target_read_error_payload("observer target-set", exc), EXIT_RUNTIME_ERROR)
+        exit_code = _emit(args, _target_read_error_payload("observer target-set", exc), EXIT_RUNTIME_ERROR)
+        hard_failstop_target_read_timeout_if_needed(exc, exit_code)
+        return exit_code
     run_id = f"target-registry-{uuid.uuid4()}"
     try:
         lock_path, _recovered = acquire_observer_lock(project, run_id)

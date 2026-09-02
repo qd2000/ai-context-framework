@@ -19,6 +19,7 @@ from ai_context_framework.observer_target_projection import (
     _run_target_read_worker,
     _target_read_worker_command,
     _terminate_worker_tree,
+    hard_failstop_target_read_timeout_if_needed,
     resolve_observer_project_bounded,
 )
 
@@ -57,6 +58,32 @@ class _ResultProcess:
 
 
 class ObserverTargetProjectionBoundedReadTests(unittest.TestCase):
+    def test_real_windows_console_timeout_flushes_then_failstops(self):
+        error = ObserverTargetReadError("observer_target_read_timeout", "bounded timeout")
+        stdout = mock.Mock()
+        stderr = mock.Mock()
+        stdout.fileno.return_value = 1
+        stderr.fileno.return_value = 2
+        with mock.patch("ai_context_framework.observer_target_projection.os.name", "nt"), mock.patch.object(
+            os.sys,
+            "argv",
+            [r"C:\project\.venv\Scripts\acf.exe", "observer"],
+        ), mock.patch.object(
+            os.sys,
+            "stdout",
+            stdout,
+        ), mock.patch.object(
+            os.sys,
+            "stderr",
+            stderr,
+        ), mock.patch(
+            "ai_context_framework.observer_target_projection.os._exit"
+        ) as hard_exit:
+            hard_failstop_target_read_timeout_if_needed(error, 4)
+        stdout.flush.assert_called_once_with()
+        stderr.flush.assert_called_once_with()
+        hard_exit.assert_called_once_with(4)
+
     def test_windows_worker_bootstrap_uses_killable_system_launcher_before_python(self):
         with mock.patch("ai_context_framework.observer_target_projection.os.name", "nt"), mock.patch.dict(
             os.environ,
