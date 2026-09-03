@@ -1698,7 +1698,10 @@ def register_workspace_parsers(subparsers, add_json_argument) -> None:
         dest="task_owned_path",
         action="append",
         default=[],
-        help="reviewed unexpected path attributable to this task; repeat per path",
+        help=(
+            "reviewed unexpected path, or exact baseline-external recovery path, "
+            "attributable to this task; repeat per path"
+        ),
     )
     reclassify.add_argument(
         "--baseline-external",

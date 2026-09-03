@@ -3266,6 +3266,104 @@ class ContinuationCliTests(unittest.TestCase):
             )
         self.assertEqual("workspace_reclassification_out_of_scope", raised.exception.code)
 
+    def test_ws009_reviewed_baseline_external_recovery_wip_can_be_reclassified_task_owned(self) -> None:
+        recovery_entry = {
+            "schema_version": continuation_workspace.ENTRY_SCHEMA,
+            "path": "release-metadata.txt",
+            "status": " M",
+            "digest": "c" * 64,
+        }
+        manifest = continuation_workspace.new_manifest(
+            task_id="WS908",
+            snapshot={"head": "a" * 40, "entries": [recovery_entry]},
+            now=continuation._iso(),
+        )
+        manifest = continuation_workspace.begin_generation(
+            manifest,
+            task_id="WS908",
+            generation=1,
+            snapshot={"head": "a" * 40, "entries": [recovery_entry]},
+            now=continuation._iso(),
+        )
+        self.assertEqual(
+            ["release-metadata.txt"],
+            continuation_workspace.summary(manifest, task_id="WS908")["baseline_external_paths"],
+        )
+
+        reclassified, review = continuation_workspace.reclassify_unexpected(
+            manifest,
+            task_id="WS908",
+            snapshot={"head": "a" * 40, "entries": [recovery_entry]},
+            task_owned_paths=["release-metadata.txt"],
+            baseline_external_paths=[],
+            allowed_scopes=["release-metadata.txt"],
+            candidate_paths={"release-metadata.txt": ["release-metadata.txt"]},
+            evidence_refs=["plan:durable-recovery-wip"],
+            reason="Durable authority proves this pre-init dirty path is surviving task WIP.",
+            now=continuation._iso(),
+        )
+        summary = continuation_workspace.summary(reclassified, task_id="WS908")
+        self.assertEqual([], summary["baseline_external_paths"])
+        self.assertEqual(["release-metadata.txt"], summary["task_owned_paths"])
+        self.assertEqual(["release-metadata.txt"], summary["write_intent_paths"])
+        self.assertEqual("task_owned", review["entries"][0]["classification"])
+        self.assertEqual(["plan:durable-recovery-wip"], review["evidence_refs"])
+
+    def test_ws009_cli_reclassifies_preinit_baseline_external_recovery_wip(self) -> None:
+        output = self.root / "release-metadata.txt"
+        output.write_text("surviving recovery wip\n", encoding="utf-8")
+        self.init_task("WS908")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "state-loss-recovery-owner",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS908"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertEqual(
+            ["release-metadata.txt"],
+            doctor["workspace"]["baseline_external_paths"],
+        )
+
+        code, reclassified, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "reclassify",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--task-owned",
+                "release-metadata.txt",
+                "--evidence-ref",
+                "plan:durable-recovery-wip",
+                "--reason",
+                "Durable authority proves this pre-init dirty path is surviving task WIP.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reclassified}")
+        self.assertEqual([], reclassified["workspace"]["baseline_external_paths"])
+        self.assertEqual(
+            ["release-metadata.txt"],
+            reclassified["workspace"]["task_owned_paths"],
+        )
+        self.assertEqual(
+            ["release-metadata.txt"],
+            reclassified["workspace"]["write_intent_paths"],
+        )
+
     def test_ws009_fenced_owner_reclassifies_reviewed_unexpected_writer_output(self) -> None:
         self.init_task("WS908")
         code, claim, stderr = self.run_json(
