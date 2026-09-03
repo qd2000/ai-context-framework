@@ -331,12 +331,12 @@ Global-first progressive disclosure：没有明确选择时，无论存在多少
 
 常见安装方式：
 
-- 正式发布版本安装：`uv tool install ai-context-framework`
+- 正式发布版本安装：Windows 已取得仓库/发布包脚本时优先 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1`；macOS/Linux 使用 `uv tool install ai-context-framework`
 - 正式发布版本更新：Windows 自动化/并行环境优先运行 `pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1`；确认没有并发 ACF 进程的普通交互式环境也可使用 `uv tool upgrade ai-context-framework`
 - 安装或更新后刷新 shell PATH：`uv tool update-shell`
 - 仓库维护者安装当前源码快照：`uv tool install .`
 - 调试 CLI 改动或安装链路时使用 editable 安装：`uv tool install -e .`
-- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1`、`pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1` 或对应的 `sh` 入口。Windows PowerShell 脚本会在 ACF tool 环境仍被进程占用时 fail-closed；更新脚本使用未固定版本的 `uv tool install --force --upgrade`，避免 pinned receipt 阻止发现新稳定版，并可在无占用进程时用 `-Reinstall` 修复中断安装。
+- 已取得源码时可运行 `pwsh -NoLogo -NoProfile -File scripts/install_acf.ps1`、`pwsh -NoLogo -NoProfile -File scripts/update_acf.ps1` 或对应的 `sh` 入口。Windows PowerShell 脚本会在 ACF tool 环境仍被进程占用时 fail-closed；安装/更新成功后原子生成 uv tool bin 下的 canonical `acf.cmd`，由该 uv tool environment 的 Python 执行 `-m acf`，并删除同目录 uv 自动生成的 `acf.exe`，避免 `.EXE` 的 `PATHEXT` 优先级绕过 CMD shim。若 tool bin 已在 PATH，脚本会机械验证 `Get-Command acf` 首先解析到 `acf.cmd`。更新脚本使用未固定版本的 `uv tool install --force --upgrade`，避免 pinned receipt 阻止发现新稳定版，并可在无占用进程时用 `-Reinstall` 修复中断安装。裸 `uv tool install/upgrade` 会重新生成 `acf.exe`，因此只作为 bootstrap/debug 路径，正式 Windows installed-state 应再次通过脚本 canonicalize；CMD shim 不复制业务逻辑，也不引入 signing/certificate 子系统。
 
 验证命令：
 
@@ -345,6 +345,8 @@ Global-first progressive disclosure：没有明确选择时，无论存在多少
 - macOS/Linux：`which acf`
 - 通用：`acf --help`
 - 查看版本：`acf --version`
+
+Windows canonical installed-state 中，`where.exe acf` / `Get-Command acf` 的首个 ACF application 应是 uv tool bin 下的 `acf.cmd`，同目录不应再保留 `acf.exe`。
 
 请注意：能在任意目录运行 `acf`，不等于任意目录都有 AI 上下文。`acf status --json` 只有在当前目录位于某个包含 `docs/ai`、`docs-acf/ai` 或上下文根目录的项目中时才会成功。否则应先进入项目目录、显式传入上下文路径，或运行 `acf init docs/ai` 初始化。正式用户应从 PyPI 安装；Git URL 只适合临时测试，避免失去发布源升级能力。
 
@@ -371,7 +373,7 @@ Global-first progressive disclosure：没有明确选择时，无论存在多少
 - `acf audit context [target]`：只读检查 active 层上下文污染候选，不判断事实真假、不写文件、不生成 patch、不接入 `check --strict`；MVP 只报告长 active section、陈旧当前任务 / Workstream 阶段和 ReadyToMerge 待合并或 Done 缺合并结果候选；支持 `--json`。
 - `acf curate draft [target]`：复用 `review stale` 的 stale candidates 生成 curation-drafts 目录下的日期命名注意力治理草案；空信号时不创建草案，同名草案已存在时安全拒绝；支持 `--json`、`--dry-run`、`--days`、`--today` 和 `--name`。
 - `acf doctor [target]`：跨文件诊断上下文状态漂移、generated index 漂移、Workstream 生命周期、数据证据和注意力治理信号；attention hygiene 直接复用 `review stale` 的 terminal Current_Task/Task_Plan retention 与 Context review marker/stale signals，这些 findings 保持 warning / draft-only，不接入 `check --strict`。默认只读，`--fix safe` 只应用确定性机械修复，`--fix evidence` 只规划 evidence 修复且不改写语义权威文件，`--report` 生成 doctor report，`--draft-semantic` 生成可审阅语义回写草案；支持 `--json`、`--strict`、`--check-after`、`--today`、`--projects`、`--dry-run` 和 `--force`。
-- `acf workstream init|status|list|dashboard|archive-candidates|archive-draft|sync|add|reserve [target]` / `acf workstream archive WS001 [target] --reason "..."` / `acf workstream show|context|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note WS001 [target]` / `acf workstream stage add|list|done WS001 [target]` / `acf workstream focus WS001 WS001.1 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`reserve` 只在 primary branch 预约并提交唯一编号，不创建 branch/worktree；原 `add` 行为不变；`context` 输出 AI 专属任务入口，`guard` 检查变更文件是否符合当前 Workstream 写入边界，完成或切换状态前优先用 `--files` 显式传入本次修改文件做强验收；`scope-add` 以工具化方式扩展 scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并目标；Workstream 类型为 Task / Merge / Maintenance，Task 不直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive` 只在显式指定单个终态 Workstream 和 `--reason` 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 Workstream 详情 front matter 更新 Workstreams 索引，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标，ReadyToMerge 表示任务产物完成，`ready` 需要人工确认参数 `--human-approved`，Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
+- `acf workstream init|status|list|dashboard|archive-candidates|archive-draft|sync|add|reserve [target]` / `acf workstream archive WS001 [target] --reason "..."` / `acf workstream show|context|set|block|cancel|merge-request|merge-start|ready|done|claim|scope-add|guard|note WS001 [target]` / `acf workstream authorization status|list|policy-set|approve|revoke ...` / `acf workstream stage add|list|done WS001 [target]` / `acf workstream focus WS001 WS001.1 [target]`：显式启用可选 Workstream 层，读取并行目标线索引与详情 metadata，并维护强隔离状态转换、合并请求、完成证据、scope claim/扩权、详情备注、内部阶段焦点和显式归档；`reserve` 只在 primary branch 预约并提交唯一编号，不创建 branch/worktree；原 `add` 行为不变；`context` 输出 AI 专属任务入口，`guard` 检查变更文件是否符合当前 Workstream 写入边界，完成或切换状态前优先用 `--files` 显式传入本次修改文件做强验收；`scope-add` 以工具化方式扩展 scope 并写入 Activity Log，`dashboard` 显示冲突、陈旧任务、缺 evidence 和待合并目标；Workstream 类型为 Task / Merge / Maintenance，Task 不直接写 authority 文件，Active 类 Workstream 默认禁止重叠 `owned:` 写入，`shared:` 必须指定 merge_owner 或 serial coordination；`archive-candidates` 只读报告 Done / Cancelled Workstream 的归档候选和 `blocked_by`；`archive-draft` 写入 `worklog/archive-drafts/` 供人工或 AI 审阅；`archive` 只在显式指定单个终态 Workstream 和 `--reason` 时移动详情、清理 active 索引并写入 `archive/Archive_Index.md`；`sync` 只根据 Workstream 详情 front matter 更新 Workstreams 索引，不会删除缺详情的旧索引行；Workstream 详情可用 optional `current_stage` 和 `## 阶段` 表记录内部阶段焦点，`stage add/list` 只维护详情文件，`focus` 不更新全局 Current_Task，`stage done` 要求 evidence 且完成当前阶段时需要 `--clear-current`；`merge_targets` 记录候选合并目标。`ready / merge / done / archive` 统一经过用户级 closeout authorization resolver：`authorization policy-set` 记录可按 Workstream id/type/class/action 限定的 durable `auto|manual|deny` policy，`authorization approve` 只对一个 Workstream、一个 action 和当前 material authority fingerprint 生效，`authorization revoke` 显式撤销记录；更窄、更新的 policy 优先，WS-specific manual/deny 可覆盖项目默认 auto。material authority 变化使旧 approval stale，Activity Log 追加不使其失效；`merge` 的 deterministic `ReadyToMerge -> Merging` transition 自身不 stale 同一次 merge approval，因此 `merge-start` 与后续 worktree merge 可以复用同一批准；其他 material authority 变化仍 fail-closed。缺少匹配 authority 时返回 `approval_required`，显式 deny 返回 `denied`。裸 `--human-approved` 仅为兼容参数，不创建 approval evidence，也不能绕过 resolver。authorization ledger 位于用户级 ACF_HOME、不写项目 Git，未知 schema 或语义损坏均 fail-closed。Merging 表示 Merge/Maintenance 正在合并，Done 需要 `--merge-resolution` 写入合并或处置结果；`add --goal` 可在创建时写入详情目标，`set --goal` 可替换已有详情目标，`--write-scope` 必须使用 `TYPE: PATH` 格式，例如 owned: src/foo.py；`upgrade` 和旧项目默认不启用 Workstream。
 
 `reserve` 不要求 primary checkout 完全 clean；与 reservation detail/index 无关的 staged、unstaged、untracked 修改会被保留，reservation 路径自身或父子路径发生冲突时 fail-closed。
 
@@ -408,9 +410,13 @@ acf continuation directive supersede <worktree> --task-id WS001 --directive-id <
 acf continuation directive withdraw <worktree> --task-id WS001 --directive-id <directive_id> --evidence-ref user:cancelled --note "用户明确取消该要求" --json
 ```
 
+若 project-access / scheduler 会拒绝高熵 `fence_token`，可在 `claim` 或 `recover` 前设置 `ACF_CONTINUATION_FENCE_TOKEN_FILE=<caller-controlled-temp-path>`。ACF 会把新 token 写入该文件、JSON 只返回非敏感 file transport metadata；后续 fenced owner 命令省略 `--fence-token` 时从同一文件读取。该文件不属于 canonical continuation state，调用方应使用受控 temp 目录并在 release 后删除；缺失/非法 token file 一律 fail-closed。
+
 `init` 会把当时已有的 changed paths 作为受保护的 external baseline，而不是要求为了自动化先清空整个 worktree。`standard` timing 为 scheduler/TTL/renew/heartbeat/stale=`60/120/30/10/30` 分钟；`long-running` 为 `60/180/45/10/25` 分钟。已有 task 用 `configure` 原位调整，不需要 `init --force`；active lease 存在时 configure 会拒绝执行。`continuation directive` 是用户级 live-steering inbox，不是第二套 Task Plan：kind 仅为 `requirement / priority_change / constraint / plan_change`，lifetime 为 `transient / durable / unspecified`，状态为 `pending / adopted / resolved / superseded / withdrawn`。resolve=完成、withdraw=明确取消、supersede=同一 active requirement 被新版本替换；resolved 历史不重新打开。transient one-shot 可直接 `pending -> resolved`，需要跨轮的 transient 与 durable adopt 都要求 durable evidence；durable 语义还必须先由 Agent authority refresh 同步到正确 Markdown PLAN/Workstream/Rules/Task authority，不能因为“读到了文本”就 adopt。非 Writer owner 可 add/supersede 用户 authority，但不会取得 writer lease/generation/fence/workspace write authority。pending directive 在 generated prompt 中优先于 stale persisted `next_action`，实际 consumed directive 在 safe control point 必须显式 disposition。claim 保存已观察的 directive revision/digest；heartbeat/renew 返回 change signal、pending/adopted/active count 和 pressure 摘要，因此长 session 可在下一次 scheduler wake 前发现 steering。`continuation doctor` 只机械报告 stale adopted/high-priority pending、adoption evidence 与容量/rollover pressure，不自动判断自然语言任务完成。current directive journal 到软 event/byte pressure 时，只归档完整 terminal prefix 到 `directives.archive.NNNNNN.json`；pending/adopted 永不归档。archive-first/current-second 允许 crash 后 exact duplicate 去重，不一致 duplicate/revision gap fail-closed；archive history 仍可 list/show、digest 审计并参与 migration-preservation。active authority 自身耗尽容量时继续 fail-closed。每个新 runner 用 `coordination attempt` 登记 compact current-goal intent；没有 owner 时只是 claim candidate，遇到 **fresh** owner 时返回 live-owner observation 且不自动 challenge，只有 stale / legacy-unverified owner 才自动 open/join generation-bound challenge。显式 `coordination challenge` 仍可用于独立证据要求重新确认 owner 的场景，但本身不授予写权限。普通可定位项目的 ACF 命令只在 stderr opportunistic 提示 pending challenge，不是 ACK；只有 owner-protected continuation 命令在 `lease_id + generation + fence_token` 验证后才 authenticated touch。challenge timeout 只产生 `ownership_forfeiture_candidate`，仍需 formal reconcile workspace/HEAD/effect/identity 后才允许 generation+1 recover。既有 effect replay protection、terminal archive rollover、workspace manifest v3、legacy adoption、task-owned handoff、semantic-clean 和 generation fencing 规则保持不变。heartbeat 只证明 liveness，不延长 TTL；Scheduled Task 小时触发只是恢复唤醒。`acf continuation prompt --runner-id <runner>` 是唯一 generic Scheduled Task protocol 权威，并按当前 owner/workspace/effect 状态 progressive disclosure，同时返回 `directive_context`；Scheduled Task wrapper 每次 wake 重新读取它，但 wrapper 本身必须是 sufficient high-salience bootstrap，而不是只保留最少字段：应完整携带 exact existing workspace / connector mode、stable ACF upgrade-adaptation、authority refresh、execute generated plan、owner disclosure 与项目专用约束。运行态保存在用户级 `~/.acf`，不会写入项目 Git；ACF 不是通用文件编辑器或源码备份系统。
 
 `acf continuation prompt` 采用 goal-directed continuous execution：scheduler wake 只是持续任务的恢复入口，不定义独立工作回合、汇报周期、工作配额或预期停止点；bounded 只约束 ownership、写入、副作用和恢复风险，不限制当前 execution session 的有效工作量。`.72+` 中 `state.next_action` 在 authority refresh 后仍有效时是默认执行计划，不是只供查看的 hint，也不是 work quota；newer Git/PLAN/Runtime/effect authority 可以覆盖它，否则应执行，完成后继续围绕总体目标推进。若默认计划明确等待下一次真实外部/项目状态变化，则 scheduler wake、`coordination attempt` 与 `claim` 本身都不算满足等待条件的项目进展；没有其他当前可执行的安全、有价值工作时，可以不 claim、不改变 task 状态地结束本次 wake，避免通过 claim 人为制造 lifecycle change。generated prompt 只展开当前状态相关的 claim/duplicate/recovery/workspace/effect 分支。final response、timing、测试/commit/checkpoint/Gate 的既有非停止语义保持不变；任务级 hard stop 仍只有总体目标完成、用户明确暂停、需要新的人工授权/凭据/不可替代决策，或项目访问工具经合理重连仍不可用。
+
+“没有其他当前可执行工作”不是默认假设。mission 仍 open 时应先主动审计 blocker/root-cause diagnosis、adjacent gap implementation、validation/evidence、reusable contract hardening、accessible-target dogfood、release preparation 与 low-side-effect diagnostics；某一 lane blocked 应切换安全替代项。anti-busywork 只禁止输入/环境/证据/策略均未变化的同一失败动作；新的诊断、changed strategy 或低副作用实验只要能减少不确定性仍可执行。默认以 overall mission / 当前 PLAN stage 为 work unit，不为单个 bug、实验、test、checkpoint 或 release Gate 拆新 Workstream；自然 checkpoint 后 refresh authority 并继续。只有 alternative audit 证明当前安全增量项均无价值，或命中 hard stop，才允许结束 execution session。
 
 `workspace reclassify` 只处理当前 fenced owner 已审阅的 `unexpected_nonoverlap`：durable writer 已结束后，启动前漏报的真实产出只有在提供 durable evidence 与 reason 时才能用 `--task-owned` 纳入任务，或用 `--baseline-external` 明确保留为外部修改。task-owned 仍必须命中 Workstream direct write scope；已有 conflict、非 unexpected 路径、路径重叠、scope 越界或 provenance 不确定继续 fail-closed。若绑定 Workstream 已由正式 `workstream archive` 移到 archive 且 active detail 已不存在，恢复流程可以校验 archived detail 并继续使用原 direct scope；只允许本次归档所需的 active index/detail 与 archive index/detail 四个精确 lifecycle authority 路径额外参与证据驱动 reclassify，不会重新激活 Workstream 或扩大普通 Task authority。
 
@@ -420,7 +426,13 @@ Worktree lifecycle 与 continuation workspace 共用 read-only semantic-clean：
 
 `continuation prompt --json` 返回可机器读取的 `identity` 与 `scheduler_wrapper_contract`；`bootstrap_policy=sufficient_high_salience` 要求 wrapper 完整提供 exact existing workspace / tool mode / stable ACF upgrade / authority refresh / execute generated plan / owner disclosure / project constraints / final-response contract，同时 `copy_generic_state_machine=false` 禁止复制 generic 状态机。对 DevSpace 已经存在的固定 worktree，应明确使用 existing checkout 语义（`mode="checkout"`），不得再次用 `mode="worktree"` 创建 `.devspace/worktrees` detached/重复副本。任何可能在 owner/tool-call 结束后继续写项目文件或产生非幂等副作用的 Runtime/external writer 仍必须在启动前建立 durable deterministic effect/job identity。
 
+P1.5 另外定义 `automation_prompt_execution_contract`，由 `acf continuation prompt --json` 与只读 `acf observer status --json` 暴露同一静态 family contract。现有 `acf.continuation.scheduler_wrapper.v1` 兼容字段不变，新增的 P1.5 字段明确 Writer static wrapper 的 `wrapper_family/role`、static-vs-runtime boundary、命名 project/task extension slot、volatile-fields-not-static 与 semantic execution evidence；Writer evidence 包含 semantic stage / milestone / major outcome / proven / excluded / blocker / **problem** / **plan impact** / route impact / next logic，heartbeat/generation/fence bookkeeping 不算 Observer-useful semantic progress。owner/generation/stage/next_action/directive/release/acceptance 等动态状态继续只能由每轮 `acf continuation prompt + execution_policy` 提供。Production Observer static wrapper 固定 existing-checkout、显式 Target Registry、`read broad / write narrow / control none`、anti-masking、truthful run history、Map Review Gate、human-first-but-detailed 与 project/target extension，并禁止复制 Writer ownership state machine。每次 semantic refresh 必须显式选择 `unchanged|patch|rebuild|presentation_change|project_overview_enable|project_overview_disable` 并附 reason/evidence/source fingerprint；fingerprint 只用于 triage，semantic-risk change 必须重新读取 authority。interactive presentation maintenance 仅允许 `transient_patch / one_shot_semantic_review / durable_rule`。持久化任何交互请求前，Agent 必须先理解当前 derived semantic/presentation state，并形成 `reviewed_intent / scope / rationale / evidence_refs`；ACF 只做确定性 record validation/concurrency，不自动判断语义。即时 patch 只能经 user-level narrow derived-presentation interface 修改 presentation-only state，且必须 deterministic re-render；禁止直接改 `dashboard.html` 或 semantic truth。one-shot 成功消费后退出 active context且不得复活；durable rule 支持 supersede/withdraw。所有交互写遵守 `read broad / write narrow / control none`、foreign-project non-interference，使用 presentation revision/fingerprint optimistic concurrency，冲突时 fail-closed reread/re-evaluate，且不取得 Writer ownership。
+
+P2 runtime 把其中的 target semantic-review / one-shot / durable-rule 生命周期落到用户级 Observer derived state。`acf observer presentation-status` 只读返回每个显式 Target Registry target 的独立 source fingerprint、`not_reviewed|current|stale`、active one-shot request 与 durable rule；target A 的 Workstream/continuation 变化不让 target B 一起 stale。`review-request-add` 记录下一次 Production Map Review 必须处理的一次性 reviewed intent；成功 `semantic-review-apply` 后该 request 立即退出 active context，只在 audit event 中保留 terminal evidence，后续 render 不得复活。`presentation-rule-add` 只用于明确长期有效的规则，支持 `--supersedes`；`presentation-rule-withdraw` 显式撤回 active durable rule。所有写入要求 exact target revision；Map Review 还要求 exact target source fingerprint、authority fingerprint、reason/evidence，存在 map-relevant signal 时必须明确已经 authority reread。target narrative 至少保存 goal/route/current-position/why-now/recent-proof/next-logic 与 route nodes/edges；problem model 分开 expectedness、handler、scope relation、blocking impact、plan impact 与 lifecycle。`route_change|major_replan` 不能被 `decision=unchanged` 掩盖，`handler=other_project` 只允许记录 transfer linkage，不越权改 foreign project。P2 不提供即时 `transient_patch`；narrow presentation-only patch 与 deterministic re-render 属于 P3。
+
 `continuation prompt --json` 除 `identity` 与 `scheduler_wrapper_contract` 外，还返回 `current`、`owner_context`、`directive_context`、`resume_context`、`execution_policy`、`project_context` 和当前 `next_actions`。`owner_context` 在传入 `--runner-id` 后区分 current owner / verified live other owner / stale-or-unverified / expired / no-owner；未传 runner id 时 fresh lease 保持 caller-unknown。`directive_context` 给出 global revision、pending-set digest、pending/adopted/active count、current pressure、archive count/history digest 和 pending 摘要；pending 时 `authority_refresh_required=true`。`execution_policy` 包含 `pending_user_directive_supersedes_persisted_next_action=true`、`consumed_user_directive_requires_disposition=true`、`next_action_is_default_execution_plan=true`、`next_action_requires_authority_refresh=true`、`active_lease_requires_liveness_verification=true`、`verified_duplicate_owner_may_end_duplicate_wake=true`、`duplicate_wake_exit_is_task_stop=false`、`stale_owner_requires_recovery=true`、`contender_must_create_busywork=false`，并继续保留 `next_action_is_work_quota=false`、`final_response_is_terminal=true` 等既有语义；条件等待计划还显式暴露 `claim_requires_present_safe_useful_work=true`、`control_plane_activity_satisfies_wait_condition=false` 与 `no_useful_work_may_end_wake_without_claim=true`。
+
+长期自治字段还包括 `mission_open_requires_active_alternative_search=true`、`blocked_lane_should_switch_to_safe_alternative=true`、`anti_busywork_scope=unchanged_failed_action_only`、`no_useful_work_end_requires_alternative_audit=true`、`prefer_mission_stage_over_microtask_fragmentation=true`、`checkpoint_requires_authority_refresh_and_continue=true`。P1.5 `automation_prompt_execution_contract` 的 `writer_continuous_execution` 以及 Writer wrapper/runtime contract 应保持同一语义；这些规则只约束 work selection 与 session-end，不复制 generic continuation 状态机，也不放宽安全边界。
 
 同一 stale generation 若同时存在多个已有 durable external id、且由外部 authority 明确证明 terminal 的 unresolved effects，可在一次 `reconcile` 中按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，以一个 receipt 原子绑定全部 assertions；它们共享本次 `--effect-evidence-ref` 集合，数量、identity 或 digest 不一致继续 fail-closed。write-ahead `effect prepare` 后若尚未真正 submit，仍允许一条单 effect 的显式 no-start 恢复路径：只有 effect 仍为 `prepared`、`external_id=null`，并有外部 authority 证明 submit 从未启动时，owner 结束/forfeiture 后才可用 `reconcile --effect-not-started --effect-terminal-status failed --effect-evidence-ref <ref>` 生成 receipt，并由 `recover` 标记 failed。对于已经实际执行、但没有 external id 而停在 `prepared|active + external_id=null` 的**本地确定性 effect**，可在 owner-ended/forfeiture 且 durable local authority evidence 明确证明 terminal 结果时使用 `--effect-local-terminal`；它可一次收口多个 local effects，但与 external-id / not-started 模式互斥，`unknown` 或证据不足仍严格拒绝。
 
@@ -440,7 +452,73 @@ acf observer narrative-source . --source-path reference/Project_Brief.md --json
 acf observer narrative-apply . --source-fingerprint <fingerprint> `
   --source-path reference/Project_Brief.md --input project-narrative.json --json
 acf observer narrative . --json
+
+# Observer V2：只有显式注册的 scheduled-automation target 才进入 Dashboard 可见范围
+acf observer targets . --json
+acf observer target-set . --target-id ws012-writer --mode fixed_workstream `
+  --title "WS012 Writer" --automation-ref automation:ws012-writer `
+  --workstream WS012 --continuation-task-id WS012 --json
+
+# 没有 continuation round 的自动任务用窄范围 marker 记录真实 start/finish；中断时不要补造 finish
+acf observer target-run-start . --target-id ws012-writer --run-id activation-001 --json
+acf observer target-run-finish . --target-id ws012-writer --run-id activation-001 `
+  --result success --major-outcome "activation completed" --json
+
+# 统一 Project Overview 必须是显式 authority decision；enabled/disabled 需要 evidence + fingerprint
+acf observer project-overview-set . --decision disabled `
+  --reason "Targets are intentionally heterogeneous." `
+  --evidence-ref docs/ai/active/Task_Plan.md --authority-fingerprint <fingerprint> --json
+
+# P2：每个 target 独立 semantic staleness / one-shot / durable rule
+acf observer presentation-status . --json
+acf observer review-request-add . --target-id ws012-writer --request-id review-route-next `
+  --expected-target-revision 0 --reviewed-intent "下一次 Map Review 重新判断主线与分支关系" `
+  --scope "target route semantics" --rationale "当前 authority 已改变" `
+  --evidence-ref active/Task_Plan.md --json
+acf observer presentation-rule-add . --target-id ws012-writer --rule-id route-human-first `
+  --expected-target-revision 1 --reviewed-intent "长期展示当前位置、why-now 与下一步理由" `
+  --scope "target route cards" --rationale "这是明确的长期展示规则" `
+  --evidence-ref reference/System_Manual.md --json
+acf observer presentation-rule-withdraw . --target-id ws012-writer --rule-id route-human-first `
+  --expected-target-revision 2 --reason "该长期规则已被新 authority 取消" `
+  --evidence-ref active/Task_Plan.md --json
+acf observer semantic-review-apply . --target-id ws012-writer --review-id map-review-001 `
+  --expected-target-revision 3 --source-fingerprint <target-fingerprint> `
+  --authority-fingerprint <authority-fingerprint> --authority-reread --decision rebuild `
+  --reason "路线语义发生变化" --evidence-ref active/Task_Plan.md `
+  --map-relevant-signal "route changed" --presentation-type roadmap `
+  --input target-review.json --consume-one-shot review-route-next --json
+acf observer transient-patch-apply . --target-id ws012-writer --patch-id inspect-route `
+  --expected-target-revision 4 --expected-presentation-revision 2 `
+  --presentation-fingerprint <presentation-fingerprint> `
+  --reviewed-intent "本次人工检查临时突出路线与运行证据" `
+  --scope "presentation only" --rationale "不改变事实，只调整当前 Dashboard 可读性" `
+  --evidence-ref user:review --density detailed `
+  --emphasize-section route --emphasize-section runs --json
+acf observer transient-patch-clear . --target-id ws012-writer `
+  --expected-target-revision 5 --expected-presentation-revision 3 `
+  --presentation-fingerprint <presentation-fingerprint> `
+  --reason "本次人工检查结束" --evidence-ref user:review-complete --json
+acf observer transient-patch-apply . --target-id ws012-writer --patch-id inspect-route `
+  --expected-target-revision 4 --expected-presentation-revision 2 `
+  --presentation-fingerprint <presentation-fingerprint> `
+  --reviewed-intent "本次人工检查临时突出路线与运行证据" `
+  --scope "presentation only" --rationale "不改变事实，只调整当前 Dashboard 可读性" `
+  --evidence-ref user:review --density detailed `
+  --emphasize-section route --emphasize-section runs --json
+acf observer transient-patch-clear . --target-id ws012-writer `
+  --expected-target-revision 5 --expected-presentation-revision 3 `
+  --presentation-fingerprint <presentation-fingerprint> `
+  --reason "本次人工检查结束" --evidence-ref user:review-complete --json
 ```
+
+Observer V2 不把 Workstream/worktree 的存在自动解释成“用户正在观察这个 Scheduled Task”。Target Registry 是用户级 derived runtime contract：当前支持 `fixed_workstream` 与 `project_dynamic`，每个 target 拥有独立 tab/page、Workstream/continuation scope、run chain、Alerts 与 Timeline。未注册 Workstream 的 health/Alert 不得改变 target 可见的 Overall Health；Project Overview 只有 authority 明确 `enabled` 时才渲染统一 Narrative/Map，`disabled` 或 `undecided` 时保持边界可见而不强拼异构目标。continuation round 可直接投影 run timing；外部任务 marker 若没有 finish，只展示 last activity 与 lower-bound duration，不伪造 end time。
+
+P2 target semantic state 同样严格按 Target Registry scope 隔离。snapshot/read path 暴露每个 target 的 `semantic_review` 和顶层 `presentation` summary，但纯读取不会写 Observer runtime。source fingerprint 漂移、target revision 冲突、map-relevant signal 未 authority reread、route-changing problem 配 `unchanged` 都 fail-closed。one-shot 成功 review 后退出 active context；durable rule 只有显式 active 才进入后续 review context，consumed/superseded/withdrawn 历史仅保留 audit provenance，不会自动复活。
+
+P3 target 页面使用中文 human-first 顺序展示最终目标、完整路线、当前位置/why-now、最近证明/排除/改变、problem + plan impact 与 next-logic，再保留执行范围、run chain、Alerts 和 Timeline。`transient-patch-apply|clear` 只修改 user-level derived presentation：必须同时匹配 exact target revision、presentation revision 与 presentation fingerprint，而且只允许针对已有 canonical `current.json` 中的 target view；随后对同一 canonical snapshot deterministic re-render Dashboard，不新增 snapshot/run，也不把尚未被 Production Observer 采集的新事实混入旧页面。缺少 canonical current、presentation view 冲突、semantic source drift 或 semantic-risk signal 都 fail-closed；semantic-risk 必须升级正式 Map Review + authority reread。新的 semantic review 会使 active transient patch 自动过期，clear 后不得复活；它与 one-shot consume-once、durable rule supersede/withdraw 共同构成三 lifecycle integrated acceptance。
+
+P3 target 页面使用中文 human-first 顺序展示最终目标、完整路线、当前位置/why-now、最近证明/排除/改变、problem + plan impact 与 next-logic，再保留执行范围、run chain、Alerts 和 Timeline。`transient-patch-apply|clear` 只修改 user-level derived presentation：必须同时匹配 exact target revision、presentation revision 与 presentation fingerprint，而且只允许针对已有 canonical `current.json` 中的 target view；随后对同一 canonical snapshot deterministic re-render Dashboard，不新增 snapshot/run，也不把尚未被 Production Observer 采集的新事实混入旧页面。缺少 canonical current、presentation view 冲突、semantic source drift 或 semantic-risk signal 都 fail-closed；semantic-risk 必须升级正式 Map Review + authority reread。新的 semantic review 会使 active transient patch 自动过期，clear 后不得复活；它与 one-shot consume-once、durable rule supersede/withdraw 共同构成三 lifecycle integrated acceptance。
 
 `snapshot` 使用开始/结束 fingerprint 形成一致性快照；读取期间发生变化会重读一次，仍不稳定则标记 critical Alert。Observer 使用自己的轻量锁，不复用 continuation lease；current/status/dashboard 原子替换，render 失败保留 last-good Dashboard。meaningful history 默认永久保留，只按月无损 rotation/index，不按时间自动删除。Execution / Progress / Health 分离；正常 `waiting_external` 不自动等于异常，缺少明确分母时不生成假百分比。
 

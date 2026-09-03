@@ -167,10 +167,36 @@ class ResilientMergeCliTests(unittest.TestCase):
             self.run_cli(
                 [
                     "workstream",
+                    "authorization",
+                    "policy-set",
+                    str(target_context),
+                    "--decision",
+                    "auto",
+                    "--action",
+                    "ready",
+                    "--action",
+                    "merge",
+                    "--action",
+                    "done",
+                    "--action",
+                    "archive",
+                    "--actor",
+                    "resilient-merge-human-owner",
+                    "--authority-source",
+                    "user-authority:resilient-merge-fixture",
+                    "--evidence-ref",
+                    "test-evidence:resilient-merge-auto-close",
+                ]
+            )[0],
+            0,
+        )
+        self.assertEqual(
+            self.run_cli(
+                [
+                    "workstream",
                     "ready",
                     self.reserved["id"],
                     str(target_context),
-                    "--human-approved",
                 ]
             )[0],
             0,

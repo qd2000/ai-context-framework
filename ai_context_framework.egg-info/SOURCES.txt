@@ -4,7 +4,9 @@ README.md
 acf.py
 pyproject.toml
 ai_context_framework/__init__.py
+ai_context_framework/automation_contracts.py
 ai_context_framework/cli.py
+ai_context_framework/closeout_authorization.py
 ai_context_framework/constants.py
 ai_context_framework/context_budget.py
 ai_context_framework/continuation_coordination.py
@@ -24,7 +26,10 @@ ai_context_framework/markers.py
 ai_context_framework/models.py
 ai_context_framework/observability.py
 ai_context_framework/observer.py
+ai_context_framework/observer_presentation.py
 ai_context_framework/observer_storage.py
+ai_context_framework/observer_target_projection.py
+ai_context_framework/observer_targets.py
 ai_context_framework/paths.py
 ai_context_framework/runtime.py
 ai_context_framework/tables.py
@@ -64,12 +69,14 @@ ai_context_framework/commands/log_inventory.py
 ai_context_framework/commands/new_context.py
 ai_context_framework/commands/next_status.py
 ai_context_framework/commands/observer.py
+ai_context_framework/commands/observer_presentation.py
 ai_context_framework/commands/plan_task.py
 ai_context_framework/commands/review_audit_curate.py
 ai_context_framework/commands/status_check.py
 ai_context_framework/commands/versioning.py
 ai_context_framework/commands/worklog.py
 ai_context_framework/commands/workstream.py
+ai_context_framework/commands/workstream_authorization.py
 ai_context_framework/commands/workstream_reserve.py
 ai_context_framework/commands/worktree.py
 ai_context_framework/domains/__init__.py
@@ -130,7 +137,9 @@ template/rules/Writing_Rules.md
 template/worklog/Worklog_Index.md
 template/worklog/daily/YYYY-MM-DD.md
 template/worklog/knowledge-drafts/.gitkeep
+tests/test_automation_contracts.py
 tests/test_cli.py
+tests/test_closeout_authorization.py
 tests/test_context_matrix.py
 tests/test_context_routing.py
 tests/test_continuation_cli.py
@@ -138,6 +147,9 @@ tests/test_entrypoint_smoke.py
 tests/test_install_scripts.py
 tests/test_log_inventory.py
 tests/test_observer_cli.py
+tests/test_observer_presentation.py
+tests/test_observer_target_projection.py
+tests/test_observer_targets.py
 tests/test_package_skeleton.py
 tests/test_upgrade_audit.py
 tests/test_upgrade_matrix.py

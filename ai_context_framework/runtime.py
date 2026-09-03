@@ -18,7 +18,6 @@ from urllib.parse import unquote
 from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, Sequence
-
 from ai_context_framework.constants import (
     ANCHOR_NOT_FOUND,
     APPEND_FORCE_CONFLICT,
@@ -47,6 +46,7 @@ from ai_context_framework.commands import review_audit_curate as review_audit_cu
 from ai_context_framework.commands import doctor as doctor_commands
 from ai_context_framework.commands import plan_task as plan_task_commands
 from ai_context_framework.commands import workstream as workstream_commands
+from ai_context_framework.commands import workstream_authorization as workstream_authorization_commands
 from ai_context_framework.commands import worktree as worktree_commands
 from ai_context_framework.commands import continuation as continuation_commands, observer as observer_commands
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
@@ -1002,10 +1002,20 @@ def build_parser() -> argparse.ArgumentParser:
     workstream_ready_parser.add_argument(
         "--human-approved",
         action="store_true",
-        help="confirm that a human explicitly approved marking this Workstream ReadyToMerge",
+        help=(
+            "legacy compatibility assertion only; does not create approval evidence or bypass "
+            "the closeout authorization resolver"
+        ),
     )
     add_write_arguments(workstream_ready_parser)
     workstream_ready_parser.set_defaults(func=workstream_ready_command)
+
+    workstream_authorization_commands.register_workstream_authorization_parsers(
+        workstream_subparsers,
+        validate_workstream_id=validate_workstream_id,
+        valid_workstream_types=VALID_WORKSTREAM_TYPES,
+        add_json_argument=add_json_argument,
+    )
 
     workstream_done_parser = workstream_subparsers.add_parser("done", help="mark a ReadyToMerge Workstream done")
     workstream_done_parser.add_argument("id", type=validate_workstream_id, help="Workstream id, for example WS001")

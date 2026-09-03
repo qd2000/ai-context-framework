@@ -7,8 +7,10 @@ import json
 import uuid
 from pathlib import Path
 
+from ai_context_framework.automation_contracts import automation_prompt_execution_contract
 from ai_context_framework.constants import EXIT_RUNTIME_ERROR, EXIT_SAFETY_REFUSED, JSON_SCHEMA_VERSION
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
+from ai_context_framework.commands.observer_presentation import register_observer_presentation_parsers
 from ai_context_framework.observer import (
     ObserverLockedError,
     build_observer_snapshot,
@@ -17,6 +19,11 @@ from ai_context_framework.observer import (
     observer_snapshot,
     observer_status,
     resolve_observer_project,
+)
+from ai_context_framework.observer_target_projection import (
+    ObserverTargetReadError,
+    hard_failstop_target_read_timeout_if_needed,
+    resolve_observer_project_bounded,
 )
 from ai_context_framework.observer_storage import (
     OBSERVER_SEMANTIC_CONFIDENCE,
@@ -33,6 +40,19 @@ from ai_context_framework.observer_storage import (
     read_observer_history_stream,
     release_observer_lock,
     set_glossary_term,
+)
+from ai_context_framework.observer_targets import (
+    OBSERVER_TARGET_REGISTRY_SCHEMA,
+    OVERVIEW_DECISIONS,
+    RUN_RESULTS,
+    TARGET_MODES,
+    ObserverTargetRegistryError,
+    record_target_run_finish,
+    record_target_run_start,
+    read_target_registry,
+    register_target,
+    remove_target,
+    set_project_overview_decision,
 )
 
 
@@ -56,6 +76,18 @@ def _base_payload(command: str) -> dict[str, object]:
         "changed_files": [],
         "error_code": None,
         "next_actions": [],
+    }
+
+
+def _target_read_error_payload(command: str, exc: ObserverTargetReadError) -> dict[str, object]:
+    return {
+        **_base_payload(command),
+        "ok": False,
+        "error_code": exc.error_code,
+        "message": str(exc),
+        "next_actions": [
+            "Retry only after checking the project path/Git source and confirming no prior Observer target-read worker remains active."
+        ],
     }
 
 
@@ -147,6 +179,71 @@ def register_observer_parser(subparsers, add_json_argument) -> None:
     narrative_show_parser.add_argument("path", nargs="?", type=Path)
     add_json_argument(narrative_show_parser)
     narrative_show_parser.set_defaults(func=observer_narrative_command)
+    targets_parser = observer_subparsers.add_parser(
+        "targets",
+        help="show explicit Observer V2 scheduled-automation targets and their target-local projection without writing",
+    )
+    targets_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(targets_parser)
+    targets_parser.set_defaults(func=observer_targets_command)
+    target_set_parser = observer_subparsers.add_parser(
+        "target-set",
+        help="register or update one explicit user-level Observer scheduled-automation target",
+    )
+    target_set_parser.add_argument("path", nargs="?", type=Path)
+    target_set_parser.add_argument("--target-id", required=True)
+    target_set_parser.add_argument("--mode", choices=tuple(sorted(TARGET_MODES)), required=True)
+    target_set_parser.add_argument("--title", required=True)
+    target_set_parser.add_argument("--automation-ref", required=True)
+    target_set_parser.add_argument("--workstream")
+    target_set_parser.add_argument("--continuation-task-id")
+    target_set_parser.add_argument("--route-ref")
+    add_json_argument(target_set_parser)
+    target_set_parser.set_defaults(func=observer_target_set_command)
+    target_remove_parser = observer_subparsers.add_parser(
+        "target-remove",
+        help="remove one explicit user-level Observer scheduled-automation target",
+    )
+    target_remove_parser.add_argument("path", nargs="?", type=Path)
+    target_remove_parser.add_argument("--target-id", required=True)
+    add_json_argument(target_remove_parser)
+    target_remove_parser.set_defaults(func=observer_target_remove_command)
+    overview_parser = observer_subparsers.add_parser(
+        "project-overview-set",
+        help="record the evidence-backed conditional Project Overview decision in user-level Observer state",
+    )
+    overview_parser.add_argument("path", nargs="?", type=Path)
+    overview_parser.add_argument("--decision", choices=tuple(sorted(OVERVIEW_DECISIONS)), required=True)
+    overview_parser.add_argument("--reason")
+    overview_parser.add_argument("--evidence-ref", action="append", default=[])
+    overview_parser.add_argument("--authority-fingerprint")
+    add_json_argument(overview_parser)
+    overview_parser.set_defaults(func=observer_project_overview_set_command)
+    run_start_parser = observer_subparsers.add_parser(
+        "target-run-start",
+        help="record a narrow user-level scheduled-activation start marker when no continuation round is available",
+    )
+    run_start_parser.add_argument("path", nargs="?", type=Path)
+    run_start_parser.add_argument("--target-id", required=True)
+    run_start_parser.add_argument("--run-id", required=True)
+    run_start_parser.add_argument("--route-ref")
+    run_start_parser.add_argument("--evidence-ref", action="append", default=[])
+    add_json_argument(run_start_parser)
+    run_start_parser.set_defaults(func=observer_target_run_start_command)
+    run_finish_parser = observer_subparsers.add_parser(
+        "target-run-finish",
+        help="record a narrow user-level scheduled-activation finish marker without fabricating missing end times",
+    )
+    run_finish_parser.add_argument("path", nargs="?", type=Path)
+    run_finish_parser.add_argument("--target-id", required=True)
+    run_finish_parser.add_argument("--run-id", required=True)
+    run_finish_parser.add_argument("--result", choices=tuple(sorted(RUN_RESULTS)), required=True)
+    run_finish_parser.add_argument("--major-outcome")
+    run_finish_parser.add_argument("--route-ref")
+    run_finish_parser.add_argument("--evidence-ref", action="append", default=[])
+    add_json_argument(run_finish_parser)
+    run_finish_parser.set_defaults(func=observer_target_run_finish_command)
+    register_observer_presentation_parsers(observer_subparsers, add_json_argument)
 
 
 def observer_status_command(args: argparse.Namespace) -> int:
@@ -154,8 +251,281 @@ def observer_status_command(args: argparse.Namespace) -> int:
     payload = {
         **_base_payload("observer status"),
         **observer_status(project),
+        "automation_prompt_execution_contract": automation_prompt_execution_contract(),
     }
     return _emit(args, payload)
+
+
+def _target_registry_error_payload(command: str, exc: ObserverTargetRegistryError) -> dict[str, object]:
+    return {
+        **_base_payload(command),
+        "ok": False,
+        "error_code": "observer_target_registry_invalid",
+        "message": str(exc),
+        "next_actions": [
+            "Inspect the explicit user-level Observer Target Registry and correct the invalid target/decision; do not infer display targets from Workstream/worktree existence."
+        ],
+    }
+
+
+def _target_sensitive_value_payload(command: str, exc: SemanticSensitiveValueError) -> dict[str, object]:
+    return {
+        **_base_payload(command),
+        "ok": False,
+        "error_code": "observer_sensitive_value_refused",
+        "message": str(exc),
+        "next_actions": [
+            "Remove credential-like material from Observer target metadata/evidence and retry with a secret-safe reference."
+        ],
+    }
+
+
+def _target_registry_locked_payload(command: str, exc: ObserverLockedError) -> dict[str, object]:
+    return {
+        **_base_payload(command),
+        "ok": False,
+        "error_code": "observer_locked",
+        "lock_path": str(exc.path),
+        "lock_health": observer_lock_health(exc.owner),
+        "message": "Observer user-level state is already owned by another active Observer run.",
+        "next_actions": ["Inspect `acf observer status --json` and retry after the active Observer run releases its lock."],
+    }
+
+
+def observer_targets_command(args: argparse.Namespace) -> int:
+    project = resolve_observer_project(getattr(args, "path", None))
+    try:
+        registry = read_target_registry(project)
+        snapshot = build_observer_snapshot(project)
+    except SemanticSensitiveValueError as exc:
+        return _emit(args, _target_sensitive_value_payload("observer targets", exc), EXIT_SAFETY_REFUSED)
+    except ObserverTargetRegistryError as exc:
+        return _emit(args, _target_registry_error_payload("observer targets", exc), EXIT_SAFETY_REFUSED)
+    targets = snapshot.get("targets") if isinstance(snapshot.get("targets"), dict) else {}
+    return _emit(
+        args,
+        {
+            **_base_payload("observer targets"),
+            "project": project.to_payload(),
+            "registry_schema": OBSERVER_TARGET_REGISTRY_SCHEMA,
+            "registry": registry,
+            "target_views": targets,
+            "message": "Explicit Observer scheduled-automation targets read without writing runtime state.",
+        },
+    )
+
+
+def observer_target_set_command(args: argparse.Namespace) -> int:
+    try:
+        project = resolve_observer_project_bounded(getattr(args, "path", None))
+    except ObserverTargetReadError as exc:
+        exit_code = _emit(args, _target_read_error_payload("observer target-set", exc), EXIT_RUNTIME_ERROR)
+        hard_failstop_target_read_timeout_if_needed(exc, exit_code)
+        return exit_code
+    run_id = f"target-registry-{uuid.uuid4()}"
+    try:
+        lock_path, _recovered = acquire_observer_lock(project, run_id)
+    except ObserverLockedError as exc:
+        return _emit(args, _target_registry_locked_payload("observer target-set", exc), EXIT_SAFETY_REFUSED)
+    try:
+        try:
+            registry, changed = register_target(
+                project,
+                target_id=args.target_id,
+                mode=args.mode,
+                title=args.title,
+                automation_ref=args.automation_ref,
+                workstream_id=args.workstream,
+                continuation_task_id=args.continuation_task_id,
+                route_ref=args.route_ref,
+            )
+        except SemanticSensitiveValueError as exc:
+            return _emit(
+                args,
+                _target_sensitive_value_payload("observer target-set", exc),
+                EXIT_SAFETY_REFUSED,
+            )
+        except ObserverTargetRegistryError as exc:
+            return _emit(args, _target_registry_error_payload("observer target-set", exc), EXIT_SAFETY_REFUSED)
+        return _emit(
+            args,
+            {
+                **_base_payload("observer target-set"),
+                "project": project.to_payload(),
+                "target_id": args.target_id,
+                "changed": changed,
+                "registry": registry,
+                "message": "Observer target registry updated." if changed else "Observer target is already current.",
+            },
+        )
+    finally:
+        release_observer_lock(lock_path, run_id)
+
+
+def observer_target_remove_command(args: argparse.Namespace) -> int:
+    project = resolve_observer_project(getattr(args, "path", None))
+    run_id = f"target-registry-{uuid.uuid4()}"
+    try:
+        lock_path, _recovered = acquire_observer_lock(project, run_id)
+    except ObserverLockedError as exc:
+        return _emit(args, _target_registry_locked_payload("observer target-remove", exc), EXIT_SAFETY_REFUSED)
+    try:
+        try:
+            registry, changed = remove_target(project, args.target_id)
+        except SemanticSensitiveValueError as exc:
+            return _emit(
+                args,
+                _target_sensitive_value_payload("observer target-remove", exc),
+                EXIT_SAFETY_REFUSED,
+            )
+        except ObserverTargetRegistryError as exc:
+            return _emit(args, _target_registry_error_payload("observer target-remove", exc), EXIT_SAFETY_REFUSED)
+        return _emit(
+            args,
+            {
+                **_base_payload("observer target-remove"),
+                "project": project.to_payload(),
+                "target_id": args.target_id,
+                "changed": changed,
+                "registry": registry,
+                "message": "Observer target removed." if changed else "Observer target was not registered.",
+            },
+        )
+    finally:
+        release_observer_lock(lock_path, run_id)
+
+
+def observer_project_overview_set_command(args: argparse.Namespace) -> int:
+    project = resolve_observer_project(getattr(args, "path", None))
+    run_id = f"target-registry-{uuid.uuid4()}"
+    try:
+        lock_path, _recovered = acquire_observer_lock(project, run_id)
+    except ObserverLockedError as exc:
+        return _emit(args, _target_registry_locked_payload("observer project-overview-set", exc), EXIT_SAFETY_REFUSED)
+    try:
+        try:
+            registry, changed = set_project_overview_decision(
+                project,
+                decision=args.decision,
+                reason=args.reason,
+                evidence_refs=list(args.evidence_ref),
+                authority_fingerprint=args.authority_fingerprint,
+            )
+        except SemanticSensitiveValueError as exc:
+            return _emit(
+                args,
+                _target_sensitive_value_payload("observer project-overview-set", exc),
+                EXIT_SAFETY_REFUSED,
+            )
+        except ObserverTargetRegistryError as exc:
+            return _emit(
+                args,
+                _target_registry_error_payload("observer project-overview-set", exc),
+                EXIT_SAFETY_REFUSED,
+            )
+        return _emit(
+            args,
+            {
+                **_base_payload("observer project-overview-set"),
+                "project": project.to_payload(),
+                "changed": changed,
+                "project_overview": registry.get("project_overview"),
+                "registry": registry,
+                "message": "Project Overview decision updated." if changed else "Project Overview decision is already current.",
+            },
+        )
+    finally:
+        release_observer_lock(lock_path, run_id)
+
+
+def observer_target_run_start_command(args: argparse.Namespace) -> int:
+    project = resolve_observer_project(getattr(args, "path", None))
+    lock_owner = f"target-run-{uuid.uuid4()}"
+    try:
+        lock_path, _recovered = acquire_observer_lock(project, lock_owner)
+    except ObserverLockedError as exc:
+        return _emit(args, _target_registry_locked_payload("observer target-run-start", exc), EXIT_SAFETY_REFUSED)
+    try:
+        try:
+            event, changed = record_target_run_start(
+                project,
+                target_id=args.target_id,
+                run_id=args.run_id,
+                route_ref=args.route_ref,
+                evidence_refs=list(args.evidence_ref),
+            )
+        except SemanticSensitiveValueError as exc:
+            return _emit(
+                args,
+                _target_sensitive_value_payload("observer target-run-start", exc),
+                EXIT_SAFETY_REFUSED,
+            )
+        except ObserverTargetRegistryError as exc:
+            return _emit(
+                args,
+                _target_registry_error_payload("observer target-run-start", exc),
+                EXIT_SAFETY_REFUSED,
+            )
+        return _emit(
+            args,
+            {
+                **_base_payload("observer target-run-start"),
+                "project": project.to_payload(),
+                "target_id": args.target_id,
+                "run_id": args.run_id,
+                "changed": changed,
+                "event": event,
+                "message": "Target run start marker recorded." if changed else "Target run start marker is already current.",
+            },
+        )
+    finally:
+        release_observer_lock(lock_path, lock_owner)
+
+
+def observer_target_run_finish_command(args: argparse.Namespace) -> int:
+    project = resolve_observer_project(getattr(args, "path", None))
+    lock_owner = f"target-run-{uuid.uuid4()}"
+    try:
+        lock_path, _recovered = acquire_observer_lock(project, lock_owner)
+    except ObserverLockedError as exc:
+        return _emit(args, _target_registry_locked_payload("observer target-run-finish", exc), EXIT_SAFETY_REFUSED)
+    try:
+        try:
+            event, changed = record_target_run_finish(
+                project,
+                target_id=args.target_id,
+                run_id=args.run_id,
+                result=args.result,
+                major_outcome=args.major_outcome,
+                route_ref=args.route_ref,
+                evidence_refs=list(args.evidence_ref),
+            )
+        except SemanticSensitiveValueError as exc:
+            return _emit(
+                args,
+                _target_sensitive_value_payload("observer target-run-finish", exc),
+                EXIT_SAFETY_REFUSED,
+            )
+        except ObserverTargetRegistryError as exc:
+            return _emit(
+                args,
+                _target_registry_error_payload("observer target-run-finish", exc),
+                EXIT_SAFETY_REFUSED,
+            )
+        return _emit(
+            args,
+            {
+                **_base_payload("observer target-run-finish"),
+                "project": project.to_payload(),
+                "target_id": args.target_id,
+                "run_id": args.run_id,
+                "changed": changed,
+                "event": event,
+                "message": "Target run finish marker recorded." if changed else "Target run finish marker is already current.",
+            },
+        )
+    finally:
+        release_observer_lock(lock_path, lock_owner)
 
 
 def observer_snapshot_command(args: argparse.Namespace) -> int:

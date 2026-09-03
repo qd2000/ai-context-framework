@@ -101,6 +101,33 @@ class WorktreeCliTests(unittest.TestCase):
         self.assertEqual(self.run_cli(["workstream", "init", str(context)])[0], 0)
         git(repo, "add", "--all")
         git(repo, "commit", "-m", "initial context")
+        self.assertEqual(
+            self.run_cli(
+                [
+                    "workstream",
+                    "authorization",
+                    "policy-set",
+                    str(context),
+                    "--decision",
+                    "auto",
+                    "--action",
+                    "ready",
+                    "--action",
+                    "merge",
+                    "--action",
+                    "done",
+                    "--action",
+                    "archive",
+                    "--actor",
+                    "human-owner",
+                    "--authority-source",
+                    "user-authority:test-fixture",
+                    "--evidence-ref",
+                    "test-evidence:worktree-auto-close",
+                ]
+            )[0],
+            0,
+        )
         return root_path, repo, context
 
     def reserve(self, context: Path, *, title: str = "Feature", slug: str = "feature-task"):
@@ -808,6 +835,148 @@ class WorktreeCliTests(unittest.TestCase):
         self.assertTrue(payload["merge_allowed"])
         self.assertEqual(payload["collisions"]["divergent_overlap_paths"], [])
         self.assertIn("dirty.txt", payload["primary_snapshot"]["untracked_paths"])
+
+    def test_worktree_merge_and_close_cannot_bypass_closeout_authorization(self):
+        _root, _repo, context = self.make_repo()
+        reserved = self.reserve(context, slug="closeout-gate")
+        created = self.create_ws_worktree(context, reserved["id"])
+        target = Path(created["target"]["path"])
+        (target / "feature.txt").write_text("feature", encoding="utf-8")
+        git(target, "add", "feature.txt")
+        git(target, "commit", "-m", "feature")
+        self.mark_ready_in_worktree(target, reserved["id"])
+
+        code, _payload, stderr = self.json_cli(
+            [
+                "workstream",
+                "authorization",
+                "policy-set",
+                str(context),
+                "--decision",
+                "manual",
+                "--action",
+                "merge",
+                "--workstream-id",
+                reserved["id"],
+                "--actor",
+                "human-owner",
+                "--authority-source",
+                "user-authority:test-manual-merge",
+                "--evidence-ref",
+                "test-evidence:manual-merge",
+            ]
+        )
+        self.assertEqual(code, 0, stderr)
+        code, payload, _stderr = self.json_cli(
+            ["worktree", "merge-plan", str(context), "--workstream", reserved["id"]]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["status"], "ready_to_merge")
+        self.assertFalse(payload["authorization"]["authorized"])
+        self.assertEqual(payload["authorization"]["disposition"], "approval_required")
+
+        code, payload, _stderr = self.json_cli(
+            ["worktree", "merge", str(context), "--workstream", reserved["id"], "--apply"]
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(payload["error_code"], "workstream_human_approval_required")
+        self.assertIn("authorization status", " ".join(payload["next_actions"]))
+        self.assertNotIn("rerun with `--human-approved`", " ".join(payload["next_actions"]))
+
+        code, _payload, stderr = self.json_cli(
+            [
+                "workstream",
+                "authorization",
+                "policy-set",
+                str(context),
+                "--decision",
+                "auto",
+                "--action",
+                "merge",
+                "--workstream-id",
+                reserved["id"],
+                "--actor",
+                "human-owner",
+                "--authority-source",
+                "user-authority:test-auto-merge",
+                "--evidence-ref",
+                "test-evidence:auto-merge",
+            ]
+        )
+        self.assertEqual(code, 0, stderr)
+        code, merged, stderr = self.json_cli(
+            ["worktree", "merge", str(context), "--workstream", reserved["id"], "--apply"]
+        )
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(merged["status"], "merged")
+
+        code, _payload, stderr = self.json_cli(
+            [
+                "workstream",
+                "authorization",
+                "policy-set",
+                str(context),
+                "--decision",
+                "manual",
+                "--action",
+                "archive",
+                "--workstream-id",
+                reserved["id"],
+                "--actor",
+                "human-owner",
+                "--authority-source",
+                "user-authority:test-manual-archive",
+                "--evidence-ref",
+                "test-evidence:manual-archive",
+            ]
+        )
+        self.assertEqual(code, 0, stderr)
+        code, payload, _stderr = self.json_cli(
+            ["worktree", "close", str(context), "--workstream", reserved["id"]]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["status"], "ready_to_close")
+        self.assertFalse(payload["authorization"]["authorized"])
+        self.assertEqual(payload["authorization"]["disposition"], "approval_required")
+
+        code, payload, _stderr = self.json_cli(
+            ["worktree", "close", str(context), "--workstream", reserved["id"], "--apply"]
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(payload["error_code"], "workstream_human_approval_required")
+        self.assertIn("authorization status", " ".join(payload["next_actions"]))
+
+        code, _payload, stderr = self.json_cli(
+            [
+                "workstream",
+                "authorization",
+                "policy-set",
+                str(context),
+                "--decision",
+                "deny",
+                "--action",
+                "archive",
+                "--workstream-id",
+                reserved["id"],
+                "--actor",
+                "human-owner",
+                "--authority-source",
+                "user-authority:test-deny-archive",
+                "--evidence-ref",
+                "test-evidence:deny-archive",
+            ]
+        )
+        self.assertEqual(code, 0, stderr)
+        code, payload, _stderr = self.json_cli(
+            ["worktree", "close", str(context), "--workstream", reserved["id"]]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["authorization"]["disposition"], "denied")
+        code, payload, _stderr = self.json_cli(
+            ["worktree", "close", str(context), "--workstream", reserved["id"], "--apply"]
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(payload["error_code"], "workstream_closeout_denied")
 
     def test_merge_no_ff_checks_and_close_lifecycle(self):
         _root, repo, context = self.make_repo()

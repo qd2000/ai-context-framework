@@ -181,6 +181,33 @@ class SmokeRunner:
             self.run_acf(
                 [
                     "workstream",
+                    "authorization",
+                    "policy-set",
+                    str(context),
+                    "--decision",
+                    "auto",
+                    "--action",
+                    "ready",
+                    "--action",
+                    "merge",
+                    "--action",
+                    "done",
+                    "--action",
+                    "archive",
+                    "--actor",
+                    "minimal-smoke-human-owner",
+                    "--authority-source",
+                    "user-authority:minimal-smoke-fixture",
+                    "--evidence-ref",
+                    "minimal-smoke:auto-close-policy",
+                    "--json",
+                ]
+            )
+        )
+        steps.append(
+            self.run_acf(
+                [
+                    "workstream",
                     "add",
                     str(context),
                     "--id",
@@ -268,7 +295,7 @@ class SmokeRunner:
         steps.append(audit_step)
         steps.append(
             self.run_acf(
-                ["workstream", "ready", "WS001", str(context), "--human-approved", "--json"]
+                ["workstream", "ready", "WS001", str(context), "--json"]
             )
         )
         steps.append(

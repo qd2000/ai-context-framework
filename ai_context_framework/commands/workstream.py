@@ -14,6 +14,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Sequence
 
+from ai_context_framework import closeout_authorization
 from ai_context_framework.models import WorkstreamArchiveAssessment, WorkstreamDetail, WorkstreamEntry
 from ai_context_framework.commands.status_check import workstream_entry_payload as attention_entry_payload
 
@@ -37,6 +38,56 @@ def _bind(deps: WorkstreamDependencies) -> None:
         if owned_names is None and name in module_globals:
             continue
         module_globals[name] = value
+
+
+def resolve_workstream_closeout_authorization(
+    root: Path,
+    detail: WorkstreamDetail,
+    action: str,
+) -> dict[str, Any]:
+    try:
+        return closeout_authorization.resolve_for_path(root, detail.workstream_id, action)
+    except closeout_authorization.CloseoutAuthorizationError as exc:
+        raise SystemExit(f"{exc.code}: {exc}") from exc
+
+
+def emit_closeout_authorization_blocked(
+    args: argparse.Namespace,
+    *,
+    command: str,
+    detail: WorkstreamDetail,
+    authorization: dict[str, Any],
+) -> int:
+    disposition = str(authorization.get("disposition") or "approval_required")
+    if disposition == "denied":
+        error_code = "workstream_closeout_denied"
+        message = f"{detail.workstream_id} closeout action is denied by effective authorization policy"
+    else:
+        error_code = "workstream_human_approval_required"
+        message = (
+            f"{detail.workstream_id} closeout action requires explicit approval evidence; "
+            "a naked --human-approved assertion does not satisfy the gate"
+        )
+    payload: dict[str, object] = {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": command,
+        "ok": False,
+        "error_code": error_code,
+        "message": message,
+        "id": detail.workstream_id,
+        "authorization": authorization,
+        "next_actions": list(authorization.get("next_actions") or []),
+    }
+    if not payload["next_actions"]:
+        payload["next_actions"] = ["Review current closeout authorization authority before retrying."]
+    set_result_payload(args, payload)
+    if json_enabled(args):
+        print_json(payload)
+    else:
+        print(message)
+        for next_action in payload["next_actions"]:
+            print(f"next action: {next_action}")
+    return 2
 
 
 def workstream_init_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
@@ -496,6 +547,15 @@ def workstream_archive_command(args: argparse.Namespace, *, deps: WorkstreamDepe
     if blockers:
         raise SystemExit(f"workstream_archive_blocked: {args.id} blocked_by={','.join(blockers)}")
 
+    authorization = resolve_workstream_closeout_authorization(root, detail, "archive")
+    if not authorization["authorized"]:
+        return emit_closeout_authorization_blocked(
+            args,
+            command="workstream",
+            detail=detail,
+            authorization=authorization,
+        )
+
     source_rel = detail.path.relative_to(root).as_posix()
     archive_rel = f"{WORKSTREAM_ARCHIVE_DIR_REL}/{args.id}.md"
     archive_path = root / archive_rel
@@ -544,6 +604,7 @@ def workstream_archive_command(args: argparse.Namespace, *, deps: WorkstreamDepe
             "archive_path": archive_rel,
             "status": status,
             "blocked_by": [],
+            "authorization": authorization,
         },
         warnings=warnings,
     )
@@ -677,8 +738,15 @@ def workstream_set_command(args: argparse.Namespace, *, deps: WorkstreamDependen
         raise SystemExit("workstream_update_required: set requires --status, --goal, or --attention")
     if goal == "":
         raise SystemExit("workstream_update_required: --goal cannot be empty")
-    if args.status in {"ReadyToMerge", "Done"}:
-        raise SystemExit(f"workstream_invalid_transition: use workstream {'ready' if args.status == 'ReadyToMerge' else 'done'} for {args.status}")
+    closeout_commands = {
+        "ReadyToMerge": "ready",
+        "Merging": "merge-start",
+        "Done": "done",
+    }
+    if args.status in closeout_commands:
+        raise SystemExit(
+            f"workstream_invalid_transition: use workstream {closeout_commands[args.status]} for {args.status}"
+        )
     if args.status is not None:
         section_updates = {"## 目标": goal} if goal is not None else None
         metadata_updates = {"attention": args.attention} if args.attention is not None else None
@@ -868,8 +936,6 @@ def workstream_ready_command(args: argparse.Namespace, *, deps: WorkstreamDepend
     dry_run = dry_run_enabled(args)
     detail = read_workstream_detail(root, args.id)
     current_status = workstream_detail_metadata_value(detail, "status", "")
-    if not getattr(args, "human_approved", False):
-        raise SystemExit(f"workstream_human_approval_required: {args.id} ready requires --human-approved")
     if "ReadyToMerge" not in WORKSTREAM_STATE_TRANSITIONS.get(current_status, set()):
         raise SystemExit(f"workstream_invalid_transition: {args.id} {current_status} -> ReadyToMerge")
     if not merge_request_has_required_fields(detail.body):
@@ -884,6 +950,14 @@ def workstream_ready_command(args: argparse.Namespace, *, deps: WorkstreamDepend
     )
     if unfinished_stage:
         raise SystemExit(f"workstream_stage_dependency_blocked: {args.id} has unfinished stage {unfinished_stage}")
+    authorization = resolve_workstream_closeout_authorization(root, detail, "ready")
+    if not authorization["authorized"]:
+        return emit_closeout_authorization_blocked(
+            args,
+            command="workstream",
+            detail=detail,
+            authorization=authorization,
+        )
     changed = update_workstream_status(root, args.id, "ReadyToMerge", None, dry_run)
     check_result = maybe_check_after(args, root)
     action = "would mark" if dry_run else "marked"
@@ -893,7 +967,7 @@ def workstream_ready_command(args: argparse.Namespace, *, deps: WorkstreamDepend
         f"{action} Workstream {args.id} ReadyToMerge",
         changed,
         check_result,
-        extra_payload={"id": args.id, "status": "ReadyToMerge"},
+        extra_payload={"id": args.id, "status": "ReadyToMerge", "authorization": authorization},
     )
 
 
@@ -921,6 +995,14 @@ def workstream_done_command(args: argparse.Namespace, *, deps: WorkstreamDepende
         raise SystemExit(f"workstream_invalid_transition: {args.id} {current_status} -> Done")
     evidence = required_workstream_evidence(args)
     merge_resolution = required_workstream_merge_resolution(args)
+    authorization = resolve_workstream_closeout_authorization(root, detail, "done")
+    if not authorization["authorized"]:
+        return emit_closeout_authorization_blocked(
+            args,
+            command="workstream",
+            detail=detail,
+            authorization=authorization,
+        )
     section_updates = {"## 证据": evidence}
     completion = (args.summary or "").strip()
     if completion:
@@ -941,7 +1023,13 @@ def workstream_done_command(args: argparse.Namespace, *, deps: WorkstreamDepende
         f"{action} Workstream {args.id} Done",
         changed,
         check_result,
-        extra_payload={"id": args.id, "status": "Done", "evidence": evidence, "merge_resolution": merge_resolution},
+        extra_payload={
+            "id": args.id,
+            "status": "Done",
+            "evidence": evidence,
+            "merge_resolution": merge_resolution,
+            "authorization": authorization,
+        },
     )
 
 
@@ -1505,6 +1593,14 @@ def workstream_merge_start_command(args: argparse.Namespace, *, deps: Workstream
     current_status = workstream_detail_metadata_value(detail, "status", "")
     if "Merging" not in WORKSTREAM_STATE_TRANSITIONS.get(current_status, set()):
         raise SystemExit(f"workstream_invalid_transition: {args.id} {current_status} -> Merging")
+    authorization = resolve_workstream_closeout_authorization(root, detail, "merge")
+    if not authorization["authorized"]:
+        return emit_closeout_authorization_blocked(
+            args,
+            command="workstream",
+            detail=detail,
+            authorization=authorization,
+        )
     changed = update_workstream_status(
         root,
         args.id,
@@ -1520,7 +1616,12 @@ def workstream_merge_start_command(args: argparse.Namespace, *, deps: Workstream
         f"{action} Workstream {args.id} Merging",
         changed,
         check_result,
-        extra_payload={"id": args.id, "status": "Merging", "type": kind},
+        extra_payload={
+            "id": args.id,
+            "status": "Merging",
+            "type": kind,
+            "authorization": authorization,
+        },
     )
 
 

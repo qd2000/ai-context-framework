@@ -17,6 +17,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from ai_context_framework import closeout_authorization
 from ai_context_framework.front_matter import parse_front_matter
 from ai_context_framework.worktree_artifacts import build_artifact_plan, load_artifact_plan
 from ai_context_framework.worktree_collision import (
@@ -799,7 +800,59 @@ def _workstream_status_in_target(target: WorktreeTarget) -> str | None:
     raise SystemExit(f"workstream_not_found: {target.workstream_id} in {target.path}")
 
 
-def plan_merge(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
+def _resolve_worktree_closeout_authorization(
+    project: GitProject,
+    target: WorktreeTarget,
+    *,
+    action: str,
+    authority_path: Path,
+) -> dict[str, Any] | None:
+    if not target.workstream_id:
+        return None
+    try:
+        authorization = closeout_authorization.resolve_for_path(
+            authority_path,
+            target.workstream_id,
+            action,
+        )
+    except closeout_authorization.CloseoutAuthorizationError as exc:
+        raise SystemExit(f"{exc.code}: {exc}") from exc
+    return authorization
+
+
+def _require_worktree_closeout_authorization(
+    project: GitProject,
+    target: WorktreeTarget,
+    *,
+    action: str,
+    authority_path: Path,
+) -> dict[str, Any] | None:
+    authorization = _resolve_worktree_closeout_authorization(
+        project,
+        target,
+        action=action,
+        authority_path=authority_path,
+    )
+    if authorization is None:
+        return None
+    if authorization["authorized"]:
+        return authorization
+    disposition = str(authorization.get("disposition") or "approval_required")
+    if disposition == "denied":
+        raise SystemExit(
+            f"workstream_closeout_denied: {target.workstream_id} {action} denied by effective authorization policy"
+        )
+    raise SystemExit(
+        f"workstream_human_approval_required: {target.workstream_id} {action} requires durable approval evidence or an applicable auto-close policy"
+    )
+
+
+def plan_merge(
+    project: GitProject,
+    target: WorktreeTarget,
+    *,
+    require_authorization: bool = False,
+) -> dict[str, Any]:
     verification = verify_target(project, target)
     if not verification["ok"]:
         raise SystemExit(
@@ -846,7 +899,19 @@ def plan_merge(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
             "collisions": None,
             "recommended_action": "close_source_when_ready",
             "merge_preview": {"ok": True, "mode": "ancestor", "tree": primary_head},
+            "authorization": None,
         }
+    authorization_resolver = (
+        _require_worktree_closeout_authorization
+        if require_authorization
+        else _resolve_worktree_closeout_authorization
+    )
+    authorization = authorization_resolver(
+        project,
+        target,
+        action="merge",
+        authority_path=target.path,
+    )
     candidate = build_candidate_preview(
         project.repo_root,
         primary_head=primary_head,
@@ -874,6 +939,7 @@ def plan_merge(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
         "collisions": collisions,
         "recommended_action": recommended_action,
         "merge_preview": candidate["merge_preview"],
+        "authorization": authorization,
     }
 
 
@@ -922,7 +988,7 @@ def apply_merge(
     return execute_resilient_merge(
         project,
         target,
-        plan_factory=lambda: plan_merge(project, target),
+        plan_factory=lambda: plan_merge(project, target, require_authorization=True),
         check_runner=run_check_argv,
         message=message,
         pre_checks=pre_checks,
@@ -933,7 +999,12 @@ def apply_merge(
     )
 
 
-def plan_close(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
+def plan_close(
+    project: GitProject,
+    target: WorktreeTarget,
+    *,
+    require_authorization: bool = False,
+) -> dict[str, Any]:
     records = list_worktrees(project.repo_root)
     record = record_for_path(records, target.path)
     branch_present = branch_exists(project.repo_root, target.branch)
@@ -964,6 +1035,19 @@ def plan_close(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
         status = "artifact_handoff_required"
     else:
         status = "ready_to_close"
+    authorization = None
+    if status == "ready_to_close":
+        authorization_resolver = (
+            _require_worktree_closeout_authorization
+            if require_authorization
+            else _resolve_worktree_closeout_authorization
+        )
+        authorization = authorization_resolver(
+            project,
+            target,
+            action="archive",
+            authority_path=project.config.primary_checkout,
+        )
     return {
         "status": status,
         "target": target_payload(target),
@@ -972,6 +1056,7 @@ def plan_close(project: GitProject, target: WorktreeTarget) -> dict[str, Any]:
         "path_exists": path_exists,
         "artifact_handoff_ready": artifact_ready,
         "artifact_handoff": artifact_payload,
+        "authorization": authorization,
     }
 
 
@@ -982,7 +1067,7 @@ def apply_close(
     wait_timeout_seconds: int = 120,
     operation_id: str | None = None,
 ) -> dict[str, Any]:
-    plan = plan_close(project, target)
+    plan = plan_close(project, target, require_authorization=True)
     if plan["status"] == "already_closed":
         delete_registry(project.common_dir, target.key)
         return plan
@@ -1042,7 +1127,7 @@ def apply_close(
             lock_waits=waits,
             status="closing",
         )
-        fresh = plan_close(project, target)
+        fresh = plan_close(project, target, require_authorization=True)
         if fresh["status"] == "artifact_handoff_required":
             raise SystemExit(f"artifact_handoff_required: {target.key}")
         worktree_result = _close_remove_worktree_with_retry(
@@ -1233,7 +1318,7 @@ def resume_operation(project: GitProject, operation_id: str) -> dict[str, Any]:
             project,
             operation_id,
             target=target,
-            plan_factory=lambda: plan_merge(project, target),
+            plan_factory=lambda: plan_merge(project, target, require_authorization=True),
             check_runner=run_check_argv,
         )
     raise SystemExit(f"operation_resume_unsupported: {command}")

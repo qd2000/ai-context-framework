@@ -4,6 +4,33 @@
 
 ## Unreleased
 
+## v0.0.3.85 — 2026-09-02
+
+### Continuation fenced credential transport
+
+- 新增 `ACF_CONTINUATION_FENCE_TOKEN_FILE` 非明文命令行传递路径：在 `claim` / `recover` 前设置调用方控制的临时文件后，ACF 会在提交新 generation/lease 之前把新 fence token 写入该文件，并在 JSON 中返回 `fence_token=null` 与非敏感 file-transport metadata；后续 fenced owner 命令在省略 `--fence-token` 时从同一文件读取 credential。
+- raw `--fence-token` 继续兼容；token file 缺失、非普通文件、为空、超出容量或不可读写时 fail-closed，错误不回显 credential。token file 不写入 canonical continuation state，`~/.acf` 仍只保存 hash；generated prompt、README、Automation 和项目/模板 System Manual 同步引导 credential-redacting scheduler 使用 temp file 并在 release 后清理。
+- 新增 claim/assert-owner/heartbeat/workspace-intent/checkpoint/release 与 challenge-backed recover 的真实 file-transport 回归，验证 raw token 不进入 JSON/canonical state 且 recovered owner 可直接继续 authenticated heartbeat。
+
+### Canonical Windows command shim
+
+- Windows `scripts/install_acf.ps1` / `scripts/update_acf.ps1` 在 uv tool mutation 完成后生成 canonical `acf.cmd`，通过该 tool environment 自己的 Python 执行 `-m acf`，随后删除同目录 uv 自动生成的 `acf.exe`，机械避免常见 `PATHEXT` 中 `.EXE` 抢先于 `.CMD`；CMD shim 不复制业务逻辑，也不引入 binary signing/certificate 子系统。
+- tool bin 已在 PATH 时，安装/更新脚本要求 `Get-Command acf` 的第一 application 解析为新 `acf.cmd`；fake-uv Windows regression 同时覆盖 install/update、shim 内容、`acf.exe` 移除、`Get-Command` 解析和经 CMD shim 的 `--version` 调用。裸 `uv tool install/upgrade` 仍可作为 bootstrap/debug，但会重新生成 `acf.exe`，正式 Windows installed-state 需要脚本再次 canonicalize。
+
+### Workstream closeout authorization
+
+- 新增用户级 `acf workstream authorization status|list|policy-set|approve|revoke`：把 durable scoped `auto|manual|deny` closeout policy 与具体 Workstream 的 explicit approval evidence 分离，记录 project/Workstream scope、action、authority/evidence、revision/fingerprint、expiry、supersession 与 revocation。更窄、更新的 policy 优先，WS-specific manual/deny 可以覆盖 broad auto；approval 只对一个 Workstream/action/current material authority fingerprint 有效，不能跨 action 或 Workstream 转移。
+- `ready / merge / done / archive` 与 worktree merge/close 路径统一经过同一个 resolver，并稳定返回 `auto_authorized | human_approved | approval_required | denied`；裸 `--human-approved` 保留为兼容 assertion，但不能创建批准证据或绕过 Gate。material Workstream authority 改变会使旧 approval stale，Activity Log 追加不会；authorization ledger 保存在用户级 ACF_HOME，不写项目 Git。
+- `merge` approval 对同一次 deterministic `ReadyToMerge -> Merging` closeout phase 保持有效：`merge-start` 自身写入的状态与 `当前发现` 不会迫使用户为同一次 merge 重复批准，但 goal/scope/merge request/evidence 等其他 material authority 变化仍会使 approval stale；这样 lifecycle command 与随后 worktree merge 的二次 resolver 检查可以复用同一份明确批准证据，而不会形成双批准死锁。
+- ledger load 增加 fail-closed 语义校验：revision/event history、policy action/scope、authority/evidence、supersession/revocation target、approval action/fingerprint 等任何语义损坏或未知 schema 都拒绝继续投影 authority，避免 malformed/tampered JSON 通过偶发异常或宽松投影扩大权限。回归覆盖 broad auto、manual override、deny、non-transfer、stale approval、revoked/superseded、unknown schema/tampered ledger，以及 ready/merge/done/archive CLI/worktree closeout bypass。
+
+### Project Observer V2 and operational dogfood hardening
+
+- Observer V2 新增显式 Target Registry、target-local tabs/run history、条件化 Project Overview，以及 semantic review / one-shot review / durable presentation rule / transient patch 生命周期；Project Narrative、Architecture Map、Milestone Flow 与 target presentation 均保留 source fingerprint、revision、stale/current 与审计历史，避免 derived presentation 被旧 authority 静默复活。
+- real-project dogfood 将 target-local `presentation-status` / `semantic-review-apply` 从 full-project snapshot 放大读取改为 bounded、fail-visible 的 target-scoped projection；Windows worker 启动与 cleanup 纳入同一 deadline，并通过可精确终止的 process tree 保证 timeout/session terminality，避免 scheduler 遗留 orphan descendant 或重复 side effect。
+- 隔离 candidate `ACF_HOME` 时可显式使用 `ACF_OBSERVER_CONTINUATION_READ_HOME` 只读 canonical continuation evidence：Target Registry / presentation runtime 继续写隔离 home，Writer generation/stage/liveness/effect-risk 则来自真实 stable continuation state；非法 override fail-visible，canonical read home 不被创建、迁移或改写。
+- scheduler / Prompt Execution contract 增加 blocked-lane active-alternative-search 语义：已确认的 unchanged failed action 不允许机械重放，但长期 Maintenance 仍必须主动审计 root-cause、adjacent gap、validation/evidence、accessible target dogfood 与 release preparation 等安全替代 lane；checkpoint/commit/Gate 继续只是 persistence/validation evidence，而不是默认 stop signal。
+
 ## v0.0.3.84 — 2026-08-26
 
 ### Continuation directive lifecycle hardening

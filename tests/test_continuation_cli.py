@@ -1644,6 +1644,210 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(3, code)
         self.assertEqual("fence_generation_mismatch", wrong_generation["error_code"])
 
+    def test_fence_token_file_transport_avoids_raw_credential_handoff(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        token_file = Path(self._home.name) / "owner-fence.token"
+        with patch.dict(
+            os.environ,
+            {continuation_workspace_command.FENCE_TOKEN_FILE_ENV: str(token_file)},
+            clear=False,
+        ):
+            code, claim, stderr = self.run_json(
+                [
+                    "continuation",
+                    "claim",
+                    str(self.root),
+                    "--task-id",
+                    "WS900",
+                    "--runner-id",
+                    "runner-file-transport",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{claim}")
+            self.assertIsNone(claim["fence_token"])
+            self.assertEqual("file", claim["fence_token_transport"])
+            self.assertEqual(str(token_file), claim["fence_token_file"])
+            self.assertEqual(
+                continuation_workspace_command.FENCE_TOKEN_FILE_ENV,
+                claim["fence_token_environment"],
+            )
+            token = token_file.read_text(encoding="utf-8").strip()
+            self.assertRegex(token, r"^[0-9a-f]{64}$")
+            self.assertNotIn(token, json.dumps(claim, ensure_ascii=False))
+            persisted = (state_dir / "lease.json").read_text(encoding="utf-8")
+            self.assertNotIn(token, persisted)
+
+            code, prompt, stderr = self.run_json(
+                [
+                    "continuation",
+                    "prompt",
+                    str(self.root),
+                    "--task-id",
+                    "WS900",
+                    "--runner-id",
+                    "runner-file-transport",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{prompt}")
+            self.assertIn(
+                continuation_workspace_command.FENCE_TOKEN_FILE_ENV,
+                str(prompt["prompt"]),
+            )
+
+            lease = claim["lease"]
+            self.assertIsInstance(lease, dict)
+            lease_id = str(lease["lease_id"])
+            generation = str(claim["generation"])
+            owner_base = [
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                "--generation",
+                generation,
+            ]
+
+            code, owner, stderr = self.run_json(
+                ["continuation", "assert-owner", *owner_base]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{owner}")
+            self.assertEqual("owner_confirmed", owner["status"])
+
+            code, heartbeat, stderr = self.run_json(
+                ["continuation", "heartbeat", *owner_base]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{heartbeat}")
+            self.assertEqual("heartbeat_recorded", heartbeat["status"])
+
+            code, intent, stderr = self.run_json(
+                [
+                    "continuation",
+                    "workspace",
+                    "intent",
+                    *owner_base,
+                    "--path",
+                    "README.md",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{intent}")
+            self.assertEqual("workspace_intent_recorded", intent["status"])
+
+            code, progress, stderr = self.run_json(
+                [
+                    "continuation",
+                    "progress",
+                    *owner_base,
+                    "--phase",
+                    "executing",
+                    "--milestone",
+                    "credential-file-transport",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{progress}")
+            self.assertEqual("progress_recorded", progress["status"])
+
+            code, checkpoint, stderr = self.run_json(
+                [
+                    "continuation",
+                    "checkpoint",
+                    *owner_base,
+                    "--stage",
+                    "credential-file-dogfood",
+                    "--next-action",
+                    "Release the test owner.",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{checkpoint}")
+            self.assertEqual("checkpointed", checkpoint["status"])
+
+            code, release, stderr = self.run_json(
+                [
+                    "continuation",
+                    "release",
+                    *owner_base,
+                    "--final-status",
+                    "ready",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{release}")
+            self.assertEqual("released", release["status"])
+
+        self.assertTrue(token_file.exists())
+        token_file.unlink()
+
+    def test_fence_token_file_transport_fails_closed_when_handle_is_missing(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-missing-file-transport",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease = claim["lease"]
+        self.assertIsInstance(lease, dict)
+        missing_file = Path(self._home.name) / "missing-owner-fence.token"
+        with patch.dict(
+            os.environ,
+            {continuation_workspace_command.FENCE_TOKEN_FILE_ENV: str(missing_file)},
+            clear=False,
+        ):
+            code, payload, _ = self.run_json(
+                [
+                    "continuation",
+                    "assert-owner",
+                    str(self.root),
+                    "--task-id",
+                    "WS900",
+                    "--lease-id",
+                    str(lease["lease_id"]),
+                    "--generation",
+                    str(claim["generation"]),
+                ]
+            )
+        self.assertEqual(3, code)
+        self.assertEqual("fence_token_transport_unavailable", payload["error_code"])
+        self.assertNotIn(str(claim["fence_token"]), json.dumps(payload, ensure_ascii=False))
+
+    def test_claim_token_delivery_failure_does_not_commit_fresh_owner(self) -> None:
+        init = self.init_task()
+        state_dir = Path(str(init["state_dir"]))
+        token_file = Path(self._home.name) / "missing-parent" / "owner-fence.token"
+        with patch.dict(
+            os.environ,
+            {continuation_workspace_command.FENCE_TOKEN_FILE_ENV: str(token_file)},
+            clear=False,
+        ):
+            code, payload, _ = self.run_json(
+                [
+                    "continuation",
+                    "claim",
+                    str(self.root),
+                    "--task-id",
+                    "WS900",
+                    "--runner-id",
+                    "runner-undeliverable-file-transport",
+                ]
+            )
+        self.assertEqual(2, code)
+        self.assertEqual("fence_token_transport_unavailable", payload["error_code"])
+        self.assertFalse((state_dir / "lease.json").exists())
+        control = json.loads((state_dir / "control.json").read_text(encoding="utf-8"))
+        self.assertEqual(0, int(control.get("generation", 0)))
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertTrue(doctor["can_claim"])
+        self.assertEqual("absent", doctor["lease"]["state"])
+
     def test_clean_release_preserves_checkpointed_waiting_external_status(self) -> None:
         """WS079 regression: release must not silently convert an external wait to ready."""
         self.init_task()
@@ -3886,19 +4090,46 @@ merge_resolution: merged
         self.assertEqual([challenge_id], [item["challenge_id"] for item in candidates])
         self.assertTrue(reconciled["observation"]["coordination_digest"])
 
-        code, recovered, stderr = self.run_json(
-            [
-                "continuation",
-                "recover",
-                str(self.root),
-                "--task-id",
-                "WS908",
-                "--reconcile-id",
-                str(reconciled["receipt"]["receipt_id"]),
-                "--runner-id",
-                "contender-a",
-            ]
-        )
+        recovery_token_file = Path(self._home.name) / "recovered-owner-fence.token"
+        with patch.dict(
+            os.environ,
+            {continuation_workspace_command.FENCE_TOKEN_FILE_ENV: str(recovery_token_file)},
+            clear=False,
+        ):
+            code, recovered, stderr = self.run_json(
+                [
+                    "continuation",
+                    "recover",
+                    str(self.root),
+                    "--task-id",
+                    "WS908",
+                    "--reconcile-id",
+                    str(reconciled["receipt"]["receipt_id"]),
+                    "--runner-id",
+                    "contender-a",
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{recovered}")
+            self.assertIsNone(recovered["fence_token"])
+            self.assertEqual("file", recovered["fence_token_transport"])
+            recovered_token = recovery_token_file.read_text(encoding="utf-8").strip()
+            self.assertRegex(recovered_token, r"^[0-9a-f]{64}$")
+            self.assertNotIn(recovered_token, json.dumps(recovered, ensure_ascii=False))
+            code, recovered_heartbeat, stderr = self.run_json(
+                [
+                    "continuation",
+                    "heartbeat",
+                    str(self.root),
+                    "--task-id",
+                    "WS908",
+                    "--lease-id",
+                    str(recovered["lease"]["lease_id"]),
+                    "--generation",
+                    str(recovered["generation"]),
+                ]
+            )
+            self.assertEqual(0, code, f"{stderr}\n{recovered_heartbeat}")
+            self.assertEqual("heartbeat_recorded", recovered_heartbeat["status"])
         self.assertEqual(0, code, f"{stderr}\n{recovered}")
         self.assertEqual(int(claim["generation"]) + 1, recovered["generation"])
         persisted_state = continuation._read_json(state_path, label="state")
@@ -7129,6 +7360,20 @@ merge_resolution: merged
         self.assertTrue(wrapper["refresh_prompt_each_run"])
         self.assertEqual("sufficient_high_salience", wrapper["bootstrap_policy"])
         self.assertFalse(wrapper["copy_generic_state_machine"])
+        self.assertEqual("writer", wrapper["wrapper_family"])
+        self.assertEqual("maintenance_writer", wrapper["role"])
+        self.assertEqual("execution_policy", wrapper["runtime_execution_policy_source"])
+        self.assertEqual(
+            "project_task_specific_constraints",
+            wrapper["named_extension_slot"]["name"],
+        )
+        self.assertIn("write_scope_and_effect_safety", wrapper["p15_required_bootstrap_topics"])
+        self.assertIn("semantic_stage", wrapper["execution_evidence_fields"])
+        self.assertIn("problem", wrapper["execution_evidence_fields"])
+        self.assertIn("plan_impact", wrapper["execution_evidence_fields"])
+        self.assertIn("next_logic", wrapper["execution_evidence_fields"])
+        self.assertIn("generation", wrapper["volatile_fields_not_static"])
+        self.assertFalse(wrapper["checkpoint_commit_gate_are_stop"])
         self.assertEqual(
             [
                 "exact_existing_workspace",
@@ -7143,6 +7388,37 @@ merge_resolution: merged
             wrapper["required_bootstrap_topics"],
         )
 
+        automation_contract = payload["automation_prompt_execution_contract"]
+        self.assertEqual("acf.automation.prompt-execution.v1", automation_contract["schema_version"])
+        self.assertTrue(automation_contract["separation_required"])
+        self.assertEqual(
+            "writer_runtime_generated",
+            automation_contract["writer_runtime_generated"]["role"],
+        )
+        self.assertEqual(
+            "production_observer",
+            automation_contract["production_observer_scheduler_wrapper"]["role"],
+        )
+        self.assertTrue(
+            automation_contract["observer_semantic_review"]["required_each_semantic_refresh"]
+        )
+        self.assertFalse(
+            automation_contract["presentation_maintenance"]["transient_patch"][
+                "direct_dashboard_edit_allowed"
+            ]
+        )
+        self.assertEqual(
+            ["reviewed_intent", "scope", "rationale", "evidence_refs"],
+            automation_contract["presentation_maintenance"]["review_before_record"][
+                "required_fields"
+            ],
+        )
+        self.assertTrue(
+            automation_contract["presentation_maintenance"]["transient_patch"][
+                "deterministic_rerender_required"
+            ]
+        )
+
         policy = payload["execution_policy"]
         self.assertEqual("acf.continuation.execution_policy.v1", policy["schema_version"])
         self.assertEqual("goal_directed_continuous", policy["mode"])
@@ -7151,6 +7427,12 @@ merge_resolution: merged
         self.assertFalse(policy["protocol_is_sequential_checklist"])
         self.assertTrue(policy["agent_selects_work_scope"])
         self.assertTrue(policy["continue_while_safe_useful"])
+        self.assertTrue(policy["mission_open_requires_active_alternative_search"])
+        self.assertTrue(policy["blocked_lane_should_switch_to_safe_alternative"])
+        self.assertEqual("unchanged_failed_action_only", policy["anti_busywork_scope"])
+        self.assertTrue(policy["no_useful_work_end_requires_alternative_audit"])
+        self.assertTrue(policy["prefer_mission_stage_over_microtask_fragmentation"])
+        self.assertTrue(policy["checkpoint_requires_authority_refresh_and_continue"])
         self.assertTrue(policy["next_action_is_default_execution_plan"])
         self.assertFalse(policy["next_action_is_work_quota"])
         self.assertTrue(policy["next_action_requires_authority_refresh"])
@@ -7221,6 +7503,11 @@ merge_resolution: merged
         self.assertIn("Continuous execution contract", prompt)
         self.assertIn("scheduler wake only resumes one continuous task", prompt)
         self.assertIn("It does not bound the amount of useful project work", prompt)
+        self.assertIn("search safe alternatives before no-work", prompt)
+        self.assertIn("diagnosis, adjacent gap, validation, contract, dogfood, release prep", prompt)
+        self.assertIn("Anti-busywork blocks only unchanged failure", prompt)
+        self.assertIn("prefer mission/PLAN stage", prompt)
+        self.assertIn("checkpoint => refresh and continue", prompt)
         self.assertIn("A final assistant response ends the current execution session", prompt)
         self.assertIn("Task-level hard-stop conditions are exactly", prompt)
         self.assertIn("--objective-summary <current-goal-summary>", prompt)

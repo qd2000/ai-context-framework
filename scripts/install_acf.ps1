@@ -97,6 +97,88 @@ function Assert-UvToolNotInUse {
     }
 }
 
+function Install-CanonicalAcfCmd {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Package,
+        [Parameter(Mandatory = $true)]
+        [string]$ToolDirectory,
+        [Parameter(Mandatory = $true)]
+        [string]$BinDirectory
+    )
+
+    if ($env:OS -ne "Windows_NT" -or $Package -ne "ai-context-framework") {
+        return $null
+    }
+
+    $scriptsDirectory = Join-Path (Join-Path $ToolDirectory $Package) "Scripts"
+    $pythonCandidates = @(
+        (Join-Path $scriptsDirectory "python.exe"),
+        (Join-Path $scriptsDirectory "python"),
+        (Join-Path $scriptsDirectory "python.cmd")
+    )
+    $pythonExecutable = $pythonCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($pythonExecutable)) {
+        throw "Unable to find the uv-tool Python runtime required for canonical acf.cmd."
+    }
+
+    $acfCmd = Join-Path $BinDirectory "acf.cmd"
+    $acfExe = Join-Path $BinDirectory "acf.exe"
+    $pythonForCmd = [System.IO.Path]::GetFullPath($pythonExecutable).Replace("%", "%%")
+    $callPrefix = if ([System.IO.Path]::GetExtension($pythonExecutable) -ieq ".cmd") { "call " } else { "" }
+    $cmdContent = (
+        "@echo off`r`n" +
+        "setlocal`r`n" +
+        $callPrefix + '"' + $pythonForCmd + '" -m acf %*' + "`r`n" +
+        "exit /b %ERRORLEVEL%`r`n"
+    )
+    $temporaryCmd = "$acfCmd.tmp-$([guid]::NewGuid().ToString('N'))"
+    try {
+        [System.IO.File]::WriteAllText(
+            $temporaryCmd,
+            $cmdContent,
+            [System.Text.UTF8Encoding]::new($false)
+        )
+        Move-Item -LiteralPath $temporaryCmd -Destination $acfCmd -Force
+    } finally {
+        if (Test-Path -LiteralPath $temporaryCmd) {
+            Remove-Item -LiteralPath $temporaryCmd -Force
+        }
+    }
+
+    # uv emits acf.exe for the console-script entry point.  On Windows PATHEXT
+    # normally prefers .EXE to .CMD, so leaving both files would bypass the
+    # canonical shim.  Remove only ACF's same-directory launcher after the CMD
+    # replacement is durable; the package environment itself stays untouched.
+    if (Test-Path -LiteralPath $acfExe) {
+        Remove-Item -LiteralPath $acfExe -Force
+    }
+    if (Test-Path -LiteralPath $acfExe) {
+        throw "Canonical acf.cmd installation failed because acf.exe still exists: $acfExe"
+    }
+    if (-not (Test-Path -LiteralPath $acfCmd)) {
+        throw "Canonical acf.cmd installation failed: $acfCmd"
+    }
+
+    $pathEntries = @($env:PATH -split [System.IO.Path]::PathSeparator)
+    $binOnPath = $pathEntries | Where-Object {
+        if ([string]::IsNullOrWhiteSpace($_)) { return $false }
+        try {
+            return [System.IO.Path]::GetFullPath($_).TrimEnd('\') -ieq [System.IO.Path]::GetFullPath($BinDirectory).TrimEnd('\')
+        } catch {
+            return $false
+        }
+    }
+    if ($binOnPath) {
+        $resolved = Get-Command acf -CommandType Application -All -ErrorAction Stop | Select-Object -First 1
+        if (-not ([System.IO.Path]::GetFullPath($resolved.Source) -ieq [System.IO.Path]::GetFullPath($acfCmd))) {
+            throw "Canonical Windows ACF resolution failed: Get-Command acf resolved to $($resolved.Source), expected $acfCmd"
+        }
+    }
+
+    return $acfCmd
+}
+
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     throw "uv was not found on PATH. Install uv first, then rerun this script."
 }
@@ -119,16 +201,16 @@ Invoke-Uv $installArguments
 Invoke-Uv @("tool", "update-shell")
 
 $binDirectory = $uvPaths.BinDirectory
-
-$acfExecutable = Join-Path $binDirectory "acf.exe"
-if (-not (Test-Path -LiteralPath $acfExecutable)) {
-    $acfExecutable = Join-Path $binDirectory "acf"
-}
+$acfCmd = Install-CanonicalAcfCmd -Package $Package -ToolDirectory $uvPaths.ToolDirectory -BinDirectory $binDirectory
+$acfExecutable = if ($null -ne $acfCmd) { $acfCmd } else { Join-Path $binDirectory "acf" }
 
 Write-Host "Installed $packageSpec."
 Write-Host "uv tool bin directory: $binDirectory"
 if (Test-Path -LiteralPath $acfExecutable) {
     & $acfExecutable --version
+    if ($null -ne $acfCmd) {
+        Write-Host "Canonical Windows ACF command: $acfCmd"
+    }
 } else {
     Write-Host "Restart the shell if 'acf' is not yet available on PATH."
 }

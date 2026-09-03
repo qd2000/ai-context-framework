@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import statistics
 import time
 import uuid
@@ -19,22 +20,21 @@ from typing import Any, Iterable
 
 from ai_context_framework.front_matter import parse_front_matter
 from ai_context_framework.git_support import (
-    GitCommandError,
-    discover_git_project, is_ancestor,
-    list_registries,
-    list_worktrees,
-    path_key,
+    GitCommandError, discover_git_project, is_ancestor, list_registries,
+    list_worktrees, path_key,
 )
 from ai_context_framework.observability import acf_home, atomic_write_text, usage_project_dir
 from ai_context_framework.observer_storage import (
     ObserverLockedError, _continuation_lease_liveness, _parse_utc_iso, _read_json_object,
     _read_jsonl_objects, acquire_observer_lock, append_jsonl, append_jsonl_unique,
     attach_semantic_interpretations, ensure_jsonl_file, observer_lock_health, observer_paths,
-    project_narrative_status,
-    read_glossary, read_observer_history_stream, refresh_history_index, release_observer_lock,
+    observer_status_payload, project_narrative_status, read_glossary, read_observer_history_stream, refresh_history_index,
+    release_observer_lock,
     rotate_jsonl_monthly, rotate_observer_history, sanitize_observer_payload, utc_now_iso,
     write_dashboard, write_json_atomic,
 )
+from ai_context_framework.observer_targets import build_target_views
+from ai_context_framework.observer_presentation import attach_presentation_status, presentation_alert_specs
 from ai_context_framework.paths import discover_context, resolve_status_location, slugify_project_name
 from ai_context_framework.version import VERSION
 from ai_context_framework.worktree_status import capture_git_worktree_snapshot
@@ -58,6 +58,33 @@ OBSERVER_MIN_CRITICAL_WINDOW_SECONDS = 6 * 60 * 60
 OBSERVER_FIRST_UNCHANGED_MILESTONE_SECONDS = 6 * 60 * 60
 OBSERVER_SECOND_UNCHANGED_MILESTONE_SECONDS = 12 * 60 * 60
 OBSERVER_DAILY_UNCHANGED_MILESTONE_SECONDS = 24 * 60 * 60
+OBSERVER_CONTINUATION_READ_HOME_ENV = "ACF_OBSERVER_CONTINUATION_READ_HOME"
+
+
+def _usage_project_dir_from_home(project_root: Path, home: Path) -> Path:
+    resolved = project_root.resolve()
+    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
+    return home / "projects" / f"{slugify_project_name(resolved.name)}-{digest}"
+
+
+def _observer_continuation_read_home() -> Path:
+    """Resolve the optional read-only continuation evidence home for Observer."""
+
+    override = os.environ.get(OBSERVER_CONTINUATION_READ_HOME_ENV, "").strip()
+    if not override:
+        return acf_home()
+    candidate = Path(override).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError(f"{OBSERVER_CONTINUATION_READ_HOME_ENV} must be an absolute path")
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(
+            f"{OBSERVER_CONTINUATION_READ_HOME_ENV} does not resolve to an existing directory: {candidate}"
+        ) from exc
+    if not resolved.is_dir():
+        raise ValueError(f"{OBSERVER_CONTINUATION_READ_HOME_ENV} must resolve to a directory: {resolved}")
+    return resolved
 @dataclass(frozen=True)
 class ObserverProject:
     project_id: str
@@ -336,6 +363,8 @@ def _safe_registry_rows(project: ObserverProject) -> list[dict[str, object]]:
 def capture_project_workstreams(
     project: ObserverProject,
     worktrees: list[dict[str, object]],
+    *,
+    workstream_ids: set[str] | None = None,
 ) -> list[dict[str, object]]:
     roots: list[Path] = []
     scoped_worktrees = _observer_scope_worktrees(project, worktrees)
@@ -348,7 +377,10 @@ def capture_project_workstreams(
         roots.append(project.invocation_root)
     occurrences: list[dict[str, object]] = []
     for root in roots:
-        occurrences.extend(_workstream_occurrences_for_root(root))
+        rows = _workstream_occurrences_for_root(root)
+        if workstream_ids is not None:
+            rows = [row for row in rows if row.get("id") in workstream_ids]
+        occurrences.extend(rows)
     registry_rows = _safe_registry_rows(project)
     registry_managed_domain = bool(registry_rows)
     primary_key = path_key(project.canonical_root)
@@ -569,6 +601,7 @@ def capture_project_continuations(
     project: ObserverProject,
     worktrees: list[dict[str, object]],
 ) -> list[dict[str, object]]:
+    continuation_read_home = _observer_continuation_read_home()
     roots: list[Path] = []
     scoped_worktrees = _observer_scope_worktrees(project, worktrees)
     if scoped_worktrees:
@@ -582,7 +615,7 @@ def capture_project_continuations(
     rows: list[dict[str, object]] = []
     seen_dirs: set[str] = set()
     for root in roots:
-        parent = usage_project_dir(root.resolve()) / "continuation"
+        parent = _usage_project_dir_from_home(root.resolve(), continuation_read_home) / "continuation"
         if not parent.is_dir():
             continue
         for task_dir in sorted(path for path in parent.iterdir() if path.is_dir()):
@@ -791,29 +824,14 @@ def derive_snapshot_alerts(project: ObserverProject, snapshot: dict[str, object]
     observed_at = str(snapshot.get("observed_at") or utc_now_iso())
     alerts: list[dict[str, object]] = []
 
-    def add_alert(
-        *,
-        alert_key: str,
-        severity: str,
-        title: str,
-        explanation: str,
-        canonical_identity: dict[str, object],
-        provenance: list[dict[str, object]],
-    ) -> None:
-        alerts.append(
-            {
-                "schema_version": OBSERVER_ALERT_SCHEMA,
-                "project_id": project.project_id,
-                "alert_key": alert_key,
-                "severity": severity,
-                "status": "active",
-                "title": title,
-                "explanation": explanation,
-                "canonical_identity": canonical_identity,
-                "observed_at": observed_at,
-                "provenance": provenance,
-            }
-        )
+    def add_alert(**fields: object) -> None:
+        alerts.append({
+            "schema_version": OBSERVER_ALERT_SCHEMA,
+            "project_id": project.project_id,
+            "status": "active",
+            "observed_at": observed_at,
+            **fields,
+        })
 
     consistency = snapshot.get("snapshot_consistency")
     if isinstance(consistency, dict) and consistency.get("state") == "unstable":
@@ -852,6 +870,9 @@ def derive_snapshot_alerts(project: ObserverProject, snapshot: dict[str, object]
                 }
             ],
         )
+
+    for spec in presentation_alert_specs(snapshot.get("presentation")):
+        add_alert(**spec)
 
     for row in snapshot.get("workstreams") or []:
         if not isinstance(row, dict):
@@ -1618,6 +1639,8 @@ def build_observer_snapshot(
     continuations = list(final.get("continuations") or [])
     workstreams, semantic_summary = attach_semantic_interpretations(project, workstreams, continuations)
     narrative_summary = project_narrative_status(project, workstreams, continuations)
+    target_views = build_target_views(project, {"workstreams": workstreams, "continuations": continuations})
+    target_presentation = attach_presentation_status(project, target_views)
     snapshot = {
         "schema_version": OBSERVER_CURRENT_SCHEMA,
         "project_id": project.project_id,
@@ -1639,41 +1662,14 @@ def build_observer_snapshot(
         "alerts": [],
         "semantic": semantic_summary,
         "project_narrative": narrative_summary,
+        "targets": target_views,
+        "presentation": target_presentation,
     }
     snapshot["alerts"] = derive_snapshot_alerts(project, snapshot)
     sanitized = sanitize_observer_payload(snapshot)
     if not isinstance(sanitized, dict):
         raise TypeError("Observer snapshot sanitization must preserve object shape")
     return sanitized
-
-
-def _status_payload(
-    project: ObserverProject,
-    *,
-    last_started: str | None,
-    last_success: str | None,
-    last_failure: str | None,
-    last_duration_ms: int | None,
-    last_run_id: str | None,
-    last_run_status: str | None,
-    worktrees_scanned: int,
-    errors: list[str],
-    data_age: dict[str, object] | None = None,
-) -> dict[str, object]:
-    return {
-        "schema_version": OBSERVER_STATUS_SCHEMA,
-        "project_id": project.project_id,
-        "acf_version": VERSION,
-        "last_started": last_started,
-        "last_success": last_success,
-        "last_failure": last_failure,
-        "last_duration_ms": last_duration_ms,
-        "last_run_id": last_run_id,
-        "last_run_status": last_run_status,
-        "worktrees_scanned": worktrees_scanned,
-        "errors": errors,
-        "data_age": data_age,
-    }
 
 
 def _estimate_observer_cadence_seconds(
@@ -1816,8 +1812,9 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
             }
             previous_status = _read_json_object(paths["status"]) or {}
             data_age = observer_data_age(current, paths["runs"], paths["history"])
-            status = _status_payload(
+            status = observer_status_payload(
                 project,
+                acf_version=VERSION,
                 last_started=started_at,
                 last_success=finished_at,
                 last_failure=previous_status.get("last_failure") if isinstance(previous_status.get("last_failure"), str) else None,
@@ -1873,8 +1870,9 @@ def observer_snapshot(project: ObserverProject) -> tuple[dict[str, object], dict
             }
             previous_status = _read_json_object(paths["status"]) or {}
             data_age = observer_data_age(_read_json_object(paths["current"]), paths["runs"], paths["history"])
-            status = _status_payload(
+            status = observer_status_payload(
                 project,
+                acf_version=VERSION,
                 last_started=started_at,
                 last_success=previous_status.get("last_success") if isinstance(previous_status.get("last_success"), str) else None,
                 last_failure=finished_at,

@@ -72,6 +72,38 @@ def observer_paths(project: Any) -> dict[str, Path]:
     }
 
 
+def observer_status_payload(
+    project: Any,
+    *,
+    acf_version: str,
+    last_started: str | None,
+    last_success: str | None,
+    last_failure: str | None,
+    last_duration_ms: int | None,
+    last_run_id: str | None,
+    last_run_status: str | None,
+    worktrees_scanned: int,
+    errors: list[str],
+    data_age: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Build the persisted Observer self-health/status payload."""
+
+    return {
+        "schema_version": "acf.observer.status.v1",
+        "project_id": project.project_id,
+        "acf_version": acf_version,
+        "last_started": last_started,
+        "last_success": last_success,
+        "last_failure": last_failure,
+        "last_duration_ms": last_duration_ms,
+        "last_run_id": last_run_id,
+        "last_run_status": last_run_status,
+        "worktrees_scanned": worktrees_scanned,
+        "errors": errors,
+        "data_age": data_age,
+    }
+
+
 def semantic_workstream_path(project: Any, workstream_id: str) -> Path:
     return observer_paths(project)["workstreams"] / workstream_id / "current.json"
 
@@ -1092,6 +1124,215 @@ def _project_narrative_html(current: dict[str, object]) -> str:
   </section>"""
 
 
+def _target_scope_ids(view: dict[str, object]) -> tuple[set[str], set[str]]:
+    workstream_ids = {
+        str(row.get("id"))
+        for row in view.get("workstreams") or []
+        if isinstance(row, dict) and isinstance(row.get("id"), str) and row.get("id")
+    }
+    task_ids = {
+        str(row.get("task_id"))
+        for row in view.get("continuations") or []
+        if isinstance(row, dict) and isinstance(row.get("task_id"), str) and row.get("task_id")
+    }
+    return workstream_ids, task_ids
+
+
+def _identity_in_target_scope(identity: object, workstream_ids: set[str], task_ids: set[str]) -> bool:
+    if not isinstance(identity, dict):
+        return False
+    identity_type = str(identity.get("type") or "")
+    raw_id = str(identity.get("id") or "")
+    raw_task_id = str(identity.get("task_id") or "")
+    if identity_type == "workstream" or raw_id:
+        if raw_id in workstream_ids:
+            return True
+    if identity_type == "continuation" or raw_task_id:
+        if raw_task_id in task_ids:
+            return True
+    return False
+
+
+def _target_alerts(current: dict[str, object], view: dict[str, object]) -> list[dict[str, object]]:
+    workstream_ids, task_ids = _target_scope_ids(view)
+    return [
+        row
+        for row in current.get("alerts") or []
+        if isinstance(row, dict)
+        and _identity_in_target_scope(row.get("canonical_identity"), workstream_ids, task_ids)
+    ]
+
+
+def _target_timeline_html(
+    view: dict[str, object],
+    machine_events: list[dict[str, object]],
+    interpretations: list[dict[str, object]],
+) -> str:
+    workstream_ids, task_ids = _target_scope_ids(view)
+    scoped_events = [
+        row
+        for row in machine_events
+        if _identity_in_target_scope(row.get("canonical_identity"), workstream_ids, task_ids)
+    ]
+    scoped_interpretations = [
+        row
+        for row in interpretations
+        if isinstance(row.get("workstream_id"), str) and row.get("workstream_id") in workstream_ids
+    ]
+    return _timeline_html(scoped_events, scoped_interpretations)
+
+
+def _target_run_chain_html(runs: object) -> str:
+    rows = [row for row in runs or [] if isinstance(row, dict)] if isinstance(runs, list) else []
+    if not rows:
+        return '<p class="muted">暂无可归属到该已注册自动任务的 run history。</p>'
+    body: list[str] = []
+    for row in reversed(rows[-12:]):
+        duration = row.get("duration_seconds")
+        lower_bound = row.get("lower_bound_duration_seconds")
+        if isinstance(duration, (int, float)):
+            duration_text = f"{duration:.1f}s"
+        elif isinstance(lower_bound, (int, float)):
+            duration_text = f"≥ {lower_bound:.1f}s (lower bound)"
+        else:
+            duration_text = "unknown"
+        body.append(
+            '<article class="target-run">'
+            f'<div><strong>{_html_text(row.get("status"))}</strong> · '
+            f'<code>{_html_text(row.get("run_id"))}</code></div>'
+            f'<div class="muted">start: {_html_text(_dashboard_display_time(row.get("started_at")))} · '
+            f'end: {_html_text(_dashboard_display_time(row.get("finished_at")), "—")} · '
+            f'last activity: {_html_text(_dashboard_display_time(row.get("last_activity_at")), "—")} · '
+            f'duration: {_html_text(duration_text)}</div>'
+            f'<div>phase: <code>{_html_text(row.get("phase"))}</code> · outcome: '
+            f'{_html_text(row.get("major_outcome"), "—")}</div>'
+            '</article>'
+        )
+    return "".join(body)
+
+
+def _target_semantic_story_html(view: dict[str, object]) -> tuple[str, str, set[str]]:
+    semantic = view.get("semantic_review") if isinstance(view.get("semantic_review"), dict) else {}
+    status = str(semantic.get("semantic_status") or "not_reviewed")
+    review = semantic.get("current_review") if isinstance(semantic.get("current_review"), dict) else {}
+    patch = semantic.get("active_transient_patch") if isinstance(semantic.get("active_transient_patch"), dict) else {}
+    density = str(patch.get("density") or "balanced")
+    emphasis = {str(item) for item in patch.get("emphasize_sections") or []}
+    if status != "current" or not review:
+        label = "Target Narrative 尚未复核" if status == "not_reviewed" else "Target Narrative 已陈旧"
+        return (
+            f'<section class="target-story"><div class="semantic-notice tone-border-warning"><strong>▲ {_html_text(label)}</strong>'
+            '<p>当前 Dashboard 不会把旧路线语义伪装成最新事实；请先完成 target-local Map Review。</p></div></section>',
+            density,
+            emphasis,
+        )
+    narrative = review.get("narrative") if isinstance(review.get("narrative"), dict) else {}
+    problems = [row for row in review.get("problems") or [] if isinstance(row, dict)]
+    proof_html = "".join(f"<li>{_html_text(item)}</li>" for item in narrative.get("recent_proof") or [])
+    route_nodes = "".join(
+        f'<article class="route-node"><strong>{_html_text(row.get("title"))}</strong><span class="badge tone-{_narrative_tone(row.get("status"))}">{_html_text(row.get("status"))}</span><p>{_html_text(row.get("summary"))}</p></article>'
+        for row in narrative.get("route_nodes") or [] if isinstance(row, dict)
+    ) or '<p class="muted">当前复核没有结构化 route node。</p>'
+    problem_html = "".join(
+        f'<article class="problem-card tone-border-{("critical" if row.get("blocking_impact") in {"blocks_task", "blocks_current_step"} else "warning")} "><strong>{_html_text(row.get("title"))}</strong><p>{_html_text(row.get("summary"))}</p><div class="muted">处理者：{_html_text(row.get("handler"))} · 计划影响：{_html_text(row.get("plan_impact"))} · 状态：{_html_text(row.get("status"))}</div></article>'
+        for row in problems
+    ) or '<p class="muted">当前复核没有需要单列的问题。</p>'
+    presentation_type = patch.get("presentation_type") or review.get("presentation_type")
+    patch_notice = (
+        f'<div class="semantic-notice"><strong>临时展示调整：{_html_text(patch.get("patch_id"))}</strong>'
+        f'<p>{_html_text(patch.get("reviewed_intent"))}</p></div>' if patch else ""
+    )
+    def story_section(key: str, title: str, body: str) -> str:
+        emphasized = " is-emphasized" if key in emphasis else ""
+        return f'<section class="story-section{emphasized}" data-story-section="{escape(key)}"><h4>{_html_text(title)}</h4>{body}</section>'
+    return (
+        '<section class="target-story">'
+        f'<div class="section-heading"><div><h3>目标、路线与当前决策</h3><p class="muted">当前 Map Review：<code>{_html_text(review.get("review_id"))}</code></p></div><span class="badge tone-active">{_html_text(presentation_type)}</span></div>'
+        f'{patch_notice}<div class="story-grid">'
+        f'{story_section("goal", "最终目标", f"<p>{_html_text(narrative.get("overall_goal"))}</p>")}'
+        f'{story_section("route", "完整路线", f"<p>{_html_text(narrative.get("route_summary"))}</p><div class=\"route-grid\">{route_nodes}</div>")}'
+        f'{story_section("current_position", "当前位置", f"<p>{_html_text(narrative.get("current_position"))}</p><p><strong>为什么现在做：</strong>{_html_text(narrative.get("why_now"))}</p>")}'
+        f'{story_section("recent_proof", "最近证明 / 排除 / 改变", f"<ul>{proof_html}</ul>")}'
+        f'{story_section("problems", "当前问题与计划影响", problem_html)}'
+        f'{story_section("next_logic", "下一步及理由", f"<p>{_html_text(narrative.get("next_logic"))}</p>")}'
+        '</div></section>',
+        density,
+        emphasis,
+    )
+
+
+def _target_view_html(
+    current: dict[str, object],
+    view: dict[str, object],
+    machine_events: list[dict[str, object]],
+    interpretations: list[dict[str, object]],
+    *,
+    active: bool,
+) -> str:
+    target = view.get("target") if isinstance(view.get("target"), dict) else {}
+    target_id = str(target.get("target_id") or "unknown")
+    local_current = dict(current)
+    local_current["continuations"] = list(view.get("continuations") or [])
+    workstreams = [row for row in view.get("workstreams") or [] if isinstance(row, dict)]
+    cards = "".join(_workstream_card_html(local_current, row) for row in workstreams)
+    if not cards:
+        cards = '<p class="muted">该 target 当前没有匹配到 Workstream；Observer 不会从其他 Workstream 猜测替代内容。</p>'
+    scoped_alerts = _target_alerts(current, view)
+    alerts_html = "".join(_dashboard_alert_html(row) for row in scoped_alerts) or '<p class="muted">该 target 当前没有 Alert。</p>'
+    timeline = _target_timeline_html(view, machine_events, interpretations)
+    story_html, density, emphasis = _target_semantic_story_html(view)
+    route_ref = target.get("route_ref")
+    route_html = f' · route <code>{_html_text(route_ref)}</code>' if route_ref else ""
+    return f"""
+  <section class="target-panel {'is-active' if active else ''} density-{escape(density, quote=True)}" data-target-panel="{escape(target_id, quote=True)}">
+    <div class="section-heading"><div><h2>{_html_text(target.get('title'))}</h2>
+    <p class="muted"><code>{_html_text(target_id)}</code> · {_html_text(target.get('mode'))} · automation <code>{_html_text(target.get('automation_ref'))}</code>{route_html}</p></div>
+    <span class="badge tone-active">registered target</span></div>
+    {story_html}
+    <section class="target-subsection"><h3>当前执行范围</h3><div class="workstream-list">{cards}</div></section>
+    <section class="target-subsection {'is-emphasized' if 'runs' in emphasis else ''}"><h3>Run chain / 自动任务运行历史</h3>{_target_run_chain_html(view.get('runs'))}</section>
+    <section class="target-subsection {'is-emphasized' if 'alerts' in emphasis else ''}"><h3>Target Alerts</h3>{alerts_html}</section>
+    <section class="target-subsection"><h3>Target Timeline</h3>{timeline}</section>
+  </section>"""
+
+
+def _target_pages_html(
+    current: dict[str, object],
+    machine_events: list[dict[str, object]],
+    interpretations: list[dict[str, object]],
+) -> tuple[str, str, list[dict[str, object]]]:
+    target_state = current.get("targets") if isinstance(current.get("targets"), dict) else {}
+    views = [row for row in target_state.get("targets") or [] if isinstance(row, dict)]
+    if not views:
+        return (
+            '<div class="target-tabs" role="tablist"><span class="muted">No registered targets</span></div>',
+            '<section class="panel"><div class="semantic-notice"><strong>○ 尚未注册 Observer target</strong>'
+            '<p>Dashboard 不会把 Workstream/worktree 的存在自动当成用户要观察的 Scheduled Task。请先通过正式 Target Registry 注册目标。</p></div></section>',
+            [],
+        )
+    tabs: list[str] = []
+    panels: list[str] = []
+    scoped_alerts: list[dict[str, object]] = []
+    for index, view in enumerate(views):
+        target = view.get("target") if isinstance(view.get("target"), dict) else {}
+        target_id = str(target.get("target_id") or f"target-{index}")
+        tabs.append(
+            f'<button class="target-tab {"is-active" if index == 0 else ""}" type="button" '
+            f'data-target-tab="{escape(target_id, quote=True)}">{_html_text(target.get("title") or target_id)}</button>'
+        )
+        panels.append(_target_view_html(current, view, machine_events, interpretations, active=index == 0))
+        scoped_alerts.extend(_target_alerts(current, view))
+    deduped: dict[str, dict[str, object]] = {}
+    for row in scoped_alerts:
+        key = str(row.get("alert_key") or _stable_digest(row))
+        deduped[key] = row
+    return (
+        '<div class="target-tabs" role="tablist">' + "".join(tabs) + "</div>",
+        '<section class="panel target-pages">' + "".join(panels) + "</section>",
+        list(deduped.values()),
+    )
+
+
 def render_dashboard_html(
     project: Any,
     *,
@@ -1113,21 +1354,46 @@ def render_dashboard_html(
     if not isinstance(safe_current, dict) or not isinstance(safe_status, dict):
         raise ValueError("dashboard requires object current/status payloads")
     workstreams = [row for row in safe_current.get("workstreams") or [] if isinstance(row, dict)]
-    alerts = [row for row in safe_current.get("alerts") or [] if isinstance(row, dict)]
-    self_alerts = [row for row in safe_self_alerts if isinstance(row, dict)] if isinstance(safe_self_alerts, list) else []
-    all_alerts = self_alerts + alerts
-    overall = _overall_health(safe_current, self_alerts)
-    current_data_age = safe_status.get("data_age") if isinstance(safe_status.get("data_age"), dict) else {}
-    active_count = sum(1 for row in workstreams if str(row.get("status") or "").casefold() in {"active", "blocked", "merging", "readytomerge"})
-    cards = "".join(_workstream_card_html(safe_current, row) for row in workstreams)
-    alerts_html = "".join(_dashboard_alert_html(row) for row in all_alerts) or '<p class="muted">当前没有需要关注的 Alert。</p>'
-    timeline = _timeline_html(
+    target_tabs_html, target_pages_html, target_alerts = _target_pages_html(
+        safe_current,
         safe_events if isinstance(safe_events, list) else [],
         safe_interpretations if isinstance(safe_interpretations, list) else [],
     )
-    project_map_html = _project_narrative_html(safe_current)
+    alerts = target_alerts
+    self_alerts = [row for row in safe_self_alerts if isinstance(row, dict)] if isinstance(safe_self_alerts, list) else []
+    all_alerts = self_alerts + alerts
+    current_data_age = safe_status.get("data_age") if isinstance(safe_status.get("data_age"), dict) else {}
+    target_state = safe_current.get("targets") if isinstance(safe_current.get("targets"), dict) else {}
+    target_views = [row for row in target_state.get("targets") or [] if isinstance(row, dict)]
+    registered_workstream_ids = {
+        str(row.get("id"))
+        for view in target_views
+        for row in view.get("workstreams") or []
+        if isinstance(row, dict) and isinstance(row.get("id"), str)
+    }
+    registered_workstreams = [row for row in workstreams if row.get("id") in registered_workstream_ids]
+    visible_current = dict(safe_current)
+    visible_current["alerts"] = alerts
+    visible_current["workstreams"] = registered_workstreams
+    overall = _overall_health(visible_current, self_alerts)
+    active_count = sum(1 for row in registered_workstreams if str(row.get("status") or "").casefold() in {"active", "blocked", "merging", "readytomerge"})
+    alerts_html = "".join(_dashboard_alert_html(row) for row in all_alerts) or '<p class="muted">当前没有需要关注的 Alert。</p>'
+    overview = target_state.get("project_overview") if isinstance(target_state.get("project_overview"), dict) else {}
+    overview_decision = str(overview.get("decision") or "undecided")
+    if overview_decision == "enabled":
+        project_map_html = _project_narrative_html(safe_current)
+    elif overview_decision == "disabled":
+        project_map_html = (
+            '<section class="panel"><div class="semantic-notice"><strong>Project Overview disabled by authority decision</strong>'
+            f'<p>{_html_text(overview.get("reason"))}</p><div class="provenance-list">{_narrative_provenance_html(overview.get("evidence_refs"))}</div></div></section>'
+        )
+    else:
+        project_map_html = (
+            '<section class="panel"><div class="semantic-notice"><strong>Project Overview 尚未决策</strong>'
+            '<p>在 authority 明确支持统一目标/路线/架构之前，Observer 不会把异构 targets 强行拼成一个项目地图。</p></div></section>'
+        )
     latest_proof: list[str] = []
-    for row in workstreams:
+    for row in registered_workstreams:
         semantic = row.get("semantic") if isinstance(row.get("semantic"), dict) else {}
         interpretation = semantic.get("interpretation") if semantic.get("status") == "current" and isinstance(semantic.get("interpretation"), dict) else {}
         for proof in interpretation.get("recent_proof") or []:
@@ -1162,30 +1428,30 @@ def render_dashboard_html(
 <title>{_html_text(title)}</title>
 <style>
 :root{{--bg:#f6f8fb;--surface:#fff;--text:#1d2433;--muted:#667085;--line:#d9dee8;--blue:#1769d2;--blue-bg:#eef5ff;--green:#16784a;--green-bg:#edf9f2;--amber:#9a6700;--amber-bg:#fff8df;--red:#b42318;--red-bg:#fff0ee;--gray-bg:#f2f4f7;--shadow:0 1px 2px rgba(16,24,40,.06)}}
-*{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.62 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}} a{{color:var(--blue)}} code{{font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#344054}} .page{{max-width:1280px;margin:auto;padding:24px}} h1{{font-size:24px;line-height:1.25;margin:0 0 4px}} h2{{font-size:19px;margin:0 0 14px}} h3{{font-size:17px;margin:0}} h4{{font-size:14px;margin:0 0 6px}} p{{margin:6px 0 12px}} ul{{margin:6px 0 12px;padding-left:20px}} .muted{{color:var(--muted)}} .canonical{{color:var(--muted);font-size:13px;margin-top:4px}} .top,.section-heading{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .top{{margin-bottom:18px}} .summary-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 22px}} .metric,.panel,.workstream-card{{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}} .metric{{padding:14px}} .metric strong{{display:block;font-size:18px;margin-top:3px}} .panel{{padding:18px;margin:0 0 18px}} .toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}} input,select{{font:inherit;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;min-height:38px}} input{{flex:1;min-width:220px}} .workstream-list{{display:grid;gap:14px}} .workstream-card{{padding:18px}} .card-header{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .badge-row{{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}} .badge{{display:inline-flex;align-items:center;gap:4px;border:1px solid currentColor;border-radius:999px;padding:2px 8px;font-size:12.5px;white-space:nowrap}} .tone-critical,.tone-text-critical{{color:var(--red)}} .tone-warning,.tone-text-warning{{color:var(--amber)}} .tone-healthy{{color:var(--green)}} .tone-active{{color:var(--blue)}} .tone-maintenance{{color:#6941c6}} .tone-muted{{color:var(--muted)}} .tone-border-critical{{border-left:4px solid var(--red)!important}} .tone-border-warning{{border-left:4px solid var(--amber)!important}} .tone-border-healthy{{border-left:4px solid var(--green)!important}} .tone-border-active{{border-left:4px solid var(--blue)!important}} .tone-border-maintenance{{border-left:4px solid #6941c6!important}} .tone-border-muted{{border-left:4px solid #98a2b3!important}} .semantic-notice{{background:var(--gray-bg);border-radius:8px;padding:9px 11px;margin:12px 0;font-size:13px}} .logic-grid,.technical-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;margin-top:14px}} .logic-grid section{{border-top:1px solid var(--line);padding-top:10px}} .span-two{{grid-column:1/-1}} details{{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}} summary{{cursor:pointer;font-weight:600;color:#344054}} .breakable{{word-break:break-all}} .alert{{border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:9px 0;background:#fff}} .alert-title{{font-weight:700}} .timeline-item{{display:grid;grid-template-columns:160px 1fr;gap:14px;border-left:2px solid var(--line);padding:5px 0 14px 14px;margin-left:5px}} .timeline-item time{{font-size:12.5px;color:var(--muted)}} .semantic-event{{border-left-color:var(--blue)}} .glossary-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .glossary-item{{border:1px solid var(--line);border-radius:8px;padding:12px}} .project-map{{border-top:3px solid #4f46e5}} .goal-card{{background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:14px;margin:12px 0 18px}} .map-section{{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}} .architecture-grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}} .map-node{{border:1px solid var(--line);border-radius:9px;padding:12px;background:#fff}} .map-node-head{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}} .architecture-edges{{list-style:none;padding:0;margin:12px 0}} .map-edge{{display:grid;grid-template-columns:auto auto auto 1fr;gap:8px;align-items:center;border-top:1px dashed var(--line);padding:8px 0}} .milestone-flow{{display:grid;gap:0;margin-top:12px}} .milestone{{display:grid;grid-template-columns:28px 1fr;gap:10px;position:relative;padding-bottom:15px}} .milestone:not(:last-child)::before{{content:"";position:absolute;left:8px;top:22px;bottom:0;border-left:2px solid var(--line)}} .milestone-marker{{font-size:16px;color:#98a2b3;z-index:1;background:var(--surface)}} .milestone.is-current .milestone-marker{{color:var(--blue)}} .milestone.is-current .milestone-body{{background:var(--blue-bg);border-color:#b2d4ff}} .milestone-body{{border:1px solid var(--line);border-radius:9px;padding:11px 13px}} .flow-meta{{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12.5px}} .current-position{{margin-top:14px;background:var(--blue-bg);border:1px solid #b2d4ff;border-radius:9px;padding:13px}} .provenance-list{{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}} .provenance-ref{{background:var(--gray-bg);border-radius:4px;padding:2px 5px}} .hidden{{display:none!important}} .empty{{padding:18px;color:var(--muted);text-align:center}} footer{{color:var(--muted);font-size:12.5px;padding:6px 0 20px}}
-@media(max-width:760px){{.page{{padding:14px}}.top,.section-heading,.card-header{{display:block}}.summary-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.logic-grid,.technical-grid,.glossary-grid,.architecture-grid{{grid-template-columns:1fr}}.span-two{{grid-column:auto}}.badge-row{{justify-content:flex-start;margin-top:10px}}.timeline-item{{grid-template-columns:1fr;gap:2px}}.map-edge{{grid-template-columns:auto auto auto;align-items:start}}.map-edge>span:last-of-type{{grid-column:1/-1}}}}
+*{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.62 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}} a{{color:var(--blue)}} code{{font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#344054}} .page{{max-width:1280px;margin:auto;padding:24px}} h1{{font-size:24px;line-height:1.25;margin:0 0 4px}} h2{{font-size:19px;margin:0 0 14px}} h3{{font-size:17px;margin:0}} h4{{font-size:14px;margin:0 0 6px}} p{{margin:6px 0 12px}} ul{{margin:6px 0 12px;padding-left:20px}} .muted{{color:var(--muted)}} .canonical{{color:var(--muted);font-size:13px;margin-top:4px}} .top,.section-heading{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .top{{margin-bottom:18px}} .summary-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 22px}} .metric,.panel,.workstream-card{{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}} .metric{{padding:14px}} .metric strong{{display:block;font-size:18px;margin-top:3px}} .panel{{padding:18px;margin:0 0 18px}} .toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}} input,select{{font:inherit;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;min-height:38px}} input{{flex:1;min-width:220px}} .workstream-list{{display:grid;gap:14px}} .workstream-card{{padding:18px}} .card-header{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .badge-row{{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}} .badge{{display:inline-flex;align-items:center;gap:4px;border:1px solid currentColor;border-radius:999px;padding:2px 8px;font-size:12.5px;white-space:nowrap}} .tone-critical,.tone-text-critical{{color:var(--red)}} .tone-warning,.tone-text-warning{{color:var(--amber)}} .tone-healthy{{color:var(--green)}} .tone-active{{color:var(--blue)}} .tone-maintenance{{color:#6941c6}} .tone-muted{{color:var(--muted)}} .tone-border-critical{{border-left:4px solid var(--red)!important}} .tone-border-warning{{border-left:4px solid var(--amber)!important}} .tone-border-healthy{{border-left:4px solid var(--green)!important}} .tone-border-active{{border-left:4px solid var(--blue)!important}} .tone-border-maintenance{{border-left:4px solid #6941c6!important}} .tone-border-muted{{border-left:4px solid #98a2b3!important}} .semantic-notice{{background:var(--gray-bg);border-radius:8px;padding:9px 11px;margin:12px 0;font-size:13px}} .logic-grid,.technical-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;margin-top:14px}} .logic-grid section{{border-top:1px solid var(--line);padding-top:10px}} .span-two{{grid-column:1/-1}} details{{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}} summary{{cursor:pointer;font-weight:600;color:#344054}} .breakable{{word-break:break-all}} .alert{{border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:9px 0;background:#fff}} .alert-title{{font-weight:700}} .timeline-item{{display:grid;grid-template-columns:160px 1fr;gap:14px;border-left:2px solid var(--line);padding:5px 0 14px 14px;margin-left:5px}} .timeline-item time{{font-size:12.5px;color:var(--muted)}} .semantic-event{{border-left-color:var(--blue)}} .glossary-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .glossary-item{{border:1px solid var(--line);border-radius:8px;padding:12px}} .project-map{{border-top:3px solid #4f46e5}} .goal-card{{background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:14px;margin:12px 0 18px}} .map-section{{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}} .architecture-grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}} .map-node{{border:1px solid var(--line);border-radius:9px;padding:12px;background:#fff}} .map-node-head{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}} .architecture-edges{{list-style:none;padding:0;margin:12px 0}} .map-edge{{display:grid;grid-template-columns:auto auto auto 1fr;gap:8px;align-items:center;border-top:1px dashed var(--line);padding:8px 0}} .milestone-flow{{display:grid;gap:0;margin-top:12px}} .milestone{{display:grid;grid-template-columns:28px 1fr;gap:10px;position:relative;padding-bottom:15px}} .milestone:not(:last-child)::before{{content:"";position:absolute;left:8px;top:22px;bottom:0;border-left:2px solid var(--line)}} .milestone-marker{{font-size:16px;color:#98a2b3;z-index:1;background:var(--surface)}} .milestone.is-current .milestone-marker{{color:var(--blue)}} .milestone.is-current .milestone-body{{background:var(--blue-bg);border-color:#b2d4ff}} .milestone-body{{border:1px solid var(--line);border-radius:9px;padding:11px 13px}} .flow-meta{{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12.5px}} .current-position{{margin-top:14px;background:var(--blue-bg);border:1px solid #b2d4ff;border-radius:9px;padding:13px}} .provenance-list{{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}} .provenance-ref{{background:var(--gray-bg);border-radius:4px;padding:2px 5px}} .target-tabs{{display:flex;gap:8px;flex-wrap:wrap}} .target-tab{{font:inherit;border:1px solid var(--line);background:#fff;color:var(--text);border-radius:999px;padding:7px 12px;cursor:pointer}} .target-tab.is-active{{border-color:#1769d2;background:var(--blue-bg);color:var(--blue);font-weight:700}} .target-panel{{display:none}} .target-panel.is-active{{display:block}} .target-subsection{{border-top:1px solid var(--line);padding-top:14px;margin-top:16px}} .target-run{{border-left:3px solid #98a2b3;padding:8px 12px;margin:8px 0;background:var(--gray-bg);border-radius:0 8px 8px 0}} .target-story{{border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:14px;background:#fbfcfe}} .story-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .story-section{{border:1px solid var(--line);border-radius:8px;padding:11px;background:#fff}} .story-section.is-emphasized,.target-subsection.is-emphasized{{border-left:4px solid var(--blue);background:var(--blue-bg)}} .route-grid{{display:grid;gap:7px;margin-top:8px}} .route-node{{border-left:3px solid #98a2b3;padding:7px 9px;background:var(--gray-bg)}} .route-node .badge{{float:right}} .problem-card{{border:1px solid var(--line);border-radius:7px;padding:8px 10px;margin:6px 0}} .density-compact .target-story,.density-compact .story-section{{padding:8px}} .density-detailed .story-grid{{gap:14px}} .hidden{{display:none!important}} .empty{{padding:18px;color:var(--muted);text-align:center}} footer{{color:var(--muted);font-size:12.5px;padding:6px 0 20px}}
+@media(max-width:760px){{.page{{padding:14px}}.top,.section-heading,.card-header{{display:block}}.summary-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.logic-grid,.technical-grid,.glossary-grid,.architecture-grid,.story-grid{{grid-template-columns:1fr}}.span-two{{grid-column:auto}}.badge-row{{justify-content:flex-start;margin-top:10px}}.timeline-item{{grid-template-columns:1fr;gap:2px}}.map-edge{{grid-template-columns:auto auto auto;align-items:start}}.map-edge>span:last-of-type{{grid-column:1/-1}}}}
 </style>
 </head>
 <body>
 <main class="page">
   <header class="top"><div><h1>{_html_text(title)}</h1><div class="muted">最后观察：{_html_text(_dashboard_display_time(safe_current.get('observed_at')))} · 数据状态：{_html_text(current_data_age.get('state'))}</div></div><div class="badge tone-{_html_text(overall)}"><span aria-hidden="true">{health_icon}</span> Overall Health：{_html_text(health_label)}</div></header>
   <section class="summary-grid" aria-label="项目总览">
-    <div class="metric"><span class="muted">Active Workstreams</span><strong>{active_count}</strong></div>
+    <div class="metric"><span class="muted">Registered targets</span><strong>{len(target_views)}</strong></div>
     <div class="metric"><span class="muted">当前 Alerts</span><strong>{len(all_alerts)}</strong></div>
     <div class="metric"><span class="muted">Observer data age</span><strong>{_html_text(current_data_age.get('state'))}</strong></div>
     <div class="metric"><span class="muted">Semantic coverage</span><strong>{_html_text((safe_current.get('semantic') or {}).get('status') if isinstance(safe_current.get('semantic'),dict) else None)}</strong></div>
   </section>
   {project_map_html}
+  <section class="panel target-navigation"><div class="section-heading"><div><h2>Observer Targets</h2><p class="muted">仅展示 Target Registry 中显式注册的 scheduled-automation targets。</p></div></div>{target_tabs_html}</section>
+  {target_pages_html}
   <section class="panel"><h2>最近重大进展</h2><ul>{latest_html}</ul></section>
   <section class="panel" id="alerts"><h2>当前 Alerts</h2>{alerts_html}</section>
-  <section class="panel"><h2>Workstreams</h2><div class="toolbar"><input id="search" type="search" placeholder="搜索 Workstream、canonical term、目标或下一步" aria-label="搜索"><select id="health-filter" aria-label="按健康状态筛选"><option value="all">全部健康状态</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="healthy">Healthy</option></select></div><div class="workstream-list" id="workstreams">{cards or '<p class="empty">当前没有 Workstream。</p>'}</div></section>
-  <section class="panel"><h2>Meaningful Timeline</h2><div id="timeline">{timeline}</div></section>
   <section class="panel"><h2>Semantic Glossary</h2><div class="glossary-grid" id="glossary">{glossary_html}</div></section>
   <footer>Observer 只解释本地事实，不参与 Writer control plane。Dashboard 为静态自包含文件，不需要 HTTP 服务。页面时间统一显示北京时间 (UTC+08:00)，底层 canonical state/history 仍使用 UTC。</footer>
 </main>
 <script id="observer-data" type="application/json">{embedded_json}</script>
 <script>
-(()=>{{const search=document.getElementById('search'),health=document.getElementById('health-filter');const apply=()=>{{const q=(search.value||'').trim().toLowerCase(),h=health.value;document.querySelectorAll('.workstream-card').forEach(card=>{{const text=card.dataset.search||'',okQ=!q||text.includes(q),okH=h==='all'||card.dataset.health===h;card.classList.toggle('hidden',!(okQ&&okH));}});document.querySelectorAll('.glossary-item').forEach(item=>item.classList.toggle('hidden',!!q&&!(item.dataset.search||'').includes(q)));}};search.addEventListener('input',apply);health.addEventListener('change',apply);}})();
+(()=>{{document.querySelectorAll('[data-target-tab]').forEach(tab=>tab.addEventListener('click',()=>{{const id=tab.dataset.targetTab;document.querySelectorAll('[data-target-tab]').forEach(item=>item.classList.toggle('is-active',item===tab));document.querySelectorAll('[data-target-panel]').forEach(panel=>panel.classList.toggle('is-active',panel.dataset.targetPanel===id));}}));}})();
 </script>
 </body></html>"""
 
