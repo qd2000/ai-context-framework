@@ -4,10 +4,22 @@
 
 ## Unreleased
 
+## v0.0.3.86 — 2026-09-04
+
 ### ACF_HOME destructive-target protection
 
 - `acf init` 与 `acf simplify --force` 现在在 destructive replacement 既有 target 前执行 `ACF_HOME` overlap fail-closed 检查：target 等于、位于或包含当前 runtime tree 时返回 `acf_home_target_protected`，阻止删除 continuation、Observer、closeout authorization 或 usage-log state；普通非破坏性 target 行为保持原语义，避免为事故 containment 无必要扩大限制。
-- 该保护是 2026-09-03 跨多个真实 Workstream 暴露的 user-level ACF state-loss incident 的 containment hardening；目前现场证据只能证明 `~/.acf` 在约 10:30 +08:00 被整体重建，尚不能把实际删除来源归因到 `init/simplify --force`，因此本变更不把未证实路径冒充 root cause。
+- 该保护是 2026-09-03 跨多个真实 Workstream 暴露的 user-level ACF state-loss incident 的 containment hardening。隔离复现已证明旧稳定版允许 active `ACF_HOME` 成为 destructive replacement target，而本版本会 fail-closed；现场证据仍不能证明约 10:30 +08:00 的具体 deleting process，因此不把该 primitive 冒充未取证的实际 actor。
+
+### Canonical Windows source isolation
+
+- canonical Windows `acf.cmd` 现在通过 uv-tool 自身 Python 的 isolated mode 执行 `-I -m acf`，不再把调用方当前目录加入模块解析优先路径；因此从 ACF 源码 worktree、普通项目目录或 `%TEMP%` 调用同一个 installed launcher，都不会被 checkout-local `acf.py` / `ai_context_framework` 源码影子替换。
+- install/update fake-uv 回归同步验证 `-I` launcher、`acf.exe` 移除、`Get-Command acf` canonical 解析与 `--version` 调用，保持 `.cmd` 只负责启动、不复制产品逻辑的边界。
+
+### Continuation post-loss workspace recovery
+
+- fenced recovery owner 在 durable evidence、明确 reason 与 Workstream direct write scope 都成立时，可以把当前 exact `baseline_external` 中经审阅确认属于本 continuation task 的 surviving WIP 显式 reclassify 为 `task_owned`；该窄路径解决 user-level continuation state 丢失/重建后，真实任务产出被永久保护成 external baseline、无法继续维护的 recovery dead-end。
+- reclassification 仍 fail-closed：已有 conflict、非 reviewable path、scope 越界、缺 evidence 或来源不确定时均拒绝；普通 external baseline 不会被自动接管，也不放宽 ownerless handoff / digest drift / generation fencing。
 
 ## v0.0.3.85 — 2026-09-02
 

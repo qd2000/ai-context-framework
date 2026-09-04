@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.85` 是当前候选推荐版本。它在 continuation authority lifecycle 基础上补齐长期 Scheduled Writer / Project Observer dogfood 所需的控制面与展示面：支持 secret-safe fenced credential transport、canonical Windows `acf.cmd`、durable Workstream closeout authorization、Observer V2 Target Registry / semantic review / transient-one-shot-durable presentation lifecycle，以及 bounded/fail-visible target reads 与 isolated candidate continuation read-home。Scheduler wrapper 继续把 generic ownership/recovery/effect/fencing/checkpoint/release authority 下沉到 stable `acf continuation prompt + execution_policy`，并要求 mission open 时主动寻找安全替代工作而不是机械 no-op。Project Observer 仍保持 **read broad / write narrow / control none**；candidate evidence、installed-state evidence 与独立 Production Observer acceptance 严格分离。
+`v0.0.3.86` 是当前发布候选版本。它针对 2026-09-03 暴露的 user-level ACF state-loss 风险补齐三条安全/恢复链：`init` / `simplify --force` 对 active `ACF_HOME` destructive overlap fail-closed；canonical Windows `acf.cmd` 使用 uv-tool Python 的 `-I -m acf`，避免调用目录源码 shadow installed stable；continuation recovery 允许 fenced owner 在 durable evidence、明确 reason 与 Workstream scope 约束下，把经审阅确认的 surviving `baseline_external` WIP 窄化 reclassify 为 `task_owned`。这些修复不把尚未直接取证的 2026-09-03 deleting process 冒充已定位 actor；正式稳定身份仍以 immutable tag/publish/global install 与 installed-state dogfood 完成为准。Project Observer 继续保持 **read broad / write narrow / control none**，Maintenance Writer 不用例行 Observer 刷新掩盖 Production activation failure。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
