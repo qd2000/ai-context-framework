@@ -7,6 +7,8 @@ migration can stay mechanical while behavior remains unchanged.
 from __future__ import annotations
 import re
 
+from ai_context_framework.observability import acf_home
+
 def write_command_context_root(args: argparse.Namespace) -> Path | None:
     command = getattr(args, "command", None)
     if command in {"init", "simplify"}:
@@ -113,7 +115,24 @@ def skip_placeholder_check(root: Path, rel_file: str) -> bool:
     return root.resolve() != TEMPLATE_DIR.resolve() and rel_file in TEMPLATE_EXAMPLE_FILES
 
 
+def destructive_target_overlaps_acf_home(target: Path) -> bool:
+    """Return whether replacing ``target`` could delete/corrupt active ACF runtime state."""
+
+    resolved_target = target.expanduser().resolve()
+    runtime_root = acf_home()
+    return (
+        resolved_target == runtime_root
+        or resolved_target.is_relative_to(runtime_root)
+        or runtime_root.is_relative_to(resolved_target)
+    )
+
+
 def ensure_clean_target(target: Path, force: bool, dry_run: bool = False) -> None:
+    if force and target.exists() and destructive_target_overlaps_acf_home(target):
+        raise SystemExit(
+            "acf_home_target_protected: destructive init/simplify target overlaps active "
+            f"ACF_HOME ({acf_home()}): {target.resolve()}"
+        )
     if not target.exists():
         return
     if force:

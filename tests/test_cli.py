@@ -2958,6 +2958,87 @@ class CliTests(unittest.TestCase):
             result = acf.check_context(target, "minimal", strict=False)
             self.assertFalse(result.errors)
 
+    def test_init_force_refuses_targets_overlapping_acf_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cases = {
+                "exact": (root / "exact-home", root / "exact-home"),
+                "inside": (root / "inside-home", root / "inside-home" / "context"),
+                "ancestor": (root / "ancestor" / "acf-home", root / "ancestor"),
+            }
+            for name, (runtime_home, target) in cases.items():
+                with self.subTest(name=name):
+                    runtime_home.mkdir(parents=True, exist_ok=True)
+                    target.mkdir(parents=True, exist_ok=True)
+                    sentinel = runtime_home / "continuation-state.json"
+                    sentinel.write_text("preserve me\n", encoding="utf-8")
+                    with isolated_acf_home(runtime_home):
+                        exit_code, stdout, _stderr = self.run_cli_output(
+                            ["init", str(target), "--force", "--json"]
+                        )
+                    self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
+                    payload = self.json_payload(stdout)
+                    self.assert_failure_json_contract(
+                        payload,
+                        error_code="acf_home_target_protected",
+                        command="init",
+                    )
+                    self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve me\n")
+
+    def test_simplify_force_refuses_acf_home_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            self.assertEqual(self.run_cli(["init", str(source)]), 0)
+            runtime_home = root / "acf-home"
+            runtime_home.mkdir()
+            sentinel = runtime_home / "observer-state.json"
+            sentinel.write_text("preserve me\n", encoding="utf-8")
+            with isolated_acf_home(runtime_home):
+                exit_code, stdout, _stderr = self.run_cli_output(
+                    ["simplify", str(source), str(runtime_home), "--force", "--json"]
+                )
+            self.assertEqual(exit_code, acf.EXIT_SAFETY_REFUSED)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(
+                payload,
+                error_code="acf_home_target_protected",
+                command="simplify",
+            )
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve me\n")
+
+    def test_init_nonforce_target_inside_isolated_acf_home_remains_nondestructive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_home = Path(tmp) / "acf-home"
+            runtime_home.mkdir()
+            target = runtime_home / "context"
+            with isolated_acf_home(runtime_home):
+                exit_code, stdout, _stderr = self.run_cli_output(
+                    ["init", str(target), "--json"]
+                )
+            self.assertEqual(exit_code, 0)
+            payload = self.json_payload(stdout)
+            self.assertTrue(payload["ok"])
+            self.assertTrue(target.exists())
+
+    def test_init_force_allows_cleanup_outside_isolated_acf_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime_home = root / "acf-home"
+            runtime_home.mkdir()
+            target = root / "scratch-context"
+            target.mkdir()
+            stale = target / "stale.txt"
+            stale.write_text("replace me\n", encoding="utf-8")
+            with isolated_acf_home(runtime_home):
+                exit_code, stdout, _stderr = self.run_cli_output(
+                    ["init", str(target), "--force", "--json"]
+                )
+            self.assertEqual(exit_code, 0)
+            payload = self.json_payload(stdout)
+            self.assertTrue(payload["ok"])
+            self.assertFalse(stale.exists())
+
     def test_init_standard_agents_exposes_cli_discovery(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

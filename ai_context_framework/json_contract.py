@@ -113,6 +113,11 @@ def write_next_actions(
 
 
 def error_next_actions(error_code: str) -> list[str]:
+    if error_code == "acf_home_target_protected":
+        return [
+            "Choose a destructive --force target that does not overlap the active ACF_HOME runtime-state tree.",
+            "Use an explicitly isolated temporary ACF_HOME for destructive init/simplify dogfood or tests.",
+        ]
     if error_code == "curation_draft_exists":
         return ["Review the existing curation draft; choose a different --name if a separate draft is needed."]
     if error_code == TARGET_EXISTS_APPEND_REQUIRED:
@@ -365,6 +370,8 @@ def error_next_actions(error_code: str) -> list[str]:
 
 
 def classify_cli_error(message: str) -> tuple[str, int]:
+    if message == "acf_home_target_protected" or message.startswith("acf_home_target_protected:"):
+        return "acf_home_target_protected", EXIT_SAFETY_REFUSED
     workstream_codes = (
         "workstream_not_initialized",
         "workstream_not_found",

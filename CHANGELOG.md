@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+### ACF_HOME destructive-target protection
+
+- `acf init` 与 `acf simplify --force` 现在在 destructive replacement 既有 target 前执行 `ACF_HOME` overlap fail-closed 检查：target 等于、位于或包含当前 runtime tree 时返回 `acf_home_target_protected`，阻止删除 continuation、Observer、closeout authorization 或 usage-log state；普通非破坏性 target 行为保持原语义，避免为事故 containment 无必要扩大限制。
+- 该保护是 2026-09-03 跨多个真实 Workstream 暴露的 user-level ACF state-loss incident 的 containment hardening；目前现场证据只能证明 `~/.acf` 在约 10:30 +08:00 被整体重建，尚不能把实际删除来源归因到 `init/simplify --force`，因此本变更不把未证实路径冒充 root cause。
+
 ## v0.0.3.85 — 2026-09-02
 
 ### Continuation fenced credential transport
