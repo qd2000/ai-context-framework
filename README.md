@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.85` 是当前候选推荐版本。它在 continuation authority lifecycle 基础上补齐长期 Scheduled Writer / Project Observer dogfood 所需的控制面与展示面：支持 secret-safe fenced credential transport、canonical Windows `acf.cmd`、durable Workstream closeout authorization、Observer V2 Target Registry / semantic review / transient-one-shot-durable presentation lifecycle，以及 bounded/fail-visible target reads 与 isolated candidate continuation read-home。Scheduler wrapper 继续把 generic ownership/recovery/effect/fencing/checkpoint/release authority 下沉到 stable `acf continuation prompt + execution_policy`，并要求 mission open 时主动寻找安全替代工作而不是机械 no-op。Project Observer 仍保持 **read broad / write narrow / control none**；candidate evidence、installed-state evidence 与独立 Production Observer acceptance 严格分离。
+`v0.0.3.86` 是当前发布候选版本。它针对 2026-09-03 暴露的 user-level ACF state-loss 风险补齐三条安全/恢复链：`init` / `simplify --force` 对 active `ACF_HOME` destructive overlap fail-closed；canonical Windows `acf.cmd` 使用 uv-tool Python 的 `-I -m acf`，避免调用目录源码 shadow installed stable；continuation recovery 允许 fenced owner 在 durable evidence、明确 reason 与 Workstream scope 约束下，把经审阅确认的 surviving `baseline_external` WIP 窄化 reclassify 为 `task_owned`。这些修复不把尚未直接取证的 2026-09-03 deleting process 冒充已定位 actor；正式稳定身份仍以 immutable tag/publish/global install 与 installed-state dogfood 完成为准。Project Observer 继续保持 **read broad / write narrow / control none**，Maintenance Writer 不用例行 Observer 刷新掩盖 Production activation failure。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
@@ -353,6 +353,7 @@ acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 - `init`：从 `template/` 生成标准或简化上下文目录。
 - `init --force-root-agent`：在根入口已存在时重写根薄入口。
 - `simplify`：从已有上下文生成只包含核心文件的简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
+- `init` / `simplify --force` 在执行 destructive replacement 前会保护当前 `ACF_HOME`（默认 `~/.acf`）：若既有 target 等于、位于或包含该 runtime tree，会以 `acf_home_target_protected` fail-closed，避免删除 continuation、Observer、closeout authorization 与 usage-log state。普通非破坏性 target 行为保持原语义；destructive dogfood/测试应显式使用隔离的临时 `ACF_HOME`。
 - `upgrade`：非破坏式补齐新版本上下文结构，包括标准 profile 的 human 层和 `Human_Index.md`、反馈归档目录和 active -> reference 规划依据追溯入口；不自动移动或覆盖 Active 当前任务；自定义旧文档无法识别时会追加 canonical marker 包围的升级说明块。
 - `plan init|add-task|set-task|focus|status`、`plan reference list|add|remove` 和 `plan stage list|add|set|done`：维护 `active/Task_Plan.md` 中的大任务、子任务板、`## 规划依据` 和 `## 任务阶段` 表；`plan reference add --path reference/X.md --purpose "用途"` 只记录 reference 路径和一句话用途，可用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md` 的输入材料；Task Stage CLI 只维护任务阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
 - `plan complete`：在子任务完成后将大任务计划标记为 Done。

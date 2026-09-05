@@ -30,7 +30,7 @@ class InstallScriptTests(unittest.TestCase):
         fake_python.write_text(
             "@echo off\r\n"
             "echo %*>>\"%FAKE_PYTHON_LOG%\"\r\n"
-            "if \"%1\"==\"-m\" if \"%2\"==\"acf\" if \"%3\"==\"--version\" (echo acf vFAKE& exit /b 0)\r\n"
+            "if \"%1\"==\"-I\" if \"%2\"==\"-m\" if \"%3\"==\"acf\" if \"%4\"==\"--version\" (echo acf vFAKE& exit /b 0)\r\n"
             "exit /b 0\r\n",
             encoding="utf-8",
         )
@@ -97,12 +97,12 @@ class InstallScriptTests(unittest.TestCase):
                 self.assertTrue(acf_cmd.exists(), result.stdout)
                 self.assertFalse((tool_bin / "acf.exe").exists(), result.stdout)
                 cmd_text = acf_cmd.read_text(encoding="utf-8")
-                self.assertIn("-m acf %*", cmd_text)
+                self.assertIn("-I -m acf %*", cmd_text)
                 self.assertIn(str(tool_dir / "ai-context-framework" / "Scripts" / "python.cmd"), cmd_text)
                 self.assertIn("Canonical Windows ACF command", result.stdout)
 
                 python_log = (root / "python.log").read_text(encoding="utf-8")
-                self.assertIn("-m acf --version", python_log)
+                self.assertIn("-I -m acf --version", python_log)
 
                 resolved = subprocess.run(
                     [

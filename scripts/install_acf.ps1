@@ -129,7 +129,11 @@ function Install-CanonicalAcfCmd {
     $cmdContent = (
         "@echo off`r`n" +
         "setlocal`r`n" +
-        $callPrefix + '"' + $pythonForCmd + '" -m acf %*' + "`r`n" +
+        # Isolated mode is required here: without -I, `python -m acf` prepends
+        # the caller's current directory to sys.path, allowing a checkout-local
+        # acf.py / ai_context_framework package to shadow the installed uv-tool
+        # package while the command still looks like canonical installed ACF.
+        $callPrefix + '"' + $pythonForCmd + '" -I -m acf %*' + "`r`n" +
         "exit /b %ERRORLEVEL%`r`n"
     )
     $temporaryCmd = "$acfCmd.tmp-$([guid]::NewGuid().ToString('N'))"

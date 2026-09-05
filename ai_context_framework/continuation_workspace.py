@@ -542,14 +542,18 @@ def reclassify_unexpected(
     reason: str,
     now: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Explicitly reclassify reviewed unexpected dirty output for one fenced owner.
+    """Explicitly reclassify reviewed dirty output for one fenced owner.
 
-    This is intentionally narrower than legacy adoption: it may only move
-    paths that are currently classified as ``unexpected_nonoverlap``.  The
-    caller must supply durable evidence and an explicit destination ownership
-    class.  Task-owned reclassification also records write intent so the
-    fenced owner can safely consume, modify, commit, or remove the reviewed
-    output without turning the next refresh into a provenance conflict.
+    This is intentionally narrower than legacy adoption.  External
+    classification only accepts paths currently classified as
+    ``unexpected_nonoverlap``.  Task-owned classification also accepts an
+    exact ``baseline_external`` path so a fenced recovery owner can explicitly
+    adopt durable task WIP that was already dirty when continuation state had
+    to be recreated.  The caller must supply durable evidence and an explicit
+    destination ownership class.  Task-owned reclassification also records
+    write intent so the fenced owner can safely consume, modify, commit, or
+    remove the reviewed output without turning the next refresh into a
+    provenance conflict.
     """
 
     current = classify(manifest, task_id=task_id, snapshot=snapshot, now=now)
@@ -580,10 +584,21 @@ def reclassify_unexpected(
                 )
 
     unexpected = _entry_map(current["unexpected_nonoverlap"])
-    missing = [path_value for path_value in selected if path_value not in unexpected]
+    existing_baseline_external = _entry_map(current["baseline_external"])
+    missing_task_paths = [
+        path_value
+        for path_value in task_paths
+        if path_value not in unexpected and path_value not in existing_baseline_external
+    ]
+    missing_external_paths = [
+        path_value for path_value in external_paths if path_value not in unexpected
+    ]
+    missing = [*missing_task_paths, *missing_external_paths]
     if missing:
         raise ContinuationWorkspaceError(
-            "workspace reclassification only accepts current unexpected_nonoverlap paths: "
+            "workspace reclassification source is not reviewable; task-owned accepts current "
+            "unexpected_nonoverlap or baseline_external paths, while baseline-external accepts "
+            "current unexpected_nonoverlap paths: "
             + ", ".join(sorted(missing)),
             code="workspace_reclassification_not_unexpected",
         )
@@ -609,18 +624,20 @@ def reclassify_unexpected(
     normalized_reason = _text(reason, field="reason", max_bytes=4096)
     normalized_now = _text(now, field="reviewed_at", max_bytes=128)
 
-    baseline_external = _entry_map(current["baseline_external"])
+    baseline_external = dict(existing_baseline_external)
     task_owned = _entry_map(current["task_owned"])
     intents = list(current["write_intents"])
     review_entries: list[dict[str, Any]] = []
     for path_value in sorted(selected):
-        live = unexpected[path_value]
         classification = "task_owned" if path_value in task_paths else "baseline_external"
         if classification == "task_owned":
+            live = unexpected.get(path_value) or baseline_external[path_value]
+            baseline_external.pop(path_value, None)
             task_owned[path_value] = live
             if path_value not in intents:
                 intents.append(path_value)
         else:
+            live = unexpected[path_value]
             baseline_external[path_value] = live
         review_entries.append(
             {
