@@ -33,6 +33,14 @@ ACF 自身的 WS012 Maintenance Writer 负责把该跨项目 issue 池真正消�
 
 WS012 已使用安装态 directive channel 对上述两个真实需求完成 add → prompt exposure → authority refresh → adopt dogfood。Project Map 的实现保持 Observer anti-masking：Maintenance Writer 只构建/验证产品代码与隔离 runtime，正式 `:34` Production Observer 仍独立负责 canonical snapshot/render。项目级叙事由 `observer narrative-source` 对显式 authority 文件和稳定项目 meaning facts 计算 fingerprint，再由 `observer narrative-apply` 保存版本化 derived state；Dashboard 只渲染已经通过 fingerprint/provenance 校验的 Overall Goal、Architecture Map、Logical Milestone Flow、Current Position 和 evidence，不从整个仓库自动猜项目故事。authority 变化后 narrative 必须 stale，直到新的显式语义解释被应用。
 
+### Continuation 长时间物理执行 liveness
+
+长时间确定性本地命令不能把“DevSpace/tool 调用尚未返回”误当成 owner 已结束。对于可能跨过 continuation stale window 的本地命令，Writer 使用 `acf continuation execution run <worktree> ... --key <deterministic-key> -- <exact argv>`：supervisor 先在现有 effect journal 建立 generation-bound deterministic identity，再启动**同一个**物理子进程，记录 PID + OS process-start identity，并在该精确进程仍存活时自动 heartbeat/按需 renew；进程退出后 effect 必须 terminalize 为 completed/failed。下一次 scheduler wake 只有在 lease 仍 active、普通 heartbeat 已 stale、且 persisted PID + start identity 仍精确命中同一 live process 时，才可用 `liveness_source=physical_execution` 继续判定 verified-live；裸 PID、PID reuse、zombie/dead process、unverifiable probe 或仅剩 active label 都不是正向 liveness evidence。physical execution 不绕过 expired lease/fencing；正常 supervisor 会通过 renew 防止 TTL 到期。
+
+该机制不引入 daemon、数据库或第二套 scheduler，也不允许 replay 已存在的 deterministic key。child stdout/stderr 仅作为 bounded diagnostic tail 返回；父命令自身仍遵守 DevSpace command-session terminality：拿到 `running=true/sessionId` 后必须持续 poll **同一个 session** 到明确 exit，不能启动 replacement/retry 或依赖该结果的后续 side effect。worktree candidate 只在隔离 `ACF_HOME` 测试该能力；正式 immutable release/global install 前不得让 candidate 改写 canonical continuation control plane。
+
+`pause` 在 physical execution 尚未启动时继续阻止新执行；若 durable pause marker 是在 supervised child 已经启动并取得精确 process identity 之后到达，则 supervisor 不得因为 pause 强制终止该 child。它继续维持当前 owner liveness，等待同一个 child 到达 terminal，再以 `pause_pending=true` 返回；随后当前 owner 执行正常 `continuation release`，由既有 release 语义把 continuation 转为 `paused`。这样既不遗弃/杀死已经开始的确定性执行，也不允许 pause 之后继续启动新 work。
+
 正式 Production Observer 的 narrative 刷新不能只停留在“检测 stale”：每次 `:34` activation 的初始 snapshot 若显示 Project Narrative 为 `stale | not_interpreted`，Observer Agent 必须读取显式 `narrative-source` projection/fingerprint，以当前项目 authority 生成 secret-safe derived narrative payload，再用**同一** fingerprint/source-path 集合执行 `narrative-apply`，最后重新 snapshot/render；source 在 source→apply 间变化或证据不足时保持 stale/fail-visible。该语义写入属于 Production Observer 的用户级 `.acf/.../observer/` narrow-write，不得由 `:04` Maintenance 普通 wake 代刷。临时 payload 只能放 OS scratch/temp 并在 apply 后删除，不得写进项目或形成第二份 Dashboard。只有最终 production snapshot 的 Project Narrative 为 `current`（或初始即 current）的 activation 才可计入 WS012 连续 acceptance。
 
 `acf.py` 先覆盖确定性工作：

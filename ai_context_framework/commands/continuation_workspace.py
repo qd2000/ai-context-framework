@@ -893,8 +893,10 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "owner_runner_id": owner_runner_id,
             "generation": owner_generation,
             "liveness": owner_liveness,
+            "liveness_source": lease_snapshot.get("liveness_source"),
             "heartbeat_age_seconds": lease_snapshot.get("heartbeat_age_seconds"),
             "orphan_candidate": bool(lease_snapshot.get("orphan_candidate")),
+            "physical_execution": lease_snapshot.get("physical_execution"),
             "verified_live": bool(owner_liveness == "fresh" and lease_snapshot.get("state") == "active"),
             "duplicate_wake_candidate": verified_live_other_owner,
             "can_claim": bool(status_snapshot.get("can_claim")),
@@ -918,6 +920,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                 "- Before project writes, declare concrete workspace intent and preserve unrelated external dirty state.\n"
                 "- If the project-access/scheduler transport rejects high-entropy owner credentials, set `ACF_CONTINUATION_FENCE_TOKEN_FILE` to a caller-controlled local temp file before claim/recover. ACF will write the new fence token there and omit the raw token from JSON; keep the same environment variable on fenced owner commands and delete the file after release.\n"
                 "- Before each non-idempotent or long-lived writer side effect, use deterministic effect identity; never replay an uncertain outcome.\n"
+                "- For a deterministic local command that may cross the stale window, use `acf continuation execution run ... --key <key> -- <argv>`. It records exact process identity, keeps owner liveness, terminalizes on exit, and still requires polling the same DevSpace session to terminal.\n"
                 "- Narrow ACF control-plane lifecycle exception: after the authenticated runner itself executes deterministic `acf workstream scope-add|merge-request|ready|merge-start|done` for the bound Workstream, the exact generated `docs/ai/active/Workstreams.md` plus that Workstream detail may be reviewed and committed as a dedicated control-plane checkpoint; this does not extend ordinary Task write scope or permit any third baseline/external path.\n"
                 "- Checkpoints and Git commits are persistence points, not stop signals. Release only when this execution session is actually handing off or ending."
             )
@@ -955,6 +958,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             conditional_sections.append(
                 "Stale or unverified owner recovery:\n"
                 "- An active lease is not proof that another agent is still working. Verify liveness first.\n"
+                "- A generation-bound active physical-execution record only counts as live when its persisted PID+start identity still probes as the exact same local process. Bare PIDs, unknown probes, and stale effect labels are not liveness evidence.\n"
                 "- Challenge timeout only forfeits the old ownership claim; it does not grant write access or prove external effects are terminal.\n"
                 "- Recovery remains receipt-bound and generation-fenced. A blocked recovery action does not prevent other safe diagnosis or evidence work."
             )

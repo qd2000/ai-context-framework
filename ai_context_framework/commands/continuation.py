@@ -37,6 +37,7 @@ from ai_context_framework.json_contract import json_enabled, print_json, set_res
 from ai_context_framework import (
     continuation_coordination,
     continuation_effect_archive,
+    continuation_execution,
     continuation_inventory,
     continuation_recovery,
     continuation_rounds,
@@ -46,6 +47,7 @@ from ai_context_framework.commands import continuation_parsers
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
 from ai_context_framework.commands import continuation_directives as continuation_directive_commands
 from ai_context_framework.commands import continuation_issue as continuation_issue_commands
+from ai_context_framework.commands import continuation_execution as continuation_execution_commands
 from ai_context_framework.commands import continuation_recovery as continuation_recovery_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
 from ai_context_framework.observability import (
@@ -393,6 +395,36 @@ def _load_effect_journal(
         raise _round_error(exc) from exc
 
 
+def _physical_execution_snapshot(
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    *,
+    generation: int | None,
+) -> dict[str, Any]:
+    """Probe durable physical-execution effects without inventing liveness."""
+    if not paths["effects"].exists():
+        return {"state": "absent", "live": False, "probes": []}
+    try:
+        journal = _load_effect_journal(paths, control)
+    except ContinuationError as exc:
+        return {
+            "state": "invalid",
+            "live": False,
+            "probes": [],
+            "error": str(exc),
+        }
+    probes = continuation_execution.physical_execution_probes(
+        journal["effects"],
+        generation=generation,
+    )
+    live = any(bool(probe.get("live")) for probe in probes)
+    return {
+        "state": "live" if live else "observed" if probes else "absent",
+        "live": live,
+        "probes": probes,
+    }
+
+
 def _journal_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     round_path = paths["rounds"]
     effect_path = paths["effects"]
@@ -685,22 +717,40 @@ def _lease_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> di
     active = expires > _now()
     stale_after_seconds = int(control["stale_after_minutes"]) * 60
     heartbeat_age_seconds: int | None = None
+    liveness_source = "lease_expiry"
+    physical_execution = {"state": "absent", "live": False, "probes": []}
     if not active:
         liveness = "expired"
     elif heartbeat_at is None:
         liveness = "legacy_unknown"
+        liveness_source = "legacy_lease"
     else:
         heartbeat_age_seconds = max(0, int((_now() - heartbeat_at).total_seconds()))
         liveness = "stale" if heartbeat_age_seconds > stale_after_seconds else "fresh"
+        liveness_source = "heartbeat"
+        if liveness == "stale":
+            physical_execution = _physical_execution_snapshot(
+                paths,
+                control,
+                generation=generation,
+            )
+            if physical_execution["live"]:
+                # Keep the public liveness vocabulary backward compatible so
+                # existing coordination/prompt branches continue to treat the
+                # owner as verified-live.  The source makes the reason explicit.
+                liveness = "fresh"
+                liveness_source = "physical_execution"
     orphan_candidate = active and liveness == "stale"
     return {
         "state": "active" if active else "expired",
         "path": str(path),
         "lease": lease,
         "liveness": liveness,
+        "liveness_source": liveness_source,
         "orphan_candidate": orphan_candidate,
         "heartbeat_age_seconds": heartbeat_age_seconds,
         "stale_after_seconds": stale_after_seconds,
+        "physical_execution": physical_execution,
     }
 
 
@@ -1960,6 +2010,7 @@ register_workspace_parsers = continuation_workspace_commands.register_workspace_
 register_configure_parser = continuation_workspace_commands.register_configure_parser
 register_coordination_parsers = continuation_coordination_commands.register_coordination_parsers
 register_issue_parser = continuation_issue_commands.register_issue_parser
+register_execution_parser = continuation_execution_commands.register_execution_parser
 
 
 __all__ = [
@@ -1992,6 +2043,7 @@ __all__ = [
     "register_round_effect_parsers",
     "register_coordination_parsers",
     "register_configure_parser",
+    "register_execution_parser",
     "register_workspace_parsers",
     "register_issue_parser",
 ]

@@ -36,6 +36,20 @@ directive revision 50 的 `dir-dd3b3c0fc01b452d9b3b` 将 WS012 的长期执行�
 
 该原则属于 P1.5 Prompt Execution Contract 的 durable Writer contract：static wrapper 继续只保存高显著 bootstrap/project-specific extension，不固化 volatile owner/stage；每轮 stable `acf continuation prompt + execution_policy` 必须机器可读地表达 active alternative search、blocked-lane switching、anti-busywork 的窄拒绝范围、checkpoint 后继续与 no-useful-work alternative audit。所有既有 owner/fencing/write-scope/effect/Git/Production Observer anti-masking 边界保持不变。
 
+### Human-First Visualization / Registry Recovery Gate
+
+durable directive `dir-5272efd83a0e434298e1` 将 Observer V2 的下一条强制路线调整为：**先安全关闭并发布当前 priority-100 continuation-liveness P0；随后必须完成 Human-First Visualization 与 expected-target Registry recovery 两个 Gate，才允许进入广泛 P4 或重启最终 Production acceptance。** 既有 P3 只代表 machine/runtime checkpoint，不再等同人类可读结果验收。
+
+- Dashboard 主视图必须中文优先、面向项目决策阅读，而不是 developer/debug state dump。英文 ID、fingerprint、schema、raw provenance 等保留但降级到次要/折叠层；任何 mojibake 都直接判定 Gate fail。
+- 每个 target 第一屏必须能直接回答：最终目标、完整路线、当前位置、为什么现在做这一步、最近证明/排除/改变了什么、问题及其 plan/route impact、下一步及理由、执行健康/是否需人工介入，以及最近 Agent run 的 start/end/duration/result/major outcome。
+- architecture / roadmap / dependency / branch / multi-lane 等关系必须根据最新 authority 选择真实图形语义，并在现有 self-contained、single-file、`file://` safe 边界内用确定性 HTML/CSS + inline SVG 或等价静态实现展示 meaningful edges、current path 与 problem binding；“卡片 + 文本箭头”不算关系图验收通过。
+- Human-First Visualization Gate 必须采用迭代视觉验收：每次有意义的 semantic/presentation 变化后生成真实 dogfood Dashboard，按显式 human-first rubric 与当前 authority/facts 检查实际 render，记录 pass/fail evidence，再继续改进直到 Gate 通过。unit tests、`check --strict`、schema、commit/checkpoint、测试数量或 HTML 成功生成都只是必要 machine evidence，不能单独关闭该 Gate；用户截图/视觉反馈属于一等 acceptance evidence，并可推翻此前 machine-only PASS。若当前执行环境不能真实检查 render，必须 fail-visible 保持 human acceptance open。
+- FCC 必须恢复用户明确授权的 WS079、WS080、WS086 scheduled-automation targets：从 fresh current authority 读取各自真实 continuation identity，幂等恢复，禁止猜测历史 task-id。重新评估 FCC Project Overview，并保存中文、evidence-backed 的 enable/disable 理由。
+- 新增 durable expected-target recovery/check contract：Observer user-level state 丢失后，要么从明确配置恢复 expected targets，要么明确报告 `unconfigured/incomplete/degraded` 与 alert；意外空 Registry 或缺少明确 expected target 绝不能得到绿色 Overall Health。该 contract 不得自动把任意 Workstream 提升为 target，也不得引入 daemon、数据库或额外 runtime dependency。
+- real-project acceptance 至少覆盖 ACF 与 FCC；AStockT_AI 在当前执行环境可合法访问时纳入。必须覆盖 target recovery、plan/strategy change、unexpected blocker、route-impacting issue、map/presentation change、stale/incomplete run 与 Project Overview change。Production Observer 的 `read broad / write narrow / control none`、anti-masking、Markdown authority、禁止直接编辑 `dashboard.html` 等边界保持不变。
+
+因此当前 durable 路线为：`P0 continuation-liveness fix + release/installed-state proof → Human-First Visualization Gate + expected-target Registry recovery Gate → P4 real-project dogfood → 后续稳定 release/global install/installed-state dogfood → latest-authority Production acceptance → ongoing maintenance`。一次视觉迭代成功、一个 P4 slice、一次 release 或一个 acceptance window 都不结束 WS012 长期 mission。
+
 ### Release terminal fact
 
 `v0.0.3.84` 的 merge、`origin/master` 与 annotated tag 已形成历史 identity，但 exact GitHub Actions run `32984611066` 已取得终态 `completed/cancelled`，且 PyPI `ai-context-framework==0.0.3.84` 未发布。因此 `.84` publishing effect 只允许按同一 external identity reconcile 为 failed/cancelled；禁止 re-merge、re-push、再次 retrigger 或把新代码塞入 `.84`。`.84` 不是可 global-install 的 stable baseline，后续能力进入新的稳定候选，版本号由当时 release authority 决定。
