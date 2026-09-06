@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.86
+Version: 0.0.3.87
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.86` 是当前发布候选版本。它针对 2026-09-03 暴露的 user-level ACF state-loss 风险补齐三条安全/恢复链：`init` / `simplify --force` 对 active `ACF_HOME` destructive overlap fail-closed；canonical Windows `acf.cmd` 使用 uv-tool Python 的 `-I -m acf`，避免调用目录源码 shadow installed stable；continuation recovery 允许 fenced owner 在 durable evidence、明确 reason 与 Workstream scope 约束下，把经审阅确认的 surviving `baseline_external` WIP 窄化 reclassify 为 `task_owned`。这些修复不把尚未直接取证的 2026-09-03 deleting process 冒充已定位 actor；正式稳定身份仍以 immutable tag/publish/global install 与 installed-state dogfood 完成为准。Project Observer 继续保持 **read broad / write narrow / control none**，Maintenance Writer 不用例行 Observer 刷新掩盖 Production activation failure。
+`v0.0.3.87` 是当前发布候选版本。它把 WS012 已冻结的 continuation physical-execution liveness 修复与 Scheduled Writer graceful handoff / overconstraint reduction 合并进入同一正常稳定版：`acf continuation execution run` 用 generation-bound deterministic effect、精确 `PID + process-start identity` 与自动 heartbeat/renew 证明同一长时间物理进程仍真实存活；authenticated `continuation release --handoff` 则允许 genuine safe session end 释放 owner/lease、结束当前 round，同时保持 long-lived mission `running`，下一 activation 仅在明确 durable handoff marker 存在时恢复 claim。generated execution policy 同步把 wall-clock 降为诊断信号，并明确 active lease、历史异常 generation、task-owned dirty、checkpoint/test/commit/Gate 或单 blocked lane 都不是独立 stop signal。正式稳定身份仍以 immutable tag/publish/global install 与 installed-state physical-liveness + graceful-handoff dogfood 完成为准；Project Observer 继续保持 **read broad / write narrow / control none**，Maintenance Writer 不用例行 Observer 刷新掩盖 Production activation failure。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
