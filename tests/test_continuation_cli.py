@@ -1250,6 +1250,140 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertTrue(doctor["can_claim"])
         self.assertEqual("absent", doctor["lease"]["state"])
 
+    def test_release_handoff_preserves_running_mission_and_clears_owner(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--path",
+                "handoff.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        (self.root / "handoff.txt").write_text("owned handoff WIP\n", encoding="utf-8")
+
+        code, checkpoint, stderr = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--stage",
+                "maintenance-next",
+                "--next-action",
+                "Resume the next safe maintenance action.",
+                "--verification",
+                "Current safe increment persisted before handoff.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{checkpoint}")
+        self.assertEqual("running", checkpoint["state"]["status"])
+
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--handoff",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        self.assertEqual("released_to_running_handoff", released["status"])
+        self.assertEqual("running", released["state"]["status"])
+        self.assertEqual("maintenance-next", released["state"]["stage"])
+        self.assertEqual(["handoff.txt"], released["workspace"]["task_owned_paths"])
+        self.assertEqual(
+            "Resume the next safe maintenance action.",
+            released["state"]["next_action"],
+        )
+        self.assertEqual("released_to_running_handoff", released["round"]["milestone"])
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertTrue(doctor["can_claim"])
+        self.assertEqual("absent", doctor["lease"]["state"])
+        self.assertEqual("running", doctor["state"]["status"])
+
+        code, next_claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{next_claim}")
+        self.assertGreater(int(next_claim["generation"]), int(claim["generation"]))
+        self.assertEqual(["handoff.txt"], next_claim["workspace"]["task_owned_paths"])
+
+    def test_release_handoff_rejects_explicit_terminal_status(self) -> None:
+        self.init_task()
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, payload, _ = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+                "--handoff",
+                "--final-status",
+                "ready",
+            ]
+        )
+        self.assertEqual(2, code)
+        self.assertEqual("continuation_release_mode_conflict", payload["error_code"])
+
     def test_checkpoint_rolls_bounded_state_lists_instead_of_invalidating_state(self) -> None:
         self.init_task()
         code, claim, stderr = self.run_json(
@@ -7560,6 +7694,17 @@ merge_resolution: merged
         self.assertFalse(policy["timing_is_execution_duration_target"])
         self.assertTrue(policy["platform_boundary_requires_explicit_signal"])
         self.assertFalse(policy["release_is_default_end_step"])
+        self.assertTrue(policy["control_plane_checks_proportional_to_evidence_backed_risk"])
+        self.assertTrue(policy["prefer_cheapest_deterministic_safe_continuation"])
+        self.assertEqual("fail_closed", policy["genuine_ambiguity_behavior"])
+        self.assertTrue(policy["safe_session_end_requires_graceful_handoff"])
+        self.assertFalse(policy["ghost_running_owner_allowed_at_safe_end"])
+        self.assertTrue(policy["verified_live_physical_execution_must_not_duplicate"])
+        self.assertIn("active_lease", policy["non_stop_signals"])
+        self.assertIn("single_blocked_lane", policy["non_stop_signals"])
+        self.assertTrue(policy["timing_policy"]["liveness_timing_configurable"])
+        self.assertTrue(policy["timing_policy"]["elapsed_time_diagnostic_only"])
+        self.assertFalse(policy["timing_policy"]["fixed_execution_budget_semantic_policy_allowed"])
         self.assertFalse(policy["unchanged_failed_action_may_repeat"])
         self.assertEqual(
             [
@@ -7593,6 +7738,17 @@ merge_resolution: merged
         self.assertTrue(resume_context["requires_local_authority_refresh"])
         self.assertEqual("absent", resume_context["round_journal"]["state"])
         self.assertEqual("absent", resume_context["effect_journal"]["state"])
+        observability = payload["execution_observability"]
+        self.assertEqual("acf.continuation.execution-observability.v1", observability["schema_version"])
+        self.assertTrue(observability["timing_values_are_diagnostic_only"])
+        self.assertFalse(observability["fixed_timing_budget_allowed"])
+        self.assertEqual("no_active_owner", observability["bootstrap_control_plane"]["owner_disposition"])
+        self.assertEqual("bootstrap", observability["project_work"]["stage"])
+        self.assertTrue(observability["project_work"]["git_clean"])
+        self.assertTrue(observability["physical_execution"]["tracked_effects_only"])
+        self.assertTrue(observability["graceful_handoff"]["explicit_safe_control_point_required"])
+        self.assertFalse(observability["abnormal_incomplete_termination"]["orphan_candidate"])
+        self.assertTrue(observability["recovery_overhead"]["diagnostic_counters_only"])
 
         self.assertIn("Overall objective", prompt)
         self.assertIn("Default execution plan (persisted): Run gate one.", prompt)
@@ -7601,11 +7757,17 @@ merge_resolution: merged
         self.assertIn("Continuous execution contract", prompt)
         self.assertIn("scheduler wake only resumes one continuous task", prompt)
         self.assertIn("It does not bound the amount of useful project work", prompt)
+        self.assertIn("Control-plane checks are risk-proportional", prompt)
+        self.assertIn("prefer the cheapest deterministic safe path", prompt)
         self.assertIn("search safe alternatives before no-work", prompt)
         self.assertIn("diagnosis, adjacent gap, validation, contract, dogfood, release prep", prompt)
         self.assertIn("Anti-busywork blocks only unchanged failure", prompt)
         self.assertIn("prefer mission/PLAN stage", prompt)
         self.assertIn("checkpoint => refresh and continue", prompt)
+        self.assertIn("are not stop signals", prompt)
+        self.assertIn("verified-live physical execution must never be duplicated", prompt)
+        self.assertIn("authenticated graceful handoff", prompt)
+        self.assertIn("Timing/overhead telemetry is diagnostic only", prompt)
         self.assertIn("A final assistant response ends the current execution session", prompt)
         self.assertIn("Task-level hard-stop conditions are exactly", prompt)
         self.assertIn("--objective-summary <current-goal-summary>", prompt)
@@ -7666,7 +7828,8 @@ merge_resolution: merged
         self.assertIn("Narrow ACF control-plane lifecycle exception", prompt)
         self.assertIn("scope-add|merge-request|ready|merge-start|done", prompt)
         self.assertIn("dedicated control-plane checkpoint", prompt)
-        self.assertIn("Release only when this execution session is actually handing off or ending", prompt)
+        self.assertIn("authenticated graceful handoff release mode", prompt)
+        self.assertIn("do not hand off while safe useful work remains", prompt)
         self.assertNotIn("Stale or unverified owner recovery", prompt)
 
     def test_prompt_fresh_other_runner_renders_duplicate_wake_without_recovery_busywork(self) -> None:

@@ -212,6 +212,40 @@ def writer_continuous_execution_contract() -> dict[str, Any]:
         "checkpoint_requires_authority_refresh_and_continue": True,
         "session_end_without_hard_stop_requires_exhausted_safe_incremental_alternatives": True,
         "no_useful_work_conclusion_requires_alternative_audit": True,
+        "control_plane_checks_proportional_to_evidence_backed_risk": True,
+        "prefer_cheapest_deterministic_safe_continuation": True,
+        "genuine_ambiguity_behavior": "fail_closed",
+        "safe_session_end_requires_graceful_handoff": True,
+        "ghost_running_owner_allowed_at_safe_end": False,
+        "verified_live_physical_execution_must_not_duplicate": True,
+        "non_stop_signals": [
+            "active_lease",
+            "prior_abnormal_generation",
+            "task_owned_dirty_state",
+            "scheduler_wake",
+            "checkpoint",
+            "test",
+            "commit",
+            "gate_completion",
+            "single_blocked_lane",
+        ],
+        "timing_policy": {
+            "liveness_timing_configurable": True,
+            "elapsed_time_diagnostic_only": True,
+            "fixed_execution_budget_semantic_policy_allowed": False,
+        },
+        "execution_observability": {
+            "classes": [
+                "bootstrap_control_plane",
+                "project_work",
+                "physical_execution",
+                "graceful_handoff",
+                "abnormal_incomplete_termination",
+                "recovery_overhead",
+            ],
+            "timing_values_are_diagnostic_only": True,
+            "fixed_timing_budget_allowed": False,
+        },
     }
 
 
