@@ -37,6 +37,7 @@ from ai_context_framework.json_contract import json_enabled, print_json, set_res
 from ai_context_framework import (
     continuation_coordination,
     continuation_effect_archive,
+    continuation_execution,
     continuation_inventory,
     continuation_recovery,
     continuation_rounds,
@@ -46,6 +47,7 @@ from ai_context_framework.commands import continuation_parsers
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
 from ai_context_framework.commands import continuation_directives as continuation_directive_commands
 from ai_context_framework.commands import continuation_issue as continuation_issue_commands
+from ai_context_framework.commands import continuation_execution as continuation_execution_commands
 from ai_context_framework.commands import continuation_recovery as continuation_recovery_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
 from ai_context_framework.observability import (
@@ -393,6 +395,36 @@ def _load_effect_journal(
         raise _round_error(exc) from exc
 
 
+def _physical_execution_snapshot(
+    paths: Mapping[str, Path],
+    control: Mapping[str, Any],
+    *,
+    generation: int | None,
+) -> dict[str, Any]:
+    """Probe durable physical-execution effects without inventing liveness."""
+    if not paths["effects"].exists():
+        return {"state": "absent", "live": False, "probes": []}
+    try:
+        journal = _load_effect_journal(paths, control)
+    except ContinuationError as exc:
+        return {
+            "state": "invalid",
+            "live": False,
+            "probes": [],
+            "error": str(exc),
+        }
+    probes = continuation_execution.physical_execution_probes(
+        journal["effects"],
+        generation=generation,
+    )
+    live = any(bool(probe.get("live")) for probe in probes)
+    return {
+        "state": "live" if live else "observed" if probes else "absent",
+        "live": live,
+        "probes": probes,
+    }
+
+
 def _journal_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     round_path = paths["rounds"]
     effect_path = paths["effects"]
@@ -685,22 +717,40 @@ def _lease_snapshot(paths: Mapping[str, Path], control: Mapping[str, Any]) -> di
     active = expires > _now()
     stale_after_seconds = int(control["stale_after_minutes"]) * 60
     heartbeat_age_seconds: int | None = None
+    liveness_source = "lease_expiry"
+    physical_execution = {"state": "absent", "live": False, "probes": []}
     if not active:
         liveness = "expired"
     elif heartbeat_at is None:
         liveness = "legacy_unknown"
+        liveness_source = "legacy_lease"
     else:
         heartbeat_age_seconds = max(0, int((_now() - heartbeat_at).total_seconds()))
         liveness = "stale" if heartbeat_age_seconds > stale_after_seconds else "fresh"
+        liveness_source = "heartbeat"
+        if liveness == "stale":
+            physical_execution = _physical_execution_snapshot(
+                paths,
+                control,
+                generation=generation,
+            )
+            if physical_execution["live"]:
+                # Keep the public liveness vocabulary backward compatible so
+                # existing coordination/prompt branches continue to treat the
+                # owner as verified-live.  The source makes the reason explicit.
+                liveness = "fresh"
+                liveness_source = "physical_execution"
     orphan_candidate = active and liveness == "stale"
     return {
         "state": "active" if active else "expired",
         "path": str(path),
         "lease": lease,
         "liveness": liveness,
+        "liveness_source": liveness_source,
         "orphan_candidate": orphan_candidate,
         "heartbeat_age_seconds": heartbeat_age_seconds,
         "stale_after_seconds": stale_after_seconds,
+        "physical_execution": physical_execution,
     }
 
 
@@ -824,7 +874,17 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
     if effect_journal["state"] == "invalid":
         identity_errors.append("effect journal is malformed or identity-mismatched")
     pause = _read_json(paths["pause"], label="pause") if paths["pause"].exists() else None
-    rebaseline_workspace = lease["state"] == "absent" and state["status"] in RUNNABLE_STATUSES
+    latest_round = round_journal.get("latest")
+    ownerless_running_handoff = bool(
+        state["status"] == "running"
+        and lease["state"] == "absent"
+        and isinstance(latest_round, Mapping)
+        and latest_round.get("phase") == "released"
+        and latest_round.get("milestone") == "released_to_running_handoff"
+    )
+    rebaseline_workspace = lease["state"] == "absent" and (
+        state["status"] in RUNNABLE_STATUSES or ownerless_running_handoff
+    )
     workspace = continuation_workspace_commands.workspace_snapshot(
         root,
         paths,
@@ -862,7 +922,7 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         and workspace_claimable
         and pause is None
         and lease["state"] in {"absent", "expired"}
-        and (state["status"] in RUNNABLE_STATUSES or recoverable_expired)
+        and (state["status"] in RUNNABLE_STATUSES or recoverable_expired or ownerless_running_handoff)
     )
     blocked: list[str] = list(identity_errors)
     if workspace["state"] == "absent" and workspace_unclassified_paths:
@@ -880,7 +940,7 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         blocked.append("expired_round_head_changed")
     if effect_reconciliation_required:
         blocked.append("effect_reconciliation_required")
-    if state["status"] not in RUNNABLE_STATUSES and not recoverable_expired:
+    if state["status"] not in RUNNABLE_STATUSES and not recoverable_expired and not ownerless_running_handoff:
         blocked.append(f"state_status:{state['status']}")
     return {
         "ok": not identity_errors,
@@ -897,6 +957,7 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         "workstream": workstream,
         "state_dir": str(paths["directory"]),
         "recoverable_expired_round": recoverable_expired,
+        "ownerless_running_handoff": ownerless_running_handoff,
         "expired_round_head_changed": expired_round_head_changed,
         "effect_reconciliation_required": effect_reconciliation_required,
         "orphan_candidate": orphan_candidate,
@@ -1080,7 +1141,8 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                     ],
                 )
             recoverable = state["status"] == "running" and status["lease"]["state"] == "expired"
-            if state["status"] not in RUNNABLE_STATUSES and not recoverable:
+            ownerless_running_handoff = bool(status.get("ownerless_running_handoff"))
+            if state["status"] not in RUNNABLE_STATUSES and not recoverable and not ownerless_running_handoff:
                 raise ContinuationError(
                     f"state is not runnable: {state['status']}", code="continuation_not_runnable", exit_code=3
                 )
@@ -1161,6 +1223,10 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
             if recoverable:
                 state["verification"] = _append_unique(
                     state["verification"], ["Recovered an expired lease after identity/workspace ownership checks."]
+                )
+            elif ownerless_running_handoff:
+                state["verification"] = _append_unique(
+                    state["verification"], ["Resumed from an explicit graceful running handoff."]
                 )
             state = _write_state(paths["state"], state)
             return {
@@ -1747,134 +1813,13 @@ def continuation_checkpoint_command(args: argparse.Namespace) -> int:
 
 
 def continuation_release_command(args: argparse.Namespace) -> int:
-    def operation() -> dict[str, Any]:
-        root = _workspace_root(args.path)
-        paths = _paths(root, args.task_id)
-        with _state_lock(paths["lock"]):
-            control = _load_control(paths, root)
-            snapshot = _lease_snapshot(paths, control)
-            lease = _assert_lease_owner(
-                snapshot,
-                lease_id=args.lease_id,
-                fence_token=continuation_workspace_commands.resolve_fence_token(args),
-                generation=args.generation,
-            )
-            generation = lease.get("generation")
-            round_journal: dict[str, Any] | None = None
-            if generation is not None:
-                round_journal = _load_round_journal(paths, control, require_existing=True)
-            state = _load_state(paths)
-            git = _git_identity(root)
-            workspace_manifest = continuation_workspace_commands.load_workspace_manifest(paths, control)
-            workspace_snapshot = continuation_workspace_commands.workspace_current_snapshot(root)
-            workspace_summary: dict[str, Any] | None = None
-            workspace_release_blocked = False
-            workspace_block_reason: str | None = None
-            if workspace_manifest is not None:
-                try:
-                    workspace_manifest = continuation_workspace.handoff_generation(
-                        workspace_manifest,
-                        task_id=str(control["task_id"]),
-                        snapshot=workspace_snapshot,
-                        now=_iso(),
-                    )
-                except continuation_workspace.ContinuationWorkspaceError as exc:
-                    raise continuation_workspace_commands.workspace_error(exc) from exc
-                workspace_summary = continuation_workspace.summary(
-                    workspace_manifest,
-                    task_id=str(control["task_id"]),
-                )
-                workspace_release_blocked = bool(workspace_summary["has_conflicts"])
-                if workspace_release_blocked:
-                    workspace_block_reason = "workspace_conflict"
-            elif workspace_snapshot["entries"]:
-                workspace_release_blocked = True
-                workspace_block_reason = "workspace_provenance_missing"
-            pause = _read_json(paths["pause"], label="pause") if paths["pause"].exists() else None
-            outcome = "released"
-            if pause is not None:
-                state["status"] = "paused"
-                state["next_action"] = "Wait for an explicit continuation resume action."
-                outcome = "released_to_paused"
-            elif workspace_release_blocked:
-                state["status"] = "reconciling"
-                state["next_action"] = "Reconcile ambiguous workspace ownership before another round."
-                state["verification"] = _append_unique(
-                    state["verification"],
-                    [f"Release failed closed because {workspace_block_reason or 'workspace ownership is ambiguous'}."],
-                )
-                outcome = "released_to_reconciling"
-            else:
-                final_status = args.final_status
-                if final_status is None:
-                    final_status = "ready" if state["status"] == "running" else state["status"]
-                if final_status not in STATE_STATUSES - {"running"}:
-                    raise ContinuationError("invalid final status", code="state_invalid")
-                state["status"] = final_status
-                if args.stage:
-                    state["stage"] = args.stage.strip()
-                if args.next_action:
-                    state["next_action"] = args.next_action.strip()
-                state["verification"] = _append_unique(state["verification"], args.verification or [])
-            release_now = _iso()
-            finished_round: dict[str, Any] | None = None
-            if round_journal is not None:
-                try:
-                    round_journal, finished_round = continuation_rounds.finish_round(
-                        round_journal,
-                        task_id=str(control["task_id"]),
-                        generation=_require_fenced_generation(lease),
-                        lease_id=str(lease["lease_id"]),
-                        reconciling=state["status"] == "reconciling",
-                        milestone=outcome,
-                        evidence_refs=[],
-                        now=release_now,
-                    )
-                except continuation_rounds.ContinuationRoundError as exc:
-                    raise _round_error(exc) from exc
-            state["updated_at"] = release_now
-            state = _write_state(paths["state"], state)
-            if round_journal is not None:
-                _write_json(paths["rounds"], round_journal)
-            if workspace_manifest is not None:
-                _write_json(paths["workspace"], workspace_manifest)
-            receipt = {
-                "schema_version": RECEIPT_SCHEMA,
-                "task_id": control["task_id"],
-                "lease_id": lease["lease_id"],
-                "runner_id": lease["runner_id"],
-                "generation": lease.get("generation"),
-                "workspace_root": str(root),
-                "branch": git["branch"],
-                "head_before": lease["head"],
-                "head_after": git["head"],
-                "started_at": lease["issued_at"],
-                "released_at": release_now,
-                "outcome": outcome,
-                "state_status": state["status"],
-                "state_stage": state["stage"],
-                "dirty_entries": git["dirty_entries"],
-            }
-            _write_json(paths["receipt"], receipt)
-            coordination_resolution = continuation_coordination_commands.record_owner_release(
-                paths,
-                control,
-                lease,
-                now=release_now,
-            )
-            paths["lease"].unlink(missing_ok=False)
-            return {
-                "ok": outcome == "released",
-                "status": outcome,
-                "state": state,
-                "receipt": receipt,
-                "round": finished_round,
-                "workspace": workspace_summary,
-                "coordination_resolution": coordination_resolution,
-                "next_action": state["next_action"],
-            }
+    # Compatibility shim for callers that imported the historical command from
+    # this module. Runtime parser wiring lives in the bounded release adapter.
+    from ai_context_framework.commands.continuation_release import (
+        continuation_release_command as release_command,
+    )
 
-    return _guarded(args, "continuation release", operation)
+    return release_command(args)
 
 
 def continuation_pause_command(args: argparse.Namespace) -> int:
@@ -1960,6 +1905,7 @@ register_workspace_parsers = continuation_workspace_commands.register_workspace_
 register_configure_parser = continuation_workspace_commands.register_configure_parser
 register_coordination_parsers = continuation_coordination_commands.register_coordination_parsers
 register_issue_parser = continuation_issue_commands.register_issue_parser
+register_execution_parser = continuation_execution_commands.register_execution_parser
 
 
 __all__ = [
@@ -1992,6 +1938,7 @@ __all__ = [
     "register_round_effect_parsers",
     "register_coordination_parsers",
     "register_configure_parser",
+    "register_execution_parser",
     "register_workspace_parsers",
     "register_issue_parser",
 ]

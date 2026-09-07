@@ -50,6 +50,7 @@ from ai_context_framework.commands import workstream_authorization as workstream
 from ai_context_framework.commands import worktree as worktree_commands
 from ai_context_framework.commands import continuation as continuation_commands, observer as observer_commands
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
+from ai_context_framework.commands import continuation_release as continuation_release_commands
 from ai_context_framework.commands.log import (
     build_usage_event,
     check_counts,
@@ -1315,6 +1316,10 @@ def build_parser() -> argparse.ArgumentParser:
         continuation_subparsers,
         add_json_argument,
     )
+    continuation_commands.register_execution_parser(
+        continuation_subparsers,
+        add_json_argument,
+    )
 
     continuation_renew_parser = continuation_subparsers.add_parser(
         "renew",
@@ -1368,25 +1373,10 @@ def build_parser() -> argparse.ArgumentParser:
         func=continuation_commands.continuation_checkpoint_command
     )
 
-    continuation_release_parser = continuation_subparsers.add_parser(
-        "release",
-        help="finish a round, record a receipt, and release the active lease",
+    continuation_release_commands.register_release_parser(
+        continuation_subparsers,
+        add_json_argument,
     )
-    continuation_release_parser.add_argument("path", nargs="?", type=Path)
-    continuation_release_parser.add_argument("--task-id", default=None)
-    continuation_release_parser.add_argument("--lease-id", required=True)
-    continuation_release_parser.add_argument("--generation", type=int, default=None)
-    continuation_release_parser.add_argument("--fence-token", default=None)
-    continuation_release_parser.add_argument(
-        "--final-status",
-        choices=tuple(sorted(continuation_commands.STATE_STATUSES - {"running"})),
-        default=None,
-    )
-    continuation_release_parser.add_argument("--stage", default=None)
-    continuation_release_parser.add_argument("--next-action", default=None)
-    continuation_release_parser.add_argument("--verification", action="append", default=None)
-    add_json_argument(continuation_release_parser)
-    continuation_release_parser.set_defaults(func=continuation_commands.continuation_release_command)
 
     continuation_pause_parser = continuation_subparsers.add_parser(
         "pause",

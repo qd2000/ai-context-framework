@@ -24,6 +24,7 @@ from ai_context_framework import (
 )
 from ai_context_framework.automation_contracts import (
     automation_prompt_execution_contract,
+    writer_continuous_execution_contract,
     writer_scheduler_wrapper_contract,
 )
 from ai_context_framework.commands import continuation_directives as continuation_directive_commands
@@ -756,6 +757,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                 ),
             },
         ]
+        continuous_execution_contract = writer_continuous_execution_contract()
         execution_policy = {
             "schema_version": "acf.continuation.execution_policy.v1",
             "mode": "goal_directed_continuous",
@@ -802,6 +804,17 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "timing_is_execution_duration_target": False,
             "platform_boundary_requires_explicit_signal": True,
             "release_is_default_end_step": False,
+            "control_plane_checks_proportional_to_evidence_backed_risk": True,
+            "prefer_cheapest_deterministic_safe_continuation": True,
+            "genuine_ambiguity_behavior": "fail_closed",
+            "safe_session_end_requires_graceful_handoff": True,
+            "ghost_running_owner_allowed_at_safe_end": False,
+            "verified_live_physical_execution_must_not_duplicate": True,
+            "non_stop_signals": list(continuous_execution_contract["non_stop_signals"]),
+            "timing_policy": dict(continuous_execution_contract["timing_policy"]),
+            "execution_observability_contract": dict(
+                continuous_execution_contract["execution_observability"]
+            ),
             "action_refusal_scope": "specific_action_only",
             "unchanged_failed_action_may_repeat": False,
             "hard_stop_conditions": hard_stop_conditions,
@@ -893,12 +906,60 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "owner_runner_id": owner_runner_id,
             "generation": owner_generation,
             "liveness": owner_liveness,
+            "liveness_source": lease_snapshot.get("liveness_source"),
             "heartbeat_age_seconds": lease_snapshot.get("heartbeat_age_seconds"),
             "orphan_candidate": bool(lease_snapshot.get("orphan_candidate")),
+            "physical_execution": lease_snapshot.get("physical_execution"),
             "verified_live": bool(owner_liveness == "fresh" and lease_snapshot.get("state") == "active"),
             "duplicate_wake_candidate": verified_live_other_owner,
             "can_claim": bool(status_snapshot.get("can_claim")),
             "blocked_reasons": list(status_snapshot.get("blocked_reasons") or []),
+        }
+        latest_round = round_snapshot.get("latest")
+        if not isinstance(latest_round, Mapping):
+            latest_round = {}
+        execution_observability = {
+            "schema_version": "acf.continuation.execution-observability.v1",
+            "timing_values_are_diagnostic_only": True,
+            "fixed_timing_budget_allowed": False,
+            "bootstrap_control_plane": {
+                "owner_disposition": owner_disposition,
+                "generation": owner_generation,
+                "directive_revision": directive_context.get("revision"),
+                "blocked_reasons": list(status_snapshot.get("blocked_reasons") or []),
+            },
+            "project_work": {
+                "stage": state.get("stage"),
+                "status": state.get("status"),
+                "next_action": state.get("next_action"),
+                "git_head": (status_snapshot.get("git") or {}).get("head"),
+                "git_clean": (status_snapshot.get("git") or {}).get("clean"),
+            },
+            "physical_execution": {
+                "tracked_effects_only": True,
+                "journal_state": effect_snapshot.get("state"),
+                "total": effect_summary.get("total", 0),
+                "unresolved_count": len(unresolved_effects),
+                "owner_probe": lease_snapshot.get("physical_execution"),
+            },
+            "graceful_handoff": {
+                "owner_state": lease_snapshot.get("state"),
+                "owner_liveness": owner_liveness,
+                "latest_round_phase": latest_round.get("phase"),
+                "latest_round_milestone": latest_round.get("milestone"),
+                "explicit_safe_control_point_required": True,
+            },
+            "abnormal_incomplete_termination": {
+                "orphan_candidate": bool(status_snapshot.get("orphan_candidate")),
+                "expired_round_head_changed": bool(status_snapshot.get("expired_round_head_changed")),
+                "recoverable_expired_round": bool(status_snapshot.get("recoverable_expired_round")),
+                "effect_reconciliation_required": bool(status_snapshot.get("effect_reconciliation_required")),
+            },
+            "recovery_overhead": {
+                "generation": owner_generation,
+                "round_count": round_snapshot.get("count", 0),
+                "diagnostic_counters_only": True,
+            },
         }
 
         goal_summary_placeholder = "<current-goal-summary>"
@@ -918,8 +979,9 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                 "- Before project writes, declare concrete workspace intent and preserve unrelated external dirty state.\n"
                 "- If the project-access/scheduler transport rejects high-entropy owner credentials, set `ACF_CONTINUATION_FENCE_TOKEN_FILE` to a caller-controlled local temp file before claim/recover. ACF will write the new fence token there and omit the raw token from JSON; keep the same environment variable on fenced owner commands and delete the file after release.\n"
                 "- Before each non-idempotent or long-lived writer side effect, use deterministic effect identity; never replay an uncertain outcome.\n"
+                "- For a deterministic local command that may cross the stale window, use `acf continuation execution run ... --key <key> -- <argv>`. It records exact process identity, keeps owner liveness, terminalizes on exit, and still requires polling the same DevSpace session to terminal.\n"
                 "- Narrow ACF control-plane lifecycle exception: after the authenticated runner itself executes deterministic `acf workstream scope-add|merge-request|ready|merge-start|done` for the bound Workstream, the exact generated `docs/ai/active/Workstreams.md` plus that Workstream detail may be reviewed and committed as a dedicated control-plane checkpoint; this does not extend ordinary Task write scope or permit any third baseline/external path.\n"
-                "- Checkpoints and Git commits are persistence points, not stop signals. Release only when this execution session is actually handing off or ending."
+                "- Checkpoints and Git commits are persistence points, not stop signals. At a genuine safe session end, persist current progress/next action/evidence and use the authenticated graceful handoff release mode so the long-lived mission remains running without leaving an active owner; do not hand off while safe useful work remains."
             )
         elif fresh_owner_caller_unknown:
             control_actions.append(
@@ -955,6 +1017,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             conditional_sections.append(
                 "Stale or unverified owner recovery:\n"
                 "- An active lease is not proof that another agent is still working. Verify liveness first.\n"
+                "- A generation-bound active physical-execution record only counts as live when its persisted PID+start identity still probes as the exact same local process. Bare PIDs, unknown probes, and stale effect labels are not liveness evidence.\n"
                 "- Challenge timeout only forfeits the old ownership claim; it does not grant write access or prove external effects are terminal.\n"
                 "- Recovery remains receipt-bound and generation-fenced. A blocked recovery action does not prevent other safe diagnosis or evidence work."
             )
@@ -1034,10 +1097,8 @@ Authority rule:
 User directive authority:
 - Directive revision: {directive_context['revision']}; pending: {directive_context['pending_count']}; adopted: {directive_context.get('adopted_count', 0)}; active: {directive_context.get('active_count', 0)}; digest: {directive_context['digest']}.
 - Pending directives are new user-authority signals and supersede the persisted default execution plan until authority refresh decides how each applies.
-- The directive inbox is not a second Task Plan. Persistent requirements/constraints/plan changes must be synchronized into the correct project Markdown authority before being marked adopted; temporary runtime steering may be adopted with durable evidence.
-- Every directive actually consumed in this session must reach an explicit safe-control-point disposition: resolve when completed, adopt only after the required durable authority/execution evidence exists, supersede when replaced by a newer version, withdraw only with explicit cancellation authority, or deliberately remain pending with a recorded reason. Merely reading directive text is never adoption evidence.
-- `resolve`, `withdraw`, and `supersede` are distinct terminal meanings. Do not reopen resolved history; use a new add/supersede event for new user authority.
-- Directive pressure is mechanical observability only: {json.dumps(directive_context.get('pressure') or {}, ensure_ascii=False, sort_keys=True)}. Never infer semantic completion from age or capacity pressure.
+- The inbox is not a Task Plan: durable semantics require Markdown authority + evidence before adopt; consumed directives need explicit resolve/adopt/supersede/withdraw/keep-pending disposition. Reading alone is not adoption evidence.
+- `resolve`, `withdraw`, and `supersede` remain distinct; pressure is mechanical observability only: {json.dumps(directive_context.get('pressure') or {}, ensure_ascii=False, sort_keys=True)}.
 {render_directives(pending_directives)}
 
 Ownership now:
@@ -1059,9 +1120,12 @@ Continuous execution contract:
 - A scheduler wake only resumes one continuous task; it is not a work round, reporting interval, quota, or expected stopping point.
 - Scheduler/coordination/claim activity is not project progress and does not satisfy a plan that explicitly waits for a real external or project-state change.
 - Bounded continuation limits ownership, write scope, external side effects, and recovery risk. It does not bound the amount of useful project work.
+- Control-plane checks are risk-proportional: prefer the cheapest deterministic safe path; unchanged bookkeeping is not progress; genuine ambiguity stays fail-closed.
 - The Agent chooses work scope, order, implementation strategy, and validation depth from current project authority.
 - Mission open => search safe alternatives before no-work: diagnosis, adjacent gap, validation, contract, dogfood, release prep, diagnostics. Anti-busywork blocks only unchanged failure; prefer mission/PLAN stage; checkpoint => refresh and continue.
 - Tests, fixes, commits, checkpoints, and Gates are progress evidence, not session-end signals.
+- Active lease, abnormal generation, task-owned dirty, wake/checkpoint/test/commit/Gate, or one blocked lane are not stop signals; verified-live physical execution must never be duplicated.
+- At genuine safe end, persist progress/next/evidence and use authenticated graceful handoff so the mission stays running without a stale owner. Timing/overhead telemetry is diagnostic only, never an execution budget.
 - A final assistant response ends the current execution session. Do not final merely to report progress, because time passed, because context feels long, or because a local milestone succeeded.
 - A safety refusal blocks only the unsafe action. Continue other safe diagnosis, evidence review, testing, planning, or non-conflicting work when available.
 - Do not repeat an unchanged failed action without new evidence, input, environment, or strategy.
@@ -1114,6 +1178,7 @@ Reusable product issues:
             "directive_context": directive_context,
             "resume_context": resume_context,
             "execution_policy": execution_policy,
+            "execution_observability": execution_observability,
             "project_context": project_context,
             "scheduler_wrapper_contract": scheduler_wrapper_contract,
             "automation_prompt_execution_contract": automation_prompt_execution_contract(),

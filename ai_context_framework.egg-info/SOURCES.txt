@@ -13,6 +13,7 @@ ai_context_framework/continuation_coordination.py
 ai_context_framework/continuation_directive_archive.py
 ai_context_framework/continuation_directives.py
 ai_context_framework/continuation_effect_archive.py
+ai_context_framework/continuation_execution.py
 ai_context_framework/continuation_inventory.py
 ai_context_framework/continuation_recovery.py
 ai_context_framework/continuation_rounds.py
@@ -52,9 +53,11 @@ ai_context_framework/commands/archive.py
 ai_context_framework/commands/continuation.py
 ai_context_framework/commands/continuation_coordination.py
 ai_context_framework/commands/continuation_directives.py
+ai_context_framework/commands/continuation_execution.py
 ai_context_framework/commands/continuation_issue.py
 ai_context_framework/commands/continuation_parsers.py
 ai_context_framework/commands/continuation_recovery.py
+ai_context_framework/commands/continuation_release.py
 ai_context_framework/commands/continuation_workspace.py
 ai_context_framework/commands/decisions.py
 ai_context_framework/commands/doctor.py
@@ -143,6 +146,7 @@ tests/test_closeout_authorization.py
 tests/test_context_matrix.py
 tests/test_context_routing.py
 tests/test_continuation_cli.py
+tests/test_continuation_execution.py
 tests/test_entrypoint_smoke.py
 tests/test_install_scripts.py
 tests/test_log_inventory.py

@@ -4,6 +4,18 @@
 
 ## Unreleased
 
+## v0.0.3.87 — 2026-09-07
+
+### Continuation physical-execution liveness
+
+- 新增 `acf continuation execution run`：对可能跨 stale window 的确定性本地命令先占用 generation-bound deterministic effect identity，再记录精确 `PID + process-start identity`，在同一子进程真实存活期间自动 heartbeat/按需 renew，并在退出后把 effect terminalize 为 completed/failed；这样长时间 release/test/build 不再因为调用方正阻塞等待同一物理进程而被下一次 scheduler wake 误判为 abandoned owner。
+- physical liveness 继续 fail-closed：PID reuse、dead/zombie、unverifiable process、generation 不匹配、expired lease 或 stale/伪造 effect label 都不能阻止合法 recovery；`pause` 在 child 已启动后不会强杀该进程，而是在同一 child terminal 后返回 `pause_pending`，保留既有 pause/release 语义。该修复不通过放大 stale/TTL 来掩盖问题，也不引入 daemon、数据库或第二套 scheduler。
+
+### Scheduled Writer graceful handoff and overconstraint reduction
+
+- 新增 authenticated `acf continuation release --handoff`：genuine safe session end 可以在持久化准确 progress/next_action/evidence 后结束当前 round、释放 lease/owner，同时保持 long-lived continuation `status=running`；下一 activation 只有看到明确 `released_to_running_handoff` durable marker 才能把 ownerless running mission 视为可 claim，避免故意留下未来会 stale 的 ghost owner，同时保持 fail-closed ownership provenance。
+- generated continuation contract 现在明确要求控制面检查与 evidence-backed risk 成比例，优先最便宜、确定且可审计的安全 continuation；wall-clock/liveness timing 只作诊断，active lease、历史异常 generation、task-owned dirty、scheduler wake、checkpoint/test/commit/Gate 或单 blocked lane 都不是独立 stop signal。`execution_observability` 分离 bootstrap/control-plane、project work、physical execution、graceful handoff、abnormal/incomplete termination 与 recovery overhead，telemetry 不形成固定 work quota；verified-live physical execution 仍严格禁止 duplicate。
+
 ## v0.0.3.86 — 2026-09-04
 
 ### ACF_HOME destructive-target protection

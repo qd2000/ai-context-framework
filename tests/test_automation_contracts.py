@@ -119,6 +119,31 @@ class AutomationContractTests(unittest.TestCase):
             contract["session_end_without_hard_stop_requires_exhausted_safe_incremental_alternatives"]
         )
         self.assertTrue(contract["no_useful_work_conclusion_requires_alternative_audit"])
+        self.assertTrue(contract["control_plane_checks_proportional_to_evidence_backed_risk"])
+        self.assertTrue(contract["prefer_cheapest_deterministic_safe_continuation"])
+        self.assertEqual("fail_closed", contract["genuine_ambiguity_behavior"])
+        self.assertTrue(contract["safe_session_end_requires_graceful_handoff"])
+        self.assertFalse(contract["ghost_running_owner_allowed_at_safe_end"])
+        self.assertTrue(contract["verified_live_physical_execution_must_not_duplicate"])
+        self.assertIn("active_lease", contract["non_stop_signals"])
+        self.assertIn("single_blocked_lane", contract["non_stop_signals"])
+        self.assertTrue(contract["timing_policy"]["liveness_timing_configurable"])
+        self.assertTrue(contract["timing_policy"]["elapsed_time_diagnostic_only"])
+        self.assertFalse(contract["timing_policy"]["fixed_execution_budget_semantic_policy_allowed"])
+        observability = contract["execution_observability"]
+        self.assertEqual(
+            [
+                "bootstrap_control_plane",
+                "project_work",
+                "physical_execution",
+                "graceful_handoff",
+                "abnormal_incomplete_termination",
+                "recovery_overhead",
+            ],
+            observability["classes"],
+        )
+        self.assertTrue(observability["timing_values_are_diagnostic_only"])
+        self.assertFalse(observability["fixed_timing_budget_allowed"])
 
     def test_production_observer_wrapper_is_read_broad_write_narrow_control_none(self) -> None:
         contract = production_observer_wrapper_contract()

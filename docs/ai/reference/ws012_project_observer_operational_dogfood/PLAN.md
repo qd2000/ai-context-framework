@@ -36,6 +36,35 @@ directive revision 50 的 `dir-dd3b3c0fc01b452d9b3b` 将 WS012 的长期执行�
 
 该原则属于 P1.5 Prompt Execution Contract 的 durable Writer contract：static wrapper 继续只保存高显著 bootstrap/project-specific extension，不固化 volatile owner/stage；每轮 stable `acf continuation prompt + execution_policy` 必须机器可读地表达 active alternative search、blocked-lane switching、anti-busywork 的窄拒绝范围、checkpoint 后继续与 no-useful-work alternative audit。所有既有 owner/fencing/write-scope/effect/Git/Production Observer anti-masking 边界保持不变。
 
+### Scheduled Writer overconstraint reduction / graceful handoff
+
+最新 durable authority `dir-d98bf9b8628244cabe68` + `dir-fb0de0b1b4fc4536b97a` 冻结 continuation physical-execution/self-stale P0 的实现范围到 checkpoint `8081983f23cee184f32c8028caa6185d521d5b30`，并将当前实现主线切换为 **Scheduled Writer overconstraint reduction**。P0 不再为了流程顺序单独发布一个 patch；其 installed-state terminal proof 与本阶段改动合并进入下一次正常 stable release/global install/dogfood。P0 issue 只有在 installed-state physical-execution proof 完成后才能 terminal resolve，但这不再阻塞本阶段实现。
+
+本阶段的目标不是“放松安全”，而是让控制面成本与真实风险成比例，让 long-lived Scheduled Writer 在不存在 verified-live 冲突 Writer、未知/未决 non-idempotent effect、真实 fencing conflict 或无法解释的 workspace/provenance drift 时，尽快回到安全有价值的项目工作：
+
+- elapsed wall-clock、当前平台/模型的可见运行时长、challenge delay、stale threshold、duty cycle 等只允许作为诊断 telemetry；禁止把任何当前观察值固化成 semantic execution budget / work quota / stop signal。lease/heartbeat/stale/renew 仍是可配置的 liveness mechanics；
+- active lease、历史异常 generation、task-owned dirty、scheduler wake、checkpoint/test/commit/Gate 完成或单个 lane blocked 都不能单独成为 session-end 理由；真正结束 activation 仍需满足 hard stop，或在安全控制点证明当前没有 safe/useful incremental alternative；
+- verified-live previous physical execution 必须安全 yield，禁止 duplicate submit/run；unknown effect、真实 provenance ambiguity 继续 fail-closed；除此之外优先选择最便宜、确定、可审计的安全 continuation 路径，避免在证据未变化时重复 doctor/status/challenge/recovery bookkeeping；
+- current owner 在 genuine safe session end 必须先持久化准确 stage/next_action/evidence，再执行 **graceful running handoff**：释放当前 owner/round，但保持 long-lived continuation `status=running`，为下一 activation 留下 ownerless、可直接 claim 的 handoff-safe 状态。不得为了等待下一 scheduler wake 故意留下将来会 stale 的 running owner；graceful handoff 也不是 checkpoint/test/commit 后提前退出的借口；
+- continuation prompt/JSON 必须提供机器可读 execution observability，至少区分 `bootstrap_control_plane / project_work / physical_execution / graceful_handoff / abnormal_incomplete_termination / recovery_overhead`。这些字段用于解释实际执行与控制面成本，不得被解释成固定 timing target；
+- deterministic/fake timing regression 优先验证 policy，不依赖当前 ChatGPT/Scheduled Task 的偶然墙钟行为。
+
+因此当前发布顺序调整为：`P0 frozen checkpoint 8081983 + Scheduled Writer overconstraint reduction → combined stable release/global install → installed-state physical-liveness + graceful-handoff dogfood → Human-First Visualization Gate + expected-target Registry recovery Gate → P4 real-project dogfood → latest-authority Production acceptance → ongoing maintenance`。该顺序 supersede 本文件中要求“P0 必须先单独 release/installed proof 才能开始下一实现”的旧表述；安全 proof 本身没有取消，只是与紧邻的 overconstraint change 合并到同一稳定 baseline。
+
+### Human-First Visualization / Registry Recovery Gate
+
+durable directive `dir-5272efd83a0e434298e1` 将 Observer V2 的下一条强制路线调整为：**先安全关闭并发布当前 priority-100 continuation-liveness P0；随后必须完成 Human-First Visualization 与 expected-target Registry recovery 两个 Gate，才允许进入广泛 P4 或重启最终 Production acceptance。** 既有 P3 只代表 machine/runtime checkpoint，不再等同人类可读结果验收。
+
+- Dashboard 主视图必须中文优先、面向项目决策阅读，而不是 developer/debug state dump。英文 ID、fingerprint、schema、raw provenance 等保留但降级到次要/折叠层；任何 mojibake 都直接判定 Gate fail。
+- 每个 target 第一屏必须能直接回答：最终目标、完整路线、当前位置、为什么现在做这一步、最近证明/排除/改变了什么、问题及其 plan/route impact、下一步及理由、执行健康/是否需人工介入，以及最近 Agent run 的 start/end/duration/result/major outcome。
+- architecture / roadmap / dependency / branch / multi-lane 等关系必须根据最新 authority 选择真实图形语义，并在现有 self-contained、single-file、`file://` safe 边界内用确定性 HTML/CSS + inline SVG 或等价静态实现展示 meaningful edges、current path 与 problem binding；“卡片 + 文本箭头”不算关系图验收通过。
+- Human-First Visualization Gate 必须采用迭代视觉验收：每次有意义的 semantic/presentation 变化后生成真实 dogfood Dashboard，按显式 human-first rubric 与当前 authority/facts 检查实际 render，记录 pass/fail evidence，再继续改进直到 Gate 通过。unit tests、`check --strict`、schema、commit/checkpoint、测试数量或 HTML 成功生成都只是必要 machine evidence，不能单独关闭该 Gate；用户截图/视觉反馈属于一等 acceptance evidence，并可推翻此前 machine-only PASS。若当前执行环境不能真实检查 render，必须 fail-visible 保持 human acceptance open。
+- FCC 必须恢复用户明确授权的 WS079、WS080、WS086 scheduled-automation targets：从 fresh current authority 读取各自真实 continuation identity，幂等恢复，禁止猜测历史 task-id。重新评估 FCC Project Overview，并保存中文、evidence-backed 的 enable/disable 理由。
+- 新增 durable expected-target recovery/check contract：Observer user-level state 丢失后，要么从明确配置恢复 expected targets，要么明确报告 `unconfigured/incomplete/degraded` 与 alert；意外空 Registry 或缺少明确 expected target 绝不能得到绿色 Overall Health。该 contract 不得自动把任意 Workstream 提升为 target，也不得引入 daemon、数据库或额外 runtime dependency。
+- real-project acceptance 至少覆盖 ACF 与 FCC；AStockT_AI 在当前执行环境可合法访问时纳入。必须覆盖 target recovery、plan/strategy change、unexpected blocker、route-impacting issue、map/presentation change、stale/incomplete run 与 Project Overview change。Production Observer 的 `read broad / write narrow / control none`、anti-masking、Markdown authority、禁止直接编辑 `dashboard.html` 等边界保持不变。
+
+因此当前 durable 路线以紧邻的 **Scheduled Writer overconstraint reduction / graceful handoff** 小节为最新 sequencing authority：P0 checkpoint 与 overconstraint change 合并进入下一稳定 baseline，完成 installed-state physical-liveness + graceful-handoff dogfood 后，再进入 Human-First Visualization / Registry Recovery Gate。一次视觉迭代成功、一个 P4 slice、一次 release 或一个 acceptance window都不结束 WS012 长期 mission。
+
 ### Release terminal fact
 
 `v0.0.3.84` 的 merge、`origin/master` 与 annotated tag 已形成历史 identity，但 exact GitHub Actions run `32984611066` 已取得终态 `completed/cancelled`，且 PyPI `ai-context-framework==0.0.3.84` 未发布。因此 `.84` publishing effect 只允许按同一 external identity reconcile 为 failed/cancelled；禁止 re-merge、re-push、再次 retrigger 或把新代码塞入 `.84`。`.84` 不是可 global-install 的 stable baseline，后续能力进入新的稳定候选，版本号由当时 release authority 决定。
