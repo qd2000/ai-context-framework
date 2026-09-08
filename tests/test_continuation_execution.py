@@ -18,6 +18,7 @@ import acf
 from ai_context_framework import continuation_execution
 from ai_context_framework.commands import continuation
 from ai_context_framework.commands import continuation_execution as continuation_execution_commands
+from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
 
 
 class ContinuationExecutionTests(unittest.TestCase):
@@ -302,8 +303,52 @@ class ContinuationExecutionTests(unittest.TestCase):
             code, result, stderr = self.run_json(args, already_json=True)
         self.assertEqual(0, code, f"{stderr}\n{result}")
         self.assertEqual("physical_execution_completed", result["status"])
-        # At least one in-flight keepalive plus the terminal keepalive.
-        self.assertGreaterEqual(2, keepalive.call_count)
+        # The supervisor records one keepalive immediately after durable
+        # process identity plus the terminal keepalive.  Longer children may
+        # add periodic keepalives between them.
+        self.assertGreaterEqual(keepalive.call_count, 2)
+
+    def test_supervisor_scrubs_parent_fence_token_file_from_child_environment(self) -> None:
+        token_file = Path(self._home.name) / "parent-owner-fence.token"
+        with patch.dict(
+            os.environ,
+            {continuation_workspace_commands.FENCE_TOKEN_FILE_ENV: str(token_file)},
+            clear=False,
+        ):
+            _, claim = self.init_and_claim()
+            lease = claim["lease"]
+            self.assertIsInstance(lease, dict)
+            self.assertIsNone(claim["fence_token"])
+            self.assertTrue(token_file.is_file())
+            token_before = token_file.read_bytes()
+            args = [
+                "continuation",
+                "execution",
+                "run",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                str(lease["lease_id"]),
+                "--generation",
+                str(lease["generation"]),
+                "--key",
+                "credential-env-scrub-001",
+                "--json",
+                "--",
+                sys.executable,
+                "-c",
+                (
+                    "import os; "
+                    f"print(os.environ.get({continuation_workspace_commands.FENCE_TOKEN_FILE_ENV!r}, 'ABSENT'))"
+                ),
+            ]
+            code, result, stderr = self.run_json(args, already_json=True)
+
+            self.assertEqual(0, code, f"{stderr}\n{result}")
+            self.assertEqual("physical_execution_completed", result["status"])
+            self.assertEqual("ABSENT\n", result["child_stdout"])
+            self.assertEqual(token_before, token_file.read_bytes())
 
     def test_pause_during_supervised_execution_waits_for_terminal_and_requests_release(self) -> None:
         initialized, claim = self.init_and_claim()

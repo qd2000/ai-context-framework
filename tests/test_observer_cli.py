@@ -73,6 +73,29 @@ class ObserverCliTests(unittest.TestCase):
         subprocess.run(["git", "add", "AGENTS.md", "docs"], cwd=project, check=True)
         subprocess.run(["git", "commit", "-m", "test: initialize observer project"], cwd=project, check=True, capture_output=True, text=True)
 
+    def assertSamePath(self, actual: str | Path, expected: str | Path) -> None:
+        self.assertTrue(
+            Path(actual).samefile(Path(expected)),
+            f"paths do not identify the same filesystem object: {actual!s} != {expected!s}",
+        )
+
+    def rowForPath(self, rows: list[dict[str, object]], expected: str | Path) -> dict[str, object]:
+        for row in rows:
+            if Path(str(row["path"])).samefile(Path(expected)):
+                return row
+        self.fail(f"no row identifies expected path: {expected}")
+
+    def assertSamePathSet(self, actual: list[str | Path], expected: list[str | Path]) -> None:
+        self.assertEqual(len(actual), len(expected))
+        unmatched = [Path(value) for value in actual]
+        for expected_path in expected:
+            match = next(
+                (candidate for candidate in unmatched if candidate.samefile(Path(expected_path))),
+                None,
+            )
+            self.assertIsNotNone(match, f"missing equivalent path for {expected_path}")
+            unmatched.remove(match)
+
     def test_status_before_snapshot_is_read_only_and_reports_user_state_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             project, _context = self.make_project(Path(tmp))
@@ -136,11 +159,11 @@ class ObserverCliTests(unittest.TestCase):
             primary_observer = resolve_observer_project(project)
             linked_observer = resolve_observer_project(linked)
 
-            self.assertEqual(linked_observer.canonical_root, project.resolve())
-            self.assertEqual(linked_observer.context_root, context.resolve())
+            self.assertSamePath(linked_observer.canonical_root, project)
+            self.assertSamePath(linked_observer.context_root, context)
             self.assertEqual(linked_observer.project_id, primary_observer.project_id)
             self.assertEqual(linked_observer.observer_dir, primary_observer.observer_dir)
-            self.assertEqual(linked_observer.invocation_root, linked.resolve())
+            self.assertSamePath(linked_observer.invocation_root, linked)
 
     def test_registry_scopes_semantic_sources_but_retains_unregistered_worktree_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,22 +229,17 @@ class ObserverCliTests(unittest.TestCase):
 
             observer_project = resolve_observer_project(project)
             worktrees = capture_project_worktrees(observer_project)
-            by_path = {Path(str(row["path"])).resolve(): row for row in worktrees}
-            self.assertTrue(by_path[project.resolve()]["observer_scope"])
-            self.assertTrue(by_path[owner_worktree.resolve()]["observer_scope"])
-            self.assertTrue(by_path[unrelated_worktree.resolve()]["observer_scope"])
-            self.assertFalse(by_path[transient_worktree.resolve()]["observer_scope"])
-            self.assertFalse(by_path[transient_worktree.resolve()]["registered"])
+            self.assertTrue(self.rowForPath(worktrees, project)["observer_scope"])
+            self.assertTrue(self.rowForPath(worktrees, owner_worktree)["observer_scope"])
+            self.assertTrue(self.rowForPath(worktrees, unrelated_worktree)["observer_scope"])
+            self.assertFalse(self.rowForPath(worktrees, transient_worktree)["observer_scope"])
+            self.assertFalse(self.rowForPath(worktrees, transient_worktree)["registered"])
 
             workstreams = capture_project_workstreams(observer_project, worktrees)
             workstream = next(row for row in workstreams if row["id"] == "WS123")
-            semantic_source_paths = {
-                Path(str(row["source_worktree"])).resolve()
-                for row in workstream["sources"]
-            }
-            self.assertEqual(
-                semantic_source_paths,
-                {project.resolve(), owner_worktree.resolve()},
+            self.assertSamePathSet(
+                [Path(str(row["source_worktree"])) for row in workstream["sources"]],
+                [project, owner_worktree],
             )
 
             exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--dry-run", "--json"])
@@ -477,9 +495,8 @@ class ObserverCliTests(unittest.TestCase):
             workstreams = capture_project_workstreams(observer_project, worktrees)
 
             self.assertNotIn("WS123", {row["id"] for row in workstreams})
-            by_path = {Path(str(row["path"])).resolve(): row for row in worktrees}
-            self.assertTrue(by_path[unrelated_worktree.resolve()]["observer_scope"])
-            self.assertTrue(by_path[unrelated_worktree.resolve()]["registered"])
+            self.assertTrue(self.rowForPath(worktrees, unrelated_worktree)["observer_scope"])
+            self.assertTrue(self.rowForPath(worktrees, unrelated_worktree)["registered"])
 
     def test_non_active_bound_registry_uses_primary_terminal_source_instead_of_stale_bound_active(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -545,10 +562,10 @@ class ObserverCliTests(unittest.TestCase):
             workstream = next(row for row in workstreams if row["id"] == "WS123")
 
             self.assertEqual(workstream["status"], "Done")
-            self.assertEqual(Path(str(workstream["selected_source"])).resolve(), project.resolve())
-            self.assertEqual(
-                {Path(str(row["source_worktree"])).resolve() for row in workstream["sources"]},
-                {project.resolve()},
+            self.assertSamePath(workstream["selected_source"], project)
+            self.assertSamePathSet(
+                [Path(str(row["source_worktree"])) for row in workstream["sources"]],
+                [project],
             )
 
     def test_snapshot_writes_only_user_level_observer_state(self):

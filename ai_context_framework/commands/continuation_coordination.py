@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Mapping
@@ -488,6 +489,106 @@ def continuation_coordination_challenge_command(args: argparse.Namespace) -> int
     return core._guarded(args, "continuation coordination challenge", operation)
 
 
+def continuation_coordination_wait_command(args: argparse.Namespace) -> int:
+    """Block on one persisted challenge without granting or transferring ownership."""
+    core = _continuation()
+
+    def operation() -> dict[str, Any]:
+        root = core._workspace_root(args.path)
+        paths = core._paths(root, args.task_id)
+        challenge_id = str(args.challenge_id).strip()
+        poll_seconds = float(args.poll_seconds)
+        if poll_seconds < 0.05 or poll_seconds > 5.0:
+            raise core.ContinuationError(
+                "coordination wait poll interval must be between 0.05 and 5 seconds",
+                code="coordination_wait_poll_invalid",
+            )
+        started = core._now()
+
+        while True:
+            with core._state_lock(paths["lock"]):
+                control = core._load_control(paths, root)
+                now = core._iso()
+                state, _ = refresh_coordination_timeouts(paths, control, now=now)
+                try:
+                    coordination = continuation_coordination.summary(
+                        state,
+                        task_id=str(control["task_id"]),
+                        now=now,
+                    )
+                except continuation_coordination.ContinuationCoordinationError as exc:
+                    raise coordination_error(exc) from exc
+                challenge = next(
+                    (
+                        item
+                        for item in coordination["challenges"]
+                        if item["challenge_id"] == challenge_id
+                    ),
+                    None,
+                )
+                if challenge is None:
+                    raise core.ContinuationError(
+                        "coordination wait challenge does not exist",
+                        code="coordination_challenge_missing",
+                        exit_code=3,
+                        details={"challenge_id": challenge_id},
+                    )
+                if args.attempt_id and str(args.attempt_id) not in challenge["contender_attempt_ids"]:
+                    raise core.ContinuationError(
+                        "coordination wait attempt is not a contender on this challenge",
+                        code="coordination_wait_attempt_mismatch",
+                        exit_code=3,
+                    )
+
+                status = str(challenge["status"])
+                resolution = challenge.get("resolution")
+                result: str | None = None
+                if status == "acknowledged" and resolution == "owner_active":
+                    result = "owner_active"
+                elif status == "resolved" and resolution in {"owner_released", "ownership_recovered"}:
+                    # The challenged generation no longer owns the task.  A third-party
+                    # recovery is surfaced as owner_released for this waiter's three-way
+                    # control result; callers must still re-run doctor before claiming.
+                    result = "owner_released"
+                elif status == "superseded":
+                    result = "owner_released"
+                elif status == "timed_out":
+                    result = "timeout"
+
+                lease = core._lease_snapshot(paths, control)
+                if result is not None:
+                    finished = core._now()
+                    next_action = (
+                        "The challenged owner authenticated activity. Yield protected writes and refresh doctor before any later coordination attempt."
+                        if result == "owner_active"
+                        else "The challenged owner no longer owns this generation. Re-run doctor and claim normally if the task is ownerless and claimable."
+                        if result == "owner_released"
+                        else "The persisted challenge deadline elapsed. Refresh physical execution, HEAD, workspace, effect, and provenance evidence; timeout alone does not grant ownership or prove owner death."
+                    )
+                    return {
+                        "status": "coordination_wait_completed",
+                        "task_id": control["task_id"],
+                        "challenge_id": challenge_id,
+                        "result": result,
+                        "challenge": challenge,
+                        "owner": owner_summary(lease),
+                        "started_at": core._iso(started),
+                        "finished_at": core._iso(finished),
+                        "waited_seconds": max(0.0, (finished - started).total_seconds()),
+                        "ownership_granted": False,
+                        "next_action": next_action,
+                    }
+
+                deadline = core._parse_iso(challenge["deadline_at"], field="deadline_at")
+                remaining = max(0.0, (deadline - core._now()).total_seconds())
+
+            # The persisted challenge deadline is the only semantic wait bound.
+            # Sleep outside the state lock so owner heartbeat/release can proceed.
+            time.sleep(min(poll_seconds, max(0.05, remaining)))
+
+    return core._guarded(args, "continuation coordination wait", operation)
+
+
 def register_coordination_parsers(subparsers, add_json_argument) -> None:
     coordination = subparsers.add_parser(
         "coordination",
@@ -540,12 +641,35 @@ def register_coordination_parsers(subparsers, add_json_argument) -> None:
     add_json_argument(challenge)
     challenge.set_defaults(func=continuation_coordination_challenge_command)
 
+    wait = coordination_subparsers.add_parser(
+        "wait",
+        aliases=["await"],
+        help="block on one persisted challenge until owner activity, owner release, or its stored deadline",
+    )
+    wait.add_argument("path", nargs="?", type=Path)
+    wait.add_argument("--task-id", default=None)
+    wait.add_argument("--challenge-id", required=True)
+    wait.add_argument(
+        "--attempt-id",
+        default=None,
+        help="optional contender attempt id; when supplied it must belong to the challenge",
+    )
+    wait.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=1.0,
+        help="local observation poll interval only; the persisted challenge deadline remains the wait bound",
+    )
+    add_json_argument(wait)
+    wait.set_defaults(func=continuation_coordination_wait_command)
+
 
 __all__ = [
     "challenge_deadline",
     "continuation_coordination_attempt_command",
     "continuation_coordination_challenge_command",
     "continuation_coordination_status_command",
+    "continuation_coordination_wait_command",
     "emit_pending_challenge_probe",
     "load_coordination_state",
     "pending_challenge_probe",

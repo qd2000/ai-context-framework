@@ -28,6 +28,7 @@ from ai_context_framework.automation_contracts import (
     writer_scheduler_wrapper_contract,
 )
 from ai_context_framework.commands import continuation_directives as continuation_directive_commands
+from ai_context_framework.commands import continuation_workspace_parsers
 from ai_context_framework.front_matter import parse_front_matter, split_typed_scope, validate_front_matter
 from ai_context_framework.git_support import discover_git_project
 from ai_context_framework.observability import acf_home, atomic_write_text
@@ -98,6 +99,10 @@ def continuation_schema_contract() -> dict[str, dict[str, Any]]:
                 continuation_workspace.LEGACY_WORKSPACE_SCHEMA,
                 continuation_workspace.LEGACY_WORKSPACE_SCHEMA_V2,
             ],
+            "required": False,
+        },
+        "last_workspace_reconcile.json": {
+            "current": [continuation_workspace.HANDOFF_RECONCILE_SCHEMA],
             "required": False,
         },
         "reconcile.json": {
@@ -527,6 +532,7 @@ def continuation_init_command(args: argparse.Namespace) -> int:
             "effects": directory / "effects.json",
             "coordination": directory / "coordination.json",
             "workspace": directory / "workspace.json",
+            "workspace_reconcile": directory / "last_workspace_reconcile.json",
             "reconcile": directory / "reconcile.json",
             "recovery": directory / "last_recovery.json",
         }
@@ -599,6 +605,7 @@ def continuation_init_command(args: argparse.Namespace) -> int:
                 paths["effects"],
                 paths["coordination"],
                 paths["workspace"],
+                paths["workspace_reconcile"],
                 paths["reconcile"],
                 paths["recovery"],
             ):
@@ -797,6 +804,13 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "verified_duplicate_owner_may_end_duplicate_wake": True,
             "duplicate_wake_exit_is_task_stop": False,
             "stale_owner_requires_recovery": True,
+            "stale_owner_wait_is_tool_backed": True,
+            "stale_owner_wait_bound_source": "persisted_challenge_deadline",
+            "challenge_pending_is_session_end_reason": False,
+            "pure_idle_wait_required": False,
+            "coordination_wait_grants_ownership": False,
+            "same_activation_recovery_after_timeout": True,
+            "same_activation_recovery_continues_project_work": True,
             "contender_continues_safe_read_only_when_available": True,
             "contender_must_create_busywork": False,
             "resume_hint_is_live_authority": False,
@@ -967,6 +981,10 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             f"acf continuation coordination attempt {json.dumps(str(root))}{task_flag} "
             f"--runner-id <runner> --objective-summary {goal_summary_placeholder} --json"
         )
+        wait_command = (
+            f"acf continuation coordination wait {json.dumps(str(root))}{task_flag} "
+            "--challenge-id <challenge-id-from-attempt> --attempt-id <attempt-id-from-attempt> --json"
+        )
         control_actions: list[str] = []
         conditional_sections: list[str] = []
         if same_runner_owner:
@@ -1010,16 +1028,20 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             control_actions.extend(
                 [
                     attempt_command,
-                    f"Inspect `acf continuation coordination status {json.dumps(str(root))}{task_flag} --json`; a stale/unverified owner requires challenge-backed verification before recovery.",
-                    "After ownership forfeiture evidence or other valid owner-ended evidence, use formal reconcile/recover with current workspace/HEAD/effect/identity evidence; never steal ownership from a mere lease record.",
+                    "Use the challenge id and contender attempt id returned by that attempt to block on the persisted deadline with `"
+                    + wait_command
+                    + "`. A pending challenge is not a session-end signal and does not require pure model idle waiting.",
+                    "If wait returns `owner_active`, yield protected writes. If it returns `owner_released`, refresh doctor and claim normally when eligible. If it returns `timeout`, immediately refresh physical execution, HEAD, workspace, effect, and provenance evidence, then use formal reconcile/recover when eligible.",
+                    "After successful timeout-backed recovery, continue safe useful project work in this same activation while the platform session still exists; timeout and wait never grant ownership by themselves.",
                 ]
             )
             conditional_sections.append(
                 "Stale or unverified owner recovery:\n"
                 "- An active lease is not proof that another agent is still working. Verify liveness first.\n"
                 "- A generation-bound active physical-execution record only counts as live when its persisted PID+start identity still probes as the exact same local process. Bare PIDs, unknown probes, and stale effect labels are not liveness evidence.\n"
-                "- Challenge timeout only forfeits the old ownership claim; it does not grant write access or prove external effects are terminal.\n"
-                "- Recovery remains receipt-bound and generation-fenced. A blocked recovery action does not prevent other safe diagnosis or evidence work."
+                "- A stale-owner challenge provides challenge-backed verification and must be observed through the tool-backed `coordination wait`/`await` command when the current activation can continue. The tool reads the persisted challenge deadline; do not depend on pure model idle waiting and do not end merely because the challenge is pending.\n"
+                "- `owner_active` means yield; `owner_released` means refresh and use the normal claim path; `timeout` only forfeits the old ownership claim and still requires fresh physical-execution/HEAD/workspace/effect/provenance evidence plus formal reconcile/recover. The wait command never grants ownership.\n"
+                "- After successful recovery, continue safe useful project work in the same activation when the platform session remains available. Recovery remains receipt-bound and generation-fenced; a blocked recovery action does not prevent other safe diagnosis or evidence work."
             )
         elif expired_owner:
             control_actions.append(
@@ -1373,6 +1395,127 @@ def continuation_workspace_reclassify_command(args: argparse.Namespace) -> int:
     return core._guarded(args, "continuation workspace reclassify", operation)
 
 
+def continuation_workspace_reconcile_handoff_command(args: argparse.Namespace) -> int:
+    core = _continuation()
+
+    def operation() -> dict[str, Any]:
+        root = core._workspace_root(args.path)
+        paths = core._paths(root, args.task_id)
+        with core._state_lock(paths["lock"]):
+            control = core._load_control(paths, root)
+            lease_snapshot = core._lease_snapshot(paths, control)
+            if lease_snapshot["state"] != "absent":
+                raise core.ContinuationError(
+                    "ownerless handoff reconciliation requires no lease record",
+                    code="workspace_handoff_reconcile_owner_present",
+                    exit_code=3,
+                    details={"lease_state": lease_snapshot["state"]},
+                    next_actions=[
+                        "Use the active-owner workspace flow, or formally resolve/recover the interrupted owner first."
+                    ],
+                )
+
+            state = core._load_state(paths)
+            if state["status"] not in {*core.RUNNABLE_STATUSES, "running"}:
+                raise core.ContinuationError(
+                    "ownerless handoff reconciliation requires a runnable long-lived continuation",
+                    code="workspace_handoff_reconcile_state_invalid",
+                    exit_code=3,
+                    details={"state_status": state["status"]},
+                )
+
+            rounds = core._load_round_journal(paths, control, require_existing=True)
+            latest_round = continuation_rounds.latest_round(
+                rounds,
+                task_id=str(control["task_id"]),
+            )
+            if not isinstance(latest_round, Mapping) or (
+                latest_round.get("phase") != "released"
+                or latest_round.get("milestone") != "released_to_running_handoff"
+            ):
+                raise core.ContinuationError(
+                    "ownerless workspace reconciliation is only valid after an explicit graceful running handoff",
+                    code="workspace_handoff_reconcile_not_handoff",
+                    exit_code=3,
+                    details={"latest_round": latest_round},
+                )
+
+            effects = core._load_effect_journal(paths, control)
+            effect_summary = continuation_rounds.effect_summary(
+                effects,
+                task_id=str(control["task_id"]),
+            )
+            unresolved_effects = list(effect_summary.get("unresolved") or [])
+            if unresolved_effects:
+                raise core.ContinuationError(
+                    "ownerless handoff reconciliation refuses unresolved effects",
+                    code="workspace_handoff_reconcile_effects_unresolved",
+                    exit_code=3,
+                    details={"unresolved_effects": unresolved_effects},
+                    next_actions=[
+                        "Reconcile durable effect identity/outcome before accepting ownerless workspace cleanup."
+                    ],
+                )
+
+            manifest = load_workspace_manifest(paths, control, require_existing=True)
+            assert manifest is not None
+            if int(manifest["generation"]) != int(latest_round["generation"]):
+                raise core.ContinuationError(
+                    "workspace manifest generation does not match the released handoff generation",
+                    code="workspace_generation_mismatch",
+                    exit_code=3,
+                    details={
+                        "workspace_generation": manifest["generation"],
+                        "handoff_generation": latest_round["generation"],
+                    },
+                )
+
+            raw_cleanup_paths = list(dict.fromkeys(args.cleanup_path or []))
+            if not raw_cleanup_paths:
+                raise core.ContinuationError(
+                    "ownerless handoff reconciliation requires --cleanup",
+                    code="workspace_handoff_reconcile_incomplete",
+                )
+            evidence_refs = list(dict.fromkeys(args.evidence_ref or []))
+            try:
+                manifest, receipt = continuation_workspace.reconcile_handoff_cleanup(
+                    manifest,
+                    task_id=str(control["task_id"]),
+                    snapshot=workspace_current_snapshot(root),
+                    cleanup_paths=raw_cleanup_paths,
+                    accepted_head=(str(args.accept_head).strip() if args.accept_head else None),
+                    evidence_refs=evidence_refs,
+                    reason=str(args.reason),
+                    receipt_id=str(uuid.uuid4()),
+                    now=core._iso(),
+                )
+            except continuation_workspace.ContinuationWorkspaceError as exc:
+                error = workspace_error(exc)
+                error.exit_code = 3
+                raise error from exc
+
+            core._write_json(paths["workspace"], manifest)
+            core._write_json(paths["workspace_reconcile"], receipt)
+            refreshed = core._status(root, str(control["task_id"]))
+            return {
+                "status": "workspace_handoff_reconciled",
+                "task_id": control["task_id"],
+                "generation": manifest["generation"],
+                "receipt": receipt,
+                "workspace": continuation_workspace.summary(
+                    manifest,
+                    task_id=str(control["task_id"]),
+                ),
+                "can_claim": bool(refreshed.get("can_claim")),
+                "blocked_reasons": list(refreshed.get("blocked_reasons") or []),
+                "next_action": (
+                    "Re-run `acf continuation doctor`; if no other blocker remains, register coordination intent and claim normally."
+                ),
+            }
+
+    return core._guarded(args, "continuation workspace reconcile-handoff", operation)
+
+
 def continuation_workspace_adopt_command(args: argparse.Namespace) -> int:
     core = _continuation()
 
@@ -1691,148 +1834,8 @@ def continuation_migrate_command(args: argparse.Namespace) -> int:
     return core._guarded(args, "continuation migrate", operation)
 
 
-def register_workspace_parsers(subparsers, add_json_argument) -> None:
-    list_parser = subparsers.add_parser(
-        "list",
-        help="read ACF_HOME continuation task/schema/timing compatibility without mutating state",
-    )
-    list_parser.add_argument("path", nargs="?", type=Path)
-    list_parser.add_argument("--task-id", default=None)
-    list_parser.add_argument(
-        "--all-projects",
-        action="store_true",
-        help="scan every continuation namespace under the current ACF_HOME",
-    )
-    add_json_argument(list_parser)
-    list_parser.set_defaults(func=continuation_list_command)
-
-    migrate = subparsers.add_parser(
-        "migrate",
-        help="plan or apply an explicit history-preserving migration for supported legacy state",
-    )
-    migrate.add_argument("path", nargs="?", type=Path)
-    migrate.add_argument("--task-id", default=None)
-    migrate.add_argument("--apply", action="store_true")
-    migrate.add_argument("--dry-run", action="store_true")
-    migrate.add_argument("--reason", default=None)
-    add_json_argument(migrate)
-    migrate.set_defaults(func=continuation_migrate_command)
-
-    workspace = subparsers.add_parser(
-        "workspace",
-        help="inspect and declare bounded Git workspace ownership without editing project files",
-    )
-    workspace_subparsers = workspace.add_subparsers(
-        dest="continuation_workspace_command",
-        required=True,
-    )
-
-    status = workspace_subparsers.add_parser(
-        "status",
-        help="classify baseline, runner-owned, unrelated and conflicting dirty paths",
-    )
-    status.add_argument("path", nargs="?", type=Path)
-    status.add_argument("--task-id", default=None)
-    add_json_argument(status)
-    status.set_defaults(func=continuation_workspace_status_command)
-
-    intent = workspace_subparsers.add_parser(
-        "intent",
-        help="declare concrete paths the active fenced owner intends to modify",
-    )
-    intent.add_argument("path", nargs="?", type=Path)
-    intent.add_argument("--task-id", default=None)
-    intent.add_argument("--lease-id", required=True)
-    intent.add_argument("--generation", type=int, default=None)
-    intent.add_argument("--fence-token", default=None)
-    intent.add_argument("--path", dest="intent_path", action="append", required=True)
-    add_json_argument(intent)
-    intent.set_defaults(func=continuation_workspace_intent_command)
-
-    reclassify = workspace_subparsers.add_parser(
-        "reclassify",
-        help="evidence-review unexpected dirty paths into task-owned or protected external ownership",
-    )
-    reclassify.add_argument("path", nargs="?", type=Path)
-    reclassify.add_argument("--task-id", default=None)
-    reclassify.add_argument("--lease-id", required=True)
-    reclassify.add_argument("--generation", type=int, default=None)
-    reclassify.add_argument("--fence-token", default=None)
-    reclassify.add_argument(
-        "--task-owned",
-        dest="task_owned_path",
-        action="append",
-        default=[],
-        help=(
-            "reviewed unexpected path, or exact baseline-external recovery path, "
-            "attributable to this task; repeat per path"
-        ),
-    )
-    reclassify.add_argument(
-        "--baseline-external",
-        dest="baseline_external_path",
-        action="append",
-        default=[],
-        help="reviewed unexpected path confirmed external to this task; repeat per path",
-    )
-    reclassify.add_argument("--evidence-ref", action="append", required=True)
-    reclassify.add_argument("--reason", required=True)
-    add_json_argument(reclassify)
-    reclassify.set_defaults(func=continuation_workspace_reclassify_command)
-
-    adopt = workspace_subparsers.add_parser(
-        "adopt",
-        help="explicitly classify every reviewed dirty path for a legacy task missing a workspace manifest",
-    )
-    adopt.add_argument("path", nargs="?", type=Path)
-    adopt.add_argument("--task-id", default=None)
-    adopt.add_argument(
-        "--task-owned",
-        dest="task_owned_path",
-        action="append",
-        default=[],
-        help="reviewed changed path attributable to this continuation task; repeat per path",
-    )
-    adopt.add_argument(
-        "--baseline-external",
-        dest="baseline_external_path",
-        action="append",
-        default=[],
-        help="reviewed changed path owned outside this continuation task; repeat per path",
-    )
-    adopt.add_argument("--evidence-ref", action="append", required=True)
-    adopt.add_argument("--reason", required=True)
-    add_json_argument(adopt)
-    adopt.set_defaults(func=continuation_workspace_adopt_command)
-
-    refresh = workspace_subparsers.add_parser(
-        "refresh",
-        help="refresh compact workspace ownership digests for the active fenced owner",
-    )
-    refresh.add_argument("path", nargs="?", type=Path)
-    refresh.add_argument("--task-id", default=None)
-    refresh.add_argument("--lease-id", required=True)
-    refresh.add_argument("--generation", type=int, default=None)
-    refresh.add_argument("--fence-token", default=None)
-    add_json_argument(refresh)
-    refresh.set_defaults(func=continuation_workspace_refresh_command)
-
-
-def register_configure_parser(subparsers, add_json_argument) -> None:
-    configure = subparsers.add_parser(
-        "configure",
-        help="update timing for an existing continuation task without re-initializing its state",
-    )
-    configure.add_argument("path", nargs="?", type=Path)
-    configure.add_argument("--task-id", default=None)
-    configure.add_argument("--profile", choices=tuple(sorted(TIMING_PROFILES)), default=None)
-    configure.add_argument("--interval-minutes", type=int, default=None)
-    configure.add_argument("--lease-ttl-minutes", type=int, default=None)
-    configure.add_argument("--renew-interval-minutes", type=int, default=None)
-    configure.add_argument("--heartbeat-interval-minutes", type=int, default=None)
-    configure.add_argument("--stale-after-minutes", type=int, default=None)
-    add_json_argument(configure)
-    configure.set_defaults(func=continuation_configure_command)
+register_workspace_parsers = continuation_workspace_parsers.register_workspace_parsers
+register_configure_parser = continuation_workspace_parsers.register_configure_parser
 
 
 __all__ = [
@@ -1842,6 +1845,7 @@ __all__ = [
     "continuation_init_command",
     "continuation_workspace_adopt_command",
     "continuation_workspace_intent_command",
+    "continuation_workspace_reconcile_handoff_command",
     "continuation_workspace_reclassify_command",
     "continuation_workspace_refresh_command",
     "continuation_workspace_status_command",

@@ -27,6 +27,8 @@ ADOPTION_SCHEMA = "acf.continuation.workspace-adoption.v1"
 ADOPTION_ENTRY_SCHEMA = "acf.continuation.workspace-adoption-entry.v1"
 RECLASSIFICATION_SCHEMA = "acf.continuation.workspace-reclassification.v1"
 RECLASSIFICATION_ENTRY_SCHEMA = "acf.continuation.workspace-reclassification-entry.v1"
+HANDOFF_RECONCILE_SCHEMA = "acf.continuation.workspace-handoff-reconcile.v1"
+HANDOFF_RECONCILE_ENTRY_SCHEMA = "acf.continuation.workspace-handoff-reconcile-entry.v1"
 
 MAX_ENTRIES = 256
 MAX_PATH_BYTES = 1024
@@ -918,6 +920,176 @@ def observe_handoff(
     return validate_manifest(payload, task_id=task_id)
 
 
+def reconcile_handoff_cleanup(
+    manifest: Mapping[str, Any],
+    *,
+    task_id: str,
+    snapshot: Mapping[str, Any],
+    cleanup_paths: Sequence[str],
+    accepted_head: str | None,
+    evidence_refs: Sequence[str],
+    reason: str,
+    receipt_id: str,
+    now: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Explicitly accept deterministic cleanup of ownerless handoff WIP.
+
+    Ownerless handoff normally freezes task-owned WIP byte-for-byte so an
+    unrelated process cannot silently rewrite continuation provenance.  A
+    reviewed closeout action can, however, intentionally commit/remove a path
+    after the owner has already released.  That exact case needs an auditable
+    escape hatch or the next claim deadlocks: claim refuses the drift, while
+    owner-authenticated reclassification cannot run without a claim.
+
+    This helper is intentionally narrow.  Every reconciled path must already
+    be task-owned, remain covered by the previous owner's write intent, be
+    semantic-clean in the current Git snapshot, and account for every current
+    workspace conflict.  Dirty-but-changed bytes and unrelated conflicts stay
+    fail-closed.  The caller is responsible for proving the task is truly in
+    an ownerless graceful-handoff lifecycle before invoking this helper.
+    """
+
+    current = validate_manifest(manifest, task_id=task_id)
+    selected = [normalize_path(path_value) for path_value in cleanup_paths]
+    if not selected:
+        raise ContinuationWorkspaceError(
+            "ownerless handoff reconciliation requires explicit cleanup paths",
+            code="workspace_handoff_reconcile_incomplete",
+        )
+    if len(selected) != len(set(selected)):
+        raise ContinuationWorkspaceError(
+            "ownerless handoff reconciliation paths contain duplicates",
+            code="workspace_handoff_reconcile_overlap",
+        )
+    for index, left in enumerate(selected):
+        for right in selected[index + 1 :]:
+            if paths_overlap(left, right):
+                raise ContinuationWorkspaceError(
+                    f"ownerless handoff reconciliation paths overlap: {left} / {right}",
+                    code="workspace_handoff_reconcile_overlap",
+                )
+
+    normalized_evidence = _evidence_refs(list(evidence_refs))
+    if not normalized_evidence:
+        raise ContinuationWorkspaceError(
+            "ownerless handoff reconciliation requires durable evidence",
+            code="workspace_handoff_reconcile_evidence_required",
+        )
+    normalized_reason = _text(reason, field="reason", max_bytes=4096)
+    normalized_now = _text(now, field="reconciled_at", max_bytes=128)
+    normalized_receipt_id = _text(receipt_id, field="receipt_id", max_bytes=128)
+    baseline_head = str(current["baseline_head"])
+    current_head = _text(snapshot.get("head"), field="current_head", max_bytes=128)
+    normalized_accepted_head = (
+        _text(accepted_head, field="accepted_head", max_bytes=128)
+        if accepted_head is not None
+        else None
+    )
+    if current_head != baseline_head:
+        if normalized_accepted_head != current_head:
+            raise ContinuationWorkspaceError(
+                "ownerless handoff reconciliation refuses unaccepted Git HEAD drift",
+                code="workspace_handoff_reconcile_head_unaccepted",
+            )
+    elif normalized_accepted_head is not None and normalized_accepted_head != current_head:
+        raise ContinuationWorkspaceError(
+            "accepted ownerless handoff HEAD does not match current Git HEAD",
+            code="workspace_handoff_reconcile_head_mismatch",
+        )
+
+    task_owned = _entry_map(current["task_owned"])
+    observed_entries = snapshot.get("entries")
+    if not isinstance(observed_entries, list):
+        raise ContinuationWorkspaceError(
+            "workspace snapshot entries are invalid",
+            code="workspace_manifest_invalid",
+        )
+    observed = _entry_map(_entries(observed_entries, field="snapshot.entries"))
+    intents = list(current["write_intents"])
+    for path_value in selected:
+        if path_value not in task_owned:
+            raise ContinuationWorkspaceError(
+                f"ownerless handoff cleanup path is not recorded task-owned WIP: {path_value}",
+                code="workspace_handoff_reconcile_not_task_owned",
+            )
+        if not any(paths_overlap(path_value, intent) for intent in intents):
+            raise ContinuationWorkspaceError(
+                f"ownerless handoff cleanup path lacks retained write intent: {path_value}",
+                code="workspace_handoff_reconcile_intent_missing",
+            )
+        if path_value in observed:
+            raise ContinuationWorkspaceError(
+                f"ownerless handoff cleanup path is still semantically dirty: {path_value}",
+                code="workspace_handoff_reconcile_not_clean",
+            )
+
+    observed_handoff = observe_handoff(
+        current,
+        task_id=task_id,
+        snapshot=snapshot,
+        now=normalized_now,
+    )
+    conflicts = list(observed_handoff["conflicts"])
+    expected_conflicts = {
+        (path_value, "task_owned_handoff_drift") for path_value in selected
+    }
+    actual_conflicts = {
+        (str(item.get("path")), str(item.get("reason"))) for item in conflicts
+    }
+    if actual_conflicts != expected_conflicts:
+        raise ContinuationWorkspaceError(
+            "ownerless handoff reconciliation must account for every current conflict exactly; "
+            f"expected {sorted(expected_conflicts)}, observed {sorted(actual_conflicts)}",
+            code="workspace_handoff_reconcile_conflict_mismatch",
+        )
+
+    remaining_task_owned = {
+        path_value: entry
+        for path_value, entry in task_owned.items()
+        if path_value not in set(selected)
+    }
+    retained_intents = [
+        intent
+        for intent in intents
+        if any(
+            paths_overlap(intent, path_value)
+            for path_value in remaining_task_owned
+        )
+    ]
+    payload = {
+        **observed_handoff,
+        "baseline_head": current_head,
+        "write_intents": retained_intents,
+        "task_owned": list(remaining_task_owned.values()),
+        "conflicts": [],
+        "last_observed_at": normalized_now,
+    }
+    receipt = {
+        "schema_version": HANDOFF_RECONCILE_SCHEMA,
+        "receipt_id": normalized_receipt_id,
+        "task_id": task_id,
+        "generation": int(current["generation"]),
+        "baseline_head_before": baseline_head,
+        "current_head": current_head,
+        "accepted_head": normalized_accepted_head,
+        "reconciled_at": normalized_now,
+        "reason": normalized_reason,
+        "evidence_refs": normalized_evidence,
+        "entries": [
+            {
+                "schema_version": HANDOFF_RECONCILE_ENTRY_SCHEMA,
+                "path": path_value,
+                "prior_status": task_owned[path_value]["status"],
+                "prior_digest": task_owned[path_value]["digest"],
+                "outcome": "semantic_clean",
+            }
+            for path_value in sorted(selected)
+        ],
+    }
+    _bounded(receipt)
+    return validate_manifest(payload, task_id=task_id), receipt
+
+
 def handoff_generation(
     manifest: Mapping[str, Any],
     *,
@@ -1032,6 +1204,8 @@ __all__ = [
     "ADOPTION_ENTRY_SCHEMA",
     "ADOPTION_SCHEMA",
     "ENTRY_SCHEMA",
+    "HANDOFF_RECONCILE_ENTRY_SCHEMA",
+    "HANDOFF_RECONCILE_SCHEMA",
     "LEGACY_WORKSPACE_SCHEMA",
     "LEGACY_WORKSPACE_SCHEMA_V2",
     "WORKSPACE_SCHEMA",
@@ -1047,6 +1221,7 @@ __all__ = [
     "path_matches_scope",
     "paths_overlap",
     "recover_generation",
+    "reconcile_handoff_cleanup",
     "summary",
     "validate_manifest",
 ]

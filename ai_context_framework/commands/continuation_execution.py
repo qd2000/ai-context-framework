@@ -21,6 +21,23 @@ MAX_POLL_SECONDS = 1.0
 MAX_KEEPALIVE_SECONDS = 300.0
 
 
+def split_cli_child_argv(argv: list[str]) -> tuple[list[str], list[str] | None]:
+    """Detach the literal ``--`` child tail before argparse interprets child flags.
+
+    ``argparse`` otherwise treats child options such as ``python -c`` as ACF
+    options on some Python/platform combinations.  Keeping the delimiter split
+    outside the parser preserves the existing ``run PATH --options -- CHILD``
+    ordering while still passing the child argv byte-for-byte as strings.
+    """
+    if len(argv) < 3 or argv[:3] != ["continuation", "execution", "run"]:
+        return argv, None
+    try:
+        delimiter = argv.index("--", 3)
+    except ValueError:
+        return argv, None
+    return argv[:delimiter], argv[delimiter + 1 :]
+
+
 def _continuation():
     # Lazy import avoids a cycle because the core continuation module exposes
     # this adapter back to the runtime parser.
@@ -43,6 +60,22 @@ def _command_argv(args: argparse.Namespace) -> list[str]:
             ],
         )
     return values
+
+
+def _child_environment() -> dict[str, str]:
+    """Inherit ordinary process environment without parent owner credentials.
+
+    ``ACF_CONTINUATION_FENCE_TOKEN_FILE`` is a caller-owned authentication
+    handle for the supervising ACF process.  Passing that handle into the
+    supervised child would let an otherwise ordinary local command (or one of
+    its descendants) read or overwrite the parent's continuation credential.
+    The supervisor keeps its own environment unchanged and only scrubs the
+    child copy.
+    """
+
+    child_env = os.environ.copy()
+    child_env.pop(continuation_workspace_commands.FENCE_TOKEN_FILE_ENV, None)
+    return child_env
 
 
 def _bounded_tail(stream) -> str:
@@ -229,6 +262,7 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                 process = subprocess.Popen(
                     argv,
                     cwd=root,
+                    env=_child_environment(),
                     stdin=None,
                     stdout=stdout_file,
                     stderr=stderr_file,
@@ -258,6 +292,15 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                 process_identity = continuation_execution.capture_process_identity(process.pid)
             except continuation_execution.ProcessIdentityError as exc:
                 return_code = process.poll()
+                if return_code is None:
+                    # Identity capture can race a very short child on slower or
+                    # heavily loaded runners.  Give only that already-spawned
+                    # child a small bounded terminal observation window before
+                    # classifying the effect as unverifiable/unknown.
+                    try:
+                        return_code = process.wait(timeout=0.5)
+                    except subprocess.TimeoutExpired:
+                        return_code = None
                 if return_code is not None:
                     # A very short local command can finish before its start
                     # marker is captured. The parent directly observed that
@@ -349,6 +392,17 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                     external_id=process_identity,
                     milestone="process_running",
                     evidence_ref=f"physical-execution:{args.key}:process-started",
+                )
+                # Refresh owner liveness as soon as the supervised process has
+                # a durable identity.  Without this initial keepalive, a busy
+                # runner can spend most of a short child's lifetime capturing
+                # process identity and reach terminal handling before the first
+                # periodic keepalive is due.
+                lease, directive_signal = _record_keepalive(
+                    root,
+                    paths,
+                    args,
+                    renew_if_due=True,
                 )
                 keepalive_seconds = _keepalive_seconds(control)
                 poll_seconds = _poll_seconds(control)
@@ -463,4 +517,5 @@ def register_execution_parser(subparsers, add_json_argument) -> None:
 __all__ = [
     "continuation_execution_run_command",
     "register_execution_parser",
+    "split_cli_child_argv",
 ]

@@ -121,7 +121,10 @@ class InstallScriptTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(resolved.returncode, 0, resolved.stdout)
-                self.assertEqual(Path(resolved.stdout.strip()).resolve(), acf_cmd.resolve())
+                self.assertTrue(
+                    Path(resolved.stdout.strip()).samefile(acf_cmd),
+                    f"resolved command {resolved.stdout.strip()!r} is not {acf_cmd}",
+                )
 
     def test_install_and_update_fail_before_uv_mutation_when_tool_process_is_live(self) -> None:
         system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))

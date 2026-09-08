@@ -319,6 +319,7 @@ def _paths(root: Path, task_id: str | None) -> dict[str, Path]:
         "effects": directory / "effects.json",
         "coordination": directory / "coordination.json",
         "workspace": directory / "workspace.json",
+        "workspace_reconcile": directory / "last_workspace_reconcile.json",
         "reconcile": directory / "reconcile.json",
         "recovery": directory / "last_recovery.json",
         "directives": directory / "directives.json",

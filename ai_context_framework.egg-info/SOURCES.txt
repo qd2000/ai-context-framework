@@ -59,6 +59,7 @@ ai_context_framework/commands/continuation_parsers.py
 ai_context_framework/commands/continuation_recovery.py
 ai_context_framework/commands/continuation_release.py
 ai_context_framework/commands/continuation_workspace.py
+ai_context_framework/commands/continuation_workspace_parsers.py
 ai_context_framework/commands/decisions.py
 ai_context_framework/commands/doctor.py
 ai_context_framework/commands/edit_link.py

@@ -1384,6 +1384,407 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertEqual("continuation_release_mode_conflict", payload["error_code"])
 
+    def test_ownerless_handoff_cleanup_can_be_explicitly_reconciled_and_claimed(self) -> None:
+        self.init_task("WS900")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--path",
+                "handoff-cleanup.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        handoff_path = self.root / "handoff-cleanup.txt"
+        handoff_path.write_text("temporary task WIP\n", encoding="utf-8")
+        code, checkpoint, stderr = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--stage",
+                "handoff-cleanup",
+                "--next-action",
+                "Continue after reviewed closeout cleanup.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{checkpoint}")
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--handoff",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        self.assertEqual(["handoff-cleanup.txt"], released["workspace"]["task_owned_paths"])
+
+        # A reviewed release/closeout action makes the previously task-owned
+        # WIP semantic-clean after the owner has already handed off.
+        handoff_path.unlink()
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertFalse(doctor["can_claim"])
+        self.assertIn("workspace_conflict", doctor["blocked_reasons"])
+        self.assertEqual(
+            "task_owned_handoff_drift",
+            doctor["workspace"]["conflicts"][0]["reason"],
+        )
+
+        code, reconciled, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "reconcile-handoff",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--cleanup",
+                "handoff-cleanup.txt",
+                "--evidence-ref",
+                "commit:reviewed-closeout",
+                "--reason",
+                "The reviewed closeout intentionally removed the temporary task-owned WIP after graceful handoff.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertEqual("workspace_handoff_reconciled", reconciled["status"])
+        self.assertTrue(reconciled["can_claim"])
+        self.assertEqual([], reconciled["blocked_reasons"])
+        self.assertEqual([], reconciled["workspace"]["task_owned_paths"])
+        self.assertEqual([], reconciled["workspace"]["write_intent_paths"])
+        self.assertEqual(
+            "acf.continuation.workspace-handoff-reconcile.v1",
+            reconciled["receipt"]["schema_version"],
+        )
+        self.assertEqual("semantic_clean", reconciled["receipt"]["entries"][0]["outcome"])
+
+        # The command itself returns the durable receipt; doctor must also be
+        # immediately claimable without force-init or manual state edits.
+        code, next_claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-b",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{next_claim}")
+        self.assertGreater(int(next_claim["generation"]), int(claim["generation"]))
+
+    def test_ownerless_handoff_reconcile_refuses_dirty_changed_bytes(self) -> None:
+        self.init_task("WS900")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--path",
+                "handoff-dirty.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        dirty_path = self.root / "handoff-dirty.txt"
+        dirty_path.write_text("owned v1\n", encoding="utf-8")
+        code, checkpoint, stderr = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--stage",
+                "handoff-dirty",
+                "--next-action",
+                "Keep ownerless WIP protected.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{checkpoint}")
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--handoff",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        dirty_path.write_text("unknown owner edit\n", encoding="utf-8")
+
+        code, rejected, _ = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "reconcile-handoff",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--cleanup",
+                "handoff-dirty.txt",
+                "--evidence-ref",
+                "review:insufficient",
+                "--reason",
+                "The path changed but was not made semantic-clean.",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("workspace_handoff_reconcile_not_clean", rejected["error_code"])
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS900"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertFalse(doctor["can_claim"])
+        self.assertIn("workspace_conflict", doctor["blocked_reasons"])
+
+    def test_handoff_reconcile_refuses_active_owner_and_non_handoff_release(self) -> None:
+        self.init_task("WS900")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        code, rejected, _ = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "reconcile-handoff",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--cleanup",
+                "unused.txt",
+                "--evidence-ref",
+                "review:active-owner",
+                "--reason",
+                "An active owner must use the fenced workspace flow.",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("workspace_handoff_reconcile_owner_present", rejected["error_code"])
+
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--path",
+                "normal-release.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        normal_path = self.root / "normal-release.txt"
+        normal_path.write_text("task WIP\n", encoding="utf-8")
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        normal_path.unlink()
+        code, rejected, _ = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "reconcile-handoff",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--cleanup",
+                "normal-release.txt",
+                "--evidence-ref",
+                "review:normal-release",
+                "--reason",
+                "A normal release is not the graceful-running-handoff lifecycle.",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("workspace_handoff_reconcile_not_handoff", rejected["error_code"])
+
+    def test_handoff_reconcile_requires_explicit_acceptance_for_head_drift(self) -> None:
+        self.init_task("WS900")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--runner-id",
+                "runner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        lease_id = str(claim["lease"]["lease_id"])
+        code, intent, stderr = self.run_json(
+            [
+                "continuation",
+                "workspace",
+                "intent",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--path",
+                "head-cleanup.txt",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{intent}")
+        cleanup_path = self.root / "head-cleanup.txt"
+        cleanup_path.write_text("temporary handoff WIP\n", encoding="utf-8")
+        code, checkpoint, stderr = self.run_json(
+            [
+                "continuation",
+                "checkpoint",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--stage",
+                "head-drift-handoff",
+                "--next-action",
+                "Resume after reviewed closeout commit.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{checkpoint}")
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                "--lease-id",
+                lease_id,
+                *self.owner_flags(claim),
+                "--handoff",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+
+        cleanup_path.unlink()
+        (self.root / "closeout-marker.txt").write_text("reviewed closeout\n", encoding="utf-8")
+        self._git("add", "closeout-marker.txt")
+        self._git("commit", "-m", "test: reviewed ownerless closeout")
+        current_head = self._git("rev-parse", "HEAD").stdout.strip()
+
+        base_args = [
+            "continuation",
+            "workspace",
+            "reconcile-handoff",
+            str(self.root),
+            "--task-id",
+            "WS900",
+            "--cleanup",
+            "head-cleanup.txt",
+            "--evidence-ref",
+            "commit:reviewed-ownerless-closeout",
+            "--reason",
+            "The reviewed ownerless closeout removed task WIP and advanced Git HEAD.",
+        ]
+        code, rejected, _ = self.run_json(base_args)
+        self.assertEqual(3, code)
+        self.assertEqual("workspace_handoff_reconcile_head_unaccepted", rejected["error_code"])
+
+        code, mismatched, _ = self.run_json([*base_args, "--accept-head", "deadbeef"])
+        self.assertEqual(3, code)
+        self.assertEqual("workspace_handoff_reconcile_head_unaccepted", mismatched["error_code"])
+
+        code, reconciled, stderr = self.run_json(
+            [*base_args, "--accept-head", current_head]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{reconciled}")
+        self.assertTrue(reconciled["can_claim"])
+        self.assertEqual(current_head, reconciled["receipt"]["accepted_head"])
+        self.assertEqual(current_head, reconciled["workspace"]["baseline_head"])
+
     def test_checkpoint_rolls_bounded_state_lists_instead_of_invalidating_state(self) -> None:
         self.init_task()
         code, claim, stderr = self.run_json(
@@ -4251,6 +4652,212 @@ merge_resolution: merged
         )
         self.assertEqual(0, code, f"{stderr}\n{next_claim}")
         self.assertGreater(int(next_claim["generation"]), int(claim["generation"]))
+
+    def test_ws008_coordination_wait_returns_authenticated_owner_activity_without_ownership(self) -> None:
+        self.init_task("WS909")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--runner-id",
+                "owner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "Wait for authenticated owner activity.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        challenge = self.open_challenge(attempt, task_id="WS909")
+        challenge_id = str(challenge["challenge"]["challenge_id"])
+
+        code, heartbeat, stderr = self.run_json(
+            [
+                "continuation",
+                "heartbeat",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{heartbeat}")
+        code, waited, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "wait",
+                str(self.root),
+                "--task-id",
+                "WS909",
+                "--challenge-id",
+                challenge_id,
+                "--attempt-id",
+                str(attempt["attempt"]["attempt_id"]),
+                "--poll-seconds",
+                "0.05",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{waited}")
+        self.assertEqual("owner_active", waited["result"])
+        self.assertFalse(waited["ownership_granted"])
+        self.assertEqual(int(claim["generation"]), waited["owner"]["generation"])
+
+    def test_ws008_coordination_wait_returns_owner_release_and_does_not_claim(self) -> None:
+        self.init_task("WS910")
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS910",
+                "--runner-id",
+                "owner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS910",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "Wait for graceful owner release.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        challenge = self.open_challenge(attempt, task_id="WS910")
+        challenge_id = str(challenge["challenge"]["challenge_id"])
+        code, released, stderr = self.run_json(
+            [
+                "continuation",
+                "release",
+                str(self.root),
+                "--task-id",
+                "WS910",
+                "--lease-id",
+                str(claim["lease"]["lease_id"]),
+                *self.owner_flags(claim),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{released}")
+        code, waited, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "wait",
+                str(self.root),
+                "--task-id",
+                "WS910",
+                "--challenge-id",
+                challenge_id,
+                "--attempt-id",
+                str(attempt["attempt"]["attempt_id"]),
+                "--poll-seconds",
+                "0.05",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{waited}")
+        self.assertEqual("owner_released", waited["result"])
+        self.assertFalse(waited["ownership_granted"])
+        self.assertEqual("absent", waited["owner"]["state"])
+
+    def test_ws008_coordination_await_uses_persisted_deadline_and_timeout_is_not_ownership(self) -> None:
+        init = self.init_task("WS911")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS911",
+                "--runner-id",
+                "owner-a",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        code, attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS911",
+                "--runner-id",
+                "contender-a",
+                "--objective-summary",
+                "Wait through the persisted challenge deadline, then refresh evidence.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{attempt}")
+        challenge = self.open_challenge(attempt, task_id="WS911")
+        challenge_id = str(challenge["challenge"]["challenge_id"])
+        coordination_path = state_dir / "coordination.json"
+        coordination = continuation._read_json(coordination_path, label="coordination")
+        current = next(item for item in coordination["challenges"] if item["challenge_id"] == challenge_id)
+        current["opened_at"] = continuation._iso(continuation._now() - timedelta(minutes=2))
+        current["deadline_at"] = continuation._iso(continuation._now() - timedelta(minutes=1))
+        continuation._write_json(coordination_path, coordination)
+
+        code, waited, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "await",
+                str(self.root),
+                "--task-id",
+                "WS911",
+                "--challenge-id",
+                challenge_id,
+                "--attempt-id",
+                str(attempt["attempt"]["attempt_id"]),
+                "--poll-seconds",
+                "0.05",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{waited}")
+        self.assertEqual("timeout", waited["result"])
+        self.assertEqual("timed_out", waited["challenge"]["status"])
+        self.assertTrue(waited["challenge"]["ownership_forfeiture_candidate"])
+        self.assertFalse(waited["ownership_granted"])
+
+        code, still_busy, _ = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS911",
+                "--runner-id",
+                "contender-a",
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("continuation_busy", still_busy["error_code"])
 
     def test_ws008_timed_out_challenge_can_authorize_fenced_recovery_without_death_claim(self) -> None:
         init = self.init_task("WS908")
@@ -7687,6 +8294,13 @@ merge_resolution: merged
         self.assertTrue(policy["verified_duplicate_owner_may_end_duplicate_wake"])
         self.assertFalse(policy["duplicate_wake_exit_is_task_stop"])
         self.assertTrue(policy["stale_owner_requires_recovery"])
+        self.assertTrue(policy["stale_owner_wait_is_tool_backed"])
+        self.assertEqual("persisted_challenge_deadline", policy["stale_owner_wait_bound_source"])
+        self.assertFalse(policy["challenge_pending_is_session_end_reason"])
+        self.assertFalse(policy["pure_idle_wait_required"])
+        self.assertFalse(policy["coordination_wait_grants_ownership"])
+        self.assertTrue(policy["same_activation_recovery_after_timeout"])
+        self.assertTrue(policy["same_activation_recovery_continues_project_work"])
         self.assertTrue(policy["contender_continues_safe_read_only_when_available"])
         self.assertFalse(policy["contender_must_create_busywork"])
         self.assertFalse(policy["resume_hint_is_live_authority"])
@@ -7916,7 +8530,16 @@ merge_resolution: merged
         self.assertIn("An active lease is not proof that another agent is still working", prompt)
         self.assertIn("challenge-backed verification", prompt)
         self.assertIn("formal reconcile/recover", prompt)
-        self.assertIn("coordination status", prompt)
+        self.assertIn("coordination wait", prompt)
+        self.assertIn("persisted deadline", prompt)
+        self.assertIn("pending challenge is not a session-end signal", prompt)
+        self.assertIn("does not require pure model idle waiting", prompt)
+        self.assertIn("`owner_active`", prompt)
+        self.assertIn("`owner_released`", prompt)
+        self.assertIn("`timeout`", prompt)
+        self.assertIn("same activation", prompt)
+        self.assertIn("wait never grant ownership", prompt)
+        self.assertTrue(any("coordination wait" in action for action in payload["next_actions"]))
 
     def test_prompt_surfaces_compact_effect_authority_summary_without_copying_effect_history(self) -> None:
         self.init_task()
