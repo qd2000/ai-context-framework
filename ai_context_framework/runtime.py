@@ -50,6 +50,7 @@ from ai_context_framework.commands import workstream_authorization as workstream
 from ai_context_framework.commands import worktree as worktree_commands
 from ai_context_framework.commands import continuation as continuation_commands, observer as observer_commands
 from ai_context_framework.commands import continuation_coordination as continuation_coordination_commands
+from ai_context_framework.commands import continuation_execution as continuation_execution_commands
 from ai_context_framework.commands import continuation_release as continuation_release_commands
 from ai_context_framework.commands.log import (
     build_usage_event,
@@ -1938,12 +1939,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     _sync_runtime_part_globals()
     argv_list = list(sys.argv[1:] if argv is None else argv)
+    argv_list, execution_child_argv = continuation_execution_commands.split_cli_child_argv(argv_list)
     parser = build_parser()
     started = time.perf_counter()
     args: argparse.Namespace | None = None
     exit_code = 0
     try:
         args = parser.parse_args(argv_list)
+        if execution_child_argv is not None:
+            args.child_argv = execution_child_argv
         exit_code = run_with_context_lock(args)
     except SystemExit as exc:
         if isinstance(exc.code, int):

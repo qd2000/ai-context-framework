@@ -1245,16 +1245,27 @@ def _target_semantic_story_html(view: dict[str, object]) -> tuple[str, str, set[
     def story_section(key: str, title: str, body: str) -> str:
         emphasized = " is-emphasized" if key in emphasis else ""
         return f'<section class="story-section{emphasized}" data-story-section="{escape(key)}"><h4>{_html_text(title)}</h4>{body}</section>'
+    goal_body = f'<p>{_html_text(narrative.get("overall_goal"))}</p>'
+    route_body = (
+        f'<p>{_html_text(narrative.get("route_summary"))}</p>'
+        f'<div class="route-grid">{route_nodes}</div>'
+    )
+    current_position_body = (
+        f'<p>{_html_text(narrative.get("current_position"))}</p>'
+        f'<p><strong>为什么现在做：</strong>{_html_text(narrative.get("why_now"))}</p>'
+    )
+    recent_proof_body = f"<ul>{proof_html}</ul>"
+    next_logic_body = f'<p>{_html_text(narrative.get("next_logic"))}</p>'
     return (
         '<section class="target-story">'
         f'<div class="section-heading"><div><h3>目标、路线与当前决策</h3><p class="muted">当前 Map Review：<code>{_html_text(review.get("review_id"))}</code></p></div><span class="badge tone-active">{_html_text(presentation_type)}</span></div>'
         f'{patch_notice}<div class="story-grid">'
-        f'{story_section("goal", "最终目标", f"<p>{_html_text(narrative.get("overall_goal"))}</p>")}'
-        f'{story_section("route", "完整路线", f"<p>{_html_text(narrative.get("route_summary"))}</p><div class=\"route-grid\">{route_nodes}</div>")}'
-        f'{story_section("current_position", "当前位置", f"<p>{_html_text(narrative.get("current_position"))}</p><p><strong>为什么现在做：</strong>{_html_text(narrative.get("why_now"))}</p>")}'
-        f'{story_section("recent_proof", "最近证明 / 排除 / 改变", f"<ul>{proof_html}</ul>")}'
+        f'{story_section("goal", "最终目标", goal_body)}'
+        f'{story_section("route", "完整路线", route_body)}'
+        f'{story_section("current_position", "当前位置", current_position_body)}'
+        f'{story_section("recent_proof", "最近证明 / 排除 / 改变", recent_proof_body)}'
         f'{story_section("problems", "当前问题与计划影响", problem_html)}'
-        f'{story_section("next_logic", "下一步及理由", f"<p>{_html_text(narrative.get("next_logic"))}</p>")}'
+        f'{story_section("next_logic", "下一步及理由", next_logic_body)}'
         '</div></section>',
         density,
         emphasis,

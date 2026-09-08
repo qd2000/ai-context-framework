@@ -4,6 +4,26 @@
 
 ## Unreleased
 
+## v0.0.3.88 — 2026-09-08
+
+### Same-activation stale-owner takeover
+
+- 新增 `acf continuation coordination wait`（alias `await`）：对已持久化 generation-bound challenge 做单次 tool-backed blocking observation，等待 `owner_active | owner_released | timeout`，等待边界完全来自 challenge 自身 `deadline_at`，不依赖 Scheduled Agent 纯 idle，也不把当前 10 分钟窗口固化成执行预算。wait 永不授予 ownership；timeout 后仍须 fresh evidence + formal reconcile/recover，并在当前 activation 仍存活时继续项目工作。
+- generated `continuation prompt --json` / `execution_policy` 明确暴露 `stale_owner_wait_is_tool_backed=true`、`challenge_pending_is_session_end_reason=false`、`pure_idle_wait_required=false`、`coordination_wait_grants_ownership=false` 与 same-activation recovery contract，避免 Agent 发起 challenge 后主动结束本轮、平白等待下一次 scheduler wake。
+
+### v0.0.3.87 release regression fixes
+
+- 修复 POSIX/Python argparse 对 `continuation execution run ... -- <child argv>` 中 child flags 的误解析，literal `--` 之后的命令尾在顶层 parser 前即被原样分离；同时收紧极短 child 的 process-identity race，只对已启动且可能瞬时退出的同一 child 做 0.5 秒 bounded terminal observation。
+- supervised physical execution 在取得 durable process identity、把 effect 切换为 `active` 后会立即记录一次 owner keepalive，再进入周期 heartbeat/renew；这样即使高负载 runner 上 process identity 捕获占用了短 child 的大部分生命周期，也不会把“第一次 liveness 刷新”拖到 terminal handling。
+- supervised child/descendants 默认不继承父 owner 的 `ACF_CONTINUATION_FENCE_TOKEN_FILE` handle；父 supervisor 仍保留该 credential 用于 heartbeat/renew/terminalize。这样 child 内部的普通 ACF claim/recover、测试或子进程不能无意读取或覆盖父 owner 的 fence-token file，避免父 supervisor 后续因 credential handle 被污染而 `fence_token_mismatch`。该隔离仅针对 continuation owner credential，不扩展为通用环境 sandbox。
+- 修复 Python 3.10 Observer nested f-string 兼容性，并把 Windows install/Observer 路径断言改成 filesystem identity (`samefile`) 而不是易受路径大小写/规范化影响的字符串 equality；这些是 `.87` publish 前跨平台 CI 暴露的已确认 regressions。
+- 将 continuation workspace/configure 的纯 argparse 注册拆到无状态 `continuation_workspace_parsers.py`，主 command adapter 从 2019 行降到 1857 行，继续满足包内模块 `<=2000` 行的 agent-reviewability Gate；状态语义、JSON contract 与命令路径不变。
+
+### Continuation ownerless handoff reconciliation
+
+- 新增 `acf continuation workspace reconcile-handoff`，用于 graceful running handoff 后一个窄且证据绑定的 provenance deadlock：如果已记录的 task-owned WIP 在 owner 释放后被已审阅 closeout/commit/cleanup 确定性恢复为 semantic-clean，新的 ownerless 命令可以显式收口该 cleanup、更新 workspace baseline 并写 `last_workspace_reconcile.json` 审计 receipt，使后续 `doctor`/claim 不再因 `task_owned_handoff_drift` 永久自锁。
+- 该恢复路径不放宽默认 fail-closed：只接受 lease absent、latest round=`released_to_running_handoff`、无 unresolved effects、workspace/handoff generation 一致、原 task-owned + retained intent、当前 semantic-clean 且精确解释全部 handoff conflict 的 path；仍 dirty 的改写、active/expired owner、普通 release、未知 conflict 或 effect ambiguity 都拒绝。若 reviewed closeout 同时推进 Git HEAD，还必须显式传入与当前 HEAD 精确一致的 `--accept-head`，避免借 cleanup 顺带吞掉未知 commit。命令本身不授予 ownership、不执行 recover。
+
 ## v0.0.3.87 — 2026-09-07
 
 ### Continuation physical-execution liveness
