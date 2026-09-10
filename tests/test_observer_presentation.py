@@ -13,6 +13,7 @@ from unittest import mock
 import acf
 
 from ai_context_framework.observer import derive_snapshot_alerts, resolve_observer_project
+from ai_context_framework.observer_dashboard import render_relation_diagram
 from ai_context_framework.observer_presentation import (
     ObserverPresentationConcurrencyError,
     ObserverPresentationError,
@@ -40,6 +41,40 @@ class ObserverPresentationStateTests(unittest.TestCase):
             observer_dir=root / "observer",
             canonical_root=root / "project",
         )
+
+    def test_relation_diagram_uses_reviewed_current_status_for_legacy_narrative(self):
+        nodes = [
+            {"id": "h1", "title": "H1", "status": "current", "summary": "Map-first visual Gate"},
+            {"id": "h2", "title": "H2", "status": "future", "summary": "Run history"},
+        ]
+        edges = [{"from": "h1", "to": "h2", "label": "next"}]
+
+        legacy_html = render_relation_diagram(nodes, edges, title="Legacy reviewed route")
+        self.assertIn('class="diagram-node tone-muted is-current" data-node-id="h1"', legacy_html)
+        self.assertIn(">当前</text>", legacy_html)
+        self.assertIn(">后续阶段</text>", legacy_html)
+        self.assertNotIn(">future</text>", legacy_html)
+        self.assertIn(">下一步</text>", legacy_html)
+        self.assertNotIn(">next</text>", legacy_html)
+        self.assertIn("<title>h2: H2 · 后续阶段 · Run history</title>", legacy_html)
+        self.assertNotIn("· future ·", legacy_html)
+
+        architecture_html = render_relation_diagram(
+            nodes,
+            [{"from": "h1", "to": "h2", "label": "observed_by"}],
+            title="Architecture relation",
+        )
+        self.assertIn(">由其观察</text>", architecture_html)
+        self.assertNotIn(">observed_by</text>", architecture_html)
+
+        explicit_empty_html = render_relation_diagram(
+            nodes,
+            edges,
+            title="Explicit current-node override",
+            current_node_ids=set(),
+        )
+        self.assertNotIn('is-current" data-node-id="h1"', explicit_empty_html)
+        self.assertNotIn('class="diagram-current"', explicit_empty_html)
 
     def make_view(
         self,
@@ -101,9 +136,11 @@ class ObserverPresentationStateTests(unittest.TestCase):
             "overall_goal": "让注册目标以可审计方式持续推进。",
             "route_summary": "P1 目标注册 → P2 语义生命周期 → P3 展示 → P4 dogfood。",
             "current_position": "P2 semantic lifecycle",
+            "current_node_refs": ["p2"],
             "why_now": "P1.5 已冻结合同，当前需要落地 runtime 语义。",
             "recent_proof": ["P1.5 focused/full tests 已通过。"],
             "next_logic": "验证 one-shot、durable rule 与独立 stale 后再进入 P3。",
+            "next_node_refs": ["p3"],
             "evidence_refs": ["docs/ai/reference/ws012_project_observer_operational_dogfood/PLAN.md"],
             "route_nodes": [
                 {
@@ -136,6 +173,7 @@ class ObserverPresentationStateTests(unittest.TestCase):
         problems: list[dict[str, object]] | None = None,
         authority_reread: bool = True,
         signals: list[str] | None = None,
+        narrative: dict[str, object] | None = None,
     ):
         return apply_semantic_review(
             project,
@@ -150,7 +188,7 @@ class ObserverPresentationStateTests(unittest.TestCase):
             evidence_refs=["plan:p2", "continuation:g81"],
             map_relevant_signals=signals or ["current stage changed to P2"],
             presentation_type="roadmap",
-            narrative=self.narrative(),
+            narrative=narrative or self.narrative(),
             problems=problems or [],
             consume_one_shot_request_ids=consume or [],
         )
@@ -706,7 +744,8 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
             self.assertEqual(runs_path.read_bytes(), runs_before)
             dashboard = Path(payload["dashboard"]["path"])
             html = dashboard.read_text(encoding="utf-8")
-            self.assertIn("临时展示调整：patch-rerender", html)
+            self.assertIn("展示调整详情", html)
+            self.assertIn("patch-rerender", html)
             self.assertIn("density-detailed", html)
 
             exit_code, stdout, stderr = self.run_cli(
@@ -1129,11 +1168,26 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
         with tempfile.TemporaryDirectory() as tmp:
             project = self.make_project(Path(tmp))
             view = self.make_view("ws012-writer", "WS012")
+            problem = {
+                "problem_id": "problem-dashboard-v2",
+                "title": "当前路线受阻",
+                "summary": "需要调整当前步骤后继续。",
+                "expectedness": "unexpected",
+                "handler": "agent_self",
+                "scope_relation": "in_scope",
+                "blocking_impact": "blocks_current_step",
+                "plan_impact": "route_change",
+                "status": "working",
+                "route_ref": "route:observer-v2",
+                "node_ref": "p2",
+                "evidence_refs": ["runtime:dashboard-v2-problem"],
+            }
             target_state, _ = self.apply_review(
                 project,
                 view,
                 expected_target_revision=0,
                 review_id="review-dashboard-v2",
+                problems=[problem],
             )
             target_state, _ = apply_transient_patch(
                 project,
@@ -1152,6 +1206,27 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
             )
             semantic_status = presentation_status(project, {"targets": [view]})["targets"][0]
             view["semantic_review"] = semantic_status
+            latest_run = {
+                "run_id": "continuation-g81-scheduled-writer-81",
+                "source": "continuation_round",
+                "generation": 81,
+                "runner_id": "scheduled-writer-81",
+                "status": "completed",
+                "result": "success",
+                "started_at": "2026-09-01T00:00:00Z",
+                "finished_at": "2026-09-01T00:10:00Z",
+                "last_activity_at": "2026-09-01T00:10:00Z",
+                "duration_seconds": 600.0,
+                "phase": "executing",
+                "major_outcome": "Validated map-first route.",
+                "route_ref": "route:h1-map-first",
+                "evidence_refs": [
+                    "physical-execution:g81-map-first:exit:0",
+                    "guard:WS012-file-scoped-pass",
+                ],
+            }
+            view["runs"] = [latest_run]
+            view["latest_run"] = latest_run
             current = {
                 "observed_at": "2026-09-01T00:00:00Z",
                 "alerts": [],
@@ -1171,17 +1246,144 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
                 interpretations=[],
                 glossary={"terms": {}},
             )
-            self.assertIn("目标、路线与当前决策", html)
+            self.assertIn('class="target-map-summary"', html)
+            self.assertIn('class="target-story target-map-first"', html)
             self.assertIn("最终目标", html)
-            self.assertIn("完整路线", html)
-            self.assertIn("当前位置", html)
-            self.assertIn("最近证明 / 排除 / 改变", html)
-            self.assertIn("当前问题与计划影响", html)
-            self.assertIn("下一步及理由", html)
-            self.assertIn("临时展示调整：patch-dashboard-v2", html)
+            self.assertIn("完整推进路线", html)
+            self.assertIn("当前", html)
+            self.assertIn("最近实质进展", html)
+            self.assertIn("当前问题与影响", html)
+            self.assertIn("处理者：Agent 自行处理", html)
+            self.assertIn("阻塞影响：阻塞当前步骤", html)
+            self.assertIn("计划影响：需要调整路线", html)
+            self.assertIn("状态：处理中", html)
+            self.assertNotIn("处理者：agent_self", html)
+            self.assertIn("下一步", html)
+            self.assertIn('class="relation-diagram"', html)
+            self.assertIn('data-edge-from="p2" data-edge-to="p3"', html)
+            self.assertIn('x1="248.0" y1="100.0" x2="308.0" y2="100.0"', html)
+            self.assertNotIn('x1="153.0" y1="100.0" x2="403.0" y2="100.0"', html)
+            self.assertIn('class="diagram-node tone-active is-current" data-node-id="p2"', html)
+            self.assertIn('class="diagram-node tone-muted is-next" data-node-id="p3"', html)
+            self.assertIn(">当前</text>", html)
+            self.assertIn(">下一</text>", html)
+            self.assertIn("目标完整路线关系图", html)
+            self.assertIn("执行健康", html)
+            self.assertIn("人工介入", html)
+            self.assertIn("Agent 运行记录", html)
+            self.assertIn("来源：Writer 持续执行轮次", html)
+            self.assertIn("generation 81", html)
+            self.assertIn("runner scheduled-writer-81", html)
+            self.assertIn("路线关联", html)
+            self.assertIn("<code>route:h1-map-first</code>", html)
+            self.assertIn("证据覆盖：2 条", html)
+            self.assertIn("physical-execution:g81-map-first:exit:0", html)
+            self.assertIn("<strong>成功</strong>", html)
+            self.assertIn("展示调整详情", html)
+            self.assertIn("patch-dashboard-v2", html)
             self.assertIn("density-detailed", html)
             self.assertIn('data-story-section="route"', html)
             self.assertIn("is-emphasized", html)
+
+    def test_dashboard_alert_severity_is_human_first_chinese(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            current = {
+                "observed_at": "2026-09-01T00:00:00Z",
+                "alerts": [],
+                "workstreams": [],
+                "continuations": [],
+                "semantic": {"status": "current"},
+                "targets": {"targets": []},
+            }
+
+            html = render_dashboard_html(
+                project,
+                current=current,
+                status={"data_age": {"state": "fresh"}},
+                machine_events=[],
+                interpretations=[],
+                glossary={"terms": {}},
+                self_health_alerts=[
+                    {
+                        "alert_key": "test:warning",
+                        "severity": "warning",
+                        "title": "语义需要复核",
+                        "explanation": "底层 authority 已发生变化。",
+                    }
+                ],
+            )
+
+            self.assertIn('<div class="muted">需要关注</div>', html)
+            self.assertNotIn('<div class="muted">WARNING</div>', html)
+
+    def test_dashboard_run_history_keeps_runs_beyond_default_visible_window_accessible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            view = self.make_view("ws012-writer", "WS012")
+            view["runs"] = [
+                {
+                    "run_id": f"run-{index:02d}",
+                    "status": "completed",
+                    "started_at": f"2026-09-01T{index:02d}:00:00Z",
+                    "finished_at": f"2026-09-01T{index:02d}:10:00Z",
+                    "last_activity_at": f"2026-09-01T{index:02d}:10:00Z",
+                    "duration_seconds": 600.0,
+                    "phase": f"phase-{index:02d}",
+                    "major_outcome": f"outcome-{index:02d}",
+                    "route_ref": f"route:phase-{index:02d}",
+                }
+                for index in range(15)
+            ]
+            view["runs"][-1].update(
+                source="continuation_round",
+                generation=81,
+                runner_id="scheduled-writer-81",
+            )
+            view["runs"][-2].update(source="observer_marker", result="failed")
+            view["latest_run"] = view["runs"][-1]
+            current = {
+                "observed_at": "2026-09-01T15:00:00Z",
+                "alerts": [],
+                "workstreams": view["workstreams"],
+                "continuations": view["continuations"],
+                "semantic": {"status": "current"},
+                "targets": {
+                    "targets": [view],
+                    "project_overview": {
+                        "decision": "disabled",
+                        "reason": "Single target test",
+                        "evidence_refs": ["test:run-history"],
+                    },
+                },
+            }
+
+            html = render_dashboard_html(
+                project,
+                current=current,
+                status={"data_age": {"state": "fresh"}},
+                machine_events=[],
+                interpretations=[],
+                glossary={"terms": {}},
+            )
+
+            self.assertIn("共 15 次可归属运行", html)
+            self.assertIn("默认显示最近 6 次", html)
+            self.assertIn('class="target-run-history-archive"', html)
+            self.assertIn("查看更早 9 次运行", html)
+            for index in range(15):
+                self.assertIn(f"run-{index:02d}", html)
+            self.assertLess(html.index("run-14"), html.index("run-09"))
+            self.assertLess(html.index("查看更早 9 次运行"), html.index("run-08"))
+            self.assertIn("来源：Writer 持续执行轮次", html)
+            self.assertIn("generation 81", html)
+            self.assertIn("runner scheduled-writer-81", html)
+            self.assertIn("来源：显式自动任务运行标记", html)
+            self.assertIn("<code>route:phase-14</code>", html)
+            self.assertIn("<strong>失败</strong>", html)
+            self.assertIn("<strong>已完成</strong>", html)
+            self.assertIn("证据覆盖：0 条", html)
+            self.assertIn("尚无可归属 evidence_ref", html)
 
     def test_integrated_presentation_lifecycles_do_not_resurrect_transient_guidance(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1317,9 +1519,207 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
                 interpretations=[],
                 glossary={"terms": {}},
             )
-            self.assertIn("Target Narrative 已陈旧", html)
-            self.assertIn("不会把旧路线语义伪装成最新事实", html)
-            self.assertNotIn("目标、路线与当前决策", html)
+            self.assertIn("目标路线已陈旧", html)
+            self.assertIn("当前路线不能作为最新事实展示", html)
+            self.assertIn("主区保持紧凑", html)
+            self.assertNotIn('class="target-route-main"', html)
+            self.assertIn("历史路线版本 / 归档地图", html)
+            self.assertIn("review-before-drift", html)
+            self.assertIn("此版本仅用于历史追溯，不代表当前状态", html)
+            self.assertIn("历史路线版本 review-before-drift", html)
+
+    def test_dashboard_archives_prior_semantic_review_without_mixing_it_into_current_map(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            first = self.make_view("ws012-writer", "WS012")
+            self.apply_review(
+                project,
+                first,
+                expected_target_revision=0,
+                review_id="review-history-one",
+            )
+            second = self.make_view(
+                "ws012-writer",
+                "WS012",
+                stage="P3",
+                next_action="Validate current relationship map",
+            )
+            self.apply_review(
+                project,
+                second,
+                expected_target_revision=1,
+                review_id="review-history-two",
+            )
+            second["semantic_review"] = presentation_status(
+                project,
+                {"targets": [second]},
+            )["targets"][0]
+            current = {
+                "observed_at": "2026-09-01T00:00:00Z",
+                "alerts": [],
+                "workstreams": second["workstreams"],
+                "continuations": second["continuations"],
+                "semantic": {"status": "current"},
+                "targets": {
+                    "targets": [second],
+                    "project_overview": {
+                        "decision": "disabled",
+                        "reason": "Single target test",
+                        "evidence_refs": ["test:semantic-history"],
+                    },
+                },
+            }
+
+            html = render_dashboard_html(
+                project,
+                current=current,
+                status={"data_age": {"state": "fresh"}},
+                machine_events=[],
+                interpretations=[],
+                glossary={"terms": {}},
+            )
+
+            self.assertIn('class="target-story target-map-first"', html)
+            self.assertIn("完整推进路线", html)
+            self.assertIn("review-history-two", html)
+            self.assertIn("历史路线版本 / 归档地图", html)
+            self.assertIn("review-history-one", html)
+            self.assertIn("历史路线版本 review-history-one", html)
+            self.assertNotIn("历史路线版本 review-history-two", html)
+            self.assertIn('data-history-version-picker="ws012-writer"', html)
+            self.assertIn('data-history-version="review-history-one"', html)
+            self.assertIn('value="review-history-one"', html)
+            self.assertIn("当前路线图保持在上方，可选择一个历史版本并排对照", html)
+            self.assertIn("禁用脚本时仍完整展示全部归档版本", html)
+            self.assertIn("item.dataset.historyVersion!==selected", html)
+
+    def test_dashboard_history_browser_can_select_two_archived_versions_for_side_by_side_comparison(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            first = self.make_view("ws012-writer", "WS012", stage="H1-a", next_action="First route")
+            first_narrative = self.narrative()
+            first_narrative["route_nodes"][0]["status"] = "completed"
+            self.apply_review(
+                project,
+                first,
+                expected_target_revision=0,
+                review_id="review-history-a",
+                narrative=first_narrative,
+            )
+            second = self.make_view("ws012-writer", "WS012", stage="H1-b", next_action="Second route")
+            second_narrative = self.narrative()
+            second_narrative["route_nodes"].append(
+                {"id": "p4", "title": "P4", "status": "future", "summary": "dogfood", "evidence_refs": ["plan:p4"]}
+            )
+            second_narrative["route_edges"].append({"from": "p3", "to": "p4", "label": "next"})
+            self.apply_review(
+                project,
+                second,
+                expected_target_revision=1,
+                review_id="review-history-b",
+                narrative=second_narrative,
+            )
+            current_view = self.make_view("ws012-writer", "WS012", stage="H1-current", next_action="Current route")
+            self.apply_review(
+                project,
+                current_view,
+                expected_target_revision=2,
+                review_id="review-current",
+            )
+            current_view["semantic_review"] = presentation_status(
+                project,
+                {"targets": [current_view]},
+            )["targets"][0]
+            current = {
+                "observed_at": "2026-09-01T00:00:00Z",
+                "alerts": [],
+                "workstreams": current_view["workstreams"],
+                "continuations": current_view["continuations"],
+                "semantic": {"status": "current"},
+                "targets": {
+                    "targets": [current_view],
+                    "project_overview": {
+                        "decision": "disabled",
+                        "reason": "Single target test",
+                        "evidence_refs": ["test:semantic-history-compare"],
+                    },
+                },
+            }
+
+            html = render_dashboard_html(
+                project,
+                current=current,
+                status={"data_age": {"state": "fresh"}},
+                machine_events=[],
+                interpretations=[],
+                glossary={"terms": {}},
+            )
+
+            self.assertIn('data-history-version-compare="ws012-writer"', html)
+            self.assertIn("历史版本并排对比", html)
+            self.assertIn('data-history-version-compare-a', html)
+            self.assertIn('data-history-version-compare-b', html)
+            self.assertIn('value="review-history-b" selected', html)
+            self.assertIn('value="review-history-a" selected', html)
+            self.assertIn('data-history-version="review-history-a"', html)
+            self.assertIn('data-history-version="review-history-b"', html)
+            self.assertIn("is-history-compare-active", html)
+            self.assertIn("new Set([first.value,second.value])", html)
+            self.assertIn("不会改写当前路线或自动推断节点等价关系", html)
+            self.assertIn('data-history-compare-facts=', html)
+            self.assertIn('&quot;p4&quot;', html)
+            self.assertIn("稳定 ID 差异", html)
+            self.assertIn("statusChanges", html)
+            self.assertIn("仅 A 有关系", html)
+            self.assertIn("并排原始归档仍保持可读", html)
+
+    def test_dashboard_keeps_current_semantics_visible_when_history_journal_is_corrupt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            view = self.make_view("ws012-writer", "WS012")
+            self.apply_review(
+                project,
+                view,
+                expected_target_revision=0,
+                review_id="review-current-with-bad-history",
+            )
+            events_path = project.observer_dir / "presentation" / "events.jsonl"
+            with events_path.open("a", encoding="utf-8") as handle:
+                handle.write("{not-json}\n")
+            view["semantic_review"] = presentation_status(
+                project,
+                {"targets": [view]},
+            )["targets"][0]
+            current = {
+                "observed_at": "2026-09-01T00:00:00Z",
+                "alerts": [],
+                "workstreams": view["workstreams"],
+                "continuations": view["continuations"],
+                "semantic": {"status": "current"},
+                "targets": {
+                    "targets": [view],
+                    "project_overview": {
+                        "decision": "disabled",
+                        "reason": "Single target test",
+                        "evidence_refs": ["test:history-local-degrade"],
+                    },
+                },
+            }
+
+            html = render_dashboard_html(
+                project,
+                current=current,
+                status={"data_age": {"state": "fresh"}},
+                machine_events=[],
+                interpretations=[],
+                glossary={"terms": {}},
+            )
+
+            self.assertIn('class="target-story target-map-first"', html)
+            self.assertIn("完整推进路线", html)
+            self.assertIn("review-current-with-bad-history", html)
+            self.assertIn("历史路线暂不可读", html)
+            self.assertIn("cannot read observer presentation history line", html)
 
     def test_semantic_review_rejects_source_drift(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1391,6 +1791,61 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
                 problems=[problem],
             )
             self.assertEqual(target_state["current_review"]["problems"][0]["plan_impact"], "route_change")
+
+    def test_semantic_review_rejects_dangling_current_and_problem_node_references(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            view = self.make_view("ws012-writer", "WS012")
+            narrative = self.narrative()
+            narrative["current_node_refs"] = ["missing-node"]
+            with self.assertRaisesRegex(ObserverPresentationError, "current_node_refs.*unknown route node"):
+                apply_semantic_review(
+                    project,
+                    target_view=view,
+                    expected_target_revision=0,
+                    expected_source_fingerprint=target_semantic_source_fingerprint(view),
+                    review_id="review-dangling-current",
+                    authority_fingerprint="authority:sha256:dangling-current",
+                    authority_reread=True,
+                    decision="patch",
+                    reason="Validate explicit current-position binding.",
+                    evidence_refs=["test:dangling-current"],
+                    map_relevant_signals=["current position changed"],
+                    presentation_type="roadmap",
+                    narrative=narrative,
+                    problems=[],
+                )
+
+            problem = {
+                "problem_id": "problem-dangling",
+                "title": "Dangling problem",
+                "summary": "Problem must bind to a real route node.",
+                "expectedness": "unexpected",
+                "handler": "agent_self",
+                "scope_relation": "in_scope",
+                "blocking_impact": "degrading",
+                "plan_impact": "local_adjustment",
+                "status": "working",
+                "node_ref": "missing-node",
+                "evidence_refs": ["test:dangling-problem"],
+            }
+            with self.assertRaisesRegex(ObserverPresentationError, "problem node_ref.*unknown route node"):
+                apply_semantic_review(
+                    project,
+                    target_view=view,
+                    expected_target_revision=0,
+                    expected_source_fingerprint=target_semantic_source_fingerprint(view),
+                    review_id="review-dangling-problem",
+                    authority_fingerprint="authority:sha256:dangling-problem",
+                    authority_reread=True,
+                    decision="patch",
+                    reason="Validate problem-to-route binding.",
+                    evidence_refs=["test:dangling-problem"],
+                    map_relevant_signals=["problem binding changed"],
+                    presentation_type="roadmap",
+                    narrative=self.narrative(),
+                    problems=[problem],
+                )
 
     def test_other_project_problem_requires_transfer_reference(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -9,6 +9,7 @@ needs only the facts that can invalidate one explicitly registered target.
 
 from __future__ import annotations
 
+import _thread
 import json
 import os
 import signal
@@ -171,10 +172,13 @@ def _spawn_target_read_worker(
     ``subprocess`` timeouts begin only after ``Popen`` returns.  On Windows a
     process creation call can itself block (for example while endpoint policy
     inspects an executable), which would otherwise leave the outer Observer CLI
-    non-terminal before a worker PID even exists.  Launch in a daemon helper
-    thread so the caller can still fail visible at the overall deadline.  If a
-    delayed launch eventually returns after cancellation, that exact worker tree
-    is immediately terminated instead of being allowed to become an orphan.
+    non-terminal before a worker PID even exists.  Launch in a low-level helper
+    thread so the caller can still fail visible at the overall deadline.  Do not
+    use ``threading.Thread.start`` here: that high-level API waits for child
+    bootstrap before returning, which would put its own startup handshake outside
+    the explicit ``ready.wait`` deadline.  If a delayed launch eventually returns
+    after cancellation, that exact worker tree is immediately terminated instead
+    of being allowed to become an orphan.
     """
 
     ready = threading.Event()
@@ -196,12 +200,13 @@ def _spawn_target_read_worker(
         finally:
             ready.set()
 
-    launch_thread = threading.Thread(
-        target=launch,
-        name="acf-observer-target-read-spawn",
-        daemon=True,
-    )
-    launch_thread.start()
+    try:
+        _thread.start_new_thread(launch, ())
+    except Exception as exc:
+        raise ObserverTargetReadError(
+            "observer_target_read_spawn_failed",
+            f"Observer target-read helper thread could not start: {exc}",
+        ) from exc
     remaining = max(0.0, deadline - time.monotonic())
     if not ready.wait(remaining):
         cancelled.set()

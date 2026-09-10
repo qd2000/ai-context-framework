@@ -71,6 +71,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual("中文路径", json.loads(rendered)["message"])
         self.assertIn(r"\u4e2d", rendered)
 
+    def test_shared_json_contract_falls_back_to_escapes_on_narrow_console_encoding(self):
+        from ai_context_framework.json_contract import print_json
+
+        buffer = io.BytesIO()
+        stream = io.TextIOWrapper(buffer, encoding="cp936", newline="\n")
+        with redirect_stdout(stream):
+            print_json({"message": "状态 A↔B"})
+            stream.flush()
+        rendered = buffer.getvalue().decode("cp936")
+        self.assertEqual("状态 A↔B", json.loads(rendered)["message"])
+        self.assertIn(r"\u2194", rendered)
+
     def assert_success_json_contract(self, payload, command=None):
         self.assertEqual(payload.get("schema_version"), 1)
         self.assertIs(payload.get("ok"), True)

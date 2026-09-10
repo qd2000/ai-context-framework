@@ -373,7 +373,7 @@ def _validated_narrative(value: object) -> dict[str, object]:
                 "label": _validated_text(raw.get("label"), f"route_edges[{index}].label"),
             }
         )
-    return {
+    result = {
         "schema_version": OBSERVER_TARGET_NARRATIVE_SCHEMA,
         "overall_goal": _validated_text(value.get("overall_goal"), "target_narrative.overall_goal", required=True),
         "route_summary": _validated_text(value.get("route_summary"), "target_narrative.route_summary", required=True),
@@ -385,6 +385,17 @@ def _validated_narrative(value: object) -> dict[str, object]:
         "route_nodes": nodes,
         "route_edges": edges,
     }
+    for field in ("current_node_refs", "next_node_refs"):
+        if field not in value:
+            continue
+        refs = _validated_refs(value.get(field), f"target_narrative.{field}")
+        unknown = [ref for ref in refs if ref not in node_ids]
+        if unknown:
+            raise ObserverPresentationError(
+                f"observer target narrative {field} references an unknown route node: {unknown[0]}"
+            )
+        result[field] = refs
+    return result
 
 
 def _validated_review(value: object) -> dict[str, object]:
@@ -399,6 +410,18 @@ def _validated_review(value: object) -> dict[str, object]:
     if presentation_type not in OBSERVER_PRESENTATION_TYPES:
         raise ObserverPresentationError(f"observer presentation_type is invalid: {presentation_type}")
     problems = [_validated_problem(row) for row in value.get("problems") or []]
+    narrative = _validated_narrative(value.get("narrative"))
+    route_node_ids = {
+        str(row.get("id"))
+        for row in narrative.get("route_nodes") or []
+        if isinstance(row, dict) and row.get("id")
+    }
+    for problem in problems:
+        node_ref = problem.get("node_ref")
+        if node_ref and str(node_ref) not in route_node_ids:
+            raise ObserverPresentationError(
+                f"observer target problem node_ref references an unknown route node: {node_ref}"
+            )
     return {
         "schema_version": OBSERVER_SEMANTIC_REVIEW_STATE_SCHEMA,
         "review_id": review_id,
@@ -413,7 +436,7 @@ def _validated_review(value: object) -> dict[str, object]:
         "evidence_refs": _validated_refs(value.get("evidence_refs"), "evidence_refs", required=True),
         "map_relevant_signals": _validated_refs(value.get("map_relevant_signals"), "map_relevant_signals"),
         "presentation_type": presentation_type,
-        "narrative": _validated_narrative(value.get("narrative")),
+        "narrative": narrative,
         "problems": problems,
         "consumed_one_shot_request_ids": [
             _validated_runtime_id(item, "consumed_one_shot_request_id")
@@ -480,6 +503,61 @@ def read_presentation_state(project: Any) -> dict[str, object]:
         "updated_at": raw.get("updated_at"),
         "targets": targets,
     }
+
+
+def read_semantic_review_history(project: Any, target_id: str) -> list[dict[str, object]]:
+    """Read durable semantic-review versions from the presentation event journal.
+
+    Current state intentionally keeps only the latest reviewed semantics.  The
+    append-only event journal is the authority for older reviewed versions, so
+    history views must read that journal instead of reconstructing old maps
+    from today's target state.
+    """
+
+    target_id = _validated_target_id(target_id)
+    path = observer_presentation_paths(project)["events"]
+    if not path.is_file():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ObserverPresentationError(f"cannot read observer presentation history: {exc}") from exc
+
+    reviews: list[dict[str, object]] = []
+    seen_review_ids: set[str] = set()
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ObserverPresentationError(
+                f"cannot read observer presentation history line {line_number}: {exc}"
+            ) from exc
+        if not isinstance(event, dict) or event.get("schema_version") != OBSERVER_PRESENTATION_EVENT_SCHEMA:
+            raise ObserverPresentationError(
+                f"unsupported observer presentation history event at line {line_number}"
+            )
+        if event.get("project_id") != project.project_id:
+            raise ObserverPresentationError(
+                f"observer presentation history project_id mismatch at line {line_number}"
+            )
+        if event.get("target_id") != target_id or event.get("event_kind") != "semantic_review_applied":
+            continue
+        review = _validated_review(event.get("review"))
+        review_id = str(review["review_id"])
+        if review_id in seen_review_ids:
+            continue
+        seen_review_ids.add(review_id)
+        reviews.append(review)
+    reviews.sort(
+        key=lambda row: (
+            int(row.get("semantic_revision") or 0),
+            str(row.get("reviewed_at") or ""),
+            str(row.get("review_id") or ""),
+        )
+    )
+    return reviews
 
 
 def _write_state(project: Any, state: dict[str, object]) -> dict[str, object]:
@@ -673,6 +751,12 @@ def presentation_status(project: Any, target_views: dict[str, object]) -> dict[s
         if not isinstance(target_state, dict):
             target_state = _default_target_state(target_id)
         review = target_state.get("current_review")
+        try:
+            review_history = read_semantic_review_history(project, target_id)
+            review_history_error = None
+        except ObserverPresentationError as exc:
+            review_history = []
+            review_history_error = str(exc)
         if not isinstance(review, dict):
             semantic_status = "not_reviewed"
         elif review.get("source_fingerprint") == current_fingerprint:
@@ -688,6 +772,8 @@ def presentation_status(project: Any, target_views: dict[str, object]) -> dict[s
                 "source_fingerprint": current_fingerprint,
                 "semantic_status": semantic_status,
                 "current_review": review,
+                "review_history": review_history,
+                "review_history_error": review_history_error,
                 "active_transient_patch": target_state.get("active_transient_patch"),
                 "active_one_shot_requests": [
                     row for row in target_state.get("one_shot_requests") or []
@@ -1196,6 +1282,7 @@ __all__ = [
     "presentation_alert_specs",
     "presentation_status",
     "read_presentation_state",
+    "read_semantic_review_history",
     "target_semantic_source_fingerprint",
     "target_semantic_source_projection",
     "target_presentation_fingerprint",

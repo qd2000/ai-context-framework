@@ -17,6 +17,27 @@ from pathlib import Path
 from typing import Any
 
 from ai_context_framework.observability import atomic_write_text
+from ai_context_framework.observer_dashboard import (
+    problem_dimension_label,
+    render_relation_diagram,
+    render_target_execution_summary,
+    render_target_run_history,
+    run_source_label,
+)
+from ai_context_framework.observer_runtime_storage import (
+    _continuation_lease_liveness,
+    _parse_utc_iso,
+    _read_json_object,
+    _read_jsonl_objects,
+    append_jsonl,
+    append_jsonl_unique,
+    ensure_jsonl_file,
+    read_observer_history_stream,
+    refresh_history_index,
+    rotate_jsonl_monthly,
+    rotate_observer_history,
+    write_json_atomic,
+)
 
 
 OBSERVER_HISTORY_INDEX_SCHEMA = "acf.observer.history-index.v1"
@@ -871,6 +892,7 @@ def _state_badge(kind: str, value: object) -> str:
 
 def _dashboard_alert_html(alert: dict[str, object]) -> str:
     severity = str(alert.get("severity") or "info").casefold()
+    severity_label = {"critical": "严重", "warning": "需要关注", "info": "提示"}.get(severity, severity)
     tone = severity if severity in {"critical", "warning"} else "active"
     icon = "●" if severity == "critical" else "▲" if severity == "warning" else "●"
     title = _html_text(alert.get("title") or alert.get("alert_key") or "Observer 提示")
@@ -878,7 +900,7 @@ def _dashboard_alert_html(alert: dict[str, object]) -> str:
     return (
         f'<article class="alert tone-border-{tone}" data-health="{escape(tone)}">'
         f'<div class="alert-title"><span class="tone-text-{tone}" aria-hidden="true">{icon}</span> {title}</div>'
-        f'<div class="muted">{_html_text(severity.upper())}</div>'
+        f'<div class="muted">{_html_text(severity_label)}</div>'
         f'<p>{explanation}</p>'
         "</article>"
     )
@@ -1041,6 +1063,58 @@ def _narrative_tone(status: object) -> str:
     return "muted"
 
 
+def _human_state_label(value: object) -> str:
+    raw = str(value or "unknown")
+    labels = {
+        "active": "进行中",
+        "advancing": "推进中",
+        "blocked": "受阻",
+        "cancelled": "已取消",
+        "completed": "已完成",
+        "configured_empty": "已明确配置为空",
+        "critical": "严重",
+        "current": "当前",
+        "empty": "无语义条目",
+        "failed": "失败",
+        "fresh": "新鲜",
+        "future": "后续阶段",
+        "healthy": "健康",
+        "incomplete": "不完整",
+        "interrupted": "已中断",
+        "maintenance": "维护中",
+        "not_interpreted": "尚未解释",
+        "not_reviewed": "尚未复核",
+        "planned": "待推进",
+        "partial": "部分完成",
+        "running": "运行中",
+        "stale": "已陈旧",
+        "success": "成功",
+        "unconfigured": "尚未配置",
+        "unknown": "未知",
+        "waiting": "等待中",
+        "warning": "需要关注",
+    }
+    return labels.get(raw.casefold(), raw)
+
+
+def _presentation_type_label(value: object) -> str:
+    raw = str(value or "text")
+    labels = {
+        "architecture": "架构图",
+        "branch": "分支图",
+        "dependency": "依赖图",
+        "flow": "流程图",
+        "hybrid": "混合视图",
+        "multi_lane": "多泳道图",
+        "roadmap": "路线图",
+        "state_machine": "状态机图",
+        "text": "文字视图",
+        "timeline": "时间线",
+        "tree": "树状图",
+    }
+    return labels.get(raw.casefold(), raw)
+
+
 def _narrative_provenance_html(refs: object) -> str:
     values = [str(item) for item in refs or [] if str(item).strip()] if isinstance(refs, list) else []
     if not values:
@@ -1054,16 +1128,24 @@ def _project_narrative_html(current: dict[str, object]) -> str:
     narrative = semantic.get("narrative") if isinstance(semantic.get("narrative"), dict) else None
     if narrative is None:
         return (
-            '<section class="panel project-map"><h2>Project Narrative / 项目地图</h2>'
+            '<section class="panel project-map"><h2>项目地图 / Project Narrative</h2>'
             '<div class="semantic-notice"><strong>○ 尚未生成项目级叙事</strong>'
             '<p>Observer 仍可展示当前 Workstream 和 Timeline；缺少足够 authority 时不会为了填满项目地图而推造历史。</p></div></section>'
         )
-    stale_notice = ""
     if status == "stale":
-        stale_notice = (
-            '<div class="semantic-notice tone-border-warning"><strong>▲ Project Narrative 已陈旧</strong>'
-            '<p>底层项目 authority 已变化；旧项目地图仅保留为可追溯解释，不再当作当前事实。</p></div>'
+        return (
+            '<section class="panel project-map" id="project-map">'
+            '<div class="section-heading"><div><h2>项目地图 / Project Narrative</h2>'
+            '<p class="muted">长期逻辑骨架，与最近事件 Timeline 分离。</p></div>'
+            f'<span class="badge tone-warning">已陈旧 · v{_html_text(narrative.get("narrative_version"))}</span></div>'
+            '<div class="semantic-notice tone-border-warning"><strong>▲ 项目地图已陈旧</strong>'
+            '<p>底层项目 authority 已变化；旧项目地图仍保留在 Narrative 历史中用于追溯，但当前主页不会继续渲染旧关系图、里程碑或当前位置。完成新的 authority review 后才恢复当前地图。</p></div>'
+            '<details><summary>Stale Narrative technical provenance</summary><div class="technical-grid">'
+            f'<div><span class="muted">stored version</span><br><code>{_html_text(narrative.get("narrative_version"))}</code></div>'
+            f'<div><span class="muted">current source fingerprint</span><br><code class="breakable">{_html_text(semantic.get("source_fingerprint"))}</code></div>'
+            '</div></details></section>'
         )
+    stale_notice = ""
     confidence = str(narrative.get("confidence") or "unknown")
     overall = narrative.get("overall_goal") if isinstance(narrative.get("overall_goal"), dict) else {}
     architecture = narrative.get("architecture") if isinstance(narrative.get("architecture"), dict) else {}
@@ -1073,27 +1155,52 @@ def _project_narrative_html(current: dict[str, object]) -> str:
     current_position = narrative.get("current_position") if isinstance(narrative.get("current_position"), dict) else {}
     current_milestone = str(current_position.get("milestone_id") or "")
 
-    node_html = "".join(
-        (
-            f'<article class="map-node tone-border-{_narrative_tone(row.get("status"))}">'
-            f'<div class="map-node-head"><strong>{_html_text(row.get("title"))}</strong>'
-            f'<span class="badge tone-{_narrative_tone(row.get("status"))}">{_html_text(row.get("status"))}</span></div>'
-            f'<div class="canonical"><code>{_html_text(row.get("id"))}</code> · {_html_text(row.get("category"))}</div>'
-            f'<p>{_html_text(row.get("summary"))}</p><details><summary>Provenance</summary>'
-            f'<div class="provenance-list">{_narrative_provenance_html(row.get("provenance"))}</div></details></article>'
-        )
-        for row in nodes
-    ) or '<p class="muted">暂无 architecture node。</p>'
-    edge_html = "".join(
-        (
-            '<li class="map-edge">'
-            f'<code>{_html_text(row.get("from"))}</code> <span aria-hidden="true">→</span> '
-            f'<code>{_html_text(row.get("to"))}</code> · <strong>{_html_text(row.get("relation"))}</strong>'
-            f'<span>{_html_text(row.get("summary"))}</span>'
-            f'<details><summary>Provenance</summary>{_narrative_provenance_html(row.get("provenance"))}</details></li>'
-        )
-        for row in edges
-    ) or '<li class="muted">暂无 architecture edge。</li>'
+    architecture_diagram = render_relation_diagram(
+        nodes,
+        [{**row, "label": row.get("relation")} for row in edges],
+        title="项目架构关系图",
+        status_class=_narrative_tone,
+        identity="project-architecture",
+    )
+    milestone_ids = {str(row.get("id")) for row in milestones if row.get("id")}
+    milestone_nodes = [
+        {
+            "id": row.get("id"),
+            "title": row.get("title"),
+            "status": row.get("status"),
+            "summary": row.get("summary"),
+        }
+        for row in milestones
+        if row.get("id")
+    ]
+    milestone_edges: list[dict[str, object]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for row in milestones:
+        source = str(row.get("id") or "")
+        if not source:
+            continue
+        for target in row.get("next") or []:
+            target_id = str(target)
+            if target_id in milestone_ids and (source, target_id) not in seen_pairs:
+                seen_pairs.add((source, target_id))
+                milestone_edges.append({"from": source, "to": target_id, "label": "next"})
+    for row in milestones:
+        target = str(row.get("id") or "")
+        if not target:
+            continue
+        for dependency in row.get("depends_on") or []:
+            source = str(dependency)
+            if source in milestone_ids and (source, target) not in seen_pairs:
+                seen_pairs.add((source, target))
+                milestone_edges.append({"from": source, "to": target, "label": "depends_on"})
+    milestone_diagram = render_relation_diagram(
+        milestone_nodes,
+        milestone_edges,
+        title="项目推进路线图",
+        current_node_ids={current_milestone} if current_milestone else set(),
+        status_class=_narrative_tone,
+        identity="project-milestone-route",
+    )
     milestone_html = "".join(
         (
             f'<article class="milestone {_narrative_tone(row.get("status"))} '
@@ -1101,7 +1208,7 @@ def _project_narrative_html(current: dict[str, object]) -> str:
             f'<div class="milestone-marker" aria-hidden="true">{"●" if str(row.get("id") or "") == current_milestone else "○"}</div>'
             '<div class="milestone-body">'
             f'<div class="map-node-head"><strong>{_html_text(row.get("title"))}</strong>'
-            f'<span class="badge tone-{_narrative_tone(row.get("status"))}">{_html_text(row.get("status"))}</span></div>'
+            f'<span class="badge tone-{_narrative_tone(row.get("status"))}">{_html_text(_human_state_label(row.get("status")))}</span></div>'
             f'<div class="canonical"><code>{_html_text(row.get("id"))}</code></div>'
             f'<p>{_html_text(row.get("summary"))}</p><p class="muted"><strong>意味着：</strong>{_html_text(row.get("implication"))}</p>'
             f'<div class="flow-meta"><span>depends_on: {_html_text(", ".join(str(item) for item in row.get("depends_on") or []) or "—")}</span>'
@@ -1114,12 +1221,13 @@ def _project_narrative_html(current: dict[str, object]) -> str:
     ) or '<p class="muted">暂无 milestone。</p>'
     return f"""
   <section class="panel project-map" id="project-map">
-    <div class="section-heading"><div><h2>Project Narrative / 项目地图</h2><p class="muted">长期逻辑骨架，与最近事件 Timeline 分离。</p></div><span class="badge tone-{_narrative_tone(status)}">{_html_text(status)} · v{_html_text(narrative.get('narrative_version'))}</span></div>
+    <div class="section-heading"><div><h2>项目地图</h2><p class="muted">先看推进路线；架构、节点证据与技术来源按需展开。</p></div><span class="badge tone-{_narrative_tone(status)}">{_html_text(_human_state_label(status))} · v{_html_text(narrative.get('narrative_version'))}</span></div>
     {stale_notice}
-    <section class="goal-card"><h3>Overall Goal / 整体目标</h3><p>{_html_text(overall.get('summary'))}</p><div class="provenance-list">{_narrative_provenance_html(overall.get('provenance'))}</div></section>
-    <section class="map-section"><h3>Architecture Map / 架构地图</h3><div class="architecture-grid">{node_html}</div><ul class="architecture-edges">{edge_html}</ul></section>
-    <section class="map-section"><h3>Logical Milestone Flow / Project Evolution</h3><div class="milestone-flow">{milestone_html}</div></section>
-    <section class="current-position tone-border-active"><h3>Current Position / 当前所在位置</h3><p><code>{_html_text(current_milestone)}</code> · {_html_text(current_position.get('summary'))}</p><p><strong>下一步逻辑：</strong>{_html_text(current_position.get('next_logic'))}</p><div class="provenance-list">{_narrative_provenance_html(current_position.get('provenance'))}</div></section>
+    <section class="goal-card"><span class="target-eyebrow">整体目标</span><h3>{_html_text(overall.get('summary'))}</h3></section>
+    <section class="map-section project-route-view"><div class="section-heading"><div><h3>项目推进路线</h3><p class="muted">完整阶段、当前路径与剩余路线。</p></div></div>{milestone_diagram}</section>
+    <section class="project-current-strip tone-border-active"><div><span>当前</span><strong>{_html_text(current_position.get('summary'))}</strong></div><div><span>下一步</span><strong>{_html_text(current_position.get('next_logic'))}</strong></div></section>
+    <details class="map-section project-architecture-view"><summary>查看项目架构图 · Architecture Map / 架构地图</summary>{architecture_diagram}</details>
+    <details class="map-section project-route-details"><summary>逻辑里程碑流 / Project Evolution · 节点详情</summary><div class="milestone-flow">{milestone_html}</div></details>
     <details><summary>Project Narrative technical provenance</summary><div class="technical-grid"><div><span class="muted">confidence</span><br><code>{_html_text(confidence)}</code></div><div><span class="muted">source fingerprint</span><br><code class="breakable">{_html_text(semantic.get('source_fingerprint'))}</code></div><div class="span-two"><span class="muted">source paths</span><br>{_narrative_provenance_html(narrative.get('source_paths'))}</div><div class="span-two"><span class="muted">root provenance</span><br>{_narrative_provenance_html(narrative.get('provenance'))}</div></div></details>
   </section>"""
 
@@ -1183,32 +1291,155 @@ def _target_timeline_html(
 
 
 def _target_run_chain_html(runs: object) -> str:
-    rows = [row for row in runs or [] if isinstance(row, dict)] if isinstance(runs, list) else []
-    if not rows:
-        return '<p class="muted">暂无可归属到该已注册自动任务的 run history。</p>'
-    body: list[str] = []
-    for row in reversed(rows[-12:]):
-        duration = row.get("duration_seconds")
-        lower_bound = row.get("lower_bound_duration_seconds")
-        if isinstance(duration, (int, float)):
-            duration_text = f"{duration:.1f}s"
-        elif isinstance(lower_bound, (int, float)):
-            duration_text = f"≥ {lower_bound:.1f}s (lower bound)"
-        else:
-            duration_text = "unknown"
-        body.append(
-            '<article class="target-run">'
-            f'<div><strong>{_html_text(row.get("status"))}</strong> · '
-            f'<code>{_html_text(row.get("run_id"))}</code></div>'
-            f'<div class="muted">start: {_html_text(_dashboard_display_time(row.get("started_at")))} · '
-            f'end: {_html_text(_dashboard_display_time(row.get("finished_at")), "—")} · '
-            f'last activity: {_html_text(_dashboard_display_time(row.get("last_activity_at")), "—")} · '
-            f'duration: {_html_text(duration_text)}</div>'
-            f'<div>phase: <code>{_html_text(row.get("phase"))}</code> · outcome: '
-            f'{_html_text(row.get("major_outcome"), "—")}</div>'
+    return render_target_run_history(runs, display_time=_dashboard_display_time)
+
+
+def _target_semantic_history_html(view: dict[str, object], *, include_current: bool) -> str:
+    semantic = view.get("semantic_review") if isinstance(view.get("semantic_review"), dict) else {}
+    history_error = semantic.get("review_history_error")
+    history = [row for row in semantic.get("review_history") or [] if isinstance(row, dict)]
+    current_review = semantic.get("current_review") if isinstance(semantic.get("current_review"), dict) else {}
+    current_review_id = str(current_review.get("review_id") or "")
+    archived = [
+        row
+        for row in history
+        if include_current or str(row.get("review_id") or "") != current_review_id
+    ]
+    if history_error:
+        return (
+            '<section class="target-semantic-history">'
+            '<div class="semantic-notice tone-border-warning"><strong>▲ 历史路线暂不可读</strong>'
+            f'<p>{_html_text(history_error)}</p></div></section>'
+        )
+    if not archived:
+        return ""
+
+    target = view.get("target") if isinstance(view.get("target"), dict) else {}
+    target_id = str(target.get("target_id") or "unknown")
+    ordered_archived = list(reversed(archived))
+
+    def comparison_facts(review: dict[str, object]) -> str:
+        narrative = review.get("narrative") if isinstance(review.get("narrative"), dict) else {}
+        node_rows = [row for row in narrative.get("route_nodes") or [] if isinstance(row, dict)]
+        edge_rows = [row for row in narrative.get("route_edges") or [] if isinstance(row, dict)]
+        nodes = {
+            str(row.get("id")): {
+                "title": str(row.get("title") or row.get("id") or "unknown"),
+                "status": str(row.get("status") or "unknown"),
+            }
+            for row in node_rows
+            if row.get("id")
+        }
+        edges = sorted(
+            {
+                (
+                    str(row.get("from")),
+                    str(row.get("to")),
+                    str(row.get("label") or ""),
+                )
+                for row in edge_rows
+                if row.get("from") and row.get("to")
+            }
+        )
+        return json.dumps(
+            {
+                "nodes": nodes,
+                "edges": [{"from": source, "to": target, "label": label} for source, target, label in edges],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    def selector_options(*, selected_index: int | None = None) -> str:
+        options: list[str] = []
+        for index, review in enumerate(ordered_archived):
+            selected = " selected" if selected_index == index else ""
+            options.append(
+                f'<option value="{escape(str(review.get("review_id") or "unknown"), quote=True)}"{selected}>'
+                f'语义版本 {_html_text(review.get("semantic_revision"), "—")} · '
+                f'{_html_text(review.get("review_id"), "unknown")} · '
+                f'{_html_text(_dashboard_display_time(review.get("reviewed_at")))}'
+                '</option>'
+            )
+        return "".join(options)
+
+    focus_selector_options = selector_options(selected_index=0)
+    comparison_controls = ""
+    if len(ordered_archived) >= 2:
+        comparison_controls = (
+            '<div class="history-version-compare" '
+            f'data-history-version-compare="{escape(target_id, quote=True)}">'
+            '<strong>历史版本并排对比</strong>'
+            '<div class="history-version-compare-controls">'
+            '<label>版本 A：'
+            f'<select data-history-version-compare-a>{selector_options(selected_index=0)}</select>'
+            '</label>'
+            '<label>版本 B：'
+            f'<select data-history-version-compare-b>{selector_options(selected_index=1)}</select>'
+            '</label>'
+            '</div>'
+            '<p class="muted">选择两份已归档语义后，页面会只保留这两版并排查看；'
+            '这是历史事实对照，不会改写当前路线或自动推断节点等价关系。</p>'
+            '<p class="history-version-compare-summary muted" data-history-version-compare-summary>'
+            '差异摘要仅按已持久化的稳定 node id 与显式 relationship 比较；选择版本后在本地计算。</p>'
+            '</div>'
+        )
+    items: list[str] = []
+    for review in ordered_archived:
+        narrative = review.get("narrative") if isinstance(review.get("narrative"), dict) else {}
+        problems = [row for row in review.get("problems") or [] if isinstance(row, dict)]
+        route_nodes = [row for row in narrative.get("route_nodes") or [] if isinstance(row, dict)]
+        route_edges = [row for row in narrative.get("route_edges") or [] if isinstance(row, dict)]
+        current_refs = narrative.get("current_node_refs") if "current_node_refs" in narrative else None
+        review_id = str(review.get("review_id") or "unknown")
+        facts = escape(comparison_facts(review), quote=True)
+        diagram = render_relation_diagram(
+            route_nodes,
+            route_edges,
+            title=f"历史路线版本 {review_id}",
+            problem_node_ids={str(row.get("node_ref")) for row in problems if row.get("node_ref")},
+            current_node_ids=(
+                {str(item) for item in current_refs}
+                if isinstance(current_refs, list)
+                else None
+            ),
+            next_node_ids={str(item) for item in narrative.get("next_node_refs") or []},
+            status_class=_narrative_tone,
+            identity=f"target-{target_id}-history-{review_id}",
+        )
+        items.append(
+            '<article class="target-semantic-history-version" '
+            f'data-history-version="{escape(review_id, quote=True)}" '
+            f'data-history-compare-facts="{facts}">'
+            f'<h4>语义版本 {_html_text(review.get("semantic_revision"), "—")} · '
+            f'<code>{_html_text(review_id)}</code></h4>'
+            f'<p class="muted">复核时间：{_html_text(_dashboard_display_time(review.get("reviewed_at")))} · '
+            f'决策：{_html_text(review.get("decision"))}。此版本仅用于历史追溯，不代表当前状态。</p>'
+            f'<p>{_html_text(narrative.get("route_summary"), "该历史版本没有路线摘要。")}</p>'
+            f'{diagram}'
             '</article>'
         )
-    return "".join(body)
+    return (
+        '<section class="target-semantic-history">'
+        '<details><summary>历史路线版本 / 归档地图</summary>'
+        '<p class="muted">历史版本保留各自复核时的事实与当前位置；不会用今天的状态重绘过去。'
+        + (
+            '当前路线图保持在上方，可选择一个历史版本并排对照。'
+            if not include_current
+            else '当前路线不可作为最新事实时，可从这里选择已归档版本逐个查看。'
+        )
+        + '</p>'
+        '<label class="history-version-picker">历史版本：'
+        f'<select data-history-version-picker="{escape(target_id, quote=True)}">{focus_selector_options}</select>'
+        '</label>'
+        '<p class="muted history-version-picker-help">启用页面脚本后，选择器会聚焦一个历史版本；禁用脚本时仍完整展示全部归档版本。</p>'
+        + comparison_controls
+        + '<div class="target-semantic-history-versions">'
+        + "".join(items)
+        + '</div>'
+        + '</details></section>'
+    )
 
 
 def _target_semantic_story_html(view: dict[str, object]) -> tuple[str, str, set[str]]:
@@ -1219,54 +1450,72 @@ def _target_semantic_story_html(view: dict[str, object]) -> tuple[str, str, set[
     density = str(patch.get("density") or "balanced")
     emphasis = {str(item) for item in patch.get("emphasize_sections") or []}
     if status != "current" or not review:
-        label = "Target Narrative 尚未复核" if status == "not_reviewed" else "Target Narrative 已陈旧"
+        label = "目标路线尚未复核" if status == "not_reviewed" else "目标路线已陈旧"
+        history_html = _target_semantic_history_html(view, include_current=True)
         return (
-            f'<section class="target-story"><div class="semantic-notice tone-border-warning"><strong>▲ {_html_text(label)}</strong>'
-            '<p>当前 Dashboard 不会把旧路线语义伪装成最新事实；请先完成 target-local Map Review。</p></div></section>',
+            f'<section class="target-story target-map-first is-stale"><div class="semantic-notice tone-border-warning"><strong>▲ {_html_text(label)}</strong>'
+            '<p>当前路线不能作为最新事实展示；主区保持紧凑，不回退为原始执行文本。可从下方历史入口查看最近一次有效归档地图。</p></div>'
+            f'{history_html}</section>',
             density,
             emphasis,
         )
     narrative = review.get("narrative") if isinstance(review.get("narrative"), dict) else {}
     problems = [row for row in review.get("problems") or [] if isinstance(row, dict)]
-    proof_html = "".join(f"<li>{_html_text(item)}</li>" for item in narrative.get("recent_proof") or [])
-    route_nodes = "".join(
-        f'<article class="route-node"><strong>{_html_text(row.get("title"))}</strong><span class="badge tone-{_narrative_tone(row.get("status"))}">{_html_text(row.get("status"))}</span><p>{_html_text(row.get("summary"))}</p></article>'
-        for row in narrative.get("route_nodes") or [] if isinstance(row, dict)
-    ) or '<p class="muted">当前复核没有结构化 route node。</p>'
+    proof_html = "".join(f"<li>{_html_text(item)}</li>" for item in narrative.get("recent_proof") or []) or '<li class="muted">暂无已复核的实质进展。</li>'
     problem_html = "".join(
-        f'<article class="problem-card tone-border-{("critical" if row.get("blocking_impact") in {"blocks_task", "blocks_current_step"} else "warning")} "><strong>{_html_text(row.get("title"))}</strong><p>{_html_text(row.get("summary"))}</p><div class="muted">处理者：{_html_text(row.get("handler"))} · 计划影响：{_html_text(row.get("plan_impact"))} · 状态：{_html_text(row.get("status"))}</div></article>'
+        f'<article class="problem-card tone-border-{("critical" if row.get("blocking_impact") in {"blocks_task", "blocks_current_step"} else "warning")} "><strong>{_html_text(row.get("title"))}</strong><p>{_html_text(row.get("summary"))}</p><div class="muted">处理者：{_html_text(problem_dimension_label("handler", row.get("handler")))} · 阻塞影响：{_html_text(problem_dimension_label("blocking_impact", row.get("blocking_impact")))} · 计划影响：{_html_text(problem_dimension_label("plan_impact", row.get("plan_impact")))} · 状态：{_html_text(problem_dimension_label("status", row.get("status")))}</div></article>'
         for row in problems
     ) or '<p class="muted">当前复核没有需要单列的问题。</p>'
     presentation_type = patch.get("presentation_type") or review.get("presentation_type")
+    target = view.get("target") if isinstance(view.get("target"), dict) else {}
+    target_id = str(target.get("target_id") or "unknown")
+    route_node_rows = [row for row in narrative.get("route_nodes") or [] if isinstance(row, dict)]
+    route_edge_rows = [row for row in narrative.get("route_edges") or [] if isinstance(row, dict)]
+    current_node_refs = narrative.get("current_node_refs") if "current_node_refs" in narrative else None
+    route_diagram = render_relation_diagram(
+        route_node_rows,
+        route_edge_rows,
+        title="目标完整路线关系图",
+        problem_node_ids={str(row.get("node_ref")) for row in problems if row.get("node_ref")},
+        current_node_ids=(
+            {str(item) for item in current_node_refs}
+            if isinstance(current_node_refs, list)
+            else None
+        ),
+        next_node_ids={str(item) for item in narrative.get("next_node_refs") or []},
+        status_class=_narrative_tone,
+        identity=f"target-{target_id}-route",
+    )
     patch_notice = (
-        f'<div class="semantic-notice"><strong>临时展示调整：{_html_text(patch.get("patch_id"))}</strong>'
-        f'<p>{_html_text(patch.get("reviewed_intent"))}</p></div>' if patch else ""
+        '<details class="target-semantic-technical"><summary>展示调整详情</summary>'
+        f'<p><strong>{_html_text(patch.get("patch_id"))}</strong> · {_html_text(patch.get("reviewed_intent"))}</p></details>'
+        if patch
+        else ""
     )
-    def story_section(key: str, title: str, body: str) -> str:
-        emphasized = " is-emphasized" if key in emphasis else ""
-        return f'<section class="story-section{emphasized}" data-story-section="{escape(key)}"><h4>{_html_text(title)}</h4>{body}</section>'
-    goal_body = f'<p>{_html_text(narrative.get("overall_goal"))}</p>'
-    route_body = (
-        f'<p>{_html_text(narrative.get("route_summary"))}</p>'
-        f'<div class="route-grid">{route_nodes}</div>'
-    )
-    current_position_body = (
-        f'<p>{_html_text(narrative.get("current_position"))}</p>'
-        f'<p><strong>为什么现在做：</strong>{_html_text(narrative.get("why_now"))}</p>'
-    )
-    recent_proof_body = f"<ul>{proof_html}</ul>"
-    next_logic_body = f'<p>{_html_text(narrative.get("next_logic"))}</p>'
+    history_html = _target_semantic_history_html(view, include_current=False)
     return (
-        '<section class="target-story">'
-        f'<div class="section-heading"><div><h3>目标、路线与当前决策</h3><p class="muted">当前 Map Review：<code>{_html_text(review.get("review_id"))}</code></p></div><span class="badge tone-active">{_html_text(presentation_type)}</span></div>'
-        f'{patch_notice}<div class="story-grid">'
-        f'{story_section("goal", "最终目标", goal_body)}'
-        f'{story_section("route", "完整路线", route_body)}'
-        f'{story_section("current_position", "当前位置", current_position_body)}'
-        f'{story_section("recent_proof", "最近证明 / 排除 / 改变", recent_proof_body)}'
-        f'{story_section("problems", "当前问题与计划影响", problem_html)}'
-        f'{story_section("next_logic", "下一步及理由", next_logic_body)}'
-        '</div></section>',
+        '<section class="target-story target-map-first">'
+        '<div class="target-map-heading">'
+        f'<div><span class="target-eyebrow">最终目标</span><h3>{_html_text(narrative.get("overall_goal"))}</h3></div>'
+        f'<span class="badge tone-active">{_html_text(_presentation_type_label(presentation_type))}</span></div>'
+        '<div class="target-route-main" data-story-section="route">'
+        f'<div class="target-route-caption"><strong>完整推进路线</strong><span>{_html_text(narrative.get("route_summary"))}</span></div>'
+        f'{route_diagram}</div>'
+        '<div class="target-focus-strip">'
+        f'<section class="target-focus-card is-current" data-story-section="current_position"><span>当前</span><strong>{_html_text(narrative.get("current_position"))}</strong><small>{_html_text(narrative.get("why_now"))}</small></section>'
+        f'<section class="target-focus-card" data-story-section="recent_proof"><span>最近实质进展</span><ul>{proof_html}</ul></section>'
+        f'<section class="target-focus-card" data-story-section="next_logic"><span>下一步</span><strong>{_html_text(narrative.get("next_logic"))}</strong></section>'
+        '</div>'
+        + (
+            '<section class="target-problem-strip" data-story-section="problems"><h4>当前问题与影响</h4>'
+            f'{problem_html}</section>'
+            if problems
+            else ""
+        )
+        + '<details class="target-semantic-technical"><summary>语义复核与技术来源</summary>'
+        f'<p>复核：<code>{_html_text(review.get("review_id"))}</code></p>'
+        f'<div class="provenance-list">{_narrative_provenance_html(narrative.get("evidence_refs"))}</div></details>'
+        f'{patch_notice}{history_html}</section>',
         density,
         emphasis,
     )
@@ -1289,21 +1538,21 @@ def _target_view_html(
     if not cards:
         cards = '<p class="muted">该 target 当前没有匹配到 Workstream；Observer 不会从其他 Workstream 猜测替代内容。</p>'
     scoped_alerts = _target_alerts(current, view)
-    alerts_html = "".join(_dashboard_alert_html(row) for row in scoped_alerts) or '<p class="muted">该 target 当前没有 Alert。</p>'
+    alerts_html = "".join(_dashboard_alert_html(row) for row in scoped_alerts) or '<p class="muted">该目标当前没有告警。</p>'
     timeline = _target_timeline_html(view, machine_events, interpretations)
     story_html, density, emphasis = _target_semantic_story_html(view)
-    route_ref = target.get("route_ref")
-    route_html = f' · route <code>{_html_text(route_ref)}</code>' if route_ref else ""
+    execution_summary = render_target_execution_summary(view, scoped_alerts, display_time=_dashboard_display_time)
     return f"""
   <section class="target-panel {'is-active' if active else ''} density-{escape(density, quote=True)}" data-target-panel="{escape(target_id, quote=True)}">
     <div class="section-heading"><div><h2>{_html_text(target.get('title'))}</h2>
-    <p class="muted"><code>{_html_text(target_id)}</code> · {_html_text(target.get('mode'))} · automation <code>{_html_text(target.get('automation_ref'))}</code>{route_html}</p></div>
-    <span class="badge tone-active">registered target</span></div>
+    <p class="muted">已注册自动任务 · 地图优先展示当前进度与下一步。</p></div>
+    <span class="badge tone-active">已注册</span></div>
+    {execution_summary}
     {story_html}
-    <section class="target-subsection"><h3>当前执行范围</h3><div class="workstream-list">{cards}</div></section>
-    <section class="target-subsection {'is-emphasized' if 'runs' in emphasis else ''}"><h3>Run chain / 自动任务运行历史</h3>{_target_run_chain_html(view.get('runs'))}</section>
-    <section class="target-subsection {'is-emphasized' if 'alerts' in emphasis else ''}"><h3>Target Alerts</h3>{alerts_html}</section>
-    <section class="target-subsection"><h3>Target Timeline</h3>{timeline}</section>
+    <section class="target-subsection target-run-section {'is-emphasized' if 'runs' in emphasis else ''}"><div class="section-heading"><div><h3>Agent 运行记录</h3><p class="muted">默认只展示紧凑摘要；每次可归属运行仍可追溯。</p></div></div>{_target_run_chain_html(view.get('runs'))}</section>
+    <details class="target-subsection target-secondary"><summary>执行范围与技术详情</summary><div class="workstream-list">{cards}</div></details>
+    <details class="target-subsection target-secondary {'is-emphasized' if 'alerts' in emphasis else ''}"><summary>目标告警与原始诊断</summary>{alerts_html}</details>
+    <details class="target-subsection target-secondary"><summary>目标时间线</summary>{timeline}</details>
   </section>"""
 
 
@@ -1316,9 +1565,9 @@ def _target_pages_html(
     views = [row for row in target_state.get("targets") or [] if isinstance(row, dict)]
     if not views:
         return (
-            '<div class="target-tabs" role="tablist"><span class="muted">No registered targets</span></div>',
-            '<section class="panel"><div class="semantic-notice"><strong>○ 尚未注册 Observer target</strong>'
-            '<p>Dashboard 不会把 Workstream/worktree 的存在自动当成用户要观察的 Scheduled Task。请先通过正式 Target Registry 注册目标。</p></div></section>',
+            '<div class="target-tabs" role="tablist"><span class="muted">暂无已注册观测目标</span></div>',
+            '<section class="panel"><div class="semantic-notice"><strong>○ 尚未注册观测目标</strong>'
+            '<p>Dashboard 不会把 Workstream/worktree 的存在自动当成用户要观察的自动任务。请先通过正式 Target Registry 注册目标。</p></div></section>',
             [],
         )
     tabs: list[str] = []
@@ -1370,11 +1619,13 @@ def render_dashboard_html(
         safe_events if isinstance(safe_events, list) else [],
         safe_interpretations if isinstance(safe_interpretations, list) else [],
     )
-    alerts = target_alerts
+    registry_alerts = [row for row in safe_current.get("alerts") or [] if isinstance(row, dict) and isinstance(row.get("canonical_identity"), dict) and row["canonical_identity"].get("type") == "observer_target_registry"]
+    alerts = target_alerts + registry_alerts
     self_alerts = [row for row in safe_self_alerts if isinstance(row, dict)] if isinstance(safe_self_alerts, list) else []
     all_alerts = self_alerts + alerts
     current_data_age = safe_status.get("data_age") if isinstance(safe_status.get("data_age"), dict) else {}
     target_state = safe_current.get("targets") if isinstance(safe_current.get("targets"), dict) else {}
+    registry_health = target_state.get("registry_health") if isinstance(target_state.get("registry_health"), dict) else {}
     target_views = [row for row in target_state.get("targets") or [] if isinstance(row, dict)]
     registered_workstream_ids = {
         str(row.get("id"))
@@ -1388,19 +1639,19 @@ def render_dashboard_html(
     visible_current["workstreams"] = registered_workstreams
     overall = _overall_health(visible_current, self_alerts)
     active_count = sum(1 for row in registered_workstreams if str(row.get("status") or "").casefold() in {"active", "blocked", "merging", "readytomerge"})
-    alerts_html = "".join(_dashboard_alert_html(row) for row in all_alerts) or '<p class="muted">当前没有需要关注的 Alert。</p>'
+    alerts_html = "".join(_dashboard_alert_html(row) for row in all_alerts) or '<p class="muted">当前没有需要关注的告警。</p>'
     overview = target_state.get("project_overview") if isinstance(target_state.get("project_overview"), dict) else {}
     overview_decision = str(overview.get("decision") or "undecided")
     if overview_decision == "enabled":
         project_map_html = _project_narrative_html(safe_current)
     elif overview_decision == "disabled":
         project_map_html = (
-            '<section class="panel"><div class="semantic-notice"><strong>Project Overview disabled by authority decision</strong>'
+            '<section class="panel"><div class="semantic-notice"><strong>项目总览已由 authority 明确停用</strong>'
             f'<p>{_html_text(overview.get("reason"))}</p><div class="provenance-list">{_narrative_provenance_html(overview.get("evidence_refs"))}</div></div></section>'
         )
     else:
         project_map_html = (
-            '<section class="panel"><div class="semantic-notice"><strong>Project Overview 尚未决策</strong>'
+            '<section class="panel"><div class="semantic-notice"><strong>项目总览尚未决策 / Project Overview</strong>'
             '<p>在 authority 明确支持统一目标/路线/架构之前，Observer 不会把异构 targets 强行拼成一个项目地图。</p></div></section>'
         )
     latest_proof: list[str] = []
@@ -1439,30 +1690,83 @@ def render_dashboard_html(
 <title>{_html_text(title)}</title>
 <style>
 :root{{--bg:#f6f8fb;--surface:#fff;--text:#1d2433;--muted:#667085;--line:#d9dee8;--blue:#1769d2;--blue-bg:#eef5ff;--green:#16784a;--green-bg:#edf9f2;--amber:#9a6700;--amber-bg:#fff8df;--red:#b42318;--red-bg:#fff0ee;--gray-bg:#f2f4f7;--shadow:0 1px 2px rgba(16,24,40,.06)}}
-*{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.62 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}} a{{color:var(--blue)}} code{{font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#344054}} .page{{max-width:1280px;margin:auto;padding:24px}} h1{{font-size:24px;line-height:1.25;margin:0 0 4px}} h2{{font-size:19px;margin:0 0 14px}} h3{{font-size:17px;margin:0}} h4{{font-size:14px;margin:0 0 6px}} p{{margin:6px 0 12px}} ul{{margin:6px 0 12px;padding-left:20px}} .muted{{color:var(--muted)}} .canonical{{color:var(--muted);font-size:13px;margin-top:4px}} .top,.section-heading{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .top{{margin-bottom:18px}} .summary-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 22px}} .metric,.panel,.workstream-card{{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}} .metric{{padding:14px}} .metric strong{{display:block;font-size:18px;margin-top:3px}} .panel{{padding:18px;margin:0 0 18px}} .toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}} input,select{{font:inherit;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;min-height:38px}} input{{flex:1;min-width:220px}} .workstream-list{{display:grid;gap:14px}} .workstream-card{{padding:18px}} .card-header{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .badge-row{{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}} .badge{{display:inline-flex;align-items:center;gap:4px;border:1px solid currentColor;border-radius:999px;padding:2px 8px;font-size:12.5px;white-space:nowrap}} .tone-critical,.tone-text-critical{{color:var(--red)}} .tone-warning,.tone-text-warning{{color:var(--amber)}} .tone-healthy{{color:var(--green)}} .tone-active{{color:var(--blue)}} .tone-maintenance{{color:#6941c6}} .tone-muted{{color:var(--muted)}} .tone-border-critical{{border-left:4px solid var(--red)!important}} .tone-border-warning{{border-left:4px solid var(--amber)!important}} .tone-border-healthy{{border-left:4px solid var(--green)!important}} .tone-border-active{{border-left:4px solid var(--blue)!important}} .tone-border-maintenance{{border-left:4px solid #6941c6!important}} .tone-border-muted{{border-left:4px solid #98a2b3!important}} .semantic-notice{{background:var(--gray-bg);border-radius:8px;padding:9px 11px;margin:12px 0;font-size:13px}} .logic-grid,.technical-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;margin-top:14px}} .logic-grid section{{border-top:1px solid var(--line);padding-top:10px}} .span-two{{grid-column:1/-1}} details{{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}} summary{{cursor:pointer;font-weight:600;color:#344054}} .breakable{{word-break:break-all}} .alert{{border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:9px 0;background:#fff}} .alert-title{{font-weight:700}} .timeline-item{{display:grid;grid-template-columns:160px 1fr;gap:14px;border-left:2px solid var(--line);padding:5px 0 14px 14px;margin-left:5px}} .timeline-item time{{font-size:12.5px;color:var(--muted)}} .semantic-event{{border-left-color:var(--blue)}} .glossary-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .glossary-item{{border:1px solid var(--line);border-radius:8px;padding:12px}} .project-map{{border-top:3px solid #4f46e5}} .goal-card{{background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:14px;margin:12px 0 18px}} .map-section{{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}} .architecture-grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}} .map-node{{border:1px solid var(--line);border-radius:9px;padding:12px;background:#fff}} .map-node-head{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}} .architecture-edges{{list-style:none;padding:0;margin:12px 0}} .map-edge{{display:grid;grid-template-columns:auto auto auto 1fr;gap:8px;align-items:center;border-top:1px dashed var(--line);padding:8px 0}} .milestone-flow{{display:grid;gap:0;margin-top:12px}} .milestone{{display:grid;grid-template-columns:28px 1fr;gap:10px;position:relative;padding-bottom:15px}} .milestone:not(:last-child)::before{{content:"";position:absolute;left:8px;top:22px;bottom:0;border-left:2px solid var(--line)}} .milestone-marker{{font-size:16px;color:#98a2b3;z-index:1;background:var(--surface)}} .milestone.is-current .milestone-marker{{color:var(--blue)}} .milestone.is-current .milestone-body{{background:var(--blue-bg);border-color:#b2d4ff}} .milestone-body{{border:1px solid var(--line);border-radius:9px;padding:11px 13px}} .flow-meta{{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12.5px}} .current-position{{margin-top:14px;background:var(--blue-bg);border:1px solid #b2d4ff;border-radius:9px;padding:13px}} .provenance-list{{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}} .provenance-ref{{background:var(--gray-bg);border-radius:4px;padding:2px 5px}} .target-tabs{{display:flex;gap:8px;flex-wrap:wrap}} .target-tab{{font:inherit;border:1px solid var(--line);background:#fff;color:var(--text);border-radius:999px;padding:7px 12px;cursor:pointer}} .target-tab.is-active{{border-color:#1769d2;background:var(--blue-bg);color:var(--blue);font-weight:700}} .target-panel{{display:none}} .target-panel.is-active{{display:block}} .target-subsection{{border-top:1px solid var(--line);padding-top:14px;margin-top:16px}} .target-run{{border-left:3px solid #98a2b3;padding:8px 12px;margin:8px 0;background:var(--gray-bg);border-radius:0 8px 8px 0}} .target-story{{border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:14px;background:#fbfcfe}} .story-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .story-section{{border:1px solid var(--line);border-radius:8px;padding:11px;background:#fff}} .story-section.is-emphasized,.target-subsection.is-emphasized{{border-left:4px solid var(--blue);background:var(--blue-bg)}} .route-grid{{display:grid;gap:7px;margin-top:8px}} .route-node{{border-left:3px solid #98a2b3;padding:7px 9px;background:var(--gray-bg)}} .route-node .badge{{float:right}} .problem-card{{border:1px solid var(--line);border-radius:7px;padding:8px 10px;margin:6px 0}} .density-compact .target-story,.density-compact .story-section{{padding:8px}} .density-detailed .story-grid{{gap:14px}} .hidden{{display:none!important}} .empty{{padding:18px;color:var(--muted);text-align:center}} footer{{color:var(--muted);font-size:12.5px;padding:6px 0 20px}}
-@media(max-width:760px){{.page{{padding:14px}}.top,.section-heading,.card-header{{display:block}}.summary-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.logic-grid,.technical-grid,.glossary-grid,.architecture-grid,.story-grid{{grid-template-columns:1fr}}.span-two{{grid-column:auto}}.badge-row{{justify-content:flex-start;margin-top:10px}}.timeline-item{{grid-template-columns:1fr;gap:2px}}.map-edge{{grid-template-columns:auto auto auto;align-items:start}}.map-edge>span:last-of-type{{grid-column:1/-1}}}}
+*{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.62 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}} a{{color:var(--blue)}} code{{font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#344054}} .page{{max-width:1280px;margin:auto;padding:24px}} h1{{font-size:24px;line-height:1.25;margin:0 0 4px}} h2{{font-size:19px;margin:0 0 14px}} h3{{font-size:17px;margin:0}} h4{{font-size:14px;margin:0 0 6px}} p{{margin:6px 0 12px}} ul{{margin:6px 0 12px;padding-left:20px}} .muted{{color:var(--muted)}} .canonical{{color:var(--muted);font-size:13px;margin-top:4px}} .top,.section-heading{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .top{{margin-bottom:18px}} .summary-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 22px}} .metric,.panel,.workstream-card{{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}} .metric{{padding:14px}} .metric strong{{display:block;font-size:18px;margin-top:3px}} .panel{{padding:18px;margin:0 0 18px}} .toolbar{{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}} input,select{{font:inherit;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;min-height:38px}} input{{flex:1;min-width:220px}} .workstream-list{{display:grid;gap:14px}} .workstream-card{{padding:18px}} .card-header{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}} .badge-row{{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}} .badge{{display:inline-flex;align-items:center;gap:4px;border:1px solid currentColor;border-radius:999px;padding:2px 8px;font-size:12.5px;white-space:nowrap}} .tone-critical,.tone-text-critical{{color:var(--red)}} .tone-warning,.tone-text-warning{{color:var(--amber)}} .tone-healthy{{color:var(--green)}} .tone-active{{color:var(--blue)}} .tone-maintenance{{color:#6941c6}} .tone-muted{{color:var(--muted)}} .tone-border-critical{{border-left:4px solid var(--red)!important}} .tone-border-warning{{border-left:4px solid var(--amber)!important}} .tone-border-healthy{{border-left:4px solid var(--green)!important}} .tone-border-active{{border-left:4px solid var(--blue)!important}} .tone-border-maintenance{{border-left:4px solid #6941c6!important}} .tone-border-muted{{border-left:4px solid #98a2b3!important}} .semantic-notice{{background:var(--gray-bg);border-radius:8px;padding:9px 11px;margin:12px 0;font-size:13px}} .logic-grid,.technical-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;margin-top:14px}} .logic-grid section{{border-top:1px solid var(--line);padding-top:10px}} .span-two{{grid-column:1/-1}} details{{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}} summary{{cursor:pointer;font-weight:600;color:#344054}} .breakable{{word-break:break-all}} .alert{{border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:9px 0;background:#fff}} .alert-title{{font-weight:700}} .timeline-item{{display:grid;grid-template-columns:160px 1fr;gap:14px;border-left:2px solid var(--line);padding:5px 0 14px 14px;margin-left:5px}} .timeline-item time{{font-size:12.5px;color:var(--muted)}} .semantic-event{{border-left-color:var(--blue)}} .glossary-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .glossary-item{{border:1px solid var(--line);border-radius:8px;padding:12px}} .project-map{{border-top:3px solid #4f46e5}} .goal-card{{background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:14px;margin:12px 0 18px}} .map-section{{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}} .architecture-grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}} .map-node{{border:1px solid var(--line);border-radius:9px;padding:12px;background:#fff}} .map-node-head{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}} .architecture-edges{{list-style:none;padding:0;margin:12px 0}} .map-edge{{display:grid;grid-template-columns:auto auto auto 1fr;gap:8px;align-items:center;border-top:1px dashed var(--line);padding:8px 0}} .milestone-flow{{display:grid;gap:0;margin-top:12px}} .milestone{{display:grid;grid-template-columns:28px 1fr;gap:10px;position:relative;padding-bottom:15px}} .milestone:not(:last-child)::before{{content:"";position:absolute;left:8px;top:22px;bottom:0;border-left:2px solid var(--line)}} .milestone-marker{{font-size:16px;color:#98a2b3;z-index:1;background:var(--surface)}} .milestone.is-current .milestone-marker{{color:var(--blue)}} .milestone.is-current .milestone-body{{background:var(--blue-bg);border-color:#b2d4ff}} .milestone-body{{border:1px solid var(--line);border-radius:9px;padding:11px 13px}} .flow-meta{{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12.5px}} .current-position{{margin-top:14px;background:var(--blue-bg);border:1px solid #b2d4ff;border-radius:9px;padding:13px}} .provenance-list{{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}} .provenance-ref{{background:var(--gray-bg);border-radius:4px;padding:2px 5px}} .target-tabs{{display:flex;gap:8px;flex-wrap:wrap}} .target-tab{{font:inherit;border:1px solid var(--line);background:#fff;color:var(--text);border-radius:999px;padding:7px 12px;cursor:pointer}} .target-tab.is-active{{border-color:#1769d2;background:var(--blue-bg);color:var(--blue);font-weight:700}} .target-panel{{display:none}} .target-panel.is-active{{display:block}} .target-subsection{{border-top:1px solid var(--line);padding-top:14px;margin-top:16px}} .target-run{{border-left:3px solid #98a2b3;padding:8px 12px;margin:8px 0;background:var(--gray-bg);border-radius:0 8px 8px 0}} .target-decision-summary{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--blue-bg)}} .target-decision-summary strong{{display:block;margin-top:2px}} .target-story{{border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:14px;background:#fbfcfe}} .story-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .story-section{{border:1px solid var(--line);border-radius:8px;padding:11px;background:#fff}} .story-section.is-emphasized,.target-subsection.is-emphasized{{border-left:4px solid var(--blue);background:var(--blue-bg)}} .route-grid{{display:grid;gap:7px;margin-top:8px}} .route-node{{border-left:3px solid #98a2b3;padding:7px 9px;background:var(--gray-bg)}} .route-node .badge{{float:right}} .relation-diagram-shell{{margin:10px 0}} .relation-diagram{{display:block;width:100%;min-height:180px;border:1px solid var(--line);border-radius:10px;background:#fff}} .diagram-edge line{{stroke:#667085;stroke-width:2}} .diagram-edge text{{font-size:11px;fill:#475467;paint-order:stroke;stroke:#fff;stroke-width:4px}} .diagram-arrow path{{fill:#667085}} .diagram-node rect{{fill:#f8fafc;stroke:#98a2b3;stroke-width:2}} .diagram-node.tone-active rect{{fill:var(--blue-bg);stroke:var(--blue)}} .diagram-node.tone-healthy rect{{fill:var(--green-bg);stroke:var(--green)}} .diagram-node.tone-warning rect{{fill:var(--amber-bg);stroke:var(--amber)}} .diagram-node.tone-critical rect{{fill:var(--red-bg);stroke:var(--red)}} .diagram-title{{font-size:14px;font-weight:700;fill:#101828}} .diagram-status{{font-size:11px;fill:#475467}} .diagram-summary{{font-size:10.5px;fill:#667085}} .diagram-problem{{fill:var(--red)}} .diagram-problem-text{{font-size:12px;font-weight:700;fill:#fff}} .diagram-edge-details{{margin-top:6px}} .problem-card{{border:1px solid var(--line);border-radius:7px;padding:8px 10px;margin:6px 0}} .history-version-picker{{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}} .history-version-picker select{{min-width:min(100%,420px)}} .history-version-compare{{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin:10px 0;background:#fff}} .history-version-compare-controls{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}} .history-version-compare-controls label{{display:grid;gap:4px}} .history-version-compare-summary{{border-left:3px solid var(--blue);padding-left:9px;margin-top:10px}} .target-semantic-history-versions.is-history-compare-active{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}} .target-semantic-history-version.is-history-filtered{{display:none}} .density-compact .target-story,.density-compact .story-section{{padding:8px}} .density-detailed .story-grid{{gap:14px}} .hidden{{display:none!important}} .empty{{padding:18px;color:var(--muted);text-align:center}} footer{{color:var(--muted);font-size:12.5px;padding:6px 0 20px}}
+.diagram-node.is-current>rect:first-of-type{{stroke-width:4}} .diagram-node.is-next>rect:first-of-type{{stroke-dasharray:7 4}} .diagram-current{{fill:var(--blue)!important;stroke:var(--blue)!important}} .diagram-current-text{{font-size:10px;font-weight:700;fill:#fff}} .diagram-next{{fill:#fff!important;stroke:var(--blue)!important;stroke-width:1.5!important}} .diagram-next-text{{font-size:9.5px;font-weight:700;fill:var(--blue)}}
+.target-map-summary{{display:grid;grid-template-columns:190px 210px minmax(0,1fr);gap:10px;margin:10px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}} .target-map-metric,.target-latest-outcome{{min-width:0}} .target-map-metric span,.target-latest-outcome span,.target-eyebrow,.project-current-strip span,.target-focus-card>span{{display:block;color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.02em}} .target-map-metric strong,.target-latest-outcome strong{{display:block;margin-top:2px;line-height:1.35}} .target-map-metric small{{display:block;color:var(--muted);margin-top:2px}} .target-latest-outcome{{border-left:1px solid var(--line);padding-left:12px}} .target-map-first{{padding:12px;background:#fff}} .target-map-first.is-stale{{padding:10px}} .target-map-heading{{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:8px}} .target-map-heading h3{{font-size:18px;line-height:1.35;margin:2px 0 0}} .target-route-main{{margin-top:8px}} .target-route-caption{{display:flex;gap:10px;align-items:baseline;justify-content:space-between;margin-bottom:4px}} .target-route-caption>span{{color:var(--muted);font-size:13px;text-align:right;max-width:70%}} .target-map-first .relation-diagram{{min-height:240px}} .target-focus-strip{{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:8px;margin-top:8px}} .target-focus-card{{padding:9px 10px;border-top:2px solid var(--line);background:var(--gray-bg);border-radius:6px}} .target-focus-card.is-current{{border-top-color:var(--blue);background:var(--blue-bg)}} .target-focus-card strong{{display:block;line-height:1.35;margin-top:2px}} .target-focus-card small{{display:block;color:var(--muted);margin-top:4px}} .target-focus-card ul{{margin:3px 0 0;padding-left:18px}} .target-problem-strip{{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}} .target-problem-strip .problem-card{{padding:7px 9px;margin:5px 0}} .target-semantic-technical{{font-size:13px}} .target-secondary{{padding:8px 0;margin-top:8px}} .target-secondary>summary{{font-size:13px;color:var(--muted)}} .target-run-section{{margin-top:12px}} .target-run-table-wrap{{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:#fff}} .target-run-table{{width:100%;border-collapse:collapse;font-size:12.5px}} .target-run-table th{{text-align:left;color:var(--muted);font-weight:700;background:var(--gray-bg);padding:7px 8px;white-space:nowrap}} .target-run-table td{{padding:7px 8px;border-top:1px solid var(--line);vertical-align:top}} .target-run-table code{{font-size:11.5px}} .target-run-outcome{{min-width:220px}} .target-run-technical{{margin:0;padding:0;border:0}} .target-run-technical summary{{font-size:12px;font-weight:600;white-space:nowrap}} .run-evidence-list{{display:grid;gap:3px;margin-top:4px;max-width:460px}} .project-current-strip{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0;padding:10px 12px;background:var(--blue-bg);border-radius:8px}} .project-current-strip strong{{display:block;margin-top:2px}} .project-architecture-view,.project-route-details{{margin-top:8px}} .project-architecture-view>summary,.project-route-details>summary{{padding:6px 0}} .project-route-view .relation-diagram{{min-height:220px}}
+@media(max-width:900px){{.target-map-summary,.target-focus-strip,.project-current-strip{{grid-template-columns:1fr}}.target-latest-outcome{{border-left:0;border-top:1px solid var(--line);padding:8px 0 0}}.target-route-caption{{display:block}}.target-route-caption>span{{display:block;max-width:none;text-align:left;margin-top:3px}}}}
+@media(max-width:760px){{.page{{padding:14px}}.top,.section-heading,.card-header{{display:block}}.summary-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.logic-grid,.technical-grid,.glossary-grid,.architecture-grid,.story-grid,.history-version-compare-controls,.target-semantic-history-versions.is-history-compare-active{{grid-template-columns:1fr}}.span-two{{grid-column:auto}}.badge-row{{justify-content:flex-start;margin-top:10px}}.timeline-item{{grid-template-columns:1fr;gap:2px}}.map-edge{{grid-template-columns:auto auto auto;align-items:start}}.map-edge>span:last-of-type{{grid-column:1/-1}}}}
 </style>
 </head>
 <body>
 <main class="page">
-  <header class="top"><div><h1>{_html_text(title)}</h1><div class="muted">最后观察：{_html_text(_dashboard_display_time(safe_current.get('observed_at')))} · 数据状态：{_html_text(current_data_age.get('state'))}</div></div><div class="badge tone-{_html_text(overall)}"><span aria-hidden="true">{health_icon}</span> Overall Health：{_html_text(health_label)}</div></header>
+  <header class="top"><div><h1>{_html_text(title)}</h1><div class="muted">最后观察：{_html_text(_dashboard_display_time(safe_current.get('observed_at')))} · 数据状态：{_html_text(_human_state_label(current_data_age.get('state')))}</div></div><div class="badge tone-{_html_text(overall)}"><span aria-hidden="true">{health_icon}</span> 整体健康：{_html_text(health_label)}</div></header>
   <section class="summary-grid" aria-label="项目总览">
-    <div class="metric"><span class="muted">Registered targets</span><strong>{len(target_views)}</strong></div>
-    <div class="metric"><span class="muted">当前 Alerts</span><strong>{len(all_alerts)}</strong></div>
-    <div class="metric"><span class="muted">Observer data age</span><strong>{_html_text(current_data_age.get('state'))}</strong></div>
-    <div class="metric"><span class="muted">Semantic coverage</span><strong>{_html_text((safe_current.get('semantic') or {}).get('status') if isinstance(safe_current.get('semantic'),dict) else None)}</strong></div>
+    <div class="metric"><span class="muted">已注册观测目标</span><strong>{len(target_views)}</strong></div>
+    <div class="metric"><span class="muted">当前告警</span><strong>{len(all_alerts)}</strong></div>
+    <div class="metric"><span class="muted">目标完整性</span><strong>{_html_text(_human_state_label(registry_health.get('status')))}</strong></div>
+    <div class="metric"><span class="muted">语义覆盖状态</span><strong>{_html_text(_human_state_label((safe_current.get('semantic') or {}).get('status') if isinstance(safe_current.get('semantic'),dict) else None))}</strong></div>
   </section>
   {project_map_html}
-  <section class="panel target-navigation"><div class="section-heading"><div><h2>Observer Targets</h2><p class="muted">仅展示 Target Registry 中显式注册的 scheduled-automation targets。</p></div></div>{target_tabs_html}</section>
+  <section class="panel target-navigation"><div class="section-heading"><div><h2>观测目标</h2><p class="muted">仅展示 Target Registry 中显式注册的自动任务目标。</p></div></div>{target_tabs_html}</section>
   {target_pages_html}
   <section class="panel"><h2>最近重大进展</h2><ul>{latest_html}</ul></section>
-  <section class="panel" id="alerts"><h2>当前 Alerts</h2>{alerts_html}</section>
-  <section class="panel"><h2>Semantic Glossary</h2><div class="glossary-grid" id="glossary">{glossary_html}</div></section>
+  <section class="panel" id="alerts"><h2>当前告警</h2>{alerts_html}</section>
+  <section class="panel"><h2>语义词汇表 / Semantic Glossary</h2><div class="glossary-grid" id="glossary">{glossary_html}</div></section>
   <footer>Observer 只解释本地事实，不参与 Writer control plane。Dashboard 为静态自包含文件，不需要 HTTP 服务。页面时间统一显示北京时间 (UTC+08:00)，底层 canonical state/history 仍使用 UTC。</footer>
 </main>
 <script id="observer-data" type="application/json">{embedded_json}</script>
 <script>
-(()=>{{document.querySelectorAll('[data-target-tab]').forEach(tab=>tab.addEventListener('click',()=>{{const id=tab.dataset.targetTab;document.querySelectorAll('[data-target-tab]').forEach(item=>item.classList.toggle('is-active',item===tab));document.querySelectorAll('[data-target-panel]').forEach(panel=>panel.classList.toggle('is-active',panel.dataset.targetPanel===id));}}));}})();
+(()=>{{
+  document.querySelectorAll('[data-target-tab]').forEach(tab=>tab.addEventListener('click',()=>{{
+    const id=tab.dataset.targetTab;
+    document.querySelectorAll('[data-target-tab]').forEach(item=>item.classList.toggle('is-active',item===tab));
+    document.querySelectorAll('[data-target-panel]').forEach(panel=>panel.classList.toggle('is-active',panel.dataset.targetPanel===id));
+  }}));
+  document.querySelectorAll('[data-history-version-picker]').forEach(picker=>picker.addEventListener('change',()=>{{
+    const details=picker.closest('details');
+    if(!details)return;
+    const selected=picker.value;
+    const versions=details.querySelector('.target-semantic-history-versions');
+    if(versions)versions.classList.remove('is-history-compare-active');
+    details.querySelectorAll('[data-history-version]').forEach(item=>item.classList.toggle('is-history-filtered',item.dataset.historyVersion!==selected));
+  }}));
+  document.querySelectorAll('[data-history-version-compare]').forEach(compare=>{{
+    const applyComparison=()=>{{
+      const details=compare.closest('details');
+      if(!details)return;
+      const first=compare.querySelector('[data-history-version-compare-a]');
+      const second=compare.querySelector('[data-history-version-compare-b]');
+      if(!first||!second)return;
+      const selected=new Set([first.value,second.value]);
+      const versions=details.querySelector('.target-semantic-history-versions');
+      if(versions)versions.classList.add('is-history-compare-active');
+      details.querySelectorAll('[data-history-version]').forEach(item=>item.classList.toggle('is-history-filtered',!selected.has(item.dataset.historyVersion)));
+      const summary=compare.querySelector('[data-history-version-compare-summary]');
+      const firstItem=details.querySelector(`[data-history-version="${{first.value}}"]`);
+      const secondItem=details.querySelector(`[data-history-version="${{second.value}}"]`);
+      if(!summary||!firstItem||!secondItem)return;
+      try{{
+        const a=JSON.parse(firstItem.dataset.historyCompareFacts||'{{}}');
+        const b=JSON.parse(secondItem.dataset.historyCompareFacts||'{{}}');
+        const aNodes=a.nodes||{{}};
+        const bNodes=b.nodes||{{}};
+        const onlyA=Object.keys(aNodes).filter(id=>!(id in bNodes)).sort();
+        const onlyB=Object.keys(bNodes).filter(id=>!(id in aNodes)).sort();
+        const statusChanges=Object.keys(aNodes).filter(id=>id in bNodes&&aNodes[id].status!==bNodes[id].status).sort().map(id=>`${{id}}(${{aNodes[id].status}}↔${{bNodes[id].status}})`);
+        const edgeKey=edge=>`${{edge.from}}→${{edge.to}}${{edge.label?`[${{edge.label}}]`:''}}`;
+        const aEdges=new Set((a.edges||[]).map(edgeKey));
+        const bEdges=new Set((b.edges||[]).map(edgeKey));
+        const onlyAEdges=[...aEdges].filter(key=>!bEdges.has(key)).sort();
+        const onlyBEdges=[...bEdges].filter(key=>!aEdges.has(key)).sort();
+        const show=items=>items.length?items.join('、'):'无';
+        summary.textContent=`稳定 ID 差异：仅 A 有节点：${{show(onlyA)}}；仅 B 有节点：${{show(onlyB)}}；状态不同：${{show(statusChanges)}}；仅 A 有关系：${{show(onlyAEdges)}}；仅 B 有关系：${{show(onlyBEdges)}}。`;
+      }}catch(error){{
+        summary.textContent='历史版本差异摘要不可计算；并排原始归档仍保持可读，未尝试猜测或修补历史事实。';
+      }}
+    }};
+    compare.querySelectorAll('select').forEach(picker=>picker.addEventListener('change',applyComparison));
+  }});
+}})();
 </script>
 </body></html>"""
 
@@ -1500,334 +1804,6 @@ def write_dashboard(
         "size_bytes": len(html.encode("utf-8")),
         "content_digest": _stable_digest(html),
     }
-
-
-def _read_json_object(path: Path) -> dict[str, object] | None:
-    if not path.is_file():
-        return None
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return value if isinstance(value, dict) else None
-
-
-def _read_jsonl_objects(path: Path) -> list[dict[str, object]]:
-    if not path.is_file():
-        return []
-    rows: list[dict[str, object]] = []
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                try:
-                    value = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(value, dict):
-                    rows.append(value)
-    except OSError:
-        return []
-    return rows
-
-
-def _parse_utc_iso(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
-def _continuation_lease_liveness(
-    lease: dict[str, object] | None,
-    control: dict[str, object],
-) -> dict[str, object]:
-    if not lease:
-        return {
-            "state": "absent",
-            "heartbeat_age_seconds": None,
-            "expires_at": None,
-            "stale_after_seconds": None,
-        }
-    now = datetime.now(timezone.utc)
-    expires = _parse_utc_iso(lease.get("expires_at"))
-    heartbeat = _parse_utc_iso(lease.get("last_heartbeat_at")) or _parse_utc_iso(lease.get("issued_at"))
-    stale_after_minutes = control.get("stale_after_minutes")
-    stale_after_seconds = (
-        float(stale_after_minutes) * 60
-        if isinstance(stale_after_minutes, (int, float)) and stale_after_minutes > 0
-        else None
-    )
-    heartbeat_age = max(0.0, (now - heartbeat).total_seconds()) if heartbeat is not None else None
-    if expires is not None and now >= expires:
-        state = "expired"
-    elif stale_after_seconds is not None and heartbeat_age is not None and heartbeat_age > stale_after_seconds:
-        state = "stale"
-    elif heartbeat is not None:
-        state = "fresh"
-    else:
-        state = "unknown"
-    return {
-        "state": state,
-        "heartbeat_age_seconds": round(heartbeat_age, 3) if heartbeat_age is not None else None,
-        "expires_at": lease.get("expires_at"),
-        "stale_after_seconds": stale_after_seconds,
-    }
-
-
-def write_json_atomic(path: Path, payload: dict[str, object]) -> None:
-    atomic_write_text(
-        path,
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-    )
-
-
-def append_jsonl(path: Path, payload: dict[str, object]) -> None:
-    """Atomically append one JSONL record while preserving interrupted tails."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    if existing and not existing.endswith(("\n", "\r")):
-        existing += "\n"
-    line = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
-    atomic_write_text(path, existing + line)
-
-
-def ensure_jsonl_file(path: Path) -> None:
-    if path.exists():
-        return
-    atomic_write_text(path, "")
-
-
-def _jsonl_contains_id(path: Path, *, field: str, value: str) -> bool:
-    if not path.is_file():
-        return False
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                try:
-                    payload = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(payload, dict) and payload.get(field) == value:
-                    return True
-    except OSError:
-        return False
-    return False
-
-
-def append_jsonl_unique(path: Path, payload: dict[str, object], *, id_field: str) -> bool:
-    raw_id = payload.get(id_field)
-    if not isinstance(raw_id, str) or not raw_id:
-        raise ValueError(f"{id_field} must be a non-empty string")
-    if _jsonl_contains_id(path, field=id_field, value=raw_id):
-        return False
-    append_jsonl(path, payload)
-    return True
-
-
-def _record_month(payload: dict[str, object], timestamp_field: str) -> str | None:
-    parsed = _parse_utc_iso(payload.get(timestamp_field))
-    if parsed is None:
-        return None
-    return f"{parsed.year:04d}-{parsed.month:02d}"
-
-
-def rotate_jsonl_monthly(
-    path: Path,
-    history_root: Path,
-    *,
-    stream_name: str,
-    timestamp_field: str,
-    id_field: str,
-    current_month: str | None = None,
-) -> list[dict[str, object]]:
-    """Move completed-month JSONL records to lossless history shards."""
-
-    if not path.is_file():
-        return []
-    current_month = current_month or utc_now_iso()[:7]
-    try:
-        raw_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-    except OSError:
-        return []
-    retained: list[str] = []
-    partitions: dict[str, list[dict[str, object]]] = {}
-    for raw_line in raw_lines:
-        normalized_line = raw_line if raw_line.endswith(("\n", "\r")) else raw_line + "\n"
-        if not raw_line.strip():
-            retained.append(normalized_line)
-            continue
-        try:
-            payload = json.loads(raw_line)
-        except json.JSONDecodeError:
-            retained.append(normalized_line)
-            continue
-        if not isinstance(payload, dict):
-            retained.append(normalized_line)
-            continue
-        month = _record_month(payload, timestamp_field)
-        raw_id = payload.get(id_field)
-        if month is None or month >= current_month or not isinstance(raw_id, str) or not raw_id:
-            retained.append(normalized_line)
-            continue
-        partitions.setdefault(month, []).append(payload)
-
-    if not partitions:
-        return []
-
-    rotations: list[dict[str, object]] = []
-    for month, payloads in sorted(partitions.items()):
-        shard_path = history_root / stream_name / f"{month}.jsonl"
-        appended = 0
-        for payload in payloads:
-            if append_jsonl_unique(shard_path, payload, id_field=id_field):
-                appended += 1
-        rotations.append(
-            {
-                "stream": stream_name,
-                "month": month,
-                "shard_path": str(shard_path),
-                "records_moved": len(payloads),
-                "records_appended": appended,
-            }
-        )
-    atomic_write_text(path, "".join(retained))
-    return rotations
-
-
-def refresh_history_index(project: Any) -> dict[str, object]:
-    paths = observer_paths(project)
-    history_root = paths["history"]
-    shards: list[dict[str, object]] = []
-    if history_root.is_dir():
-        for shard_path in sorted(history_root.glob("*/*.jsonl")):
-            rows = _read_jsonl_objects(shard_path)
-            timestamps: list[str] = []
-            for row in rows:
-                for field in ("observed_at", "started_at", "finished_at"):
-                    value = row.get(field)
-                    if isinstance(value, str) and _parse_utc_iso(value) is not None:
-                        timestamps.append(value)
-                        break
-            shards.append(
-                {
-                    "stream": shard_path.parent.name,
-                    "month": shard_path.stem,
-                    "path": shard_path.relative_to(project.observer_dir).as_posix(),
-                    "record_count": len(rows),
-                    "first_at": min(timestamps) if timestamps else None,
-                    "last_at": max(timestamps) if timestamps else None,
-                }
-            )
-    live_streams: list[dict[str, object]] = []
-    for stream_name, path_key_name, timestamp_field in (
-        ("timeline", "timeline", "observed_at"),
-        ("observations", "observations", "observed_at"),
-        ("alerts", "alerts", "observed_at"),
-        ("runs", "runs", "started_at"),
-        ("interpretations", "interpretations", "interpreted_at"),
-        ("narratives", "project_narratives", "interpreted_at"),
-    ):
-        rows = _read_jsonl_objects(paths[path_key_name])
-        timestamps = [
-            str(row[timestamp_field])
-            for row in rows
-            if isinstance(row.get(timestamp_field), str) and _parse_utc_iso(row.get(timestamp_field)) is not None
-        ]
-        live_streams.append(
-            {
-                "stream": stream_name,
-                "path": paths[path_key_name].relative_to(project.observer_dir).as_posix(),
-                "record_count": len(rows),
-                "first_at": min(timestamps) if timestamps else None,
-                "last_at": max(timestamps) if timestamps else None,
-            }
-        )
-    payload = {
-        "schema_version": OBSERVER_HISTORY_INDEX_SCHEMA,
-        "project_id": project.project_id,
-        "generated_at": utc_now_iso(),
-        "shard_count": len(shards),
-        "record_count": sum(int(row["record_count"]) for row in shards),
-        "live_record_count": sum(int(row["record_count"]) for row in live_streams),
-        "total_record_count": sum(int(row["record_count"]) for row in shards + live_streams),
-        "shards": shards,
-        "live_streams": live_streams,
-    }
-    write_json_atomic(paths["history_index"], payload)
-    return payload
-
-
-def read_observer_history_stream(project: Any, stream_name: str) -> list[dict[str, object]]:
-    """Reconstruct one complete logical stream from archived shards + live data."""
-
-    paths = observer_paths(project)
-    specs: dict[str, tuple[str, str, str]] = {
-        "timeline": ("timeline", "event_id", "observed_at"),
-        "observations": ("observations", "observation_id", "observed_at"),
-        "alerts": ("alerts", "alert_event_id", "observed_at"),
-        "runs": ("runs", "run_id", "started_at"),
-        "interpretations": ("interpretations", "interpretation_id", "interpreted_at"),
-        "narratives": ("project_narratives", "narrative_id", "interpreted_at"),
-    }
-    if stream_name not in specs:
-        raise ValueError(f"unknown observer history stream: {stream_name}")
-    path_key_name, id_field, timestamp_field = specs[stream_name]
-    candidates = sorted((paths["history"] / stream_name).glob("*.jsonl"))
-    candidates.append(paths[path_key_name])
-    rows: list[dict[str, object]] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        for row in _read_jsonl_objects(candidate):
-            raw_id = row.get(id_field)
-            if isinstance(raw_id, str) and raw_id:
-                if raw_id in seen:
-                    continue
-                seen.add(raw_id)
-            rows.append(row)
-
-    minimum = datetime.min.replace(tzinfo=timezone.utc)
-    rows.sort(
-        key=lambda row: (
-            _parse_utc_iso(row.get(timestamp_field)) or minimum,
-            str(row.get(id_field) or ""),
-        )
-    )
-    return rows
-
-
-def rotate_observer_history(project: Any) -> list[dict[str, object]]:
-    paths = observer_paths(project)
-    stream_specs = (
-        ("timeline", "timeline", "observed_at", "event_id"),
-        ("observations", "observations", "observed_at", "observation_id"),
-        ("alerts", "alerts", "observed_at", "alert_event_id"),
-        ("runs", "runs", "started_at", "run_id"),
-        ("interpretations", "interpretations", "interpreted_at", "interpretation_id"),
-        ("project_narratives", "narratives", "interpreted_at", "narrative_id"),
-    )
-    rotations: list[dict[str, object]] = []
-    for path_key_name, stream_name, timestamp_field, id_field in stream_specs:
-        rotations.extend(
-            rotate_jsonl_monthly(
-                paths[path_key_name],
-                paths["history"],
-                stream_name=stream_name,
-                timestamp_field=timestamp_field,
-                id_field=id_field,
-            )
-        )
-    refresh_history_index(project)
-    return rotations
 
 
 def _process_is_alive(pid: object) -> bool | None:

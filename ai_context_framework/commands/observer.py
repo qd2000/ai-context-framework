@@ -42,6 +42,7 @@ from ai_context_framework.observer_storage import (
     set_glossary_term,
 )
 from ai_context_framework.observer_targets import (
+    OBSERVER_EXPECTED_TARGET_REGISTRY_SCHEMA,
     OBSERVER_TARGET_REGISTRY_SCHEMA,
     OVERVIEW_DECISIONS,
     RUN_RESULTS,
@@ -49,10 +50,15 @@ from ai_context_framework.observer_targets import (
     ObserverTargetRegistryError,
     record_target_run_finish,
     record_target_run_start,
+    read_expected_target_registry,
     read_target_registry,
+    recover_expected_targets,
     register_target,
+    register_expected_target,
+    remove_expected_target,
     remove_target,
     set_project_overview_decision,
+    target_registry_health,
 )
 
 
@@ -200,6 +206,20 @@ def register_observer_parser(subparsers, add_json_argument) -> None:
     target_set_parser.add_argument("--route-ref")
     add_json_argument(target_set_parser)
     target_set_parser.set_defaults(func=observer_target_set_command)
+    expected_target_set_parser = observer_subparsers.add_parser(
+        "expected-target-set",
+        help="configure one explicit expected Observer target for runtime-state recovery",
+    )
+    expected_target_set_parser.add_argument("path", nargs="?", type=Path)
+    expected_target_set_parser.add_argument("--target-id", required=True)
+    expected_target_set_parser.add_argument("--mode", choices=tuple(sorted(TARGET_MODES)), required=True)
+    expected_target_set_parser.add_argument("--title", required=True)
+    expected_target_set_parser.add_argument("--automation-ref", required=True)
+    expected_target_set_parser.add_argument("--workstream")
+    expected_target_set_parser.add_argument("--continuation-task-id")
+    expected_target_set_parser.add_argument("--route-ref")
+    add_json_argument(expected_target_set_parser)
+    expected_target_set_parser.set_defaults(func=observer_expected_target_set_command)
     target_remove_parser = observer_subparsers.add_parser(
         "target-remove",
         help="remove one explicit user-level Observer scheduled-automation target",
@@ -208,6 +228,21 @@ def register_observer_parser(subparsers, add_json_argument) -> None:
     target_remove_parser.add_argument("--target-id", required=True)
     add_json_argument(target_remove_parser)
     target_remove_parser.set_defaults(func=observer_target_remove_command)
+    expected_target_remove_parser = observer_subparsers.add_parser(
+        "expected-target-remove",
+        help="remove one explicit expected Observer target recovery configuration",
+    )
+    expected_target_remove_parser.add_argument("path", nargs="?", type=Path)
+    expected_target_remove_parser.add_argument("--target-id", required=True)
+    add_json_argument(expected_target_remove_parser)
+    expected_target_remove_parser.set_defaults(func=observer_expected_target_remove_command)
+    target_recover_parser = observer_subparsers.add_parser(
+        "target-recover",
+        help="idempotently restore missing registered targets from explicit expected-target configuration",
+    )
+    target_recover_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(target_recover_parser)
+    target_recover_parser.set_defaults(func=observer_target_recover_command)
     overview_parser = observer_subparsers.add_parser(
         "project-overview-set",
         help="record the evidence-backed conditional Project Overview decision in user-level Observer state",
@@ -296,6 +331,7 @@ def observer_targets_command(args: argparse.Namespace) -> int:
     project = resolve_observer_project(getattr(args, "path", None))
     try:
         registry = read_target_registry(project)
+        expected_registry = read_expected_target_registry(project)
         snapshot = build_observer_snapshot(project)
     except SemanticSensitiveValueError as exc:
         return _emit(args, _target_sensitive_value_payload("observer targets", exc), EXIT_SAFETY_REFUSED)
@@ -309,6 +345,13 @@ def observer_targets_command(args: argparse.Namespace) -> int:
             "project": project.to_payload(),
             "registry_schema": OBSERVER_TARGET_REGISTRY_SCHEMA,
             "registry": registry,
+            "expected_registry_schema": OBSERVER_EXPECTED_TARGET_REGISTRY_SCHEMA,
+            "expected_registry": expected_registry,
+            "registry_health": target_registry_health(
+                project,
+                registry=registry,
+                expected_registry=expected_registry,
+            ),
             "target_views": targets,
             "message": "Explicit Observer scheduled-automation targets read without writing runtime state.",
         },
@@ -362,6 +405,49 @@ def observer_target_set_command(args: argparse.Namespace) -> int:
         release_observer_lock(lock_path, run_id)
 
 
+def observer_expected_target_set_command(args: argparse.Namespace) -> int:
+    try:
+        project = resolve_observer_project_bounded(getattr(args, "path", None))
+    except ObserverTargetReadError as exc:
+        exit_code = _emit(args, _target_read_error_payload("observer expected-target-set", exc), EXIT_RUNTIME_ERROR)
+        hard_failstop_target_read_timeout_if_needed(exc, exit_code)
+        return exit_code
+    run_id = f"expected-target-registry-{uuid.uuid4()}"
+    try:
+        lock_path, _recovered = acquire_observer_lock(project, run_id)
+    except ObserverLockedError as exc:
+        return _emit(args, _target_registry_locked_payload("observer expected-target-set", exc), EXIT_SAFETY_REFUSED)
+    try:
+        try:
+            registry, changed = register_expected_target(
+                project,
+                target_id=args.target_id,
+                mode=args.mode,
+                title=args.title,
+                automation_ref=args.automation_ref,
+                workstream_id=args.workstream,
+                continuation_task_id=args.continuation_task_id,
+                route_ref=args.route_ref,
+            )
+        except SemanticSensitiveValueError as exc:
+            return _emit(args, _target_sensitive_value_payload("observer expected-target-set", exc), EXIT_SAFETY_REFUSED)
+        except ObserverTargetRegistryError as exc:
+            return _emit(args, _target_registry_error_payload("observer expected-target-set", exc), EXIT_SAFETY_REFUSED)
+        return _emit(
+            args,
+            {
+                **_base_payload("observer expected-target-set"),
+                "project": project.to_payload(),
+                "target_id": args.target_id,
+                "changed": changed,
+                "expected_registry": registry,
+                "message": "Observer expected-target recovery configuration updated." if changed else "Observer expected target is already current.",
+            },
+        )
+    finally:
+        release_observer_lock(lock_path, run_id)
+
+
 def observer_target_remove_command(args: argparse.Namespace) -> int:
     project = resolve_observer_project(getattr(args, "path", None))
     run_id = f"target-registry-{uuid.uuid4()}"
@@ -389,6 +475,101 @@ def observer_target_remove_command(args: argparse.Namespace) -> int:
                 "changed": changed,
                 "registry": registry,
                 "message": "Observer target removed." if changed else "Observer target was not registered.",
+            },
+        )
+    finally:
+        release_observer_lock(lock_path, run_id)
+
+
+def observer_expected_target_remove_command(args: argparse.Namespace) -> int:
+    project = resolve_observer_project(getattr(args, "path", None))
+    run_id = f"expected-target-registry-{uuid.uuid4()}"
+    try:
+        lock_path, _recovered = acquire_observer_lock(project, run_id)
+    except ObserverLockedError as exc:
+        return _emit(args, _target_registry_locked_payload("observer expected-target-remove", exc), EXIT_SAFETY_REFUSED)
+    try:
+        try:
+            registry, changed = remove_expected_target(project, args.target_id)
+            target_registry = read_target_registry(project)
+            health = target_registry_health(
+                project,
+                registry=target_registry,
+                expected_registry=registry,
+            )
+        except ObserverTargetRegistryError as exc:
+            return _emit(args, _target_registry_error_payload("observer expected-target-remove", exc), EXIT_SAFETY_REFUSED)
+        if args.target_id in health.get("withdrawn_registered_target_ids", []):
+            message = (
+                "Observer expected-target withdrawal recorded, but the target remains registered; "
+                "remove the live target explicitly before considering the withdrawal complete."
+            )
+        else:
+            message = "Observer expected target removed." if changed else "Observer expected target was not configured."
+        return _emit(
+            args,
+            {
+                **_base_payload("observer expected-target-remove"),
+                "project": project.to_payload(),
+                "target_id": args.target_id,
+                "changed": changed,
+                "expected_registry": registry,
+                "registry_health": health,
+                "message": message,
+            },
+        )
+    finally:
+        release_observer_lock(lock_path, run_id)
+
+
+def observer_target_recover_command(args: argparse.Namespace) -> int:
+    try:
+        project = resolve_observer_project_bounded(getattr(args, "path", None))
+    except ObserverTargetReadError as exc:
+        exit_code = _emit(args, _target_read_error_payload("observer target-recover", exc), EXIT_RUNTIME_ERROR)
+        hard_failstop_target_read_timeout_if_needed(exc, exit_code)
+        return exit_code
+    run_id = f"target-registry-recovery-{uuid.uuid4()}"
+    try:
+        lock_path, _recovered = acquire_observer_lock(project, run_id)
+    except ObserverLockedError as exc:
+        return _emit(args, _target_registry_locked_payload("observer target-recover", exc), EXIT_SAFETY_REFUSED)
+    try:
+        try:
+            registry, recovered_target_ids, changed = recover_expected_targets(project)
+            expected_registry = read_expected_target_registry(project)
+            health = target_registry_health(
+                project,
+                registry=registry,
+                expected_registry=expected_registry,
+            )
+        except ObserverTargetRegistryError as exc:
+            return _emit(args, _target_registry_error_payload("observer target-recover", exc), EXIT_SAFETY_REFUSED)
+        health_status = str(health.get("status") or "")
+        if health_status == "conflict":
+            message = (
+                "Observer target registry conflicts with explicit expected-target configuration; "
+                "recovery did not overwrite existing target bindings."
+            )
+        elif changed:
+            message = "Observer expected targets recovered."
+        elif health_status == "unconfigured":
+            message = "Observer expected-target recovery contract is not configured."
+        elif health_status == "configured_empty":
+            message = "Observer expected-target contract is explicitly empty; no targets were recovered."
+        else:
+            message = "Observer target registry already matches explicit expected targets."
+        return _emit(
+            args,
+            {
+                **_base_payload("observer target-recover"),
+                "project": project.to_payload(),
+                "changed": changed,
+                "recovered_target_ids": recovered_target_ids,
+                "registry": registry,
+                "expected_registry": expected_registry,
+                "registry_health": health,
+                "message": message,
             },
         )
     finally:
