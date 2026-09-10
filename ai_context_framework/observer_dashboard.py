@@ -305,6 +305,193 @@ def render_relation_diagram(
     )
 
 
+def primary_visualization_kind_label(value: object) -> str:
+    raw = _normalized_text(value)
+    return {
+        "metric_trend": "指标趋势",
+        "status_matrix": "状态矩阵",
+        "process_flow": "流程图",
+        "roadmap": "推进路线",
+    }.get(raw.casefold(), raw or "主可视化")
+
+
+def _render_metric_trend(primary: dict[str, object]) -> str:
+    spec = primary.get("spec") if isinstance(primary.get("spec"), dict) else {}
+    series_rows = [row for row in spec.get("series") or [] if isinstance(row, dict)]
+    all_values = [
+        float(point.get("y"))
+        for series in series_rows
+        for point in series.get("points") or []
+        if isinstance(point, dict) and isinstance(point.get("y"), (int, float))
+    ]
+    if not series_rows or not all_values:
+        return '<p class="muted">当前没有可绘制的有限指标序列。</p>'
+    y_min = min(all_values)
+    y_max = max(all_values)
+    if y_min == y_max:
+        y_min -= 0.5
+        y_max += 0.5
+    width = 760
+    height = 280
+    left = 72
+    right = 24
+    top = 26
+    bottom = 52
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    max_points = max(len(series.get("points") or []) for series in series_rows)
+
+    def point_x(index: int) -> float:
+        if max_points <= 1:
+            return left + plot_w / 2
+        return left + plot_w * index / (max_points - 1)
+
+    def point_y(value: float) -> float:
+        return top + plot_h * (1 - (value - y_min) / (y_max - y_min))
+
+    series_svg: list[str] = []
+    legends: list[str] = []
+    point_details: list[str] = []
+    for series_index, series in enumerate(series_rows):
+        points = [row for row in series.get("points") or [] if isinstance(row, dict)]
+        coords = [
+            (point_x(index), point_y(float(point.get("y"))))
+            for index, point in enumerate(points)
+            if isinstance(point.get("y"), (int, float))
+        ]
+        if not coords:
+            continue
+        points_attr = " ".join(f"{x:.1f},{y:.1f}" for x, y in coords)
+        dash = "" if series_index == 0 else f' stroke-dasharray="{4 + series_index * 2} {3 + series_index}"'
+        series_svg.append(
+            f'<polyline class="trend-line trend-series-{series_index}" points="{points_attr}" '
+            f'fill="none" stroke="currentColor" stroke-width="2.5"{dash}/>'
+        )
+        for point_index, point in enumerate(points):
+            x = point_x(point_index)
+            y = point_y(float(point.get("y")))
+            point_label = _normalized_text(point.get("label")) or str(point.get("x"))
+            series_svg.append(
+                f'<circle class="trend-point trend-series-{series_index}" cx="{x:.1f}" cy="{y:.1f}" r="4" '
+                'fill="currentColor">'
+                f'<title>{escape(_normalized_text(series.get("title")))} · {escape(point_label)} · '
+                f'{escape(str(point.get("y")))}</title></circle>'
+            )
+            point_details.append(
+                '<li>'
+                f'<strong>{escape(_normalized_text(series.get("title")))}</strong> · '
+                f'{escape(point_label)} = {escape(str(point.get("y")))} '
+                f'{escape(_normalized_text(series.get("unit")))}'
+                '</li>'
+            )
+        legends.append(
+            f'<span class="trend-legend-item"><strong>{escape(_normalized_text(series.get("title")))}</strong>'
+            f'{(" · " + escape(_normalized_text(series.get("unit")))) if series.get("unit") else ""}</span>'
+        )
+    x_label = escape(_normalized_text(spec.get("x_label")))
+    y_label = escape(_normalized_text(spec.get("y_label")))
+    direction = {
+        "minimize": "越低越好",
+        "maximize": "越高越好",
+        "neutral": "仅展示变化",
+    }.get(str(spec.get("direction") or "neutral"), "仅展示变化")
+    return (
+        '<div class="primary-metric-trend">'
+        f'<div class="trend-legend">{"".join(legends)}<span>{escape(direction)}</span></div>'
+        f'<svg class="metric-trend-svg" viewBox="0 0 {width} {height}" role="img" '
+        f'aria-label="{escape(_normalized_text(primary.get("title")), quote=True)}">'
+        f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" stroke="currentColor"/>'
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" stroke="currentColor"/>'
+        f'<text x="{left + plot_w / 2:.1f}" y="{height - 12}" text-anchor="middle">{x_label}</text>'
+        f'<text x="18" y="{top + plot_h / 2:.1f}" text-anchor="middle" transform="rotate(-90 18 {top + plot_h / 2:.1f})">{y_label}</text>'
+        f'<text x="{left - 8}" y="{top + 5}" text-anchor="end">{escape(f"{y_max:g}")}</text>'
+        f'<text x="{left - 8}" y="{top + plot_h}" text-anchor="end">{escape(f"{y_min:g}")}</text>'
+        + "".join(series_svg)
+        + '</svg><details class="primary-visualization-data"><summary>查看指标点明细</summary><ul>'
+        + "".join(point_details)
+        + '</ul></details></div>'
+    )
+
+
+def _render_status_matrix(primary: dict[str, object]) -> str:
+    spec = primary.get("spec") if isinstance(primary.get("spec"), dict) else {}
+    items = [row for row in spec.get("items") or [] if isinstance(row, dict)]
+    current_refs = {str(item) for item in spec.get("current_item_refs") or []}
+    if not items:
+        return '<p class="muted">当前没有可展示的状态矩阵项。</p>'
+    cards: list[str] = []
+    for row in items:
+        item_id = str(row.get("id") or "")
+        current = item_id in current_refs
+        evidence = [str(item) for item in row.get("evidence_refs") or []]
+        cards.append(
+            f'<details class="status-matrix-item {"is-current" if current else ""}" '
+            f'data-matrix-item="{escape(item_id, quote=True)}">'
+            '<summary>'
+            f'<strong>{escape(_normalized_text(row.get("title")))}</strong>'
+            f'<span>{escape(_human_status(row.get("status")))}</span>'
+            f'{"<em>当前</em>" if current else ""}'
+            '</summary>'
+            f'<p>{escape(_normalized_text(row.get("summary")))}</p>'
+            '<div class="muted">证据：'
+            + (" · ".join(f'<code>{escape(ref)}</code>' for ref in evidence) if evidence else "无")
+            + '</div></details>'
+        )
+    return '<div class="status-matrix" role="list">' + "".join(cards) + '</div>'
+
+
+def render_primary_visualization(
+    primary: dict[str, object],
+    *,
+    status_class: Callable[[object], str] | None = None,
+    identity: str | None = None,
+) -> str:
+    """Render one validated task-semantic primary visualization.
+
+    Selection is intentionally outside this renderer.  The caller supplies a
+    reviewed structured spec; this function only deterministically projects
+    that spec and never inspects project/target names to choose a kind.
+    """
+
+    kind = str(primary.get("kind") or "")
+    spec = primary.get("spec") if isinstance(primary.get("spec"), dict) else {}
+    confidence = str(primary.get("confidence") or "")
+    if kind == "metric_trend":
+        body = _render_metric_trend(primary)
+    elif kind == "status_matrix":
+        body = _render_status_matrix(primary)
+    elif kind in {"process_flow", "roadmap"}:
+        nodes = [row for row in spec.get("nodes") or [] if isinstance(row, dict)]
+        edges = [row for row in spec.get("edges") or [] if isinstance(row, dict)]
+        body = render_relation_diagram(
+            nodes,
+            edges,
+            title=_normalized_text(primary.get("title")) or primary_visualization_kind_label(kind),
+            current_node_ids={str(item) for item in spec.get("current_node_refs") or []} or None,
+            next_node_ids={str(item) for item in spec.get("next_node_refs") or []},
+            status_class=status_class,
+            identity=identity,
+        )
+    else:
+        return '<p class="muted">当前主可视化类型无法渲染。</p>'
+    low_confidence = (
+        '<div class="semantic-notice tone-border-warning"><strong>低置信可视化</strong>'
+        '<p>当前主图选择证据有限；请结合来源与后续语义复核阅读。</p></div>'
+        if confidence == "low"
+        else ""
+    )
+    return (
+        '<section class="primary-visualization" '
+        f'data-primary-visualization-kind="{escape(kind, quote=True)}">'
+        '<div class="primary-visualization-heading">'
+        f'<div><span class="target-eyebrow">核心进展问题</span><h4>{escape(_normalized_text(primary.get("primary_progress_question")))}</h4></div>'
+        f'<span class="badge tone-active">{escape(primary_visualization_kind_label(kind))}</span></div>'
+        f'<p class="primary-visualization-reason">{escape(_normalized_text(primary.get("reason")))}</p>'
+        f'{low_confidence}{body}'
+        '</section>'
+    )
+
+
 def render_target_execution_summary(
     view: dict[str, object],
     alerts: list[dict[str, object]],

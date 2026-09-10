@@ -13,8 +13,9 @@ from unittest import mock
 import acf
 
 from ai_context_framework.observer import derive_snapshot_alerts, resolve_observer_project
-from ai_context_framework.observer_dashboard import render_relation_diagram
+from ai_context_framework.observer_dashboard import render_primary_visualization, render_relation_diagram
 from ai_context_framework.observer_presentation import (
+    OBSERVER_PRIMARY_VISUALIZATION_SCHEMA,
     ObserverPresentationConcurrencyError,
     ObserverPresentationError,
     ObserverPresentationSemanticEscalationRequired,
@@ -192,6 +193,127 @@ class ObserverPresentationStateTests(unittest.TestCase):
             problems=problems or [],
             consume_one_shot_request_ids=consume or [],
         )
+
+    def primary_visualization(self, kind: str) -> dict[str, object]:
+        common = {
+            "schema_version": OBSERVER_PRIMARY_VISUALIZATION_SCHEMA,
+            "kind": kind,
+            "title": "当前任务主可视化",
+            "primary_progress_question": "当前真正推进到了哪里？",
+            "reason": "Fresh authority 表明该视图最直接回答当前进展问题。",
+            "evidence_refs": ["plan:h1-v1.2"],
+            "confidence": "high",
+        }
+        if kind == "metric_trend":
+            common["spec"] = {
+                "x_label": "迭代",
+                "y_label": "目标函数",
+                "direction": "minimize",
+                "series": [
+                    {
+                        "id": "objective",
+                        "title": "当前目标函数",
+                        "unit": "",
+                        "points": [
+                            {"x": 1, "y": 10.0, "label": "起点", "evidence_refs": ["run:g1"]},
+                            {"x": 2, "y": 8.5, "label": "当前", "evidence_refs": ["run:g2"]},
+                        ],
+                    }
+                ],
+            }
+        elif kind == "status_matrix":
+            common["spec"] = {
+                "items": [
+                    {
+                        "id": "tee",
+                        "title": "Tee",
+                        "status": "completed",
+                        "summary": "已验证",
+                        "evidence_refs": ["test:tee"],
+                    },
+                    {
+                        "id": "column",
+                        "title": "Column",
+                        "status": "active",
+                        "summary": "当前收敛处理中",
+                        "evidence_refs": ["run:column"],
+                    },
+                ],
+                "current_item_refs": ["column"],
+            }
+        else:
+            common["spec"] = {
+                "nodes": [
+                    {
+                        "id": "current",
+                        "title": "当前步骤",
+                        "status": "active",
+                        "summary": "正在推进",
+                        "evidence_refs": ["run:current"],
+                    },
+                    {
+                        "id": "next",
+                        "title": "下一步骤",
+                        "status": "future",
+                        "summary": "等待当前步骤完成",
+                        "evidence_refs": ["plan:next"],
+                    },
+                ],
+                "edges": [
+                    {
+                        "from": "current",
+                        "to": "next",
+                        "label": "next",
+                        "evidence_refs": ["plan:edge"],
+                    }
+                ],
+                "current_node_refs": ["current"],
+                "next_node_refs": ["next"],
+            }
+        return common
+
+    def test_primary_visualization_contract_validates_and_renders_all_v12_archetypes(self):
+        expected_fragments = {
+            "metric_trend": 'class="metric-trend-svg"',
+            "status_matrix": 'class="status-matrix"',
+            "process_flow": 'class="relation-diagram"',
+            "roadmap": 'class="relation-diagram"',
+        }
+        for kind, fragment in expected_fragments.items():
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                project = self.make_project(Path(tmp))
+                view = self.make_view("ws012-writer", "WS012")
+                narrative = self.narrative()
+                narrative["primary_visualization"] = self.primary_visualization(kind)
+                target_state, _ = self.apply_review(
+                    project,
+                    view,
+                    expected_target_revision=0,
+                    narrative=narrative,
+                )
+                primary = target_state["current_review"]["narrative"]["primary_visualization"]
+                self.assertEqual(primary["kind"], kind)
+                self.assertEqual(primary["primary_progress_question"], "当前真正推进到了哪里？")
+                html = render_primary_visualization(primary)
+                self.assertIn(f'data-primary-visualization-kind="{kind}"', html)
+                self.assertIn(fragment, html)
+
+    def test_metric_trend_rejects_nonfinite_or_unbound_points(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            view = self.make_view("ws012-writer", "WS012")
+            narrative = self.narrative()
+            primary = self.primary_visualization("metric_trend")
+            primary["spec"]["series"][0]["points"][0]["y"] = float("nan")
+            narrative["primary_visualization"] = primary
+            with self.assertRaises(ObserverPresentationError):
+                self.apply_review(project, view, expected_target_revision=0, narrative=narrative)
+
+            primary = self.primary_visualization("metric_trend")
+            primary["spec"]["series"][0]["points"][0]["evidence_refs"] = []
+            narrative["primary_visualization"] = primary
+            with self.assertRaises(ObserverPresentationError):
+                self.apply_review(project, view, expected_target_revision=0, narrative=narrative)
 
     def test_empty_state_does_not_create_observer_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:

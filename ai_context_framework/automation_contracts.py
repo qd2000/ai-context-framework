@@ -105,6 +105,12 @@ OBSERVER_PRESENTATION_TYPES = [
     "text",
     "hybrid",
 ]
+OBSERVER_PRIMARY_VISUALIZATION_KINDS = [
+    "metric_trend",
+    "status_matrix",
+    "process_flow",
+    "roadmap",
+]
 
 OBSERVER_AUTHORITY_REVIEW_INPUTS = [
     "plan",
@@ -315,6 +321,12 @@ def production_observer_wrapper_contract() -> dict[str, Any]:
             "select_from_semantics": True,
             "allowed_types": list(OBSERVER_PRESENTATION_TYPES),
             "fixed_template_required": False,
+            "primary_progress_question_required": True,
+            "one_dominant_primary_visualization": True,
+            "allowed_primary_visualization_kinds": list(OBSERVER_PRIMARY_VISUALIZATION_KINDS),
+            "renderer_selects_kind": False,
+            "project_or_target_hardcoding_allowed": False,
+            "generic_fallback_must_remain_fail_visible": True,
         },
         "cross_project_interference_allowed": False,
         "human_information_policy": "human_first_but_detailed",
@@ -369,6 +381,13 @@ def observer_semantic_review_contract() -> dict[str, Any]:
             "mainline_or_branch_semantics",
             "project_overview_decision",
         ],
+        "task_semantic_visualization": {
+            "derive_primary_progress_question_from_fresh_authority": True,
+            "record_selection_reason_and_evidence": True,
+            "allowed_kinds": list(OBSERVER_PRIMARY_VISUALIZATION_KINDS),
+            "low_confidence_must_be_fail_visible": True,
+            "renderer_may_infer_project_semantics": False,
+        },
         "insufficient_evidence_behavior": "remain_stale_fail_visible",
     }
 
@@ -502,6 +521,7 @@ def automation_prompt_execution_contract() -> dict[str, Any]:
 __all__ = [
     "AUTOMATION_PROMPT_EXECUTION_SCHEMA",
     "OBSERVER_AUTHORITY_REVIEW_INPUTS",
+    "OBSERVER_PRIMARY_VISUALIZATION_KINDS",
     "OBSERVER_PRESENTATION_TYPES",
     "OBSERVER_SEMANTIC_REVIEW_DECISIONS",
     "PRESENTATION_MAINTENANCE_LIFECYCLES",

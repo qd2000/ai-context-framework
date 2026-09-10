@@ -5,6 +5,7 @@ import unittest
 from ai_context_framework.automation_contracts import (
     AUTOMATION_PROMPT_EXECUTION_SCHEMA,
     OBSERVER_AUTHORITY_REVIEW_INPUTS,
+    OBSERVER_PRIMARY_VISUALIZATION_KINDS,
     OBSERVER_PRESENTATION_TYPES,
     OBSERVER_SEMANTIC_REVIEW_DECISIONS,
     PRESENTATION_MAINTENANCE_LIFECYCLES,
@@ -169,6 +170,14 @@ class AutomationContractTests(unittest.TestCase):
         self.assertTrue(contract["project_overview_policy"]["reevaluate_when_authority_changes"])
         self.assertEqual(OBSERVER_PRESENTATION_TYPES, contract["presentation_selection"]["allowed_types"])
         self.assertFalse(contract["presentation_selection"]["fixed_template_required"])
+        self.assertTrue(contract["presentation_selection"]["primary_progress_question_required"])
+        self.assertTrue(contract["presentation_selection"]["one_dominant_primary_visualization"])
+        self.assertEqual(
+            OBSERVER_PRIMARY_VISUALIZATION_KINDS,
+            contract["presentation_selection"]["allowed_primary_visualization_kinds"],
+        )
+        self.assertFalse(contract["presentation_selection"]["renderer_selects_kind"])
+        self.assertFalse(contract["presentation_selection"]["project_or_target_hardcoding_allowed"])
         self.assertFalse(contract["cross_project_interference_allowed"])
         self.assertFalse(contract["copy_writer_state_machine"])
         self.assertIn("run_history", contract["human_visible_required_fields"])
@@ -184,6 +193,10 @@ class AutomationContractTests(unittest.TestCase):
         self.assertTrue(contract["map_relevant_change_requires_authority_reread"])
         self.assertIn("route_order", contract["map_relevant_change_classes"])
         self.assertIn("architecture", contract["map_relevant_change_classes"])
+        task_semantic = contract["task_semantic_visualization"]
+        self.assertTrue(task_semantic["derive_primary_progress_question_from_fresh_authority"])
+        self.assertEqual(OBSERVER_PRIMARY_VISUALIZATION_KINDS, task_semantic["allowed_kinds"])
+        self.assertFalse(task_semantic["renderer_may_infer_project_semantics"])
         self.assertEqual("remain_stale_fail_visible", contract["insufficient_evidence_behavior"])
 
     def test_presentation_maintenance_lifecycles_are_narrow_and_non_resurrecting(self) -> None:
