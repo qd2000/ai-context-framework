@@ -506,7 +506,7 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
                         "--presentation-type",
                         "roadmap",
                         "--input",
-                        str(review_input),
+                        review_input.read_text(encoding="utf-8"),
                         "--json",
                     ]
                 )
