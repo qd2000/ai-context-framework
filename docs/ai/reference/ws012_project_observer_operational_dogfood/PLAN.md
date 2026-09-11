@@ -20,11 +20,35 @@ WS011 保持历史事实：核心 Project Observer 产品已经完成、发布�
 ---
 
 
-## Current authority — Observer V2 / control-plane safety
+## Current authority — Observer Agent-first / control-plane safety
 
-本节由当前 durable user directives 同步而来；**与后续历史章节冲突时，以本节为准**。历史版本号、旧 acceptance 计数、旧页面模板与旧 scheduler minute 只保留 provenance，不再作为永久执行约束。
+本节由当前 durable user directives 同步而来；**与后续历史章节冲突时，以本节为准**。历史版本号、旧 acceptance 计数、旧页面模板、旧 renderer contract 与旧 scheduler minute 只保留 provenance，不再作为永久执行约束。
 
-### Observer Task-Semantic Visualization v1.2 — unique detailed execution authority
+### Observer Agent-first v2.0 — current unique route
+
+2026-09-11 priority-100 durable `plan_change` directive `dir-153b33e6d0cb4bccbb67` 已正式 supersede `dir-41b8581a296544399208` 的 Task-Semantic Visualization v1.2 固定 renderer 后续路线。当前产品判断是：**Project Observer 是自主理解和展示项目的 Agent，不是 ACF 渲染前端；ACF 降为可选上下文导航、部分数据、维护工具和参考材料，不得成为唯一信息源、事实裁判、页面结构或 HTML 生成前置。**
+
+当前唯一详细执行计划仍使用既有正式路径，但内容已经切换为 Agent-first successor：
+
+`docs/ai/reference/ws012_project_observer_operational_dogfood/OBSERVER_HTML_VISUALIZATION_PLAN.md`
+
+原始用户交接材料为 `D:/PROJECT/Tools/ai-context-framework/.omx/user_inbox/observer-agent-first-20260911/OBSERVER_AGENT_FIRST_REDESIGN_PLAN.md`，SHA256=`84199c1a3fccf0b68b84a3ed71afd23b8f78a22772765bc9b5cddfcff0b8920d`。正式仓库 authority 以本 PLAN 与上述详细计划为准；外部 inbox 只保留来源凭证。
+
+当前路线按 **S0–S5** 连续推进：S0 authority/route 切换 → S1 首份真实 Agent-authored candidate 页面 → S2 基于真实摩擦做 ACF 产品解耦与减法 → S3 历史/指标/鲁棒性 → S4 实际 Production Observer 提示与输出入口迁移 → S5 legacy 删除、正常 release/global-install/installed-state 验证。阶段不是新状态机，也不是固定 work quota。
+
+Agent 可直接使用被授权的一手文件、Git、源码、测试、日志、业务/实验结果与 ACF 等多源材料，并在自己的 Observer 输出空间维护 HTML/CSS/SVG/JS、资源、数据提取脚本和历史。Target Registry、`primary_visualization.kind/spec`、Map Review/presentation lifecycle、fixed renderer、deterministic re-render、统一 shell/卡片/单一主图等旧机制均不再是页面生成前置；已有兼容数据可读，但停止继续扩旧强制路径。`acf observer snapshot` 会写旧 Observer runtime/dashboard，Maintenance 不得把它当纯只读取数入口，也不得靠例行 refresh 掩盖 Production Observer failure。
+
+真实性与体验要求继续保持：中文优先、北京时间、实际进展、每次有记录运行可查、历史可选/可比、指标口径真实、未知/失败 fail-visible、路线/架构/物理流程/数据流不混义、用户人工视觉验收可推翻 machine-only PASS。等待人工 review 不再阻塞可逆的 Agent-first 解耦和其他有价值工作。
+
+权限边界保持不变：本计划不授权修改未授权业务/科学代码，不授权 submit/retry/kill、共享 Runtime 控制、凭据访问或数据外发，也不改变其他 Writer ownership、scheduler 频率/启停。Writer continuation/effect/fencing/Git 安全合同继续以每轮 stable `acf continuation prompt + execution_policy` 为唯一 generic authority。
+
+当前阶段：**S0 route switch 正在收口并立即进入 S1**。当前 next action：同步 PLAN/WS012/directive lifecycle 后，选择当前合法可达的真实目标直接产出首份 Agent-authored candidate 页面和稳定 candidate 入口，证明生成过程不依赖旧 ACF renderer/semantic-review contract；优先按真实数据可达性选择 WS086/WS079，若当前固定 worktree/权限不适合直接写 FCC，则先以 ACF/WS012 完成第一纵向切片，再在合法访问时迁移 FCC。不得先设计新的通用 renderer/API/schema/plugin platform。
+
+两条 priority-70 context/template 简化 requirement `dir-0b707f4b16b24550b627` 与 `dir-d54a9978f1964a33926e` 继续有效，不因年龄自动关闭；其中与 Observer 减法直接相关的部分并入当前路线，其余保持后续 Maintenance 范围，不再被旧“Post-H1 才能做”顺序机械阻塞。
+
+`.88` release / global install / continuation closeout 仍是历史完成事实，禁止 replay。任何 candidate 页面、测试、commit、release、单次 Production activation 或 directive adopt 都不等于 WS012 长期 mission 完成。
+
+### Historical — Task-Semantic Visualization v1.2（superseded implementation route）
 
 2026-09-08 用户通过 durable `plan_change` directive `dir-4dd0233543ac4a3b9202` 明确确认了 Q1–Q6，并用审阅修订后的 **Observer HTML Visualization v1.1** supersede 旧 Human-First visualization directive `dir-5272efd83a0e434298e1`。2026-09-10 人工复核明确 H1 FAIL 后，priority-100 durable directive `dir-41b8581a296544399208` 又 supersede `dir-de45c52233d04c97af5d` 的后续纠偏路线，并将 H1 目标升级为 **Task-Semantic Visualization v1.2**。人工 FAIL、Q1–Q6 及 v1.1 中 expected-target、run/history、archive/concurrency、anti-masking 等有效要求继续保留；与 generic roadmap/narrative 作为 H1 终点的历史表述冲突时，以 v1.2 successor 为准。本节仅保存 sequencing/status pointer；本阶段的**唯一详细执行计划**仍是：
 
