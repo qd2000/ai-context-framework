@@ -110,12 +110,23 @@ class ObserverCliTests(unittest.TestCase):
             self.assertFalse(payload["initialized"])
             self.assertEqual(payload["changed_files"], [])
             automation_contract = payload["automation_prompt_execution_contract"]
-            self.assertEqual("acf.automation.prompt-execution.v1", automation_contract["schema_version"])
+            self.assertEqual("acf.automation.prompt-execution.v2", automation_contract["schema_version"])
             observer_wrapper = automation_contract["production_observer_scheduler_wrapper"]
             self.assertEqual("broad", observer_wrapper["access_boundary"]["read"])
-            self.assertEqual("narrow_user_level_observer_state", observer_wrapper["access_boundary"]["write"])
+            self.assertEqual(
+                "narrow_observer_owned_output_and_user_state",
+                observer_wrapper["access_boundary"]["write"],
+            )
             self.assertEqual("none", observer_wrapper["access_boundary"]["control"])
-            self.assertTrue(automation_contract["observer_semantic_review"]["required_each_semantic_refresh"])
+            self.assertEqual("agent_selected_authorized_sources", observer_wrapper["display_scope_source"])
+            self.assertFalse(observer_wrapper["display_scope_policy"]["target_registry_required_for_page"])
+            self.assertFalse(observer_wrapper["semantic_review_required_each_refresh"])
+            self.assertFalse(observer_wrapper["map_review_gate_required_for_semantic_risk"])
+            self.assertTrue(observer_wrapper["agent_first_output"]["agent_is_primary_author"])
+            self.assertFalse(observer_wrapper["agent_first_output"]["acf_renderer_required"])
+            self.assertFalse(
+                automation_contract["observer_semantic_review"]["required_each_semantic_refresh"]
+            )
             self.assertFalse(
                 automation_contract["presentation_maintenance"]["transient_patch"][
                     "direct_dashboard_edit_allowed"
@@ -131,6 +142,9 @@ class ObserverCliTests(unittest.TestCase):
                 automation_contract["presentation_maintenance"]["transient_patch"][
                     "deterministic_rerender_required"
                 ]
+            )
+            self.assertFalse(
+                automation_contract["presentation_maintenance"]["required_for_agent_authored_output"]
             )
             self.assertTrue(Path(payload["observer_dir"]).is_relative_to(Path(os.environ["ACF_HOME"])))
             after = sorted(path.relative_to(project).as_posix() for path in project.rglob("*"))
