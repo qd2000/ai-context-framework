@@ -1,16 +1,20 @@
 # Project Observer Agent-first 重构与 ACF 大减法执行计划
 
 - 计划编号：`OBSERVER-AGENT-FIRST-20260911-01`
-- 当前版本：`2.0`（计划版本，不是 ACF 软件版本）
+- 当前版本：`2.1`（计划版本，不是 ACF 软件版本）
 - 日期：2026-09-11（北京时间）
 - 归属：WS012 — Project Observer Operational Dogfood & Maintenance
-- 当前用户 authority：durable `plan_change` directive `dir-153b33e6d0cb4bccbb67`，priority `100`
+- 当前用户 authority：durable `plan_change` directive `dir-153b33e6d0cb4bccbb67`，priority `100`；其两阶段 Beta sequencing refinement 为 `dir-e8d265cd219943b3b702`，priority `100`，后者不 supersede 前者
 - 原始交接材料：`D:/PROJECT/Tools/ai-context-framework/.omx/user_inbox/observer-agent-first-20260911/OBSERVER_AGENT_FIRST_REDESIGN_PLAN.md`
 - 原始交接 SHA256：`84199c1a3fccf0b68b84a3ed71afd23b8f78a22772765bc9b5cddfcff0b8920d`
+- Beta sequencing 交接材料：`D:/PROJECT/Tools/ai-context-framework/.omx/user_inbox/observer-agent-first-20260911/DELIVER_BETA_SEQUENCE.ps1`
+- Beta sequencing 交接 SHA256：`27305ba0d0de15c217283aa6c1cdf884fc327adffef8cf3325a7df7fa4a4e857`
 
 > **当前核心决策：Project Observer 是自主理解和展示项目的 Agent，不是 ACF 的渲染前端。ACF 是可选的上下文导航、部分数据、维护工具和参考材料；不得垄断信息来源、项目事实解释、页面结构或 HTML 生成。**
 
 本文件是 WS012 当前唯一详细 Observer 展示/Agent-first 执行计划。Git 历史保留此前 Observer HTML v1.1 与 Task-Semantic Visualization v1.2 的完整实现历史；其中关于真实性、中文优先、历史可查、人工视觉验收、anti-masking、权限边界等仍有效的结果要求已纳入本文。与本文冲突的固定 renderer、`primary_visualization`、Map Review/presentation lifecycle、Registry display gate 等旧强制路线退出当前 authority，不再继续扩展。
+
+2026-09-11 的 Beta sequencing refinement 只调整交付顺序与验收边界，不撤销 Agent-first 主路线：在**最小 S2 解耦安全、验证完成**后先发布一个早期稳定 Beta，用真实 Production Observer dogfood 收集证据，再继续 S2/S3/S4/S5 并发布后继稳定补丁。Beta 不等待穷尽 legacy 清理、完整 S3、长期 Production acceptance、所有项目 dogfood 或当前原型人工视觉 PASS；但 Beta 也不等于最终完成。
 
 ---
 
@@ -191,7 +195,51 @@ Agent 对自己页面的设计与维护拥有自主权，可以使用适合项�
 
 > 你是本项目的 Observer Agent。你的任务是理解实际进展、问题和下一步，并维护适合本项目的中文进度页面。ACF 是可选工具与信息渠道，不是唯一入口、唯一事实来源或强制渲染器。按任务需要使用被授权的文件、Git、代码、测试、日志、业务结果等来源。你可自主选择展示对象、页面结构、图表、文字和交互，直接编写及修改自己输出空间中的 HTML/CSS/SVG/JS、资源和生成脚本。用真实证据展示进展；未知、冲突或缺失局部说明，不虚构完成、曲线或运行时长。维护稳定入口、可查历史及简明接续记录。自主权不扩大项目权限：不抢占其他 Writer、不修改未授权业务代码、不提交科学任务、不控制共享 Runtime、不读取凭据或外发数据。
 
-实际 Scheduled Task 提示必须通过当前支持接口读回后有范围地迁移，再读回验证；不改频率、时区、启停、身份或其他任务。当前环境缺少平台写权限时，仓库内实现继续推进，并明确列出唯一未迁移外部动作，不能把本地 wrapper 更新冒充生产已生效。
+### 11.1 Beta 前手工迁移包（copy-paste-ready）
+
+Scheduled Task 提示迁移是**人工平台 handoff**：WS012 仓库 Agent 不得假定自己能修改 ChatGPT Scheduled Tasks，也不得为了迁移新建、停用、改频率、改时区或改身份。Beta 发布前，仓库必须维护可直接复制的 Production Observer 提示正文；Beta/global install 后由用户手工更新现有三个 Production Observer，再以真实运行反馈继续 dogfood。
+
+以下正文是三类 Production Observer 的共同主提示。人工更新时，保留各现有任务已经验证正确的 **Project / existing checkout / project access / Observer-owned output path / 项目专属安全边界** 块，并用下文替换旧的固定 Registry / semantic-review / Map Review / renderer 主体；不得把 Writer continuation ownership/recovery 状态机复制进 Observer：
+
+```text
+你是本项目的 Production Observer Agent。你的首要职责是独立理解项目/Workstream 的真实进展、问题、路线变化和下一步，并维护面向用户阅读的 Observer 页面；你不是 ACF renderer 的前端。
+
+1. 证据与理解
+- 从本任务已授权的一手来源渐进取证：当前计划/Workstream/ADR/用户 directive、Git、源码、测试、运行日志、业务/实验结果、已有报告/页面，以及在有帮助时使用的 ACF 信息。
+- ACF 只是可选工具和信息渠道，不是唯一入口、唯一事实来源或事实裁判。Target Registry 只能作为可选导航提示；缺 Registry、semantic-review、Map Review、primary_visualization 或 ACF presentation helper 时，只局部标明缺口，不得因此停止有价值的观察。
+- 冲突、未知、失败、未结束和证据不足必须 fail-visible；不得补零、猜测结果、伪造完成、结束时间、曲线或连续口径。
+
+2. 页面自主权
+- 根据当前项目/WS 的真实语义自主决定页面结构、图形、文字、交互和信息层级，不要求固定模板、固定 visualization kind、单一主图或统一 shell。
+- 直接在本任务既有 Observer-owned 输出空间编写/修改 HTML/CSS/SVG/JS、资源、必要数据提取脚本、历史索引和简明接续记录。已有合适布局可以复用；阶段变化时允许重构。
+- 保持稳定入口、中文优先、北京时间的人类可见时间、真实关键数字、可查历史和来源可追溯。路线、软件架构、物理流程、数据流不要强行混成一种关系。
+- legacy ACF renderer/snapshot/presentation helper 只能显式作为兼容或辅助；其失败不得阻止仍可由合法一手来源完成的观察，也不得覆盖 Agent-owned 页面。
+
+3. 每轮输出
+- 说明本轮观察范围、主要变化/无变化原因、已证明/排除项、当前问题及影响、下一步逻辑、关键来源和未验证项。
+- 有真实 run 证据时展示 start/end/duration/result/major outcome；未结束运行只能显示 last activity 与下界/近似时长，不伪造 end。
+- 页面更新失败时保留 last-good 页面并诚实显示其最后观察时间；旧页面仍可打开不代表旧结论继续被认证为当前事实。
+
+4. 低摩擦问题记录
+- 在项目既有 Observer-owned notes/issue 位置维护简短、可复现的问题记录，覆盖内容、布局、可视化、来源、staleness、输出路径、prompt 和 ACF/Observer 产品问题。
+- 每条只保留必要 evidence、impact/severity、reproduction/context、suggested direction；不要复制原始大日志，不要让记录动作阻塞正常观察/渲染。
+- 若现有 ACF issue 渠道已合法可用，可额外登记可复用 ACF/Observer 产品缺陷；项目特异问题继续留在项目本地。
+
+5. 权限与 anti-masking
+- read broad / write narrow / control none：只写既有 Observer-owned 派生输出和允许的 user-level Observer state；不修改未授权业务/科学代码，不 submit/retry/kill，不控制共享 Runtime，不读取凭据或外发数据，不抢占 Writer。
+- 只有独立 Scheduled Production Observer activation 才算 Production acceptance。Maintenance Writer 手工刷新、candidate render 或开发测试不得冒充 Production freshness/acceptance。
+- 不为了让页面“新鲜”调用会写 canonical Production runtime 的 Maintenance snapshot/interpret/narrative/render 链路。
+
+6. 接续
+- 每轮先读本任务现有 Project/access/output/safety 块和最近本地接续记录，再读取必要增量；不要依赖网页聊天历史恢复事实。
+- 若 ACF 可用且有帮助则使用；可选 ACF helper 失败时优先切换到合法普通来源继续完成可完成部分，只有真正缺失关键证据时才局部报告 blocker。
+```
+
+三类现有任务的项目专属块继续来自各自当前正式 wrapper，不在此文件硬编码机器路径或 scheduler identity：`ACF Project Observer`、`FCC Project Observer`、`AStockT_AI Project Observer`（以平台中现有三个任务的实际名称/身份为准，禁止创建替代任务）。
+
+**人工迁移 checklist（Beta/global install 后执行）**：① 打开现有三个 Production Observer Scheduled Task，逐个保留原 Project/existing-checkout/access/output/safety 块；② 用上方 Agent-first 主提示替换旧固定 renderer 主体；③ 不改 schedule/timezone/enabled/任务 identity；④ 保存后重新读回完整提示，确认没有残留“Registry/semantic-review/Map Review/fixed renderer 是页面前置”的冲突条款；⑤ 让每个任务自然运行至少一轮，确认写入的是各自 Observer-owned 稳定入口并留下低摩擦 notes；⑥ WS012 只读取这些独立 Production evidence 做 dogfood，不用 Maintenance 代跑掩盖失败。
+
+仓库可以准备和维护这份提示包及 checklist，但**不得把“提示已准备”冒充平台 Scheduled Task 已迁移**。实际平台更新与第二次 successor 发布后的再次提示更新都保留为用户手工动作。
 
 ---
 
@@ -225,6 +273,8 @@ Agent 对自己页面的设计与维护拥有自主权，可以使用适合项�
 - 旧 ACF 写入不得覆盖 Agent-owned 入口。
 - 精简相关 automation contract、模板、README/Automation/System Manual 和受影响 CLI；不新建另一套强制框架。
 
+**Beta release boundary**：只要 minimum S2 已证明 Agent-authored output 是 default-capable，Registry / semantic-review / Map Review / fixed renderer 均已从新 Observer 默认路径降为 optional/legacy compatibility，Writer continuation/effect/fencing/Git safety 与 Production anti-masking 未削弱，并且稳定 Observer 输出入口、Beta 前手工提示迁移包、适用回归/release checks 已就绪，即可进入第一个 successor stable Beta。版本 identity 必须在发布当时核验 Git / GitHub / PyPI 后选择；`v0.0.3.89` 只是当前预期，若已占用则使用下一未占用 immutable identity。Beta 不以当前原型人工视觉 PASS、穷尽 legacy 删除、完整 S3、全部历史迁移、所有项目 dogfood 或长期 Production acceptance 为前置。
+
 ### S3 — 完整体验与鲁棒性
 
 - 补真实历史轮次选择/比较、指标、详情联动、局部降级、断点续接、稳定 candidate/latest。
@@ -233,15 +283,17 @@ Agent 对自己页面的设计与维护拥有自主权，可以使用适合项�
 
 ### S4 — 正式 Observer 迁移
 
-- 使用当前合法平台接口迁移 ACF/FCC 实际 Observer 提示和输出入口。
-- 读回生产提示并验证；保证旧生产者不再与新 Agent-owned 页面竞争同一入口。
-- 至少取得一次**独立正式 Production Observer** 在新路线上的实际续接/更新证据；Maintenance 手工运行不算 Production acceptance。
+- 第一个 Beta/global install 后，由**用户手工**按 11.1 迁移现有三个 Production Observer Scheduled Task 提示；仓库 Agent 不假定具备平台 mutation authority。
+- 人工保存后读回生产提示验证；保证旧固定 renderer 条款不再与 Agent-owned 页面竞争同一入口，同时不改变 schedule/timezone/enabled/identity。
+- 每个 Production Observer 在真实 dogfood 中维护低摩擦 Observer-owned notes，记录可复现 content/layout/visualization/source/staleness/output-path/prompt/ACF 产品问题；记录失败不得阻塞观察/render。
+- 至少取得独立正式 Production Observer 在新路线上的实际续接/更新证据；Maintenance 手工运行不算 Production acceptance。dogfood 证据继续驱动 S2/S3/S4/S5，而不是把 Beta 当最终版本。
 
 ### S5 — 删除残留并正常发布
 
 - 删除无调用者的 legacy renderer/schema/流程；保留必要兼容并注明理由。
 - 更新包清单、文档、模板、init/upgrade、测试。
-- 受影响产品按仓库正常 release/global install/installed-state 规则验证；release 本身不结束 WS012 长期任务。
+- 在 Beta 后真实 dogfood 证据基础上完成必要 S2/S3/S4/S5 收口，再按仓库正常 release/global install/installed-state 规则发布下一 successor stable patch；`v0.0.3.90` 只是当前预期，发布时仍必须验证 identity 未占用。
+- successor global install 后由用户再次手工更新/复核三个 Production Observer 提示并重新 dogfood；release 本身不结束 WS012 长期任务。
 
 S1 不等待新的通用 render 命令、完整多项目迁移、全量历史转换或新 release。S2/S3 的可逆工作也不因人工视觉 review pending 而空转。
 
@@ -296,6 +348,7 @@ git diff --check
 ## 15. Directive 与 authority 生命周期
 
 - `dir-153b33e6d0cb4bccbb67` 是当前 priority-100 durable Agent-first plan change，正式 supersede `dir-41b8581a296544399208` 的 v1.2 fixed-renderer 后续路线。
+- `dir-e8d265cd219943b3b702` 是同为 priority-100 的 durable Beta sequencing refinement：它**不 supersede** `dir-153b33e6d0cb4bccbb67`，只把发布/Production dogfood 调整为“minimum S2 → early Beta/global install → 用户手工迁移三个 Production Observer → 真实 dogfood → 完成 S2/S3/S4/S5 → successor stable → 再次手工更新与 dogfood”。其来源凭证为 `user:2026-09-11:observer-agent-first-beta-89-90-sequencing`。
 - 旧 `dir-4dd0233543ac4a3b9202` 中仍有效的用户结果需求已被本文承接；其与 Agent-first 冲突的“禁止直接 Agent-authored HTML/固定 ACF 路线”不得继续 active。使用 CLI 支持的 lifecycle 让其退出 active，并保留审计历史；不能把它误标为“实现完成”。
 - priority-70 `dir-0b707f4b16b24550b627`、`dir-d54a9978f1964a33926e` 不因年龄自动关闭；Observer 相关减法并入当前路线，其独立 context/template 范围继续保留。
 - 只有在本文、`PLAN.md`、WS012 当前 pointer/next action 已同步并留有证据后，才 adopt Agent-first directive。收到/读到/adopt 都不等于实现完成。
@@ -305,14 +358,14 @@ git diff --check
 
 ## 16. 当前执行顺序
 
-1. **S0 立即完成**：当前 authority 切换、旧冲突路线退出 active、directive adopt、continuation next action 更新。
-2. **S1 立即开始**：选择当前合法可达的真实项目目标，直接生成第一份 Agent-authored candidate 页面和稳定 candidate 入口；不再为旧 `primary_visualization`/renderer 补功能。
-3. 用 S1 暴露的真实摩擦决定 S2 产品减法，不凭抽象偏好先重构整个 Observer。
-4. 持续推进 S3 历史/指标/鲁棒性；人工视觉 review pending 不是停工理由。
-5. 在平台能力允许时执行 S4 实际 Scheduled Observer 提示与入口迁移，并取得独立 Production 证据。
-6. 最后做 S5 legacy 删除、正常 release/global install/installed-state 验证；一次 release 不等于 WS012 mission 完成。
+1. **S0/S1 已完成当前最小切片**：Agent-first authority 已切换，首份真实 Agent-authored candidate 已落地；保持人工视觉验收 open，不倒退继续扩旧 renderer。
+2. **先完成 minimum S2**：审查并收口 `automation_contracts.py` 与必要调用者，证明 Agent-authored output default-capable，旧 Registry/semantic-review/Map Review/fixed renderer 只是 optional/legacy；补稳定输出入口、适用 tests/checks 与本文 11.1 的手工提示迁移包。
+3. **尽快发布 early Beta**：在 release authority 下核验下一 immutable version identity，当前预期 `.89` 仅在 Git/GitHub/PyPI 均未占用时使用。不要等穷尽 legacy、完整 S3、全项目 dogfood或当前原型人工视觉 PASS。
+4. **Beta 后人工迁移 + 真实 dogfood**：用户按 checklist 手工更新现有三个 Production Observer；WS012 读取独立 Production evidence 与低摩擦 notes，继续改进内容、格式、流程、交互、历史和可靠性。
+5. **继续 S2/S3/S4/S5**：仅依据调用关系和 migration evidence 删除/optionalize legacy，同步 docs/templates/contracts/prompt package；人工视觉 review pending 不阻塞可逆增量。
+6. **发布 successor stable**：当前预期 `.90` 仍须发布时核验 identity；global install 后用户再次手工更新/复核三个 Production Observer 并重新 dogfood。一次 Beta 或 successor release 都不结束 WS012 长期 mission。
 
-当前第一项有价值开发工作是：**在真实项目资料上直接产出 Agent-authored 候选页面，证明新路线不依赖 ACF renderer；不要再增加新的通用 renderer、审批流程或 presentation state machine。**
+当前第一项有价值开发工作是：**完成并验证已经存在的 minimum-S2 automation contract 解耦 WIP，然后在同一 authority 下进入 Beta release preparation；不要把全面 legacy 清理或人工视觉 PASS 误设为 Beta 前置。**
 
 ---
 
@@ -334,6 +387,7 @@ git diff --check
 ## 18. 证据索引
 
 - 用户 directive：`dir-153b33e6d0cb4bccbb67`。
+- Beta sequencing directive：`dir-e8d265cd219943b3b702`；来源凭证 `user:2026-09-11:observer-agent-first-beta-89-90-sequencing`；handoff SHA256=`27305ba0d0de15c217283aa6c1cdf884fc327adffef8cf3325a7df7fa4a4e857`。
 - 原始用户交接计划及 SHA256：见本文顶部。
 - 历史计划与旧约束：Git history 中本文件 v1.1/v1.2 版本，以及 `PLAN.md` 历史章节。
 - 当前源码边界：`observer_dashboard.py`、`observer_storage.py`、`observer_presentation.py`、`observer_targets.py`、`observer.py`、`commands/observer*.py`、`automation_contracts.py`。

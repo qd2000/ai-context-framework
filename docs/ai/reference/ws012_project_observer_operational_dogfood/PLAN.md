@@ -28,13 +28,15 @@ WS011 保持历史事实：核心 Project Observer 产品已经完成、发布�
 
 2026-09-11 priority-100 durable `plan_change` directive `dir-153b33e6d0cb4bccbb67` 已正式 supersede `dir-41b8581a296544399208` 的 Task-Semantic Visualization v1.2 固定 renderer 后续路线。当前产品判断是：**Project Observer 是自主理解和展示项目的 Agent，不是 ACF 渲染前端；ACF 降为可选上下文导航、部分数据、维护工具和参考材料，不得成为唯一信息源、事实裁判、页面结构或 HTML 生成前置。**
 
+同日 priority-100 durable `plan_change` directive `dir-e8d265cd219943b3b702` 进一步细化发布/验收顺序，但**不 supersede** Agent-first 主 directive：minimum S2 解耦安全并验证后先发布 early Beta，当前预期版本仅在 identity 空闲时为 `v0.0.3.89`；Beta/global install 后由用户手工更新现有三个 Production Observer Scheduled Task 提示并开展真实 dogfood；随后 WS012 继续 S2/S3/S4/S5，再发布下一 successor stable（当前预期仅在 identity 空闲时为 `v0.0.3.90`），并再次由用户手工更新/复核三个 Observer。Beta 不等待穷尽 legacy、完整 S3、全项目 dogfood、长期 Production acceptance 或当前原型人工视觉 PASS，也不等于最终完成。Scheduled Task prompt mutation 是人工平台 handoff，仓库 Agent 只负责在 Beta 前准备 copy-paste-ready 提示包与 checklist，禁止假定自己能修改 scheduler。
+
 当前唯一详细执行计划仍使用既有正式路径，但内容已经切换为 Agent-first successor：
 
 `docs/ai/reference/ws012_project_observer_operational_dogfood/OBSERVER_HTML_VISUALIZATION_PLAN.md`
 
 原始用户交接材料为 `D:/PROJECT/Tools/ai-context-framework/.omx/user_inbox/observer-agent-first-20260911/OBSERVER_AGENT_FIRST_REDESIGN_PLAN.md`，SHA256=`84199c1a3fccf0b68b84a3ed71afd23b8f78a22772765bc9b5cddfcff0b8920d`。正式仓库 authority 以本 PLAN 与上述详细计划为准；外部 inbox 只保留来源凭证。
 
-当前路线按 **S0–S5** 连续推进：S0 authority/route 切换 → S1 首份真实 Agent-authored candidate 页面 → S2 基于真实摩擦做 ACF 产品解耦与减法 → S3 历史/指标/鲁棒性 → S4 实际 Production Observer 提示与输出入口迁移 → S5 legacy 删除、正常 release/global-install/installed-state 验证。阶段不是新状态机，也不是固定 work quota。
+当前路线按 **S0–S5 + 两阶段 release dogfood loop** 连续推进：S0 authority/route 切换 → S1 首份真实 Agent-authored candidate 页面 → minimum S2 解耦/验证 → early Beta/global install → 用户手工迁移三个 Production Observer + 独立 real dogfood → 继续 S2/S3/S4/S5 → successor stable/global install → 用户再次手工更新/复核与 dogfood。阶段不是新状态机，也不是固定 work quota。
 
 Agent 可直接使用被授权的一手文件、Git、源码、测试、日志、业务/实验结果与 ACF 等多源材料，并在自己的 Observer 输出空间维护 HTML/CSS/SVG/JS、资源、数据提取脚本和历史。Target Registry、`primary_visualization.kind/spec`、Map Review/presentation lifecycle、fixed renderer、deterministic re-render、统一 shell/卡片/单一主图等旧机制均不再是页面生成前置；已有兼容数据可读，但停止继续扩旧强制路径。`acf observer snapshot` 会写旧 Observer runtime/dashboard，Maintenance 不得把它当纯只读取数入口，也不得靠例行 refresh 掩盖 Production Observer failure。
 
@@ -42,7 +44,7 @@ Agent 可直接使用被授权的一手文件、Git、源码、测试、日志�
 
 权限边界保持不变：本计划不授权修改未授权业务/科学代码，不授权 submit/retry/kill、共享 Runtime 控制、凭据访问或数据外发，也不改变其他 Writer ownership、scheduler 频率/启停。Writer continuation/effect/fencing/Git 安全合同继续以每轮 stable `acf continuation prompt + execution_policy` 为唯一 generic authority。
 
-当前阶段：**S1 首份真实 Agent-authored candidate 已落地，并开始用该切片驱动 S2 产品减法**。2026-09-11 generation 166 在 authenticated stale-owner challenge 超时后，以 fresh physical-execution absent / current HEAD / classified workspace / unresolved effects=0 证据完成正式 reconcile/recover；随后直接从当前 PLAN、Agent-first 详细计划、WS012、Git 与只读 Production Observer status 编写 `output/observer/candidate/index.html` 和 `output/observer/OBSERVER_NOTES.md`。生成过程未调用 `acf observer snapshot`、semantic-review/presentation lifecycle、`primary_visualization` schema 或 ACF renderer；静态路径/自包含检查、WS012 file-scoped guard 与 strict docs check 已通过，真实浏览器视觉/交互和用户人工 PASS 仍保持 open。该纵向切片已经暴露首个可复现 S2 摩擦：安装态 `.88` 的 Production Observer automation contract 仍把 explicit Target Registry display scope、每轮 semantic review 与 Map Review gate 写成默认强制要求。当前 next action：以实际调用关系审查 `automation_contracts.py` 及 Observer presentation/render/storage 路径，把这些展示前置降为 optional/legacy，同时明确保留 Writer continuation ownership/effect/fencing 与 Production anti-masking 安全合同；人工视觉 review pending 不阻塞这类可逆减法。不得先设计新的通用 renderer/API/schema/plugin platform。
+当前阶段：**S1 首份真实 Agent-authored candidate 已落地，minimum S2 解耦 WIP 已形成并由 generation 167 正式接管，当前目标是验证后尽快进入 Beta release preparation**。2026-09-11 generation 166 直接从当前 PLAN、Agent-first 详细计划、WS012、Git 与只读 Production Observer status 编写 `output/observer/candidate/index.html` 和 `output/observer/OBSERVER_NOTES.md`；生成过程未调用 `acf observer snapshot`、semantic-review/presentation lifecycle、`primary_visualization` schema 或 ACF renderer。随后其 `automation_contracts.py` 与 focused tests WIP 开始把 explicit Target Registry display scope、每轮 semantic review、Map Review gate、fixed renderer 降为 optional/legacy。generation 167 已在 authenticated challenge timeout + fresh physical-execution absent / current HEAD / classified workspace / unresolved effects=0 后 receipt-backed recover 并接管上述 WIP。当前 next action：先同步/adopt Beta sequencing authority，再完成 minimum-S2 contract/call-site 审查和 focused regression；通过后准备 Beta release identity/checks。Beta 前必须已有 copy-paste-ready Production Observer 提示正文和人工迁移 checklist；人工视觉 review pending 不阻塞 Beta，但用户未认可前仍不得宣称最终视觉 PASS。不得先设计新的通用 renderer/API/schema/plugin platform。
 
 两条 priority-70 context/template 简化 requirement `dir-0b707f4b16b24550b627` 与 `dir-d54a9978f1964a33926e` 继续有效，不因年龄自动关闭；其中与 Observer 减法直接相关的部分并入当前路线，其余保持后续 Maintenance 范围，不再被旧“Post-H1 才能做”顺序机械阻塞。
 
