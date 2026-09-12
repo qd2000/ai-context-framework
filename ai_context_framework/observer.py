@@ -20,8 +20,7 @@ from typing import Any, Iterable
 
 from ai_context_framework.front_matter import parse_front_matter
 from ai_context_framework.git_support import (
-    GitCommandError, discover_git_project, is_ancestor, list_registries,
-    list_worktrees, path_key,
+    GitCommandError, discover_git_project, list_registries, list_worktrees, path_key,
 )
 from ai_context_framework.observability import acf_home, atomic_write_text, usage_project_dir
 from ai_context_framework.observer_storage import (
@@ -35,6 +34,7 @@ from ai_context_framework.observer_storage import (
 )
 from ai_context_framework.observer_targets import build_target_views, target_registry_alert_specs
 from ai_context_framework.observer_presentation import attach_presentation_status, presentation_alert_specs
+from ai_context_framework.observer_workstream_sources import active_registered_workstream_lineage_basis
 from ai_context_framework.paths import discover_context, resolve_status_location, slugify_project_name
 from ai_context_framework.version import VERSION
 from ai_context_framework.worktree_status import capture_git_worktree_snapshot
@@ -482,21 +482,19 @@ def capture_project_workstreams(
             selected_key = path_key(str(registry["path"]))
             primary_worktree = worktree_by_path.get(primary_key)
             selected_worktree = worktree_by_path.get(selected_key)
-            source_keys = {path_key(str(row["source_worktree"])) for row in sources if row.get("source_worktree")}
-            primary_head = primary_worktree.get("head") if primary_worktree else None
-            selected_head = selected_worktree.get("head") if selected_worktree else None
             # Ordered active-worktree progress is lineage, not contradictory authority.
-            if (
-                str(registry.get("state") or "").casefold() == "active"
-                and source_keys <= {primary_key, selected_key}
-                and primary_worktree is not None
-                and bool(primary_worktree.get("clean"))
-                and isinstance(primary_head, str) and primary_head
-                and isinstance(selected_head, str) and selected_head
-                and is_ancestor(project.canonical_root, primary_head, selected_head)
-            ):
+            lineage_basis = active_registered_workstream_lineage_basis(
+                project.canonical_root,
+                registry=registry,
+                primary_key=primary_key,
+                selected_key=selected_key,
+                sources=sources,
+                primary_worktree=primary_worktree,
+                selected_worktree=selected_worktree,
+            )
+            if lineage_basis is not None:
                 source_consistency = "consistent"
-                source_consistency_basis = "active_registered_worktree_descends_clean_primary"
+                source_consistency_basis = lineage_basis
         result.append(
             {
                 "schema_version": OBSERVER_WORKSTREAM_SCHEMA,
