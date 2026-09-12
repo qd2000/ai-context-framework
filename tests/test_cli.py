@@ -3372,22 +3372,45 @@ class CliTests(unittest.TestCase):
             self.assertTrue((target / "reference" / "Context_Curation_Prompt.md").exists())
             self.assertTrue((target / "archive" / "feedback" / ".gitkeep").exists())
 
-    def test_upgrade_adds_resilient_worktree_merge_rules_idempotently(self):
+    def test_upgrade_compacts_legacy_worktree_guidance_idempotently(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
             self.run_cli(["init", str(target)])
             agents = target / "AGENTS.md"
+            always_active = target / "rules" / "Always_Active.md"
             manual = target / "reference" / "System_Manual.md"
 
-            resilient_rule = (
+            legacy_resilient_rule = (
                 "- `acf worktree merge` 必须在 ACF 管理的临时 integration worktree 中完成真实 merge 和 post-check，"
                 "primary checkout 只执行碰撞保护后的 fast-forward promotion。来源 worktree 必须 clean；primary 可保留无关 "
                 "staged/unstaged/untracked 修改。发生冲突、检查失败或短时并发竞争时，优先使用 operation ID 等待、重规划或 "
                 "resume，不得在 primary 中直接制造冲突，也不得自动 stash、reset、clean、rebase 或 force。关闭前必须完成 "
                 "ignored/untracked artifact handoff。"
             )
+            task_triggered_rule = (
+                "- 只有任务实际涉及 worktree 的 merge / close / recovery / artifact handoff 时，才按需查看 `acf worktree --help` "
+                "和 `reference/System_Manual.md` 的对应细节；默认入口不复制完整 worktree 状态机。安全边界保持不变：不得自动 "
+                "stash、reset、clean、rebase、force，也不得静默解决冲突。"
+            )
+            legacy_always_active_rule = (
+                "12. Workstream 与 Git worktree 相互独立：创建 Workstream 不隐式创建 branch/worktree；AI 只有在任务需要隔离环境时才调用 "
+                "`acf worktree create`，未使用 worktree 的原任务逻辑不得受影响。"
+            )
             agents_text = agents.read_text(encoding="utf-8")
-            agents.write_text(agents_text.replace(resilient_rule + "\n", ""), encoding="utf-8")
+            self.assertIn(task_triggered_rule, agents_text)
+            self.assertNotIn(legacy_resilient_rule, agents_text)
+            self.assertNotIn(legacy_always_active_rule, always_active.read_text(encoding="utf-8"))
+            agents.write_text(
+                agents_text.replace(task_triggered_rule, legacy_resilient_rule)
+                + "\nProject-specific AGENTS note must remain.\n",
+                encoding="utf-8",
+            )
+            always_active.write_text(
+                always_active.read_text(encoding="utf-8")
+                + legacy_always_active_rule
+                + "\nProject-specific always-active constraint.\n",
+                encoding="utf-8",
+            )
 
             new_manual_line = (
                 "非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。"
@@ -3410,7 +3433,13 @@ class CliTests(unittest.TestCase):
             )
 
             self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
-            self.assertIn(resilient_rule, agents.read_text(encoding="utf-8"))
+            upgraded_agents = agents.read_text(encoding="utf-8")
+            self.assertIn(task_triggered_rule, upgraded_agents)
+            self.assertNotIn(legacy_resilient_rule, upgraded_agents)
+            self.assertIn("Project-specific AGENTS note must remain.", upgraded_agents)
+            upgraded_always_active = always_active.read_text(encoding="utf-8")
+            self.assertNotIn(legacy_always_active_rule, upgraded_always_active)
+            self.assertIn("Project-specific always-active constraint.", upgraded_always_active)
             self.assertIn(new_manual_line, manual.read_text(encoding="utf-8"))
 
             exit_code, stdout, stderr = self.run_cli_output(
