@@ -1892,9 +1892,12 @@ class CliTests(unittest.TestCase):
 
     def test_workstream_index_compacts_long_write_scope_but_context_keeps_full_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "ctx"
+            target = Path(tmp) / "sample-project" / "docs" / "ai"
             self.init_minimal_workstream_context(target)
             self.add_workstream(target, "WS002")
+            detail_path = target / "active" / "workstreams" / "WS002.md"
+            custom_detail_note = "\n## Project-specific note\n\nKeep this customized detail unchanged.\n"
+            detail_path.write_text(detail_path.read_text(encoding="utf-8") + custom_detail_note, encoding="utf-8")
 
             exit_code, stdout, stderr = self.run_cli_output(
                 [
@@ -1960,6 +1963,7 @@ class CliTests(unittest.TestCase):
             sync_payload = json.loads(stdout)
             self.assertEqual(sync_payload["changed_files"], [])
             self.assertTrue(sync_payload["check"]["ok"])
+            self.assertIn(custom_detail_note.strip(), detail_path.read_text(encoding="utf-8"))
 
     def test_workstream_sync_adds_missing_detail_row(self):
         with tempfile.TemporaryDirectory() as tmp:
