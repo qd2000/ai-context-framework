@@ -297,7 +297,7 @@ Scheduled Task 提示迁移是**人工平台 handoff**：WS012 仓库 Agent 不�
 
 S1 不等待新的通用 render 命令、完整多项目迁移、全量历史转换或新 release。S2/S3 的可逆工作也不因人工视觉 review pending 而空转。
 
-两条 priority-70 context/template 简化需求继续有效；与 Observer 减法直接相关的部分并入当前路线，其余保持后续维护范围，不再被“Post-H1 才能做”机械阻塞。
+两条 priority-70 context/template 简化需求已在 directive revision 53/54 基于 reusable-source 修复与跨项目/upgrade/regeneration 证据正式 resolve；历史 requirement 继续保留审计价值，但不再作为当前执行 lane，也不得为清 backlog 制造无证据工作。若后续出现新的可复现 context/template recurring symptom，应作为新证据重新 triage。
 
 ---
 
@@ -350,7 +350,7 @@ git diff --check
 - `dir-153b33e6d0cb4bccbb67` 是当前 priority-100 durable Agent-first plan change，正式 supersede `dir-41b8581a296544399208` 的 v1.2 fixed-renderer 后续路线。
 - `dir-e8d265cd219943b3b702` 是同为 priority-100 的 durable Beta sequencing refinement：它**不 supersede** `dir-153b33e6d0cb4bccbb67`，只把发布/Production dogfood 调整为“minimum S2 → early Beta/global install → 用户手工迁移三个 Production Observer → 真实 dogfood → 完成 S2/S3/S4/S5 → successor stable → 再次手工更新与 dogfood”。其来源凭证为 `user:2026-09-11:observer-agent-first-beta-89-90-sequencing`。
 - 旧 `dir-4dd0233543ac4a3b9202` 中仍有效的用户结果需求已被本文承接；其与 Agent-first 冲突的“禁止直接 Agent-authored HTML/固定 ACF 路线”不得继续 active。使用 CLI 支持的 lifecycle 让其退出 active，并保留审计历史；不能把它误标为“实现完成”。
-- priority-70 `dir-0b707f4b16b24550b627`、`dir-d54a9978f1964a33926e` 不因年龄自动关闭；Observer 相关减法并入当前路线，其独立 context/template 范围继续保留。
+- priority-70 `dir-0b707f4b16b24550b627`、`dir-d54a9978f1964a33926e` 已在 revision 53/54 evidence-backed resolve；resolve 依据包括 `9cdc7cc`、`35648e0`、`82fbc5b`、`5ae8923`、`7ca603a` 及相应 strict/template/guard/non-ACF/customized regeneration 证据。它们不再是 active lane，但历史需求与有效安全约束继续由当前模板/文档/测试承接。
 - 只有在本文、`PLAN.md`、WS012 当前 pointer/next action 已同步并留有证据后，才 adopt Agent-first directive。收到/读到/adopt 都不等于实现完成。
 - 只有实质减法、正式 Observer 迁移、必要验证和用户结果验收完成后，才能 evidence-backed resolve 本次实现 directive；WS012 长期 Maintenance mission 不因 directive resolve/commit/release 结束。
 
@@ -358,14 +358,14 @@ git diff --check
 
 ## 16. 当前执行顺序
 
-1. **S0/S1 已完成当前最小切片**：Agent-first authority 已切换，首份真实 Agent-authored candidate 已落地；保持人工视觉验收 open，不倒退继续扩旧 renderer。
-2. **先完成 minimum S2**：审查并收口 `automation_contracts.py` 与必要调用者，证明 Agent-authored output default-capable，旧 Registry/semantic-review/Map Review/fixed renderer 只是 optional/legacy；补稳定输出入口、适用 tests/checks 与本文 11.1 的手工提示迁移包。
-3. **尽快发布 early Beta**：在 release authority 下核验下一 immutable version identity，当前预期 `.89` 仅在 Git/GitHub/PyPI 均未占用时使用。不要等穷尽 legacy、完整 S3、全项目 dogfood或当前原型人工视觉 PASS。
-4. **Beta 后人工迁移 + 真实 dogfood**：用户按 checklist 手工更新现有三个 Production Observer；WS012 读取独立 Production evidence 与低摩擦 notes，继续改进内容、格式、流程、交互、历史和可靠性。
-5. **继续 S2/S3/S4/S5**：仅依据调用关系和 migration evidence 删除/optionalize legacy，同步 docs/templates/contracts/prompt package；人工视觉 review pending 不阻塞可逆增量。
-6. **发布 successor stable**：当前预期 `.90` 仍须发布时核验 identity；global install 后用户再次手工更新/复核三个 Production Observer 并重新 dogfood。一次 Beta 或 successor release 都不结束 WS012 长期 mission。
+1. **`.89` Beta 已完成**：minimum S2、release gate、immutable release/publish/global install 与 installed-state 基础 dogfood 都是已完成事实，禁止再把 minimum-S2 或 Beta preparation 写成当前 next action。
+2. **平台提示迁移仍是外部 handoff**：现有 ACF / FCC / AStockT_AI 三个 Production Observer Scheduled Task 仍需用户按 §11.1 原位迁移 Agent-first 主提示并自然运行；仓库 Writer 不得代改 scheduler，也不得用 Maintenance refresh 冒充 Production acceptance。
+3. **priority-70 bounded lane 已关闭**：`dir-0b707f4b16b24550b627` 与 `dir-d54a9978f1964a33926e` 已在 directive revision 53/54 evidence-backed resolve；不再继续“找剩余 cleanup”，除非出现新的可复现 recurring symptom。
+4. **Writer 在平台 handoff 阻塞期间继续安全替代工作**：按当前 Agent-first authority 继续 evidence-backed S2/S3/S5 收口、调用关系审计、鲁棒性/历史/last-good 接续与 successor preparation；只做真实缺口，不扩固定 renderer/schema/Registry gate，不因人工视觉 review pending 空转。
+5. **source-lineage fix 保持 candidate-only**：`9eef0c4` 只能在 successor immutable stable/global install 后，由独立 Production Observer 证明 `.89` 的 false-positive `WS012:source-divergent` 消失后才关闭 issue `551b9be5530cc2ce2462`；Maintenance 不主动刷新 canonical Observer runtime 掩盖当前告警。
+6. **successor stable 不是固定配额**：只有当一组真实 post-Beta 改动达到自然 release boundary 时才按实时 Git/tag/PyPI authority 选择未占用 identity、走完整 gate/release/install/dogfood；不得仅为“轮到 `.90`”而发布。
 
-当前第一项有价值开发工作是：**完成并验证已经存在的 minimum-S2 automation contract 解耦 WIP，然后在同一 authority 下进入 Beta release preparation；不要把全面 legacy 清理或人工视觉 PASS 误设为 Beta 前置。**
+当前第一项有价值开发工作是：**从当前源码与调用关系审计剩余 Agent-first legacy/helper 依赖，挑选一个有真实使用证据、可独立验证的 S2/S3/S5 缺口；若没有新的产品缺口，则转入 successor release-readiness/installed-state 诊断，而不是继续 priority-70 cleanup。**
 
 ---
 
