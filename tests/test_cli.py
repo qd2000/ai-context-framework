@@ -1890,6 +1890,77 @@ class CliTests(unittest.TestCase):
             self.assertIn("| WS002 | Open | WS002 | detail owner |", synced)
             self.assertTrue(payload["check"]["ok"])
 
+    def test_workstream_index_compacts_long_write_scope_but_context_keeps_full_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.init_minimal_workstream_context(target)
+            self.add_workstream(target, "WS002")
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                [
+                    "workstream",
+                    "scope-add",
+                    "WS002",
+                    str(target),
+                    "--write",
+                    "assigned: src/one.py",
+                    "--write",
+                    "assigned: src/two.py",
+                    "--write",
+                    "assigned: src/three.py",
+                    "--write",
+                    "assigned: src/four.py",
+                    "--reason",
+                    "exercise compact index scope",
+                    "--json",
+                ]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(len(json.loads(stdout)["write_scope"]), 5)
+
+            index_path = target / "active" / "Workstreams.md"
+            index_text = index_path.read_text(encoding="utf-8")
+            self.assertIn("详情(5 项)", index_text)
+            self.assertNotIn("assigned: src/one.py", index_text)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "context", "WS002", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            context_payload = json.loads(stdout)
+            self.assertIn("assigned: src/one.py", context_payload["workstream"]["write_scope"])
+            self.assertIn("assigned: src/four.py", context_payload["workstream"]["write_scope"])
+
+            full_write_scope = ", ".join(context_payload["workstream"]["write_scope"])
+            index_path.write_text(
+                index_path.read_text(encoding="utf-8").replace("详情(5 项)", full_write_scope),
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "context", "WS002", str(target), "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            legacy_context_payload = json.loads(stdout)
+            self.assertEqual(legacy_context_payload["workstream"]["write_scope"], context_payload["workstream"]["write_scope"])
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "sync", str(target), "--json", "--check-after"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            legacy_sync_payload = json.loads(stdout)
+            self.assertEqual(legacy_sync_payload["changed_files"], [str(index_path.resolve())])
+            self.assertTrue(legacy_sync_payload["check"]["ok"])
+            self.assertIn("详情(5 项)", index_path.read_text(encoding="utf-8"))
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["workstream", "sync", str(target), "--json", "--check-after"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            sync_payload = json.loads(stdout)
+            self.assertEqual(sync_payload["changed_files"], [])
+            self.assertTrue(sync_payload["check"]["ok"])
+
     def test_workstream_sync_adds_missing_detail_row(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

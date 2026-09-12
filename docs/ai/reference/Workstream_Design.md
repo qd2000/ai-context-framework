@@ -139,6 +139,8 @@ coordination: serial
 | WS001 | Active | 并行任务治理模型 | 主 agent | owned: active/workstreams/WS001 dot md; draft: writeback-drafts/WS001-* | 无 | Workstream_Design | active/workstreams/WS001 dot md |
 ```
 
+为避免长期 Maintenance Workstream 把总表膨胀成 scope dump，生成器只在 `write_scope` 不超过 3 项时内联完整值；超过 3 项时索引单元格写为 `详情(N 项)`。这只是展示压缩：对应详情 front matter 仍保存完整 typed `write_scope`，`acf workstream context` / `guard` / sync/check 与机器 JSON 必须从详情恢复完整范围；旧式内联完整 scope 的索引仍保持可解析兼容。
+
 不建议在总表维护“下一步”“当前发现”“证据”等易过期字段；这些内容应进入详情文件。
 
 ---
