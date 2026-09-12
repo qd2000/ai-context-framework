@@ -432,6 +432,24 @@ def observer_presentation_rule_withdraw_command(args: argparse.Namespace) -> int
 
 def observer_semantic_review_apply_command(args: argparse.Namespace) -> int:
     try:
+        project = resolve_observer_project_bounded(getattr(args, "path", None))
+        target_views = build_observer_target_views_bounded(project, target_ids=[args.target_id])
+    except ObserverTargetReadError as exc:
+        return _emit_target_read_error(args, "observer semantic-review-apply", exc)
+    target_view = _target_view({"targets": target_views}, args.target_id)
+    if target_view is None:
+        return _emit(
+            args,
+            _invalid_payload(
+                "observer semantic-review-apply",
+                ObserverPresentationError(
+                    "observer semantic-review target must be explicitly registered and present in the current target projection"
+                ),
+            ),
+            EXIT_SAFETY_REFUSED,
+        )
+
+    try:
         input_value = str(args.input)
         if input_value.lstrip().startswith("{"):
             raw = json.loads(input_value)
@@ -449,24 +467,6 @@ def observer_semantic_review_apply_command(args: argparse.Namespace) -> int:
         return _emit(args, _invalid_payload("observer semantic-review-apply", exc), EXIT_SAFETY_REFUSED)
     except (OSError, json.JSONDecodeError) as exc:
         return _emit(args, _invalid_payload("observer semantic-review-apply", exc), EXIT_RUNTIME_ERROR)
-
-    try:
-        project = resolve_observer_project_bounded(getattr(args, "path", None))
-        target_views = build_observer_target_views_bounded(project, target_ids=[args.target_id])
-    except ObserverTargetReadError as exc:
-        return _emit_target_read_error(args, "observer semantic-review-apply", exc)
-    target_view = _target_view({"targets": target_views}, args.target_id)
-    if target_view is None:
-        return _emit(
-            args,
-            _invalid_payload(
-                "observer semantic-review-apply",
-                ObserverPresentationError(
-                    "observer semantic-review target must be explicitly registered and present in the current target projection"
-                ),
-            ),
-            EXIT_SAFETY_REFUSED,
-        )
 
     def write(project):
         target_state, event = apply_semantic_review(
