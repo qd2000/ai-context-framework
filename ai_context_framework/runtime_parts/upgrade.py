@@ -492,6 +492,18 @@ def upgraded_agents_text(text: str, include_human: bool = False) -> str:
     return text
 
 
+def upgraded_context_text(text: str) -> str:
+    legacy_task_route = "- 当前具体任务请查看：`active/Current_Task.md`"
+    global_first_route = (
+        "- 当前执行入口按 `AGENTS.md` 的 Global-first 规则选择：未显式选择 Workstream 时保持全局上下文；"
+        "选择 Workstream 后先运行 `acf workstream context WSxxx`，再按其 scope 渐进读取。"
+        "`active/Current_Task.md` 只在它本身为当前全局任务时作为任务事实源。"
+    )
+    if legacy_task_route not in text:
+        return text
+    return text.replace(legacy_task_route, global_first_route)
+
+
 def upgraded_feedback_inbox_text(text: str) -> str:
     text = migrate_legacy_acf_markers(text)
     if "archive/feedback/" in text and "只在近期或当前计划仍需引用时保留" in text:
@@ -660,6 +672,7 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
     changed = [path for path in planned if not path.exists()]
     agents = root / "AGENTS.md"
     feedback = root / "active" / "Feedback_Inbox.md"
+    context = root / "active" / "Context.md"
     task_plan = root / "active" / "Task_Plan.md"
     current_task = root / "active" / "Current_Task.md"
     always_active = root / "rules" / "Always_Active.md"
@@ -692,6 +705,11 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         updated_feedback = upgraded_feedback_inbox_text(original_feedback)
         if updated_feedback != original_feedback:
             changed.append(feedback)
+    if context.exists():
+        original_context = read_text(context)
+        updated_context = upgraded_context_text(original_context)
+        if updated_context != original_context:
+            changed.append(context)
     if always_active.exists():
         original_always_active = read_text(always_active)
         updated_always_active = upgraded_always_active_text(original_always_active)
@@ -750,6 +768,12 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         if updated != text:
             feedback.write_text(updated, encoding="utf-8")
 
+    if context.exists():
+        text = read_text(context)
+        updated = upgraded_context_text(text)
+        if updated != text:
+            context.write_text(updated, encoding="utf-8")
+
     if always_active.exists():
         text = read_text(always_active)
         updated = upgraded_always_active_text(text)
@@ -785,6 +809,7 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
 
 def upgrade_managed_paths(root: Path) -> list[Path]:
     paths = [
+        root / "active" / "Context.md",
         root / "active" / "Feedback_Inbox.md",
         root / "active" / "Task_Plan.md",
         root / "archive" / "Archive_Index.md",
@@ -809,6 +834,7 @@ def upgrade_detected_features(root: Path) -> list[str]:
     features: list[str] = []
     feature_paths = [
         ("context_agents", root / "AGENTS.md"),
+        ("context", root / "active" / "Context.md"),
         ("task_plan", root / "active" / "Task_Plan.md"),
         ("feedback_inbox", root / "active" / "Feedback_Inbox.md"),
         ("archive", root / "archive" / "Archive_Index.md"),

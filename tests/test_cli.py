@@ -3448,6 +3448,44 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0, stderr)
             self.assertEqual(json.loads(stdout)["changed_files"], [])
 
+    def test_context_global_first_route_is_generated_and_legacy_upgrade_is_nondestructive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "sample-project" / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            context = target / "active" / "Context.md"
+            current_route = (
+                "- 当前执行入口按 `AGENTS.md` 的 Global-first 规则选择：未显式选择 Workstream 时保持全局上下文；"
+                "选择 Workstream 后先运行 `acf workstream context WSxxx`，再按其 scope 渐进读取。"
+                "`active/Current_Task.md` 只在它本身为当前全局任务时作为任务事实源。"
+            )
+            legacy_route = "- 当前具体任务请查看：`active/Current_Task.md`"
+            context_text = context.read_text(encoding="utf-8")
+            self.assertIn(current_route, context_text)
+            self.assertNotIn(legacy_route, context_text)
+
+            context.write_text(
+                context_text.replace(current_route, legacy_route)
+                + "\nProject-specific Context fact must remain.\n",
+                encoding="utf-8",
+            )
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["upgrade", str(target), "--dry-run", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertIn(str(context.resolve()), json.loads(stdout)["changed_files"])
+
+            self.assertEqual(self.run_cli(["upgrade", str(target)]), 0)
+            upgraded_context = context.read_text(encoding="utf-8")
+            self.assertIn(current_route, upgraded_context)
+            self.assertNotIn(legacy_route, upgraded_context)
+            self.assertIn("Project-specific Context fact must remain.", upgraded_context)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["upgrade", str(target), "--dry-run", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertNotIn(str(context.resolve()), json.loads(stdout)["changed_files"])
+
     def test_upgrade_refreshes_existing_stale_template_sections(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"
