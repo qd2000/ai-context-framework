@@ -8248,6 +8248,16 @@ merge_resolution: merged
         self.assertFalse(observer_wrapper["map_review_gate_required_for_semantic_risk"])
         self.assertTrue(observer_wrapper["agent_first_output"]["agent_is_primary_author"])
         self.assertFalse(observer_wrapper["agent_first_output"]["acf_renderer_required"])
+        self.assertTrue(
+            observer_wrapper["agent_first_output"]["update_failure_policy"][
+                "failed_update_must_not_replace_stable_entry"
+            ]
+        )
+        self.assertTrue(
+            observer_wrapper["agent_first_output"]["update_failure_policy"][
+                "freshness_must_remain_truthful_after_failure"
+            ]
+        )
         self.assertFalse(
             automation_contract["presentation_maintenance"]["transient_patch"][
                 "direct_dashboard_edit_allowed"

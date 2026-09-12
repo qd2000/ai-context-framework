@@ -361,11 +361,11 @@ git diff --check
 1. **`.89` Beta 已完成**：minimum S2、release gate、immutable release/publish/global install 与 installed-state 基础 dogfood 都是已完成事实，禁止再把 minimum-S2 或 Beta preparation 写成当前 next action。
 2. **平台提示迁移仍是外部 handoff**：现有 ACF / FCC / AStockT_AI 三个 Production Observer Scheduled Task 仍需用户按 §11.1 原位迁移 Agent-first 主提示并自然运行；仓库 Writer 不得代改 scheduler，也不得用 Maintenance refresh 冒充 Production acceptance。
 3. **priority-70 bounded lane 已关闭**：`dir-0b707f4b16b24550b627` 与 `dir-d54a9978f1964a33926e` 已在 directive revision 53/54 evidence-backed resolve；不再继续“找剩余 cleanup”，除非出现新的可复现 recurring symptom。
-4. **Writer 在平台 handoff 阻塞期间继续安全替代工作**：按当前 Agent-first authority 继续 evidence-backed S2/S3/S5 收口、调用关系审计、鲁棒性/历史/last-good 接续与 successor preparation；只做真实缺口，不扩固定 renderer/schema/Registry gate，不因人工视觉 review pending 空转。
+4. **Writer 在平台 handoff 阻塞期间继续安全替代工作**：按当前 Agent-first authority 继续 evidence-backed S2/S3/S5 收口、调用关系审计、鲁棒性/历史/last-good 接续与 successor preparation；只做真实缺口，不扩固定 renderer/schema/Registry gate，不因人工视觉 review pending 空转。generation 194 的当前真实 S3 缺口是 Agent-owned stable entry 的失败更新合同：candidate 已要求 failed update 不替换稳定入口、last-good 保持可读、partial-source failure fail-visible、失败后 freshness 继续真实；focused contract/prompt/status regression 10/10 PASS，仍待当前 candidate checkpoint 与后续 successor release boundary。
 5. **source-lineage fix 保持 candidate-only**：`9eef0c4` 只能在 successor immutable stable/global install 后，由独立 Production Observer 证明 `.89` 的 false-positive `WS012:source-divergent` 消失后才关闭 issue `551b9be5530cc2ce2462`；Maintenance 不主动刷新 canonical Observer runtime 掩盖当前告警。
 6. **successor stable 不是固定配额**：只有当一组真实 post-Beta 改动达到自然 release boundary 时才按实时 Git/tag/PyPI authority 选择未占用 identity、走完整 gate/release/install/dogfood；不得仅为“轮到 `.90`”而发布。
 
-当前第一项有价值开发工作是：**从当前源码与调用关系审计剩余 Agent-first legacy/helper 依赖，挑选一个有真实使用证据、可独立验证的 S2/S3/S5 缺口；若没有新的产品缺口，则转入 successor release-readiness/installed-state 诊断，而不是继续 priority-70 cleanup。**
+当前第一项有价值开发工作已经由 generation 194 的调用关系审计收敛为：**完成并 checkpoint `agent_first_output.update_failure_policy` 这一 S3 stable-entry / last-good / truthful-freshness 合同切片；随后 refresh authority，并在没有新的独立产品缺口时转入 successor release-readiness / installed-state 诊断，而不是继续 priority-70 cleanup。**
 
 ---
 

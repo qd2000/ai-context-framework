@@ -50,6 +50,8 @@ Agent 可直接使用被授权的一手文件、Git、源码、测试、日志�
 
 两条 priority-70 context/template 简化 requirement `dir-0b707f4b16b24550b627` 与 `dir-d54a9978f1964a33926e` 已分别在 directive revision 53/54 以 evidence-backed lifecycle 正式 `resolve`。其确认项已经由 active-history compaction、Workstream-index scope compaction、fresh non-ACF/customized regeneration、default worktree guidance simplification 与 Global-first Context routing 的 reusable-source 修复及验证覆盖；候选的 submit/review/status/re-review 现象也已按 Git/authority 证据判定为 scheduler/supervisor 选择而非仍待修的 ACF template defect。该 resolve 只关闭 bounded priority-70 follow-on，不关闭 WS012 长期 mission，也不改变 Agent-first 主线；后续不得把“继续清 priority-70 backlog”作为默认 next action，只有出现新的可复现 recurring symptom 才重新登记并按证据处理。
 
+Generation 194 已按当前主线找到一个独立、可复现且不依赖平台提示迁移的 S3 鲁棒性缺口：现有 Agent-first contract 已要求 stable entry、source traceability、unknowns fail-visible 与 legacy renderer 不得覆盖 Agent-owned 输出，但没有机器化“更新失败不能替换稳定入口 / last-good 仍可读 / 部分来源失败必须显式降级 / 失败后 freshness 仍保持真实”。generation 194 在 generation 193 stale 后，经 authenticated challenge timeout、fresh physical-execution absent、HEAD=`3c83d3c`、workspace provenance 与 unresolved-effects=0 证据完成正式 reconcile/recover；随后把上述要求加入 candidate `agent_first_output.update_failure_policy`，并同步 README/Automation/candidate 页面。focused `automation_contracts + continuation prompt + observer status` regression 当前 10/10 PASS。该 slice 仍是未 checkpoint 的 successor candidate；它不改变 `.89` installed stable、不刷新 canonical Production Observer runtime，也不解除 §11.1 的三任务人工 prompt migration blocker。
+
 `.88` release / global install / continuation closeout 仍是历史完成事实，禁止 replay。任何 candidate 页面、测试、commit、release、单次 Production activation 或 directive adopt 都不等于 WS012 长期 mission 完成。
 
 ### Historical — Task-Semantic Visualization v1.2（superseded implementation route）
