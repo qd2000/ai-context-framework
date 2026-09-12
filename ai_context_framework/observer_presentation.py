@@ -13,10 +13,12 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
 from ai_context_framework.automation_contracts import (
+    OBSERVER_PRIMARY_VISUALIZATION_KINDS,
     OBSERVER_PRESENTATION_TYPES,
     OBSERVER_SEMANTIC_REVIEW_DECISIONS,
 )
@@ -36,6 +38,7 @@ OBSERVER_TRANSIENT_PATCH_SCHEMA = "acf.observer.transient-presentation-patch.v1"
 OBSERVER_PRESENTATION_EVENT_SCHEMA = "acf.observer.presentation-event.v1"
 OBSERVER_TARGET_NARRATIVE_SCHEMA = "acf.observer.target-narrative.v1"
 OBSERVER_TARGET_PROBLEM_SCHEMA = "acf.observer.target-problem.v1"
+OBSERVER_PRIMARY_VISUALIZATION_SCHEMA = "acf.observer.primary-visualization.v1"
 
 _TARGET_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 _RUNTIME_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -71,6 +74,9 @@ TRANSIENT_EMPHASIS_SECTIONS = {
     "runs",
     "alerts",
 }
+PRIMARY_VISUALIZATION_KINDS = set(OBSERVER_PRIMARY_VISUALIZATION_KINDS)
+PRIMARY_VISUALIZATION_CONFIDENCE = {"high", "medium", "low"}
+PRIMARY_VISUALIZATION_DIRECTIONS = {"minimize", "maximize", "neutral"}
 
 
 class ObserverPresentationError(ValueError):
@@ -326,6 +332,227 @@ def _validated_problem(value: object) -> dict[str, object]:
     return result
 
 
+def _validated_graph_visualization_spec(value: object, *, field: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ObserverPresentationError(f"observer {field} must be an object")
+    raw_nodes = value.get("nodes") or []
+    raw_edges = value.get("edges") or []
+    if not isinstance(raw_nodes, list) or not raw_nodes:
+        raise ObserverPresentationError(f"observer {field}.nodes requires at least one item")
+    if not isinstance(raw_edges, list):
+        raise ObserverPresentationError(f"observer {field}.edges must be a list")
+    nodes: list[dict[str, object]] = []
+    node_ids: set[str] = set()
+    for index, raw in enumerate(raw_nodes):
+        if not isinstance(raw, dict):
+            raise ObserverPresentationError(f"observer {field}.nodes[{index}] must be an object")
+        node_id = _validated_runtime_id(raw.get("id"), f"{field}.nodes[{index}].id")
+        if node_id in node_ids:
+            raise ObserverPresentationError(f"observer {field} duplicate node id: {node_id}")
+        node_ids.add(node_id)
+        nodes.append(
+            {
+                "id": node_id,
+                "title": _validated_text(raw.get("title"), f"{field}.nodes[{index}].title", required=True),
+                "status": _validated_text(raw.get("status"), f"{field}.nodes[{index}].status", required=True),
+                "summary": _validated_text(raw.get("summary"), f"{field}.nodes[{index}].summary", required=True),
+                "evidence_refs": _validated_refs(
+                    raw.get("evidence_refs"),
+                    f"{field}.nodes[{index}].evidence_refs",
+                    required=True,
+                ),
+            }
+        )
+    edges: list[dict[str, object]] = []
+    for index, raw in enumerate(raw_edges):
+        if not isinstance(raw, dict):
+            raise ObserverPresentationError(f"observer {field}.edges[{index}] must be an object")
+        source = _validated_runtime_id(raw.get("from"), f"{field}.edges[{index}].from")
+        target = _validated_runtime_id(raw.get("to"), f"{field}.edges[{index}].to")
+        if source not in node_ids or target not in node_ids:
+            raise ObserverPresentationError(f"observer {field} edge references an unknown node")
+        edges.append(
+            {
+                "from": source,
+                "to": target,
+                "label": _validated_text(raw.get("label"), f"{field}.edges[{index}].label"),
+                "evidence_refs": _validated_refs(
+                    raw.get("evidence_refs"),
+                    f"{field}.edges[{index}].evidence_refs",
+                ),
+            }
+        )
+    result: dict[str, object] = {"nodes": nodes, "edges": edges}
+    for ref_field in ("current_node_refs", "next_node_refs"):
+        if ref_field not in value:
+            continue
+        refs = _validated_refs(value.get(ref_field), f"{field}.{ref_field}")
+        unknown = [ref for ref in refs if ref not in node_ids]
+        if unknown:
+            raise ObserverPresentationError(
+                f"observer {field}.{ref_field} references an unknown node: {unknown[0]}"
+            )
+        result[ref_field] = refs
+    return result
+
+
+def _validated_metric_trend_spec(value: object) -> dict[str, object]:
+    field = "primary_visualization.spec"
+    if not isinstance(value, dict):
+        raise ObserverPresentationError(f"observer {field} must be an object")
+    direction = value.get("direction") or "neutral"
+    if direction not in PRIMARY_VISUALIZATION_DIRECTIONS:
+        raise ObserverPresentationError(f"observer metric_trend direction is invalid: {direction}")
+    raw_series = value.get("series") or []
+    if not isinstance(raw_series, list) or not raw_series:
+        raise ObserverPresentationError("observer metric_trend series requires at least one item")
+    series: list[dict[str, object]] = []
+    series_ids: set[str] = set()
+    for series_index, raw in enumerate(raw_series):
+        if not isinstance(raw, dict):
+            raise ObserverPresentationError(
+                f"observer metric_trend series[{series_index}] must be an object"
+            )
+        series_id = _validated_runtime_id(raw.get("id"), f"metric_trend.series[{series_index}].id")
+        if series_id in series_ids:
+            raise ObserverPresentationError(f"observer metric_trend duplicate series id: {series_id}")
+        series_ids.add(series_id)
+        raw_points = raw.get("points") or []
+        if not isinstance(raw_points, list) or not raw_points:
+            raise ObserverPresentationError(
+                f"observer metric_trend series[{series_index}].points requires at least one item"
+            )
+        points: list[dict[str, object]] = []
+        for point_index, raw_point in enumerate(raw_points):
+            if not isinstance(raw_point, dict):
+                raise ObserverPresentationError(
+                    f"observer metric_trend series[{series_index}].points[{point_index}] must be an object"
+                )
+            x_value = raw_point.get("x")
+            if isinstance(x_value, bool) or not isinstance(x_value, (int, float, str)):
+                raise ObserverPresentationError("observer metric_trend point x must be finite number or text")
+            if isinstance(x_value, (int, float)) and not isfinite(float(x_value)):
+                raise ObserverPresentationError("observer metric_trend point x must be finite")
+            if isinstance(x_value, str):
+                x_value = _validated_text(x_value, "metric_trend.point.x", required=True)
+            y_value = raw_point.get("y")
+            if isinstance(y_value, bool) or not isinstance(y_value, (int, float)) or not isfinite(float(y_value)):
+                raise ObserverPresentationError("observer metric_trend point y must be a finite number")
+            points.append(
+                {
+                    "x": x_value,
+                    "y": y_value,
+                    "label": _validated_text(raw_point.get("label"), "metric_trend.point.label"),
+                    "evidence_refs": _validated_refs(
+                        raw_point.get("evidence_refs"),
+                        "metric_trend.point.evidence_refs",
+                        required=True,
+                    ),
+                }
+            )
+        series.append(
+            {
+                "id": series_id,
+                "title": _validated_text(
+                    raw.get("title"),
+                    f"metric_trend.series[{series_index}].title",
+                    required=True,
+                ),
+                "unit": _validated_text(raw.get("unit"), f"metric_trend.series[{series_index}].unit"),
+                "points": points,
+            }
+        )
+    return {
+        "x_label": _validated_text(value.get("x_label"), f"{field}.x_label", required=True),
+        "y_label": _validated_text(value.get("y_label"), f"{field}.y_label", required=True),
+        "direction": direction,
+        "series": series,
+    }
+
+
+def _validated_status_matrix_spec(value: object) -> dict[str, object]:
+    field = "primary_visualization.spec"
+    if not isinstance(value, dict):
+        raise ObserverPresentationError(f"observer {field} must be an object")
+    raw_items = value.get("items") or []
+    if not isinstance(raw_items, list) or not raw_items:
+        raise ObserverPresentationError("observer status_matrix items requires at least one item")
+    items: list[dict[str, object]] = []
+    item_ids: set[str] = set()
+    for index, raw in enumerate(raw_items):
+        if not isinstance(raw, dict):
+            raise ObserverPresentationError(f"observer status_matrix items[{index}] must be an object")
+        item_id = _validated_runtime_id(raw.get("id"), f"status_matrix.items[{index}].id")
+        if item_id in item_ids:
+            raise ObserverPresentationError(f"observer status_matrix duplicate item id: {item_id}")
+        item_ids.add(item_id)
+        items.append(
+            {
+                "id": item_id,
+                "title": _validated_text(raw.get("title"), f"status_matrix.items[{index}].title", required=True),
+                "status": _validated_text(raw.get("status"), f"status_matrix.items[{index}].status", required=True),
+                "summary": _validated_text(raw.get("summary"), f"status_matrix.items[{index}].summary", required=True),
+                "evidence_refs": _validated_refs(
+                    raw.get("evidence_refs"),
+                    f"status_matrix.items[{index}].evidence_refs",
+                    required=True,
+                ),
+            }
+        )
+    current_refs = _validated_refs(value.get("current_item_refs"), "status_matrix.current_item_refs")
+    unknown = [ref for ref in current_refs if ref not in item_ids]
+    if unknown:
+        raise ObserverPresentationError(
+            f"observer status_matrix current_item_refs references an unknown item: {unknown[0]}"
+        )
+    return {"items": items, "current_item_refs": current_refs}
+
+
+def _validated_primary_visualization(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ObserverPresentationError("observer primary_visualization must be an object")
+    schema_version = value.get("schema_version")
+    if schema_version != OBSERVER_PRIMARY_VISUALIZATION_SCHEMA:
+        raise ObserverPresentationError(
+            f"unsupported observer primary_visualization schema: {schema_version}"
+        )
+    kind = value.get("kind")
+    if kind not in PRIMARY_VISUALIZATION_KINDS:
+        raise ObserverPresentationError(f"observer primary_visualization kind is invalid: {kind}")
+    confidence = value.get("confidence")
+    if confidence is not None and confidence not in PRIMARY_VISUALIZATION_CONFIDENCE:
+        raise ObserverPresentationError(
+            f"observer primary_visualization confidence is invalid: {confidence}"
+        )
+    raw_spec = value.get("spec")
+    if kind == "metric_trend":
+        spec = _validated_metric_trend_spec(raw_spec)
+    elif kind == "status_matrix":
+        spec = _validated_status_matrix_spec(raw_spec)
+    else:
+        spec = _validated_graph_visualization_spec(raw_spec, field="primary_visualization.spec")
+    result = {
+        "schema_version": OBSERVER_PRIMARY_VISUALIZATION_SCHEMA,
+        "kind": kind,
+        "title": _validated_text(value.get("title"), "primary_visualization.title", required=True),
+        "primary_progress_question": _validated_text(
+            value.get("primary_progress_question"),
+            "primary_visualization.primary_progress_question",
+            required=True,
+        ),
+        "reason": _validated_text(value.get("reason"), "primary_visualization.reason", required=True),
+        "evidence_refs": _validated_refs(
+            value.get("evidence_refs"),
+            "primary_visualization.evidence_refs",
+            required=True,
+        ),
+        "spec": spec,
+    }
+    if confidence is not None:
+        result["confidence"] = confidence
+    return result
+
+
 def _validated_narrative(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ObserverPresentationError("observer target narrative must be an object")
@@ -373,7 +600,7 @@ def _validated_narrative(value: object) -> dict[str, object]:
                 "label": _validated_text(raw.get("label"), f"route_edges[{index}].label"),
             }
         )
-    return {
+    result = {
         "schema_version": OBSERVER_TARGET_NARRATIVE_SCHEMA,
         "overall_goal": _validated_text(value.get("overall_goal"), "target_narrative.overall_goal", required=True),
         "route_summary": _validated_text(value.get("route_summary"), "target_narrative.route_summary", required=True),
@@ -385,6 +612,21 @@ def _validated_narrative(value: object) -> dict[str, object]:
         "route_nodes": nodes,
         "route_edges": edges,
     }
+    for field in ("current_node_refs", "next_node_refs"):
+        if field not in value:
+            continue
+        refs = _validated_refs(value.get(field), f"target_narrative.{field}")
+        unknown = [ref for ref in refs if ref not in node_ids]
+        if unknown:
+            raise ObserverPresentationError(
+                f"observer target narrative {field} references an unknown route node: {unknown[0]}"
+            )
+        result[field] = refs
+    if "primary_visualization" in value:
+        result["primary_visualization"] = _validated_primary_visualization(
+            value.get("primary_visualization")
+        )
+    return result
 
 
 def _validated_review(value: object) -> dict[str, object]:
@@ -399,6 +641,18 @@ def _validated_review(value: object) -> dict[str, object]:
     if presentation_type not in OBSERVER_PRESENTATION_TYPES:
         raise ObserverPresentationError(f"observer presentation_type is invalid: {presentation_type}")
     problems = [_validated_problem(row) for row in value.get("problems") or []]
+    narrative = _validated_narrative(value.get("narrative"))
+    route_node_ids = {
+        str(row.get("id"))
+        for row in narrative.get("route_nodes") or []
+        if isinstance(row, dict) and row.get("id")
+    }
+    for problem in problems:
+        node_ref = problem.get("node_ref")
+        if node_ref and str(node_ref) not in route_node_ids:
+            raise ObserverPresentationError(
+                f"observer target problem node_ref references an unknown route node: {node_ref}"
+            )
     return {
         "schema_version": OBSERVER_SEMANTIC_REVIEW_STATE_SCHEMA,
         "review_id": review_id,
@@ -413,7 +667,7 @@ def _validated_review(value: object) -> dict[str, object]:
         "evidence_refs": _validated_refs(value.get("evidence_refs"), "evidence_refs", required=True),
         "map_relevant_signals": _validated_refs(value.get("map_relevant_signals"), "map_relevant_signals"),
         "presentation_type": presentation_type,
-        "narrative": _validated_narrative(value.get("narrative")),
+        "narrative": narrative,
         "problems": problems,
         "consumed_one_shot_request_ids": [
             _validated_runtime_id(item, "consumed_one_shot_request_id")
@@ -480,6 +734,61 @@ def read_presentation_state(project: Any) -> dict[str, object]:
         "updated_at": raw.get("updated_at"),
         "targets": targets,
     }
+
+
+def read_semantic_review_history(project: Any, target_id: str) -> list[dict[str, object]]:
+    """Read durable semantic-review versions from the presentation event journal.
+
+    Current state intentionally keeps only the latest reviewed semantics.  The
+    append-only event journal is the authority for older reviewed versions, so
+    history views must read that journal instead of reconstructing old maps
+    from today's target state.
+    """
+
+    target_id = _validated_target_id(target_id)
+    path = observer_presentation_paths(project)["events"]
+    if not path.is_file():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ObserverPresentationError(f"cannot read observer presentation history: {exc}") from exc
+
+    reviews: list[dict[str, object]] = []
+    seen_review_ids: set[str] = set()
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ObserverPresentationError(
+                f"cannot read observer presentation history line {line_number}: {exc}"
+            ) from exc
+        if not isinstance(event, dict) or event.get("schema_version") != OBSERVER_PRESENTATION_EVENT_SCHEMA:
+            raise ObserverPresentationError(
+                f"unsupported observer presentation history event at line {line_number}"
+            )
+        if event.get("project_id") != project.project_id:
+            raise ObserverPresentationError(
+                f"observer presentation history project_id mismatch at line {line_number}"
+            )
+        if event.get("target_id") != target_id or event.get("event_kind") != "semantic_review_applied":
+            continue
+        review = _validated_review(event.get("review"))
+        review_id = str(review["review_id"])
+        if review_id in seen_review_ids:
+            continue
+        seen_review_ids.add(review_id)
+        reviews.append(review)
+    reviews.sort(
+        key=lambda row: (
+            int(row.get("semantic_revision") or 0),
+            str(row.get("reviewed_at") or ""),
+            str(row.get("review_id") or ""),
+        )
+    )
+    return reviews
 
 
 def _write_state(project: Any, state: dict[str, object]) -> dict[str, object]:
@@ -673,6 +982,12 @@ def presentation_status(project: Any, target_views: dict[str, object]) -> dict[s
         if not isinstance(target_state, dict):
             target_state = _default_target_state(target_id)
         review = target_state.get("current_review")
+        try:
+            review_history = read_semantic_review_history(project, target_id)
+            review_history_error = None
+        except ObserverPresentationError as exc:
+            review_history = []
+            review_history_error = str(exc)
         if not isinstance(review, dict):
             semantic_status = "not_reviewed"
         elif review.get("source_fingerprint") == current_fingerprint:
@@ -688,6 +1003,8 @@ def presentation_status(project: Any, target_views: dict[str, object]) -> dict[s
                 "source_fingerprint": current_fingerprint,
                 "semantic_status": semantic_status,
                 "current_review": review,
+                "review_history": review_history,
+                "review_history_error": review_history_error,
                 "active_transient_patch": target_state.get("active_transient_patch"),
                 "active_one_shot_requests": [
                     row for row in target_state.get("one_shot_requests") or []
@@ -1196,6 +1513,7 @@ __all__ = [
     "presentation_alert_specs",
     "presentation_status",
     "read_presentation_state",
+    "read_semantic_review_history",
     "target_semantic_source_fingerprint",
     "target_semantic_source_projection",
     "target_presentation_fingerprint",

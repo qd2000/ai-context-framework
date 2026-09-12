@@ -33,7 +33,7 @@ from ai_context_framework.observer_storage import (
     rotate_jsonl_monthly, rotate_observer_history, sanitize_observer_payload, utc_now_iso,
     write_dashboard, write_json_atomic,
 )
-from ai_context_framework.observer_targets import build_target_views
+from ai_context_framework.observer_targets import build_target_views, target_registry_alert_specs
 from ai_context_framework.observer_presentation import attach_presentation_status, presentation_alert_specs
 from ai_context_framework.paths import discover_context, resolve_status_location, slugify_project_name
 from ai_context_framework.version import VERSION
@@ -691,9 +691,10 @@ def _continuation_liveness_risk(row: dict[str, object]) -> dict[str, object]:
     if status != "running":
         severity = "none"
         reason = "continuation_not_running"
+    elif lease_state == "absent" and phase == "released" and latest_round.get("milestone") == "released_to_running_handoff":
+        severity, reason = "none", "continuation_ownerless_running_handoff"
     elif phase == "waiting_external":
-        severity = "none"
-        reason = "waiting_external_does_not_require_fresh_writer"
+        severity, reason = "none", "waiting_external_does_not_require_fresh_writer"
     elif lease_state == "expired":
         severity = "critical"
         reason = "continuation_lease_expired"
@@ -701,8 +702,7 @@ def _continuation_liveness_risk(row: dict[str, object]) -> dict[str, object]:
         severity = "warning"
         reason = "continuation_owner_stale"
     elif lease_state in {"absent", "unknown"}:
-        severity = "warning"
-        reason = "continuation_running_without_fresh_lease"
+        severity, reason = "warning", "continuation_running_without_fresh_lease"
     else:
         severity = "none"
         reason = "continuation_owner_fresh"
@@ -871,6 +871,8 @@ def derive_snapshot_alerts(project: ObserverProject, snapshot: dict[str, object]
             ],
         )
 
+    for spec in target_registry_alert_specs(snapshot.get("targets")):
+        add_alert(**spec)
     for spec in presentation_alert_specs(snapshot.get("presentation")):
         add_alert(**spec)
 

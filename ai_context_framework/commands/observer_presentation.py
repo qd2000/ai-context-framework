@@ -149,9 +149,8 @@ def register_observer_presentation_parsers(observer_subparsers, add_json_argumen
     )
     review_parser.add_argument(
         "--input",
-        type=Path,
         required=True,
-        help="JSON object with derived `narrative` and optional `problems`; Agent-reviewed content only",
+        help="JSON object or path to a JSON file with derived `narrative` and optional `problems`; Agent-reviewed content only",
     )
     review_parser.add_argument("--consume-one-shot", action="append", default=[])
     add_json_argument(review_parser)
@@ -450,9 +449,12 @@ def observer_semantic_review_apply_command(args: argparse.Namespace) -> int:
             EXIT_SAFETY_REFUSED,
         )
 
-    def write(project):
-        input_path = Path(args.input)
-        raw = json.loads(input_path.read_text(encoding="utf-8"))
+    try:
+        input_value = str(args.input)
+        if input_value.lstrip().startswith("{"):
+            raw = json.loads(input_value)
+        else:
+            raw = json.loads(Path(args.input).read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ObserverPresentationError("observer semantic-review input must be a JSON object")
         narrative = raw.get("narrative")
@@ -461,6 +463,12 @@ def observer_semantic_review_apply_command(args: argparse.Namespace) -> int:
         problems = raw.get("problems") or []
         if not isinstance(problems, list):
             raise ObserverPresentationError("observer semantic-review input field `problems` must be a list")
+    except ObserverPresentationError as exc:
+        return _emit(args, _invalid_payload("observer semantic-review-apply", exc), EXIT_SAFETY_REFUSED)
+    except (OSError, json.JSONDecodeError) as exc:
+        return _emit(args, _invalid_payload("observer semantic-review-apply", exc), EXIT_RUNTIME_ERROR)
+
+    def write(project):
         target_state, event = apply_semantic_review(
             project,
             target_view=target_view,

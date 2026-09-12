@@ -60,7 +60,16 @@ def print_json(payload: dict[str, object]) -> None:
     payload.setdefault("schema_version", JSON_SCHEMA_VERSION)
     payload.setdefault("error_code", None)
     payload.setdefault("next_actions", [])
-    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    rendered = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    output_encoding = getattr(sys.stdout, "encoding", None)
+    if output_encoding:
+        try:
+            rendered.encode(output_encoding)
+        except (LookupError, UnicodeEncodeError):
+            # JSON escapes preserve the exact Unicode value after parsing while
+            # keeping machine output writable on legacy Windows code pages.
+            rendered = json.dumps(payload, ensure_ascii=True, sort_keys=True)
+    print(rendered)
 
 
 def check_payload(result: CheckResult) -> dict[str, object]:

@@ -8228,7 +8228,7 @@ merge_resolution: merged
         )
 
         automation_contract = payload["automation_prompt_execution_contract"]
-        self.assertEqual("acf.automation.prompt-execution.v1", automation_contract["schema_version"])
+        self.assertEqual("acf.automation.prompt-execution.v2", automation_contract["schema_version"])
         self.assertTrue(automation_contract["separation_required"])
         self.assertEqual(
             "writer_runtime_generated",
@@ -8238,9 +8238,16 @@ merge_resolution: merged
             "production_observer",
             automation_contract["production_observer_scheduler_wrapper"]["role"],
         )
-        self.assertTrue(
+        self.assertFalse(
             automation_contract["observer_semantic_review"]["required_each_semantic_refresh"]
         )
+        observer_wrapper = automation_contract["production_observer_scheduler_wrapper"]
+        self.assertEqual("agent_selected_authorized_sources", observer_wrapper["display_scope_source"])
+        self.assertFalse(observer_wrapper["display_scope_policy"]["target_registry_required_for_page"])
+        self.assertFalse(observer_wrapper["semantic_review_required_each_refresh"])
+        self.assertFalse(observer_wrapper["map_review_gate_required_for_semantic_risk"])
+        self.assertTrue(observer_wrapper["agent_first_output"]["agent_is_primary_author"])
+        self.assertFalse(observer_wrapper["agent_first_output"]["acf_renderer_required"])
         self.assertFalse(
             automation_contract["presentation_maintenance"]["transient_patch"][
                 "direct_dashboard_edit_allowed"
@@ -8256,6 +8263,9 @@ merge_resolution: merged
             automation_contract["presentation_maintenance"]["transient_patch"][
                 "deterministic_rerender_required"
             ]
+        )
+        self.assertFalse(
+            automation_contract["presentation_maintenance"]["required_for_agent_authored_output"]
         )
 
         policy = payload["execution_policy"]

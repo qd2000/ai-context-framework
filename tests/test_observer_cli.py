@@ -110,12 +110,23 @@ class ObserverCliTests(unittest.TestCase):
             self.assertFalse(payload["initialized"])
             self.assertEqual(payload["changed_files"], [])
             automation_contract = payload["automation_prompt_execution_contract"]
-            self.assertEqual("acf.automation.prompt-execution.v1", automation_contract["schema_version"])
+            self.assertEqual("acf.automation.prompt-execution.v2", automation_contract["schema_version"])
             observer_wrapper = automation_contract["production_observer_scheduler_wrapper"]
             self.assertEqual("broad", observer_wrapper["access_boundary"]["read"])
-            self.assertEqual("narrow_user_level_observer_state", observer_wrapper["access_boundary"]["write"])
+            self.assertEqual(
+                "narrow_observer_owned_output_and_user_state",
+                observer_wrapper["access_boundary"]["write"],
+            )
             self.assertEqual("none", observer_wrapper["access_boundary"]["control"])
-            self.assertTrue(automation_contract["observer_semantic_review"]["required_each_semantic_refresh"])
+            self.assertEqual("agent_selected_authorized_sources", observer_wrapper["display_scope_source"])
+            self.assertFalse(observer_wrapper["display_scope_policy"]["target_registry_required_for_page"])
+            self.assertFalse(observer_wrapper["semantic_review_required_each_refresh"])
+            self.assertFalse(observer_wrapper["map_review_gate_required_for_semantic_risk"])
+            self.assertTrue(observer_wrapper["agent_first_output"]["agent_is_primary_author"])
+            self.assertFalse(observer_wrapper["agent_first_output"]["acf_renderer_required"])
+            self.assertFalse(
+                automation_contract["observer_semantic_review"]["required_each_semantic_refresh"]
+            )
             self.assertFalse(
                 automation_contract["presentation_maintenance"]["transient_patch"][
                     "direct_dashboard_edit_allowed"
@@ -131,6 +142,9 @@ class ObserverCliTests(unittest.TestCase):
                 automation_contract["presentation_maintenance"]["transient_patch"][
                     "deterministic_rerender_required"
                 ]
+            )
+            self.assertFalse(
+                automation_contract["presentation_maintenance"]["required_for_agent_authored_output"]
             )
             self.assertTrue(Path(payload["observer_dir"]).is_relative_to(Path(os.environ["ACF_HOME"])))
             after = sorted(path.relative_to(project).as_posix() for path in project.rglob("*"))
@@ -642,7 +656,7 @@ class ObserverCliTests(unittest.TestCase):
             self.assertIn('type="application/json"', html)
             self.assertIn("observer-data", html)
             self.assertIn("tone-critical", html)
-            self.assertIn("Overall Health", html)
+            self.assertIn("整体健康", html)
             self.assertIn("h1{font-size:24px", html)
             self.assertIn("h3{font-size:17px", html)
             self.assertNotIn("http://", html)
@@ -1189,6 +1203,42 @@ class ObserverCliTests(unittest.TestCase):
             self.assertEqual(fresh_ws["machine_state"]["execution"], "running")
             self.assertEqual(fresh_ws["machine_state"]["health"], "healthy")
 
+            ownerless_without_handoff = {**base, "lease": {"present": False}}
+            ownerless_without_handoff_ws = enrich_workstream_machine_states(
+                [workstream], [ownerless_without_handoff]
+            )[0]
+            self.assertEqual(ownerless_without_handoff_ws["machine_state"]["execution"], "running")
+            self.assertEqual(ownerless_without_handoff_ws["machine_state"]["health"], "warning")
+            self.assertIn(
+                "continuation_running_without_fresh_lease",
+                ownerless_without_handoff_ws["machine_state"]["health_reasons"],
+            )
+
+            graceful_handoff = {
+                **base,
+                "latest_round": {
+                    "phase": "released",
+                    "milestone": "released_to_running_handoff",
+                },
+                "lease": {"present": False},
+            }
+            graceful_handoff_ws = enrich_workstream_machine_states([workstream], [graceful_handoff])[0]
+            self.assertEqual(graceful_handoff_ws["machine_state"]["execution"], "running")
+            self.assertEqual(graceful_handoff_ws["machine_state"]["health"], "healthy")
+            self.assertEqual(
+                derive_snapshot_alerts(
+                    observer_project,
+                    {
+                        "observed_at": "2026-08-21T00:00:00Z",
+                        "snapshot_consistency": {"state": "stable"},
+                        "workstreams": [graceful_handoff_ws],
+                        "continuations": [graceful_handoff],
+                        "worktrees": [],
+                    },
+                ),
+                [],
+            )
+
             stale = {
                 **base,
                 "lease": {
@@ -1583,10 +1633,11 @@ class ObserverCliTests(unittest.TestCase):
             self.assertEqual(snapshot["project_narrative"]["status"], "current")
             observer_project = resolve_observer_project(project)
             html = observer_paths(observer_project)["dashboard"].read_text(encoding="utf-8")
-            self.assertIn("Project Narrative / 项目地图", html)
-            self.assertIn("Architecture Map / 架构地图", html)
-            self.assertIn("Logical Milestone Flow / Project Evolution", html)
-            self.assertIn("Current Position / 当前所在位置", html)
+            self.assertIn('<section class="panel project-map" id="project-map">', html)
+            self.assertIn("项目推进路线", html)
+            self.assertIn('class="project-current-strip tone-border-active"', html)
+            self.assertIn("查看项目架构图 · Architecture Map / 架构地图", html)
+            self.assertIn("逻辑里程碑流 / Project Evolution · 节点详情", html)
             self.assertNotIn("http://", html)
             self.assertNotIn("https://", html)
             self.assertNotIn("fetch(", html)
@@ -1610,6 +1661,15 @@ class ObserverCliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0, stderr)
             alerts = json.loads(stdout)["snapshot"]["alerts"]
             self.assertIn("project:narrative-stale", [row["alert_key"] for row in alerts])
+
+            exit_code, stdout, stderr = self.run_cli(["observer", "snapshot", str(project), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            stale_html = observer_paths(observer_project)["dashboard"].read_text(encoding="utf-8")
+            stale_visible_html = stale_html.split('<script id="observer-data"', 1)[0]
+            self.assertIn("项目地图已陈旧", stale_html)
+            self.assertIn("当前主页不会继续渲染旧关系图、里程碑或当前位置", stale_html)
+            self.assertNotIn("项目架构关系图 · Architecture Map / 架构地图", stale_visible_html)
+            self.assertNotIn("项目 Authority", stale_visible_html)
 
     def test_project_narrative_refuses_sensitive_or_invalid_graph_input_without_writing(self):
         with tempfile.TemporaryDirectory() as tmp:

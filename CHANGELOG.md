@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+## v0.0.3.89 — 2026-09-12
+
+### Agent-first Project Observer Beta
+
+- Production Observer 的机器合同升级为 Agent-first v2：保留 existing-checkout、`read broad / write narrow / control none`、truthful run history、Production anti-masking 与 project/target extension slot，但不再把 Target Registry、semantic-review、Map Review、`primary_visualization` 或 fixed renderer 作为页面生成前置。Agent 可从当前授权的一手资料自主选择展示对象，并直接维护 Observer-owned HTML/CSS/SVG/JS；未知、冲突和证据不足继续 fail-visible。
+- Target Registry、semantic-review / presentation lifecycle、transient patch 与 legacy deterministic renderer 继续可用于兼容旧派生状态，但全部降为显式 optional helper。旧 helper 被调用时原有 revision/fingerprint/evidence、optimistic concurrency、foreign-project non-interference 与 fail-closed 规则不变；legacy snapshot/render 不得覆盖 Agent-owned 稳定入口。
+- WS012 已用真实 ACF/WS012 authority 生成首份不依赖 ACF renderer/schema 的 Agent-authored candidate 页面，并将 Beta 前人工迁移包固化到正式计划：Beta/global install 后，用户逐个保留现有 ACF/FCC/AStockT_AI Production Observer 的 Project/access/output/safety 块，只替换旧固定 renderer 主体；不得改变 schedule/timezone/enabled/任务 identity。提示包准备不冒充平台任务已经迁移。
+- Writer continuation ownership、physical-execution/effect fencing、Git safety 与 Maintenance/Production anti-masking 边界没有因 Observer 大减法而放宽；`.88` 已完成 release/global install 的事实保持历史终态，不重放旧 effect。
+
 ## v0.0.3.88 — 2026-09-08
 
 ### Same-activation stale-owner takeover

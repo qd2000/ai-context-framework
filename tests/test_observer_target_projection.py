@@ -167,6 +167,41 @@ class ObserverTargetProjectionBoundedReadTests(unittest.TestCase):
             release_spawn.set()
             self.assertTrue(late_cleanup.wait(timeout=1))
 
+    def test_worker_spawn_deadline_does_not_depend_on_threading_thread_start_handshake(self):
+        process = _ResultProcess(returncode=None, stdout="", stderr="")
+        release_spawn = threading.Event()
+        late_cleanup = threading.Event()
+
+        def blocking_popen(*_args, **_kwargs):
+            release_spawn.wait(timeout=2)
+            return process
+
+        def forbidden_high_level_thread_start(*_args, **_kwargs):
+            raise AssertionError("bounded target-read launch must not call threading.Thread.start")
+
+        def record_cleanup(_process):
+            late_cleanup.set()
+
+        started = time.monotonic()
+        with mock.patch("subprocess.Popen", side_effect=blocking_popen), mock.patch(
+            "threading.Thread.start",
+            side_effect=forbidden_high_level_thread_start,
+        ), mock.patch(
+            "ai_context_framework.observer_target_projection._terminate_worker_tree",
+            side_effect=record_cleanup,
+        ):
+            with self.assertRaises(ObserverTargetReadError) as raised:
+                _run_target_read_worker(
+                    {"operation": "resolve_project", "path": "C:/thread-start-stall"},
+                    timeout_seconds=0.03,
+                )
+            elapsed = time.monotonic() - started
+            self.assertEqual(raised.exception.error_code, "observer_target_read_timeout")
+            self.assertIn("worker launch", str(raised.exception))
+            self.assertLess(elapsed, 0.5)
+            release_spawn.set()
+            self.assertTrue(late_cleanup.wait(timeout=1))
+
     def test_real_worker_round_trip_is_terminal_for_repository_project(self):
         project_root = Path(__file__).resolve().parents[1]
         started = time.monotonic()

@@ -14,10 +14,16 @@ from ai_context_framework.observer_targets import (
     build_target_views,
     record_target_run_finish,
     record_target_run_start,
+    read_expected_target_registry,
     read_target_registry,
+    recover_expected_targets,
     register_target,
+    register_expected_target,
+    remove_expected_target,
     remove_target,
     set_project_overview_decision,
+    target_registry_alert_specs,
+    target_registry_health,
 )
 from ai_context_framework.observer_storage import SemanticSensitiveValueError, render_dashboard_html
 
@@ -37,6 +43,174 @@ class ObserverTargetRegistryTests(unittest.TestCase):
             self.assertEqual(registry["targets"], [])
             self.assertEqual(registry["project_overview"]["decision"], "undecided")
             self.assertFalse(project.observer_dir.exists())
+
+    def test_expected_target_contract_survives_observer_runtime_loss_and_recovers_exact_targets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = self.make_project(root)
+            expected, changed = register_expected_target(
+                project,
+                target_id="ws012-writer",
+                mode="fixed_workstream",
+                title="WS012 Writer",
+                automation_ref="automation:ws012-writer",
+                workstream_id="WS012",
+                continuation_task_id="WS012",
+                route_ref="docs/ai/reference/ws012/PLAN.md",
+            )
+            self.assertTrue(changed)
+            expected_path = project.observer_dir.parent / "observer_expected_targets.json"
+            self.assertTrue(expected_path.is_file())
+            register_target(
+                project,
+                target_id="ws012-writer",
+                mode="fixed_workstream",
+                title="WS012 Writer",
+                automation_ref="automation:ws012-writer",
+                workstream_id="WS012",
+                continuation_task_id="WS012",
+                route_ref="docs/ai/reference/ws012/PLAN.md",
+            )
+            import shutil
+
+            shutil.rmtree(project.observer_dir)
+            self.assertTrue(expected_path.is_file())
+            empty = read_target_registry(project)
+            health = target_registry_health(project, registry=empty, expected_registry=expected)
+            self.assertEqual(health["status"], "incomplete")
+            self.assertEqual(health["missing_expected_target_ids"], ["ws012-writer"])
+            self.assertEqual(target_registry_alert_specs({"registry_health": health})[0]["severity"], "warning")
+
+            recovered, target_ids, changed = recover_expected_targets(project)
+            self.assertTrue(changed)
+            self.assertEqual(target_ids, ["ws012-writer"])
+            self.assertEqual([row["target_id"] for row in recovered["targets"]], ["ws012-writer"])
+            self.assertEqual(read_expected_target_registry(project)["targets"][0]["target_id"], "ws012-writer")
+            self.assertEqual(target_registry_health(project)["status"], "healthy")
+
+    def test_empty_registry_without_expected_contract_is_fail_visible_not_green(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            views = build_target_views(project, {"workstreams": [], "continuations": []})
+            self.assertEqual(views["registry_health"]["status"], "unconfigured")
+            alerts = target_registry_alert_specs(views)
+            self.assertEqual(len(alerts), 1)
+            self.assertEqual(alerts[0]["alert_key"], "observer:target-registry-health")
+
+    def test_expected_target_conflict_is_fail_visible_and_recovery_does_not_overwrite_live_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            register_expected_target(
+                project,
+                target_id="ws086-writer",
+                mode="fixed_workstream",
+                title="WS086 Writer",
+                automation_ref="automation:ws086-writer",
+                workstream_id="WS086",
+                continuation_task_id="WS086-hourly-continuation",
+                route_ref="docs/ai/reference/ws086/PLAN.md",
+            )
+            register_target(
+                project,
+                target_id="ws086-writer",
+                mode="fixed_workstream",
+                title="WS086 Writer",
+                automation_ref="automation:ws086-writer",
+                workstream_id="WS086",
+                continuation_task_id="WS086",
+                route_ref="docs/ai/reference/ws086/PLAN.md",
+            )
+
+            health = target_registry_health(project)
+            self.assertEqual(health["status"], "conflict")
+            self.assertEqual(health["reason"], "expected_target_configuration_conflict")
+            self.assertEqual(health["missing_expected_target_ids"], [])
+            self.assertEqual(health["conflicting_expected_target_ids"], ["ws086-writer"])
+            self.assertFalse(health["recovery_available"])
+            alerts = target_registry_alert_specs({"registry_health": health})
+            self.assertEqual(len(alerts), 1)
+            self.assertIn("冲突", alerts[0]["title"])
+
+            registry, recovered, changed = recover_expected_targets(project)
+            self.assertFalse(changed)
+            self.assertEqual(recovered, [])
+            self.assertEqual(registry["targets"][0]["continuation_task_id"], "WS086")
+            self.assertEqual(target_registry_health(project)["status"], "conflict")
+
+    def test_explicitly_empty_expected_contract_is_distinct_and_does_not_resurrect_targets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            _expected, changed = register_expected_target(
+                project,
+                target_id="ws012-writer",
+                mode="fixed_workstream",
+                title="WS012 Writer",
+                automation_ref="automation:ws012-writer",
+                workstream_id="WS012",
+                continuation_task_id="WS012",
+                route_ref="route:ws012",
+            )
+            self.assertTrue(changed)
+            emptied, changed = remove_expected_target(project, "ws012-writer")
+            self.assertTrue(changed)
+            self.assertGreater(emptied["revision"], 0)
+            self.assertEqual(emptied["targets"], [])
+            self.assertEqual(emptied["withdrawn_target_ids"], ["ws012-writer"])
+
+            health = target_registry_health(project, expected_registry=emptied)
+            self.assertEqual(health["status"], "configured_empty")
+            self.assertEqual(health["reason"], "expected_target_contract_intentionally_empty")
+            self.assertEqual(target_registry_alert_specs({"registry_health": health}), [])
+
+            registry, recovered, changed = recover_expected_targets(project)
+            self.assertFalse(changed)
+            self.assertEqual(recovered, [])
+            self.assertEqual(registry["targets"], [])
+
+    def test_withdrawn_expected_target_is_fail_visible_until_live_registration_is_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            target_kwargs = {
+                "target_id": "ws012-writer",
+                "mode": "fixed_workstream",
+                "title": "WS012 Writer",
+                "automation_ref": "automation:ws012-writer",
+                "workstream_id": "WS012",
+                "continuation_task_id": "WS012",
+            }
+            register_expected_target(project, **target_kwargs)
+            register_target(project, **target_kwargs)
+
+            withdrawn, changed = remove_expected_target(project, "ws012-writer")
+            self.assertTrue(changed)
+            self.assertEqual(withdrawn["targets"], [])
+            self.assertEqual(withdrawn["withdrawn_target_ids"], ["ws012-writer"])
+
+            health = target_registry_health(project)
+            self.assertEqual(health["status"], "conflict")
+            self.assertEqual(health["withdrawn_registered_target_ids"], ["ws012-writer"])
+            self.assertEqual(health["conflicting_expected_target_ids"], ["ws012-writer"])
+            alert = target_registry_alert_specs({"registry_health": health})[0]
+            self.assertIn("已明确撤销但仍注册", alert["explanation"])
+
+            registry, recovered, changed = recover_expected_targets(project)
+            self.assertFalse(changed)
+            self.assertEqual(recovered, [])
+            self.assertEqual([row["target_id"] for row in registry["targets"]], ["ws012-writer"])
+
+            _registry, removed = remove_target(project, "ws012-writer")
+            self.assertTrue(removed)
+            health = target_registry_health(project)
+            self.assertEqual(health["status"], "configured_empty")
+            registry, recovered, changed = recover_expected_targets(project)
+            self.assertFalse(changed)
+            self.assertEqual(recovered, [])
+            self.assertEqual(registry["targets"], [])
+
+            expected, changed = register_expected_target(project, **target_kwargs)
+            self.assertTrue(changed)
+            self.assertEqual(expected["withdrawn_target_ids"], [])
+            self.assertEqual(target_registry_health(project)["status"], "incomplete")
 
     def test_register_fixed_workstream_is_idempotent_and_remove_is_explicit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -139,6 +313,7 @@ class ObserverTargetRegistryTests(unittest.TestCase):
                 automation_ref="automation:ws012-writer",
                 workstream_id="WS012",
                 continuation_task_id="WS012",
+                route_ref="route:ws012",
             )
             task_dir = root / "continuation" / "WS012"
             task_dir.mkdir(parents=True)
@@ -188,6 +363,7 @@ class ObserverTargetRegistryTests(unittest.TestCase):
             self.assertIsNone(run["finished_at"])
             self.assertIsNone(run["duration_seconds"])
             self.assertEqual(run["lower_bound_duration_seconds"], 600.0)
+            self.assertEqual(run["route_ref"], "route:ws012")
 
     def test_project_dynamic_target_follows_same_task_across_workstreams(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -224,12 +400,12 @@ class ObserverTargetRegistryTests(unittest.TestCase):
                 title="Marker target",
                 automation_ref="automation:marker",
                 workstream_id="WS012",
+                route_ref="route:marker-target",
             )
             start, changed = record_target_run_start(
                 project,
                 target_id="marker-target",
                 run_id="activation-001",
-                route_ref="route:p1",
                 evidence_refs=["scheduler:activation-001"],
             )
             self.assertTrue(changed)
@@ -238,7 +414,6 @@ class ObserverTargetRegistryTests(unittest.TestCase):
                 project,
                 target_id="marker-target",
                 run_id="activation-001",
-                route_ref="route:p1",
                 evidence_refs=["scheduler:activation-001"],
             )
             self.assertFalse(changed)
@@ -255,6 +430,7 @@ class ObserverTargetRegistryTests(unittest.TestCase):
             self.assertIsNone(incomplete["finished_at"])
             self.assertIsNone(incomplete["duration_seconds"])
             self.assertEqual(incomplete["lower_bound_duration_seconds"], 0.0)
+            self.assertEqual(incomplete["route_ref"], "route:marker-target")
 
             finish, changed = record_target_run_finish(
                 project,
@@ -393,9 +569,9 @@ class ObserverTargetRegistryTests(unittest.TestCase):
             self.assertIn("Registered workstream", visible)
             self.assertNotIn("UNREGISTERED-SHOULD-NOT-BE-VISIBLE", visible)
             self.assertNotIn("UNREGISTERED-CRITICAL-ALERT", visible)
-            self.assertIn("Overall Health：健康", visible)
-            self.assertIn("last activity:", visible)
-            self.assertIn("≥ 600.0s (lower bound)", visible)
+            self.assertIn("整体健康：健康", visible)
+            self.assertIn("最后活动：", visible)
+            self.assertIn("≥ 600.0s（下界）", visible)
             self.assertIn('data-target-tab="ws012-writer"', visible)
 
     def test_dashboard_project_overview_is_conditional_on_evidence_backed_decision(self):
@@ -430,7 +606,7 @@ class ObserverTargetRegistryTests(unittest.TestCase):
                 glossary={"terms": {}},
             )
             visible = html.split('<script id="observer-data"', 1)[0]
-            self.assertIn("Project Overview disabled by authority decision", visible)
+            self.assertIn("项目总览已由 authority 明确停用", visible)
             self.assertIn("Targets are intentionally heterogeneous.", visible)
             self.assertNotIn("SHOULD-NOT-RENDER", visible)
 
@@ -549,6 +725,133 @@ class ObserverTargetCliTests(unittest.TestCase):
                 if path.is_file()
             }
             self.assertEqual(after, before)
+
+    def test_cli_expected_target_recovery_restores_lost_runtime_registry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            set_args = [
+                "observer",
+                "expected-target-set",
+                str(project),
+                "--target-id",
+                "ws012-writer",
+                "--mode",
+                "fixed_workstream",
+                "--title",
+                "WS012 Writer",
+                "--automation-ref",
+                "automation:ws012-writer",
+                "--workstream",
+                "WS012",
+                "--continuation-task-id",
+                "WS012",
+                "--json",
+            ]
+            exit_code, stdout, stderr = self.run_cli(set_args)
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(json.loads(stdout)["changed"])
+
+            exit_code, stdout, stderr = self.run_cli(["observer", "targets", str(project), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertEqual(json.loads(stdout)["registry_health"]["status"], "incomplete")
+
+            exit_code, stdout, stderr = self.run_cli(["observer", "target-recover", str(project), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            recovered = json.loads(stdout)
+            self.assertEqual(recovered["recovered_target_ids"], ["ws012-writer"])
+            self.assertEqual(recovered["registry_health"]["status"], "healthy")
+
+            exit_code, stdout, stderr = self.run_cli(["observer", "target-recover", str(project), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertFalse(json.loads(stdout)["changed"])
+
+    def test_cli_target_recover_reports_conflict_without_overwriting_registered_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            expected_args = [
+                "observer",
+                "expected-target-set",
+                str(project),
+                "--target-id",
+                "ws086-writer",
+                "--mode",
+                "fixed_workstream",
+                "--title",
+                "WS086 Writer",
+                "--automation-ref",
+                "automation:ws086-writer",
+                "--workstream",
+                "WS086",
+                "--continuation-task-id",
+                "WS086-hourly-continuation",
+                "--json",
+            ]
+            exit_code, stdout, stderr = self.run_cli(expected_args)
+            self.assertEqual(exit_code, 0, stderr)
+            self.assertTrue(json.loads(stdout)["changed"])
+
+            target_args = [
+                "observer",
+                "target-set",
+                str(project),
+                "--target-id",
+                "ws086-writer",
+                "--mode",
+                "fixed_workstream",
+                "--title",
+                "WS086 Writer",
+                "--automation-ref",
+                "automation:ws086-writer",
+                "--workstream",
+                "WS086",
+                "--continuation-task-id",
+                "WS086",
+                "--json",
+            ]
+            exit_code, stdout, stderr = self.run_cli(target_args)
+            self.assertEqual(exit_code, 0, stderr)
+
+            exit_code, stdout, stderr = self.run_cli(["observer", "target-recover", str(project), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["changed"])
+            self.assertEqual(payload["registry_health"]["status"], "conflict")
+            self.assertIn("conflicts", payload["message"])
+            self.assertEqual(payload["registry"]["targets"][0]["continuation_task_id"], "WS086")
+
+    def test_cli_expected_target_remove_reports_live_registration_conflict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            common = [
+                str(project),
+                "--target-id",
+                "ws012-writer",
+                "--mode",
+                "fixed_workstream",
+                "--title",
+                "WS012 Writer",
+                "--automation-ref",
+                "automation:ws012-writer",
+                "--workstream",
+                "WS012",
+                "--continuation-task-id",
+                "WS012",
+                "--json",
+            ]
+            exit_code, _stdout, stderr = self.run_cli(["observer", "expected-target-set", *common])
+            self.assertEqual(exit_code, 0, stderr)
+            exit_code, _stdout, stderr = self.run_cli(["observer", "target-set", *common])
+            self.assertEqual(exit_code, 0, stderr)
+
+            exit_code, stdout, stderr = self.run_cli(
+                ["observer", "expected-target-remove", str(project), "--target-id", "ws012-writer", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["changed"])
+            self.assertEqual(payload["registry_health"]["status"], "conflict")
+            self.assertEqual(payload["registry_health"]["withdrawn_registered_target_ids"], ["ws012-writer"])
+            self.assertIn("remains registered", payload["message"])
 
     def test_cli_project_overview_decision_is_evidence_backed_and_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

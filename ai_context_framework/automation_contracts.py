@@ -4,7 +4,9 @@ These contracts keep three concerns deliberately separate:
 
 * the static, high-salience Writer scheduler bootstrap;
 * the dynamic Writer continuation prompt/execution policy; and
-* the static Production Observer scheduler bootstrap plus semantic-review rules.
+* the Agent-first Production Observer bootstrap, with the older target /
+  semantic-review / renderer lifecycle retained only as optional compatibility
+  helpers during migration.
 
 The module is intentionally pure.  It describes machine-readable contracts but
 does not claim continuation ownership, mutate Observer runtime state, or infer
@@ -16,13 +18,13 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 
-AUTOMATION_PROMPT_EXECUTION_SCHEMA = "acf.automation.prompt-execution.v1"
+AUTOMATION_PROMPT_EXECUTION_SCHEMA = "acf.automation.prompt-execution.v2"
 WRITER_SCHEDULER_WRAPPER_SCHEMA = "acf.automation.writer-scheduler-wrapper.v1"
 WRITER_RUNTIME_PROMPT_SCHEMA = "acf.automation.writer-runtime-prompt.v1"
-PRODUCTION_OBSERVER_WRAPPER_SCHEMA = "acf.automation.production-observer-wrapper.v1"
-OBSERVER_SEMANTIC_REVIEW_SCHEMA = "acf.automation.observer-semantic-review.v1"
+PRODUCTION_OBSERVER_WRAPPER_SCHEMA = "acf.automation.production-observer-wrapper.v2"
+OBSERVER_SEMANTIC_REVIEW_SCHEMA = "acf.automation.observer-semantic-review.v2"
 OBSERVER_EXECUTION_EVIDENCE_SCHEMA = "acf.automation.observer-execution-evidence.v1"
-PRESENTATION_MAINTENANCE_SCHEMA = "acf.automation.presentation-maintenance.v1"
+PRESENTATION_MAINTENANCE_SCHEMA = "acf.automation.presentation-maintenance.v2"
 
 
 WRITER_BOOTSTRAP_TOPICS = [
@@ -104,6 +106,12 @@ OBSERVER_PRESENTATION_TYPES = [
     "tree",
     "text",
     "hybrid",
+]
+OBSERVER_PRIMARY_VISUALIZATION_KINDS = [
+    "metric_trend",
+    "status_matrix",
+    "process_flow",
+    "roadmap",
 ]
 
 OBSERVER_AUTHORITY_REVIEW_INPUTS = [
@@ -279,7 +287,13 @@ def writer_runtime_prompt_contract() -> dict[str, Any]:
 
 
 def production_observer_wrapper_contract() -> dict[str, Any]:
-    """Return the static Production Observer scheduler bootstrap contract."""
+    """Return the Agent-first Production Observer scheduler bootstrap contract.
+
+    The Observer Agent owns source selection, semantic interpretation, and its
+    page structure.  ACF may still provide navigation, run/history data, and
+    legacy presentation helpers, but none of those helpers is a prerequisite
+    for authoring or updating the Observer-owned page.
+    """
 
     return {
         "schema_version": PRODUCTION_OBSERVER_WRAPPER_SCHEMA,
@@ -288,21 +302,29 @@ def production_observer_wrapper_contract() -> dict[str, Any]:
         "bootstrap_policy": "sufficient_high_salience",
         "access_boundary": {
             "read": "broad",
-            "write": "narrow_user_level_observer_state",
+            "write": "narrow_observer_owned_output_and_user_state",
             "control": "none",
         },
         "existing_checkout_required": True,
-        "display_scope_source": "explicit_user_level_target_registry",
+        "display_scope_source": "agent_selected_authorized_sources",
+        "display_scope_policy": {
+            "agent_selects_sources_from_current_authority": True,
+            "target_registry_role": "optional_navigation_hint",
+            "target_registry_required_for_page": False,
+            "acf_is_sole_fact_source": False,
+        },
         "anti_masking": {
             "maintenance_writer_refresh_counts_as_production": False,
             "production_activation_required_for_acceptance": True,
         },
-        "semantic_review_required_each_refresh": True,
-        "map_review_gate_required_for_semantic_risk": True,
+        "semantic_review_required_each_refresh": False,
+        "map_review_gate_required_for_semantic_risk": False,
         "truthful_run_history_required": True,
         "authority_source_policy": {
             "local_authority_first": True,
             "derived_state_replaces_authority": False,
+            "multi_source_evidence_allowed": True,
+            "acf_data_optional": True,
             "required_review_inputs": list(OBSERVER_AUTHORITY_REVIEW_INPUTS),
         },
         "project_overview_policy": {
@@ -310,11 +332,44 @@ def production_observer_wrapper_contract() -> dict[str, Any]:
             "disable_requires_evidence": True,
             "disable_for_convenience_allowed": False,
             "reevaluate_when_authority_changes": True,
+            "agent_decides_from_current_evidence": True,
+            "registry_decision_required": False,
         },
         "presentation_selection": {
             "select_from_semantics": True,
+            # Retained as legacy suggestions, not a closed renderer enum.
             "allowed_types": list(OBSERVER_PRESENTATION_TYPES),
             "fixed_template_required": False,
+            "primary_progress_question_required": False,
+            "one_dominant_primary_visualization": False,
+            "allowed_primary_visualization_kinds": list(OBSERVER_PRIMARY_VISUALIZATION_KINDS),
+            "fixed_primary_visualization_contract_required": False,
+            "agent_authored_page_allowed": True,
+            "renderer_required": False,
+            "renderer_selects_kind": False,
+            "project_or_target_hardcoding_allowed": False,
+            "project_specific_page_structure_allowed": True,
+            "generic_fallback_must_remain_fail_visible": True,
+        },
+        "agent_first_output": {
+            "enabled": True,
+            "agent_is_primary_author": True,
+            "acf_renderer_required": False,
+            "target_registry_required": False,
+            "semantic_review_state_machine_required": False,
+            "primary_visualization_schema_required": False,
+            "direct_project_owned_html_css_svg_js_allowed": True,
+            "stable_entry_required": True,
+            "source_traceability_required": True,
+            "unknowns_fail_visible": True,
+            "legacy_renderer_must_not_overwrite_agent_owned_output": True,
+        },
+        "legacy_compatibility": {
+            "target_registry": "optional",
+            "semantic_review": "optional",
+            "map_review_gate": "optional",
+            "renderer": "optional",
+            "presentation_state_machine": "optional",
         },
         "cross_project_interference_allowed": False,
         "human_information_policy": "human_first_but_detailed",
@@ -344,11 +399,19 @@ def production_observer_wrapper_contract() -> dict[str, Any]:
 
 
 def observer_semantic_review_contract() -> dict[str, Any]:
-    """Return the fail-visible semantic anti-laziness contract."""
+    """Return the optional legacy semantic-review helper contract.
+
+    Agent-first Observer output may reread authority and update its own page
+    directly without recording this state machine.  If a caller deliberately
+    uses the legacy helper, its evidence and fail-visible rules still apply.
+    """
 
     return {
         "schema_version": OBSERVER_SEMANTIC_REVIEW_SCHEMA,
-        "required_each_semantic_refresh": True,
+        "role": "legacy_optional_helper",
+        "applies_to": "legacy_derived_semantic_state_only",
+        "required_for_agent_authored_output": False,
+        "required_each_semantic_refresh": False,
         "decision_values": list(OBSERVER_SEMANTIC_REVIEW_DECISIONS),
         "required_evidence_fields": [
             "decision",
@@ -360,6 +423,7 @@ def observer_semantic_review_contract() -> dict[str, Any]:
         "unchanged_is_audited_decision": True,
         "authority_review_inputs": list(OBSERVER_AUTHORITY_REVIEW_INPUTS),
         "map_relevant_change_requires_authority_reread": True,
+        "agent_may_reread_authority_without_recording_review": True,
         "map_relevant_change_classes": [
             "node_relationship",
             "route_order",
@@ -369,7 +433,16 @@ def observer_semantic_review_contract() -> dict[str, Any]:
             "mainline_or_branch_semantics",
             "project_overview_decision",
         ],
+        "task_semantic_visualization": {
+            "required_for_agent_authored_output": False,
+            "derive_primary_progress_question_from_fresh_authority": True,
+            "record_selection_reason_and_evidence": True,
+            "allowed_kinds": list(OBSERVER_PRIMARY_VISUALIZATION_KINDS),
+            "low_confidence_must_be_fail_visible": True,
+            "renderer_may_infer_project_semantics": False,
+        },
         "insufficient_evidence_behavior": "remain_stale_fail_visible",
+        "agent_first_insufficient_evidence_behavior": "mark_unknowns_fail_visible_without_blocking_unrelated_page_work",
     }
 
 
@@ -392,10 +465,13 @@ def observer_execution_evidence_contract() -> dict[str, Any]:
 
 
 def presentation_maintenance_contract() -> dict[str, Any]:
-    """Return lifecycle/safety rules for interactive Observer presentation maintenance."""
+    """Return optional legacy derived-presentation lifecycle/safety rules."""
 
     return {
         "schema_version": PRESENTATION_MAINTENANCE_SCHEMA,
+        "role": "legacy_optional_derived_presentation_helper",
+        "applies_to": "legacy_user_level_derived_presentation_state_only",
+        "required_for_agent_authored_output": False,
         "lifecycles": list(PRESENTATION_MAINTENANCE_LIFECYCLES),
         "access_boundary": {
             "read": "broad",
@@ -440,6 +516,13 @@ def presentation_maintenance_contract() -> dict[str, Any]:
             "required": True,
             "action": "map_review_and_authority_reread",
             "change_classes": observer_semantic_review_contract()["map_relevant_change_classes"],
+        },
+        "agent_owned_output": {
+            "direct_edit_allowed": True,
+            "fixed_renderer_required": False,
+            "legacy_presentation_revision_required": False,
+            "legacy_dashboard_direct_edit_allowed": False,
+            "legacy_renderer_must_not_overwrite_agent_owned_output": True,
         },
         # Compatibility keys retained for existing first-candidate consumers.
         "writer_ownership_required": False,
@@ -495,6 +578,13 @@ def automation_prompt_execution_contract() -> dict[str, Any]:
                 "durable_rule_persistence",
                 "production_render_does_not_resurrect_one_shot",
             ],
+            "agent_first_cases": [
+                "agent_authored_page_without_renderer",
+                "target_registry_is_optional_not_display_gate",
+                "semantic_review_state_machine_is_optional",
+                "legacy_renderer_cannot_overwrite_agent_owned_output",
+                "production_activation_uses_agent_first_prompt_and_entry",
+            ],
         },
     }
 
@@ -502,6 +592,7 @@ def automation_prompt_execution_contract() -> dict[str, Any]:
 __all__ = [
     "AUTOMATION_PROMPT_EXECUTION_SCHEMA",
     "OBSERVER_AUTHORITY_REVIEW_INPUTS",
+    "OBSERVER_PRIMARY_VISUALIZATION_KINDS",
     "OBSERVER_PRESENTATION_TYPES",
     "OBSERVER_SEMANTIC_REVIEW_DECISIONS",
     "PRESENTATION_MAINTENANCE_LIFECYCLES",
