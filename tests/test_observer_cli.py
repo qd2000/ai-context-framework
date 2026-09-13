@@ -36,7 +36,11 @@ from ai_context_framework.observer import (
 )
 from ai_context_framework.observability import usage_project_dir
 from ai_context_framework.git_support import discover_git_project, write_registry
-from ai_context_framework.observer_storage import render_dashboard_html, semantic_source_fingerprint
+from ai_context_framework.observer_storage import (
+    project_narrative_source_fingerprint,
+    render_dashboard_html,
+    semantic_source_fingerprint,
+)
 
 
 class ObserverCliTests(unittest.TestCase):
@@ -1765,6 +1769,98 @@ class ObserverCliTests(unittest.TestCase):
             self.assertIn("当前主页不会继续渲染旧关系图、里程碑或当前位置", stale_html)
             self.assertNotIn("项目架构关系图 · Architecture Map / 架构地图", stale_visible_html)
             self.assertNotIn("项目 Authority", stale_visible_html)
+
+    def test_project_narrative_source_fingerprint_tracks_dynamic_continuation_facts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            observer_project = resolve_observer_project(project)
+            continuations = [
+                {
+                    "task_id": "WS012",
+                    "workstream_id": "WS012",
+                    "stage": "maintenance",
+                    "status": "running",
+                    "objective": "Keep the observer truthful.",
+                    "next_action": "Observe the next production run.",
+                    "state_updated_at": "2026-09-13T16:30:41Z",
+                    "lease": {
+                        "present": True,
+                        "runner_id": "runner-g203",
+                        "generation": 203,
+                        "branch": "codex/ws012-project-observer-operational-dogfood",
+                        "head": "ccd866b",
+                        "liveness": "fresh",
+                        "last_heartbeat_at": "2026-09-13T16:31:00Z",
+                    },
+                    "latest_round": {
+                        "generation": 203,
+                        "runner_id": "runner-g203",
+                        "phase": "executing",
+                        "milestone": "production-dogfood",
+                        "started_at": "2026-09-13T16:30:41Z",
+                        "ended_at": None,
+                        "evidence_refs": ["observer:revision-742"],
+                    },
+                    "effects": {
+                        "status_counts": {"completed": 196, "failed": 31},
+                        "unresolved_count": 0,
+                    },
+                }
+            ]
+            base = project_narrative_source_fingerprint(
+                observer_project,
+                [],
+                continuations,
+                ["AGENTS.md"],
+            )
+
+            generation_changed = json.loads(json.dumps(continuations))
+            generation_changed[0]["latest_round"]["generation"] = 204
+            self.assertNotEqual(
+                base,
+                project_narrative_source_fingerprint(
+                    observer_project,
+                    [],
+                    generation_changed,
+                    ["AGENTS.md"],
+                ),
+            )
+
+            effects_changed = json.loads(json.dumps(continuations))
+            effects_changed[0]["effects"]["status_counts"]["completed"] = 197
+            self.assertNotEqual(
+                base,
+                project_narrative_source_fingerprint(
+                    observer_project,
+                    [],
+                    effects_changed,
+                    ["AGENTS.md"],
+                ),
+            )
+
+            liveness_changed = json.loads(json.dumps(continuations))
+            liveness_changed[0]["lease"]["liveness"] = "stale"
+            self.assertNotEqual(
+                base,
+                project_narrative_source_fingerprint(
+                    observer_project,
+                    [],
+                    liveness_changed,
+                    ["AGENTS.md"],
+                ),
+            )
+
+            heartbeat_only_changed = json.loads(json.dumps(continuations))
+            heartbeat_only_changed[0]["lease"]["last_heartbeat_at"] = "2026-09-13T16:41:00Z"
+            self.assertEqual(
+                base,
+                project_narrative_source_fingerprint(
+                    observer_project,
+                    [],
+                    heartbeat_only_changed,
+                    ["AGENTS.md"],
+                ),
+            )
 
     def test_project_narrative_refuses_sensitive_or_invalid_graph_input_without_writing(self):
         with tempfile.TemporaryDirectory() as tmp:

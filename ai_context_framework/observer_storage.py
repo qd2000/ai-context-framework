@@ -463,6 +463,9 @@ def project_narrative_source_projection(
     continuation_rows: list[dict[str, object]] = []
     for row in continuations:
         effects = row.get("effects") if isinstance(row.get("effects"), dict) else {}
+        status_counts = effects.get("status_counts") if isinstance(effects.get("status_counts"), dict) else {}
+        latest_round = row.get("latest_round") if isinstance(row.get("latest_round"), dict) else {}
+        lease = row.get("lease") if isinstance(row.get("lease"), dict) else {}
         continuation_rows.append(
             {
                 "task_id": row.get("task_id"),
@@ -471,6 +474,20 @@ def project_narrative_source_projection(
                 "status": row.get("status"),
                 "objective": row.get("objective"),
                 "next_action": row.get("next_action"),
+                "state_updated_at": row.get("state_updated_at"),
+                "lease": {
+                    **{key: lease.get(key) for key in ("runner_id", "generation", "branch", "head", "liveness")},
+                    "present": bool(lease.get("present")),
+                },
+                "latest_round": (
+                    {
+                        **{key: latest_round.get(key) for key in ("generation", "runner_id", "phase", "milestone", "started_at", "ended_at")},
+                        "evidence_refs": list(latest_round.get("evidence_refs") or []),
+                    }
+                    if latest_round
+                    else None
+                ),
+                "effect_status_counts": {str(key): int(value or 0) for key, value in sorted(status_counts.items())},
                 "unresolved_effect_count": int(effects.get("unresolved_count") or 0),
             }
         )
