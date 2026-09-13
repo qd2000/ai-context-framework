@@ -1307,14 +1307,16 @@ def _target_semantic_history_html(view: dict[str, object], *, include_current: b
         for row in history
         if include_current or str(row.get("review_id") or "") != current_review_id
     ]
-    if history_error:
-        return (
-            '<section class="target-semantic-history">'
-            '<div class="semantic-notice tone-border-warning"><strong>▲ 历史路线暂不可读</strong>'
-            f'<p>{_html_text(history_error)}</p></div></section>'
-        )
+    history_warning = (
+        '<div class="semantic-notice tone-border-warning"><strong>▲ 部分历史路线不可读</strong>'
+        f'<p>{_html_text(history_error)}</p><p>其余通过校验的归档版本继续保留展示，不会用当前事实重写旧版本。</p></div>'
+        if history_error
+        else ""
+    )
     if not archived:
-        return ""
+        if not history_warning:
+            return ""
+        return f'<section class="target-semantic-history">{history_warning}</section>'
 
     target = view.get("target") if isinstance(view.get("target"), dict) else {}
     target_id = str(target.get("target_id") or "unknown")
@@ -1424,7 +1426,8 @@ def _target_semantic_history_html(view: dict[str, object], *, include_current: b
         )
     return (
         '<section class="target-semantic-history">'
-        '<details><summary>历史路线版本 / 归档地图</summary>'
+        + history_warning
+        + '<details><summary>历史路线版本 / 归档地图</summary>'
         '<p class="muted">历史版本保留各自复核时的事实与当前位置；不会用今天的状态重绘过去。'
         + (
             '当前路线图保持在上方，可选择一个历史版本并排对照。'
