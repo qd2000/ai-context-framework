@@ -25,6 +25,69 @@ def json_digest(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def coordination_recovery_digest(
+    coordination: Mapping[str, Any],
+    *,
+    owner_generation: int | None,
+) -> str:
+    """Digest only coordination state that can change recovery authority.
+
+    Coordination attempts are append-only scheduler bookkeeping.  A new
+    contender registering after an eligible reconcile receipt must not make
+    that receipt stale when the challenged owner, challenge outcome, HEAD,
+    workspace, rounds, and effects are unchanged.  The current owner's
+    nonterminal challenge does affect recovery authority, so retain its stable
+    identity/timing/status fields while deliberately excluding contender IDs
+    and top-level ``updated_at``.
+    """
+
+    if coordination.get("state") == "absent":
+        return json_digest(
+            {
+                "state": "absent",
+                "task_id": coordination.get("task_id"),
+                "owner_generation": owner_generation,
+            }
+        )
+
+    challenges: list[dict[str, Any]] = []
+    raw_challenges = coordination.get("challenges")
+    if isinstance(raw_challenges, list):
+        for raw in raw_challenges:
+            if not isinstance(raw, Mapping):
+                continue
+            if raw.get("owner_generation") != owner_generation:
+                continue
+            if raw.get("status") not in {"open", "timed_out"}:
+                continue
+            challenges.append(
+                {
+                    "challenge_id": raw.get("challenge_id"),
+                    "owner_generation": raw.get("owner_generation"),
+                    "opened_at": raw.get("opened_at"),
+                    "deadline_at": raw.get("deadline_at"),
+                    "status": raw.get("status"),
+                    "acknowledged_at": raw.get("acknowledged_at"),
+                    "acknowledged_lease_id": raw.get("acknowledged_lease_id"),
+                    "acknowledged_runner_id": raw.get("acknowledged_runner_id"),
+                    "timed_out_at": raw.get("timed_out_at"),
+                    "resolved_at": raw.get("resolved_at"),
+                    "resolution": raw.get("resolution"),
+                    "recovery_generation": raw.get("recovery_generation"),
+                    "reconcile_receipt_id": raw.get("reconcile_receipt_id"),
+                }
+            )
+    challenges.sort(key=lambda item: (str(item.get("opened_at") or ""), str(item.get("challenge_id") or "")))
+    return json_digest(
+        {
+            "schema_version": coordination.get("schema_version"),
+            "task_id": coordination.get("task_id"),
+            "owner_generation": owner_generation,
+            "challenges": challenges,
+        }
+    )
+
+
 def build_observation(
     status: Mapping[str, Any],
     *,
@@ -50,7 +113,6 @@ def build_observation(
                     "owner_generation": raw.get("owner_generation"),
                     "deadline_at": raw.get("deadline_at"),
                     "timed_out_at": raw.get("timed_out_at"),
-                    "contender_attempt_ids": list(raw.get("contender_attempt_ids") or []),
                 }
             )
     return {
@@ -73,7 +135,10 @@ def build_observation(
         "workspace_unexpected_nonoverlap_paths": list(workspace.get("unexpected_nonoverlap_paths") or []),
         "round_digest": json_digest(rounds),
         "effect_digest": json_digest(effects),
-        "coordination_digest": json_digest(coordination),
+        "coordination_digest": coordination_recovery_digest(
+            coordination,
+            owner_generation=(int(lease["generation"]) if isinstance(lease.get("generation"), int) else None),
+        ),
         "ownership_forfeiture_candidates": forfeiture_candidates,
         "latest_round": continuation_rounds.latest_round(rounds, task_id=task_id),
         "effect_summary": continuation_rounds.effect_summary(effects, task_id=task_id),
@@ -458,6 +523,7 @@ def validate_reconcile_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
 __all__ = [
     "RECONCILE_SCHEMA",
     "RECOVERY_SCHEMA",
+    "coordination_recovery_digest",
     "ContinuationRecoveryError",
     "build_observation",
     "build_effect_reconciliation",
