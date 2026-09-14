@@ -338,6 +338,11 @@ def continuation_coordination_attempt_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = core._workspace_root(args.path)
         paths = core._paths(root, args.task_id)
+        runner_id = core._validate_public_input_text(args.runner_id, field="runner_id")
+        objective_summary = core._validate_public_input_text(
+            args.objective_summary,
+            field="objective_summary",
+        )
         with core._state_lock(paths["lock"]):
             control = core._load_control(paths, root)
             lease = core._lease_snapshot(paths, control)
@@ -361,8 +366,8 @@ def continuation_coordination_attempt_command(args: argparse.Namespace) -> int:
                 state, attempt = continuation_coordination.register_attempt(
                     state,
                     task_id=str(control["task_id"]),
-                    runner_id=str(args.runner_id),
-                    objective_summary=str(args.objective_summary),
+                    runner_id=runner_id,
+                    objective_summary=objective_summary,
                     observed_owner_generation=observed_owner_generation,
                     now=now,
                 )

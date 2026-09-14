@@ -8,12 +8,16 @@ in the controller because it owns the lease/workspace/round state transition.
 from __future__ import annotations
 
 import argparse
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
 from ai_context_framework import continuation_coordination, continuation_recovery, continuation_rounds
 from ai_context_framework.commands import continuation_coordination as coordination_commands
+
+
+_FULL_GIT_OBJECT_ID_RE = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\Z")
 
 
 def _continuation():
@@ -167,61 +171,154 @@ def validate_recovery_inputs(
     return receipt, status, observation, effect_journal, effect_reconciliations
 
 
+def _bounded_unique_public_values(
+    values: list[str] | None,
+    *,
+    field: str,
+    core,
+) -> list[str]:
+    unique = list(dict.fromkeys(values or []))
+    if len(unique) > core.MAX_LIST_ITEMS:
+        raise core.ContinuationError(
+            f"{field} exceeds the bounded continuation list limit",
+            code="state_invalid",
+        )
+    return [core._validate_public_input_text(value, field=field) for value in unique]
+
+
+def _bounded_public_values(
+    values: list[str] | None,
+    *,
+    field: str,
+    core,
+) -> list[str]:
+    items = list(values or [])
+    if len(items) > core.MAX_LIST_ITEMS:
+        raise core.ContinuationError(
+            f"{field} exceeds the bounded continuation list limit",
+            code="state_invalid",
+        )
+    return [core._validate_public_input_text(value, field=field) for value in items]
+
+
+def _validate_reconcile_public_inputs(args: argparse.Namespace, core) -> dict[str, Any]:
+    """Validate all reconcile arguments that do not require continuation state."""
+
+    evidence_refs = _bounded_unique_public_values(
+        args.evidence_ref,
+        field="evidence_ref",
+        core=core,
+    )
+    effect_keys = _bounded_public_values(args.effect_key, field="effect_key", core=core)
+    effect_terminal_statuses = list(args.effect_terminal_status or [])
+    effect_external_ids = _bounded_public_values(
+        args.effect_external_id,
+        field="effect_external_id",
+        core=core,
+    )
+    effect_milestones = _bounded_public_values(
+        args.effect_milestone,
+        field="effect_milestone",
+        core=core,
+    )
+    effect_evidence_refs = _bounded_unique_public_values(
+        args.effect_evidence_ref,
+        field="effect_evidence_ref",
+        core=core,
+    )
+    if len(effect_terminal_statuses) > core.MAX_LIST_ITEMS:
+        raise core.ContinuationError(
+            "effect_terminal_status exceeds the bounded continuation list limit",
+            code="state_invalid",
+        )
+
+    effect_requested = any(
+        (effect_keys, effect_terminal_statuses, effect_external_ids, effect_milestones)
+    ) or bool(args.effect_not_started) or bool(args.effect_local_terminal) or bool(effect_evidence_refs)
+    if effect_requested:
+        if not effect_keys or len(effect_keys) != len(effect_terminal_statuses):
+            raise core.ContinuationError(
+                "ownerless effect reconciliation requires one terminal status for each effect key",
+                code="effect_reconcile_incomplete",
+            )
+        if args.effect_not_started and (len(effect_keys) != 1 or effect_external_ids):
+            raise core.ContinuationError(
+                "effect-not-started accepts exactly one effect key and cannot be combined with an external id",
+                code="effect_identity_conflict",
+            )
+        if args.effect_not_started and args.effect_local_terminal:
+            raise core.ContinuationError(
+                "effect-not-started and effect-local-terminal are mutually exclusive",
+                code="effect_identity_conflict",
+            )
+        if args.effect_local_terminal and effect_external_ids:
+            raise core.ContinuationError(
+                "effect-local-terminal cannot be combined with an external id",
+                code="effect_identity_conflict",
+            )
+        if not args.effect_not_started and not args.effect_local_terminal and len(effect_external_ids) != len(effect_keys):
+            raise core.ContinuationError(
+                "ownerless effect reconciliation requires one external id for each effect key unless effect-not-started or effect-local-terminal is asserted",
+                code="effect_reconcile_incomplete",
+            )
+        if effect_milestones and len(effect_milestones) != len(effect_keys):
+            raise core.ContinuationError(
+                "ownerless effect reconciliation requires either no milestones or one milestone for each effect key",
+                code="effect_reconcile_incomplete",
+            )
+
+    accepted_head = (
+        core._validate_public_input_text(args.accept_head, field="accepted_head")
+        if args.accept_head is not None
+        else None
+    )
+    if accepted_head is not None and not _FULL_GIT_OBJECT_ID_RE.fullmatch(accepted_head):
+        raise core.ContinuationError(
+            "accepted_head must be a full Git object id",
+            code="reconcile_accepted_head_invalid",
+            exit_code=3,
+        )
+    reason = (
+        core._validate_public_input_text(args.reason, field="reason")
+        if args.reason is not None
+        else None
+    )
+    if args.record and reason is None:
+        raise core.ContinuationError(
+            "reason must be provided when recording reconciliation",
+            code="state_invalid",
+        )
+    return {
+        "evidence_refs": evidence_refs,
+        "effect_keys": effect_keys,
+        "effect_terminal_statuses": effect_terminal_statuses,
+        "effect_external_ids": effect_external_ids,
+        "effect_milestones": effect_milestones,
+        "effect_evidence_refs": effect_evidence_refs,
+        "effect_requested": effect_requested,
+        "accepted_head": accepted_head,
+        "reason": reason,
+    }
+
+
 def continuation_reconcile_command(args: argparse.Namespace) -> int:
     core = _continuation()
 
     def operation() -> dict[str, Any]:
+        validated = _validate_reconcile_public_inputs(args, core)
         root = core._workspace_root(args.path)
         paths = core._paths(root, args.task_id)
         with core._state_lock(paths["lock"]):
             status, observation = reconcile_observation(root, args.task_id)
-            evidence_refs = list(dict.fromkeys(args.evidence_ref or []))[: core.MAX_LIST_ITEMS]
-            for evidence_ref in evidence_refs:
-                core._validate_text(evidence_ref, field="evidence_ref")
-            effect_keys = list(args.effect_key or [])
-            effect_terminal_statuses = list(args.effect_terminal_status or [])
-            effect_external_ids = list(args.effect_external_id or [])
-            effect_milestones = list(args.effect_milestone or [])
-            effect_requested = any(
-                (effect_keys, effect_terminal_statuses, effect_external_ids, effect_milestones)
-            ) or bool(args.effect_not_started) or bool(args.effect_local_terminal) or bool(args.effect_evidence_ref or [])
+            evidence_refs = validated["evidence_refs"]
+            effect_keys = validated["effect_keys"]
+            effect_terminal_statuses = validated["effect_terminal_statuses"]
+            effect_external_ids = validated["effect_external_ids"]
+            effect_milestones = validated["effect_milestones"]
+            effect_evidence_refs = validated["effect_evidence_refs"]
+            effect_requested = bool(validated["effect_requested"])
             effect_reconciliations: list[dict[str, Any]] = []
             if effect_requested:
-                if not effect_keys or len(effect_keys) != len(effect_terminal_statuses):
-                    raise core.ContinuationError(
-                        "ownerless effect reconciliation requires one terminal status for each effect key",
-                        code="effect_reconcile_incomplete",
-                    )
-                if args.effect_not_started and (len(effect_keys) != 1 or effect_external_ids):
-                    raise core.ContinuationError(
-                        "effect-not-started accepts exactly one effect key and cannot be combined with an external id",
-                        code="effect_identity_conflict",
-                    )
-                if args.effect_not_started and args.effect_local_terminal:
-                    raise core.ContinuationError(
-                        "effect-not-started and effect-local-terminal are mutually exclusive",
-                        code="effect_identity_conflict",
-                    )
-                if args.effect_local_terminal and effect_external_ids:
-                    raise core.ContinuationError(
-                        "effect-local-terminal cannot be combined with an external id",
-                        code="effect_identity_conflict",
-                    )
-                if not args.effect_not_started and not args.effect_local_terminal and len(effect_external_ids) != len(effect_keys):
-                    raise core.ContinuationError(
-                        "ownerless effect reconciliation requires one external id for each effect key unless effect-not-started or effect-local-terminal is asserted",
-                        code="effect_reconcile_incomplete",
-                    )
-                if effect_milestones and len(effect_milestones) != len(effect_keys):
-                    raise core.ContinuationError(
-                        "ownerless effect reconciliation requires either no milestones or one milestone for each effect key",
-                        code="effect_reconcile_incomplete",
-                    )
-                effect_evidence_refs = list(
-                    dict.fromkeys(args.effect_evidence_ref or [])
-                )[: core.MAX_LIST_ITEMS]
-                for evidence_ref in effect_evidence_refs:
-                    core._validate_text(evidence_ref, field="effect_evidence_ref")
                 effects = core._load_effect_journal(paths, status["control"], require_existing=True)
                 try:
                     for index, effect_key in enumerate(effect_keys):
@@ -230,17 +327,18 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                                 effects,
                                 observation,
                                 task_id=str(status["control"]["task_id"]),
-                                logical_key=core._validate_text(effect_key, field="effect_key"),
+                                logical_key=effect_key,
                                 external_id=(
                                     None
                                     if args.effect_not_started or args.effect_local_terminal
-                                    else core._validate_text(
-                                        effect_external_ids[index],
-                                        field="effect_external_id",
-                                    )
+                                    else effect_external_ids[index]
                                 ),
                                 terminal_status=str(effect_terminal_statuses[index]),
-                                milestone=(effect_milestones[index] if effect_milestones else None),
+                                milestone=(
+                                    effect_milestones[index]
+                                    if effect_milestones
+                                    else None
+                                ),
                                 evidence_refs=effect_evidence_refs,
                                 owner_ended=bool(args.owner_ended),
                                 not_started=bool(args.effect_not_started),
@@ -249,7 +347,7 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                         )
                 except continuation_recovery.ContinuationRecoveryError as exc:
                     raise core.ContinuationError(str(exc), code=exc.code) from exc
-            accepted_head = str(args.accept_head).strip() if args.accept_head else None
+            accepted_head = validated["accepted_head"]
             decision, reasons = continuation_recovery.reconcile_decision(
                 status,
                 observation,
@@ -273,7 +371,7 @@ def continuation_reconcile_command(args: argparse.Namespace) -> int:
                 "recorded": False,
             }
             if args.record:
-                reason = core._validate_text(args.reason, field="reason")
+                reason = validated["reason"]
                 receipt = {
                     "schema_version": continuation_recovery.RECONCILE_SCHEMA,
                     "receipt_id": str(uuid.uuid4()),

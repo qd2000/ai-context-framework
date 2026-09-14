@@ -25,11 +25,13 @@ def continuation_release_command(args: argparse.Namespace) -> int:
 
             control = core._load_control(paths, root)
             snapshot = core._lease_snapshot(paths, control)
-            lease = core._assert_lease_owner(
-                snapshot,
-                lease_id=args.lease_id,
-                fence_token=continuation_workspace_commands.resolve_fence_token(args),
-                generation=args.generation,
+            lease, owner_context = continuation_workspace_commands.assert_owner_context(
+                args,
+                paths,
+                root=root,
+                control=control,
+                snapshot=snapshot,
+                record_activity=False,
             )
             generation = lease.get("generation")
             round_journal: dict[str, Any] | None = None
@@ -93,10 +95,17 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                         raise core.ContinuationError("invalid final status", code="state_invalid")
                     state["status"] = final_status
                 if args.stage:
-                    state["stage"] = args.stage.strip()
+                    state["stage"] = core._validate_public_input_text(args.stage, field="stage")
                 if args.next_action:
-                    state["next_action"] = args.next_action.strip()
-                state["verification"] = core._append_unique(state["verification"], args.verification or [])
+                    state["next_action"] = core._validate_public_input_text(
+                        args.next_action,
+                        field="next_action",
+                    )
+                verification = [
+                    core._validate_public_input_text(value, field="verification")
+                    for value in (args.verification or [])
+                ]
+                state["verification"] = core._append_unique(state["verification"], verification)
 
             release_now = core._iso()
             finished_round: dict[str, Any] | None = None
@@ -145,7 +154,14 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 now=release_now,
             )
             paths["lease"].unlink(missing_ok=False)
-            return {
+            try:
+                owner_context_revoked = continuation_workspace_commands.continuation_owner_context.revoke_owner_context(
+                    owner_context,
+                    paths["directory"],
+                )
+            except BaseException:
+                owner_context_revoked = False
+            result = {
                 "ok": outcome in {"released", "released_to_running_handoff"},
                 "status": outcome,
                 "state": state,
@@ -153,8 +169,17 @@ def continuation_release_command(args: argparse.Namespace) -> int:
                 "round": finished_round,
                 "workspace": workspace_summary,
                 "coordination_resolution": coordination_resolution,
+                "owner_context_cleanup": {
+                    "revoked": owner_context_revoked,
+                    "authorization_already_invalidated": True,
+                },
                 "next_action": state["next_action"],
             }
+            if not owner_context_revoked:
+                result["warnings"] = [
+                    "Owner context cleanup was incomplete after the lease was invalidated; remove the local capability file as secret hygiene."
+                ]
+            return result
 
     return core._guarded(args, "continuation release", operation)
 
@@ -166,9 +191,10 @@ def register_release_parser(subparsers, add_json_argument) -> None:
     )
     parser.add_argument("path", nargs="?", type=core.Path)
     parser.add_argument("--task-id", default=None)
-    parser.add_argument("--lease-id", required=True)
+    parser.add_argument("--owner-file", default=None)
+    parser.add_argument("--lease-id", default=None)
     parser.add_argument("--generation", type=int, default=None)
-    parser.add_argument("--fence-token", default=None)
+    parser.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--handoff",
         action="store_true",

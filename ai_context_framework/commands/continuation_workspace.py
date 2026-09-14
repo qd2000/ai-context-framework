@@ -18,6 +18,7 @@ from ai_context_framework import (
     continuation_coordination,
     continuation_directives,
     continuation_inventory,
+    continuation_owner_context,
     continuation_recovery,
     continuation_rounds,
     continuation_workspace,
@@ -31,7 +32,8 @@ from ai_context_framework.commands import continuation_directives as continuatio
 from ai_context_framework.commands import continuation_workspace_parsers
 from ai_context_framework.front_matter import parse_front_matter, split_typed_scope, validate_front_matter
 from ai_context_framework.git_support import discover_git_project
-from ai_context_framework.observability import acf_home, atomic_write_text
+from ai_context_framework.observability import acf_home
+from ai_context_framework.sensitive_data import sanitize_public_payload
 from ai_context_framework.runtime_parts.archive_workstream import (
     normalize_scope_path,
     read_workstream_detail,
@@ -50,8 +52,7 @@ LONG_RUNNING_RENEW_INTERVAL_MINUTES = 45
 LONG_RUNNING_HEARTBEAT_INTERVAL_MINUTES = 10
 LONG_RUNNING_STALE_AFTER_MINUTES = 25
 MAX_LEASE_TTL_MINUTES = 24 * 60
-FENCE_TOKEN_FILE_ENV = "ACF_CONTINUATION_FENCE_TOKEN_FILE"
-MAX_FENCE_TOKEN_FILE_BYTES = 4096
+LEGACY_FENCE_TOKEN_FILE_ENV = "ACF_CONTINUATION_FENCE_TOKEN_FILE"
 
 TIMING_PROFILES: dict[str, dict[str, int]] = {
     "standard": {
@@ -207,108 +208,145 @@ def _continuation():
     return continuation
 
 
-def _fence_token_file_from_env() -> Path | None:
-    raw = os.environ.get(FENCE_TOKEN_FILE_ENV)
-    if raw is None:
-        return None
-    value = raw.strip()
-    if not value:
-        core = _continuation()
-        raise core.ContinuationError(
-            f"{FENCE_TOKEN_FILE_ENV} cannot be empty",
-            code="fence_token_transport_invalid",
-        )
-    return Path(value).expanduser()
-
-
-def resolve_fence_token(args: argparse.Namespace) -> str | None:
-    """Resolve a fenced-owner credential without requiring it in argv."""
-
-    literal = getattr(args, "fence_token", None)
-    if literal:
-        return str(literal)
-    path = _fence_token_file_from_env()
-    if path is None:
-        return None
+def _owner_context_error(exc: continuation_owner_context.OwnerContextError):
     core = _continuation()
+    return core.ContinuationError(
+        str(exc),
+        code=exc.code,
+        exit_code=3,
+        next_actions=[
+            "Use only the local owner_context.handle returned by the current claim/recover generation. "
+            "Do not reconstruct or pass reusable authentication material in command text."
+        ],
+    )
+
+
+def reject_legacy_owner_transport(args: argparse.Namespace | None = None) -> None:
+    """Fail closed instead of silently accepting either legacy secret path."""
+
+    legacy_argument = args is not None and getattr(args, "fence_token", None) is not None
+    legacy_environment = LEGACY_FENCE_TOKEN_FILE_ENV in os.environ
+    if not legacy_argument and not legacy_environment:
+        return
+    core = _continuation()
+    raise core.ContinuationError(
+        "legacy raw owner-credential transport is no longer accepted",
+        code="legacy_owner_transport_refused",
+        exit_code=3,
+        details={"legacy_environment_present": legacy_environment},
+        next_actions=[
+            f"Remove {LEGACY_FENCE_TOKEN_FILE_ENV} and use the owner_context.handle returned by a fresh claim/recover."
+        ],
+    )
+
+
+def deliver_owner_context(
+    args: argparse.Namespace,
+    paths: Mapping[str, Path],
+    *,
+    root: Path,
+    control: Mapping[str, Any],
+    lease: Mapping[str, Any],
+    credential: str,
+) -> continuation_owner_context.OwnerContext:
+    """Create a local capability before committing a fresh owner generation."""
+
+    reject_legacy_owner_transport(args)
     try:
-        if not path.is_file():
-            raise core.ContinuationError(
-                "configured fence token file is not a regular file",
-                code="fence_token_transport_unavailable",
-                details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
-                exit_code=3,
-            )
-        size = path.stat().st_size
-        if size < 1 or size > MAX_FENCE_TOKEN_FILE_BYTES:
-            raise core.ContinuationError(
-                "configured fence token file has an invalid size",
-                code="fence_token_transport_invalid",
-                details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
-                exit_code=3,
-            )
-        value = path.read_text(encoding="utf-8").strip()
-    except core.ContinuationError:
-        raise
-    except OSError as exc:
-        raise core.ContinuationError(
-            "configured fence token file could not be read",
-            code="fence_token_transport_unavailable",
-            details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
-            exit_code=3,
-        ) from exc
-    if not value:
-        raise core.ContinuationError(
-            "configured fence token file is empty",
-            code="fence_token_transport_invalid",
-            details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
+        return continuation_owner_context.create_owner_context(
+            paths["directory"],
+            workspace_root=root,
+            task_id=str(control["task_id"]),
+            lease_id=str(lease["lease_id"]),
+            generation=int(lease["generation"]),
+            runner_id=str(lease["runner_id"]),
+            credential=credential,
+            created_at=str(lease["issued_at"]),
+        )
+    except continuation_owner_context.OwnerContextError as exc:
+        raise _owner_context_error(exc) from exc
+
+
+def resolve_owner_context(
+    args: argparse.Namespace,
+    paths: Mapping[str, Path],
+    *,
+    root: Path,
+    control: Mapping[str, Any],
+) -> continuation_owner_context.OwnerContext:
+    reject_legacy_owner_transport(args)
+    raw_handle = getattr(args, "owner_file", None)
+    if raw_handle is None:
+        raise _continuation().ContinuationError(
+            "--owner-file is required for owner-protected commands",
+            code="owner_context_required",
             exit_code=3,
         )
-    return value
-
-
-def deliver_fence_token(fence_token: str) -> dict[str, Any]:
-    """Return the legacy token or externalize it to an opt-in local file.
-
-    Delivery happens before lease/control generation state is committed, so a
-    bad credential transport cannot create a fresh owner that the caller cannot
-    authenticate.  The plaintext file is caller-controlled and stays outside
-    canonical continuation state; only the token hash is durable there.
-    """
-
-    path = _fence_token_file_from_env()
-    if path is None:
-        return {"fence_token": fence_token}
-    core = _continuation()
     try:
-        parent = path.parent
-        if not parent.exists() or not parent.is_dir():
-            raise core.ContinuationError(
-                "configured fence token file parent does not exist",
-                code="fence_token_transport_unavailable",
-                details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
-            )
-        atomic_write_text(path, fence_token + "\n")
-        try:
-            os.chmod(path, 0o600)
-        except OSError:
-            # Windows ACLs are inherited from the caller-controlled parent;
-            # chmod is only a best-effort narrowing on platforms that honor it.
-            pass
-    except core.ContinuationError:
-        raise
-    except OSError as exc:
+        context = continuation_owner_context.load_owner_context(
+            raw_handle,
+            paths["directory"],
+            workspace_root=root,
+            task_id=str(control["task_id"]),
+        )
+    except continuation_owner_context.OwnerContextError as exc:
+        raise _owner_context_error(exc) from exc
+
+    lease_assertion = getattr(args, "lease_id", None)
+    if lease_assertion is not None and str(lease_assertion) != context.lease_id:
+        raise _continuation().ContinuationError(
+            "optional lease assertion does not match the owner context",
+            code="owner_context_binding_mismatch",
+            exit_code=3,
+        )
+    generation_assertion = getattr(args, "generation", None)
+    if generation_assertion is not None and generation_assertion != context.generation:
+        raise _continuation().ContinuationError(
+            "optional generation assertion does not match the owner context",
+            code="owner_context_binding_mismatch",
+            exit_code=3,
+        )
+    return context
+
+
+def assert_owner_context(
+    args: argparse.Namespace,
+    paths: Mapping[str, Path],
+    *,
+    root: Path,
+    control: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    record_activity: bool = True,
+) -> tuple[dict[str, Any], continuation_owner_context.OwnerContext]:
+    """Resolve one handle and preserve the existing fenced-owner verifier."""
+
+    core = _continuation()
+    context = resolve_owner_context(args, paths, root=root, control=control)
+    raw_lease = snapshot.get("lease")
+    if isinstance(raw_lease, Mapping) and raw_lease.get("runner_id") != context.runner_id:
         raise core.ContinuationError(
-            "configured fence token file could not be written",
-            code="fence_token_transport_unavailable",
-            details={"environment": FENCE_TOKEN_FILE_ENV, "path": str(path)},
-        ) from exc
-    return {
-        "fence_token": None,
-        "fence_token_transport": "file",
-        "fence_token_file": str(path),
-        "fence_token_environment": FENCE_TOKEN_FILE_ENV,
-    }
+            "owner context runner binding does not match the active lease",
+            code="owner_context_binding_mismatch",
+            exit_code=3,
+        )
+    verifier = core._assert_lease_owner_with_activity if record_activity else core._assert_lease_owner
+    if record_activity:
+        lease = verifier(
+            paths,
+            control,
+            snapshot,
+            lease_id=context.lease_id,
+            fence_token=context.credential,
+            generation=context.generation,
+        )
+    else:
+        lease = verifier(
+            snapshot,
+            lease_id=context.lease_id,
+            fence_token=context.credential,
+            generation=context.generation,
+        )
+    return lease, context
 
 
 def workspace_error(exc: continuation_workspace.ContinuationWorkspaceError):
@@ -498,6 +536,17 @@ def continuation_init_command(args: argparse.Namespace) -> int:
         task_id = str(args.task_id or args.workstream or "").strip()
         if not task_id:
             raise core.ContinuationError("--task-id or --workstream is required", code="task_id_required")
+        title = core._validate_public_input_text(args.title, field="title")
+        objective = core._validate_public_input_text(args.objective, field="objective")
+        stage = core._validate_public_input_text(args.stage or "bootstrap", field="stage")
+        next_action = core._validate_public_input_text(
+            args.next_action or "Refresh local authority and execute the current default plan.",
+            field="next_action",
+        )
+        plan_refs = [
+            core._validate_public_input_text(value, field="plan_ref")
+            for value in (args.plan_ref or [])
+        ]
         git = core._git_identity(root)
         if git["detached"] or not git["branch"]:
             raise core.ContinuationError("continuation init refuses detached HEAD", code="detached_head")
@@ -555,8 +604,8 @@ def continuation_init_command(args: argparse.Namespace) -> int:
         control = {
             "schema_version": core.CONTROL_SCHEMA,
             "task_id": task_id,
-            "title": str(args.title).strip(),
-            "objective": str(args.objective).strip(),
+            "title": title,
+            "objective": objective,
             "workspace_root": str(root),
             "expected_branch": expected_branch,
             "bootstrap_head": git["head"],
@@ -567,16 +616,13 @@ def continuation_init_command(args: argparse.Namespace) -> int:
             "created_at": now,
             "updated_at": now,
         }
-        plan_refs = list(args.plan_ref or [])
         state = {
             "schema_version": core.STATE_SCHEMA,
             "task_id": task_id,
-            "objective": str(args.objective).strip(),
+            "objective": objective,
             "status": "ready",
-            "stage": str(args.stage or "bootstrap").strip(),
-            "next_action": str(
-                args.next_action or "Refresh local authority and execute the current default plan."
-            ).strip(),
+            "stage": stage,
+            "next_action": next_action,
             "updated_at": now,
             "completed": ["Initialized ACF bounded continuation control."],
             "constraints": [
@@ -876,32 +922,41 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
         owner_runner_id = str(raw_lease.get("runner_id") or "") if isinstance(raw_lease, Mapping) else None
         owner_generation = raw_lease.get("generation") if isinstance(raw_lease, Mapping) else None
         owner_liveness = str(lease_snapshot.get("liveness") or "absent")
+        owner_context_migration_required = bool(
+            (status_snapshot.get("owner_context_transport") or {}).get("migration_required")
+        )
         caller_identity_known = runner_id is not None
         same_runner_owner = bool(
             lease_snapshot.get("state") == "active"
+            and not owner_context_migration_required
             and runner_id
             and owner_runner_id
             and runner_id == owner_runner_id
         )
         fresh_owner_caller_unknown = bool(
             lease_snapshot.get("state") == "active"
+            and not owner_context_migration_required
             and owner_liveness == "fresh"
             and not caller_identity_known
         )
         verified_live_other_owner = bool(
             lease_snapshot.get("state") == "active"
+            and not owner_context_migration_required
             and owner_liveness == "fresh"
             and caller_identity_known
             and not same_runner_owner
         )
         stale_or_unverified_owner = bool(
             lease_snapshot.get("state") == "active"
+            and not owner_context_migration_required
             and owner_liveness in {"stale", "legacy_unknown"}
             and not same_runner_owner
         )
         expired_owner = lease_snapshot.get("state") == "expired"
         owner_disposition = (
-            "current_owner"
+            "legacy_owner_context_migration_required"
+            if owner_context_migration_required
+            else "current_owner"
             if same_runner_owner
             else "fresh_owner_caller_unknown"
             if fresh_owner_caller_unknown
@@ -928,6 +983,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             "duplicate_wake_candidate": verified_live_other_owner,
             "can_claim": bool(status_snapshot.get("can_claim")),
             "blocked_reasons": list(status_snapshot.get("blocked_reasons") or []),
+            "owner_context_transport": status_snapshot.get("owner_context_transport"),
         }
         latest_round = round_snapshot.get("latest")
         if not isinstance(latest_round, Mapping):
@@ -987,15 +1043,26 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
         )
         control_actions: list[str] = []
         conditional_sections: list[str] = []
-        if same_runner_owner:
+        if owner_context_migration_required:
             control_actions.append(
-                "Continue under the current owner credential; assert ownership before protected non-idempotent work "
+                "The active lease predates the current owner-context transport or its current-generation capability is unavailable. Do not perform .90 owner-protected writes and do not restore raw-secret transport. Preserve any already-running pre-upgrade process; if it cannot release through its already-loaded old runtime, wait for stale/expired ownership and use formal reconcile/recover to mint a new owner context."
+            )
+            conditional_sections.append(
+                "Owner-context migration hold:\n"
+                "- This is a fail-closed compatibility state, not permission to take over the lease.\n"
+                "- Do not reconstruct credentials from verifier state and do not use the retired raw-secret/token-file transport.\n"
+                "- A still-live pre-upgrade physical process should be left undisturbed. If its original already-loaded runtime can release normally, let it finish; otherwise wait for stale/expired ownership, refresh evidence, and use the normal reconcile/recover path.\n"
+                "- New recover creates a fresh generation-bound owner_context.handle."
+            )
+        elif same_runner_owner:
+            control_actions.append(
+                "Continue under the current local owner-context capability; assert ownership before protected non-idempotent work "
                 "and heartbeat/renew according to lease liveness."
             )
             conditional_sections.append(
                 "Current writer safety:\n"
                 "- Before project writes, declare concrete workspace intent and preserve unrelated external dirty state.\n"
-                "- If the project-access/scheduler transport rejects high-entropy owner credentials, set `ACF_CONTINUATION_FENCE_TOKEN_FILE` to a caller-controlled local temp file before claim/recover. ACF will write the new fence token there and omit the raw token from JSON; keep the same environment variable on fenced owner commands and delete the file after release.\n"
+                "- Reuse only the local `owner_context.handle` returned by claim/recover on owner-protected commands; do not read, copy, or place its reusable credential material into command text, JSON, prompts, logs, or project files.\n"
                 "- Before each non-idempotent or long-lived writer side effect, use deterministic effect identity; never replay an uncertain outcome.\n"
                 "- For a deterministic local command that may cross the stale window, use `acf continuation execution run ... --key <key> -- <argv>`. It records exact process identity, keeps owner liveness, terminalizes on exit, and still requires polling the same DevSpace session to terminal.\n"
                 "- Narrow ACF control-plane lifecycle exception: after the authenticated runner itself executes deterministic `acf workstream scope-add|merge-request|ready|merge-start|done` for the bound Workstream, the exact generated `docs/ai/active/Workstreams.md` plus that Workstream detail may be reviewed and committed as a dedicated control-plane checkpoint; this does not extend ordinary Task write scope or permit any third baseline/external path.\n"
@@ -1050,7 +1117,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             conditional_sections.append(
                 "Expired-owner recovery:\n"
                 "- Reconcile current workspace, HEAD, effect journal, identity, and prior generation before recovery when required.\n"
-                "- Reuse credentials returned by recover; do not claim a second time after successful recovery. If raw credentials cannot safely cross the command transport, set `ACF_CONTINUATION_FENCE_TOKEN_FILE` before recover and reuse that file handle for fenced commands."
+                "- Reuse the local `owner_context.handle` returned by recover; do not claim a second time after successful recovery and do not reconstruct raw owner authentication material in public command arguments."
             )
         elif status_snapshot.get("can_claim"):
             control_actions.extend(
@@ -1058,7 +1125,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                     attempt_command,
                     "Use refreshed project authority to decide whether safe useful work is executable now. If the persisted/default plan explicitly waits for a real external or project-state change and that condition is not met, do not claim merely to manufacture a continuation lifecycle change; scheduler wake, coordination attempt, and claim are control-plane activity, not evidence satisfying that wait condition.",
                     f"If useful work is executable now, claim with `acf continuation claim {json.dumps(str(root))}{task_flag} --runner-id <runner> --json`, then re-render `acf continuation prompt {json.dumps(str(root))}{task_flag} --runner-id <runner> --json` with the same runner id before project writes so current-writer safety guidance is loaded.",
-                    "If no safe useful work is presently executable, this scheduler wake may end without claiming and without changing task state; otherwise execute the refreshed default plan under the returned fenced owner credential after the post-claim prompt refresh.",
+                    "If no safe useful work is presently executable, this scheduler wake may end without claiming and without changing task state; otherwise execute the refreshed default plan under the returned local owner-context capability after the post-claim prompt refresh.",
                 ]
             )
             conditional_sections.append(
@@ -1066,7 +1133,7 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                 "- The coordination attempt is a compact intent record, not a bounded work quota. `--objective-summary` names the current goal; it does not limit how much useful work the session may complete.\n"
                 "- A scheduler wake, coordination attempt, or claim is control-plane bookkeeping. It must not be counted as the real/external state change required by a conditional wait plan, and it must not be used to create synthetic progress solely so the task can observe itself.\n"
                 "- Claim only when refreshed authority identifies safe useful work that is executable now. If a wait condition is still unsatisfied and no other useful work exists, ending this wake without claim leaves the mission running and is not a pause, blocker, or completion.\n"
-                "- For credential-redacting command transports, set `ACF_CONTINUATION_FENCE_TOKEN_FILE` to a caller-controlled local temp file before claim so ACF returns a non-secret file handle instead of the raw token.\n"
+                "- Claim returns only a local `owner_context.handle` for owner-protected commands; reusable owner authentication material stays inside that local capability and is not a public CLI/JSON value.\n"
                 "- After claim, declare concrete workspace intent before writes and use deterministic effect identity before non-idempotent side effects."
             )
         else:
@@ -1207,8 +1274,10 @@ Reusable product issues:
             "prompt": prompt,
             "next_actions": control_actions,
         }
-        result_holder.update(value)
-        return value
+        public_value = sanitize_public_payload(value)
+        assert isinstance(public_value, dict)
+        result_holder.update(public_value)
+        return public_value
 
     exit_code = core._guarded(args, "continuation prompt", operation)
     if exit_code == 0 and not core.json_enabled(args):
@@ -1241,13 +1310,12 @@ def continuation_workspace_intent_command(args: argparse.Namespace) -> int:
         with core._state_lock(paths["lock"]):
             control = core._load_control(paths, root)
             lease_snapshot = core._lease_snapshot(paths, control)
-            lease = core._assert_lease_owner_with_activity(
+            lease, _owner_context = assert_owner_context(
+                args,
                 paths,
-                control,
-                lease_snapshot,
-                lease_id=args.lease_id,
-                fence_token=resolve_fence_token(args),
-                generation=args.generation,
+                root=root,
+                control=control,
+                snapshot=lease_snapshot,
             )
             generation = core._require_fenced_generation(lease)
             manifest = load_workspace_manifest(paths, control, require_existing=True)
@@ -1315,13 +1383,12 @@ def continuation_workspace_reclassify_command(args: argparse.Namespace) -> int:
         with core._state_lock(paths["lock"]):
             control = core._load_control(paths, root)
             lease_snapshot = core._lease_snapshot(paths, control)
-            lease = core._assert_lease_owner_with_activity(
+            lease, _owner_context = assert_owner_context(
+                args,
                 paths,
-                control,
-                lease_snapshot,
-                lease_id=args.lease_id,
-                fence_token=resolve_fence_token(args),
-                generation=args.generation,
+                root=root,
+                control=control,
+                snapshot=lease_snapshot,
             )
             generation = core._require_fenced_generation(lease)
             manifest = load_workspace_manifest(paths, control, require_existing=True)
@@ -1364,6 +1431,11 @@ def continuation_workspace_reclassify_command(args: argparse.Namespace) -> int:
                 path_value: workspace_intent_candidates(root, context_root, path_value)
                 for path_value in task_paths
             }
+            evidence_refs = [
+                core._validate_public_input_text(value, field="evidence_ref")
+                for value in (args.evidence_ref or [])
+            ]
+            reason = core._validate_public_input_text(args.reason, field="reason")
             try:
                 manifest, review = continuation_workspace.reclassify_unexpected(
                     manifest,
@@ -1373,8 +1445,8 @@ def continuation_workspace_reclassify_command(args: argparse.Namespace) -> int:
                     baseline_external_paths=external_paths,
                     allowed_scopes=allowed_scopes,
                     candidate_paths=candidate_paths,
-                    evidence_refs=list(args.evidence_ref or []),
-                    reason=str(args.reason),
+                    evidence_refs=evidence_refs,
+                    reason=reason,
                     now=core._iso(),
                 )
             except continuation_workspace.ContinuationWorkspaceError as exc:
@@ -1477,15 +1549,25 @@ def continuation_workspace_reconcile_handoff_command(args: argparse.Namespace) -
                     code="workspace_handoff_reconcile_incomplete",
                 )
             evidence_refs = list(dict.fromkeys(args.evidence_ref or []))
+            evidence_refs = [
+                core._validate_public_input_text(value, field="evidence_ref")
+                for value in evidence_refs
+            ]
+            reason = core._validate_public_input_text(args.reason, field="reason")
+            accepted_head = (
+                core._validate_public_input_text(args.accept_head, field="accepted_head")
+                if args.accept_head
+                else None
+            )
             try:
                 manifest, receipt = continuation_workspace.reconcile_handoff_cleanup(
                     manifest,
                     task_id=str(control["task_id"]),
                     snapshot=workspace_current_snapshot(root),
                     cleanup_paths=raw_cleanup_paths,
-                    accepted_head=(str(args.accept_head).strip() if args.accept_head else None),
+                    accepted_head=accepted_head,
                     evidence_refs=evidence_refs,
-                    reason=str(args.reason),
+                    reason=reason,
                     receipt_id=str(uuid.uuid4()),
                     now=core._iso(),
                 )
@@ -1604,6 +1686,11 @@ def continuation_workspace_adopt_command(args: argparse.Namespace) -> int:
                     exit_code=3,
                 )
             candidate_paths: dict[str, list[str]] = {}
+            evidence_refs = [
+                core._validate_public_input_text(value, field="evidence_ref")
+                for value in (args.evidence_ref or [])
+            ]
+            reason = core._validate_public_input_text(args.reason, field="reason")
             try:
                 normalized_task_paths = [
                     continuation_workspace.normalize_path(path_value)
@@ -1625,8 +1712,8 @@ def continuation_workspace_adopt_command(args: argparse.Namespace) -> int:
                     baseline_external_paths=normalized_external_paths,
                     allowed_scopes=allowed_scopes,
                     candidate_paths=candidate_paths,
-                    evidence_refs=list(args.evidence_ref or []),
-                    reason=str(args.reason),
+                    evidence_refs=evidence_refs,
+                    reason=reason,
                     receipt_id=str(uuid.uuid4()),
                     now=core._iso(),
                 )
@@ -1665,13 +1752,12 @@ def continuation_workspace_refresh_command(args: argparse.Namespace) -> int:
         with core._state_lock(paths["lock"]):
             control = core._load_control(paths, root)
             lease_snapshot = core._lease_snapshot(paths, control)
-            lease = core._assert_lease_owner_with_activity(
+            lease, _owner_context = assert_owner_context(
+                args,
                 paths,
-                control,
-                lease_snapshot,
-                lease_id=args.lease_id,
-                fence_token=resolve_fence_token(args),
-                generation=args.generation,
+                root=root,
+                control=control,
+                snapshot=lease_snapshot,
             )
             generation = core._require_fenced_generation(lease)
             manifest = load_workspace_manifest(paths, control, require_existing=True)
@@ -1788,12 +1874,12 @@ def continuation_migrate_command(args: argparse.Namespace) -> int:
                     "plan": public_plan,
                     "next_action": "Review the plan, then rerun with --apply --reason <reason>.",
                 }
-            reason = str(args.reason or "").strip()
-            if not reason:
+            if not str(args.reason or "").strip():
                 raise core.ContinuationError(
                     "--reason is required with --apply",
                     code="continuation_migration_invalid",
                 )
+            reason = core._validate_public_input_text(args.reason, field="reason")
             preserved_before = continuation_inventory.preserved_history_digests(paths["directory"])
             payload = plan.get("payload")
             if not isinstance(payload, Mapping):

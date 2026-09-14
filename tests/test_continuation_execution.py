@@ -12,6 +12,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import acf
@@ -99,13 +100,117 @@ class ContinuationExecutionTests(unittest.TestCase):
 
     def owner_flags(self, claim: dict[str, object]) -> list[str]:
         lease = claim["lease"]
+        owner_context = claim["owner_context"]
         self.assertIsInstance(lease, dict)
+        self.assertIsInstance(owner_context, dict)
         return [
+            "--owner-file",
+            str(owner_context["handle"]),
             "--generation",
             str(lease["generation"]),
-            "--fence-token",
-            str(claim["fence_token"]),
         ]
+
+    def test_command_summary_does_not_echo_child_argv_and_allows_public_digests(self) -> None:
+        public_digest = "d" * 64
+        args = SimpleNamespace(
+            child_argv=[
+                "worker.exe",
+                "--job-id",
+                public_digest,
+                "--token",
+                "page-2",
+                "--license",
+                "MIT",
+                "--paginationToken",
+                "next-page-marker",
+                "--token=page-3",
+                "--license=Apache-2.0",
+            ]
+        )
+        argv = continuation_execution_commands._command_argv(args)
+        self.assertEqual(args.child_argv, argv)
+        summary = continuation_execution_commands._command_summary(argv)
+        self.assertEqual("worker.exe", summary["executable"])
+        self.assertEqual(10, summary["argument_count"])
+        self.assertFalse(summary["argv_persisted"])
+        self.assertNotIn(public_digest, json.dumps(summary, sort_keys=True))
+
+    def test_execution_refuses_credential_argv_and_redacts_child_output(self) -> None:
+        for child_argv in (
+            ["worker.exe", "--api-key=flag-secret-sentinel"],
+            ["worker.exe", "--password", "space-secret-sentinel"],
+            ["worker.exe", "--clientSecret", "do-not-pass-this"],
+            ["worker.exe", "--apiSecret", "do-not-pass-this"],
+            ["worker.exe", "--bearerToken", "do-not-pass-this"],
+            ["worker.exe", "--x-api-key", "do-not-pass-this"],
+            ["worker.exe", "--AUTH_TOKEN", "do-not-pass-this"],
+            ["worker.exe", "--ID_TOKEN", "do-not-pass-this"],
+            ["worker.exe", "--SERVICE_ACCOUNT_TOKEN", "do-not-pass-this"],
+            ["worker.exe", "--CI_JOB_TOKEN", "do-not-pass-this"],
+            ["worker.exe", "--GH_TOKEN", "do-not-pass-this"],
+            ["worker.exe", "--NODE_AUTH_TOKEN", "do-not-pass-this"],
+            ["worker.exe", "--github-token", "do-not-pass-this"],
+            ["worker.exe", "--npm-token", "do-not-pass-this"],
+            ["worker.exe", "--aws-session-token", "do-not-pass-this"],
+            ["worker.exe", "--vault-token", "do-not-pass-this"],
+        ):
+            with self.subTest(child_argv=child_argv):
+                with self.assertRaises(continuation.ContinuationError) as raised:
+                    continuation_execution_commands._command_argv(
+                        SimpleNamespace(child_argv=child_argv)
+                    )
+                self.assertEqual(
+                    "physical_execution_sensitive_argv_refused",
+                    raised.exception.code,
+                )
+
+        child_script = Path(self._home.name) / "credential-output-child.py"
+        child_script.write_text(
+            (
+                "import json, sys\n"
+                "print(json.dumps({'clientSecret': 'child-json-client-sentinel', "
+                "'OPENAI_API_KEY': 'child-json-api-sentinel', 'token': 'page-2', "
+                "'paginationToken': 'next-page-marker'}))\n"
+                "print(\"DATABASE_PASSWORD=child-env-password-sentinel \" "
+                "+ \"X-API-Key=child-header-api-sentinel license=MIT\", file=sys.stderr)\n"
+                "print('ok')\n"
+            ),
+            encoding="utf-8",
+        )
+        _, claim = self.init_and_claim()
+        code, result, stderr = self.run_json(
+            [
+                "continuation",
+                "execution",
+                "run",
+                str(self.root),
+                "--task-id",
+                "WS900",
+                *self.owner_flags(claim),
+                "--key",
+                "credential-output-redaction-001",
+                "--json",
+                "--",
+                sys.executable,
+                str(child_script),
+            ],
+            already_json=True,
+        )
+        self.assertEqual(0, code, f"{stderr}\n{result}")
+        serialized = json.dumps(result, ensure_ascii=False)
+        for sentinel in (
+            "child-json-client-sentinel",
+            "child-json-api-sentinel",
+            "child-env-password-sentinel",
+            "child-header-api-sentinel",
+        ):
+            self.assertNotIn(sentinel, serialized)
+        self.assertIn("redacted credential-like value", serialized)
+        self.assertIn("page-2", result["child_stdout"])
+        self.assertIn("next-page-marker", result["child_stdout"])
+        self.assertIn("ok\n", result["child_stdout"])
+        self.assertIn("MIT", result["child_stderr"])
+        self.assertNotIn("command_argv", result)
 
     def test_process_identity_rejects_pid_reuse(self) -> None:
         with patch.object(
@@ -308,19 +413,20 @@ class ContinuationExecutionTests(unittest.TestCase):
         # add periodic keepalives between them.
         self.assertGreaterEqual(keepalive.call_count, 2)
 
-    def test_supervisor_scrubs_parent_fence_token_file_from_child_environment(self) -> None:
-        token_file = Path(self._home.name) / "parent-owner-fence.token"
+    def test_supervisor_does_not_delegate_parent_owner_file_environment(self) -> None:
+        _, claim = self.init_and_claim()
+        lease = claim["lease"]
+        owner_context = claim["owner_context"]
+        self.assertIsInstance(lease, dict)
+        self.assertIsInstance(owner_context, dict)
+        owner_file = Path(str(owner_context["handle"]))
+        owner_before = owner_file.read_bytes()
+        owner_env = "ACF_CONTINUATION_OWNER_FILE"
         with patch.dict(
             os.environ,
-            {continuation_workspace_commands.FENCE_TOKEN_FILE_ENV: str(token_file)},
+            {owner_env: str(owner_file)},
             clear=False,
         ):
-            _, claim = self.init_and_claim()
-            lease = claim["lease"]
-            self.assertIsInstance(lease, dict)
-            self.assertIsNone(claim["fence_token"])
-            self.assertTrue(token_file.is_file())
-            token_before = token_file.read_bytes()
             args = [
                 "continuation",
                 "execution",
@@ -330,8 +436,7 @@ class ContinuationExecutionTests(unittest.TestCase):
                 "WS900",
                 "--lease-id",
                 str(lease["lease_id"]),
-                "--generation",
-                str(lease["generation"]),
+                *self.owner_flags(claim),
                 "--key",
                 "credential-env-scrub-001",
                 "--json",
@@ -340,7 +445,7 @@ class ContinuationExecutionTests(unittest.TestCase):
                 "-c",
                 (
                     "import os; "
-                    f"print(os.environ.get({continuation_workspace_commands.FENCE_TOKEN_FILE_ENV!r}, 'ABSENT'))"
+                    f"print(os.environ.get({owner_env!r}, 'ABSENT'))"
                 ),
             ]
             code, result, stderr = self.run_json(args, already_json=True)
@@ -348,11 +453,22 @@ class ContinuationExecutionTests(unittest.TestCase):
             self.assertEqual(0, code, f"{stderr}\n{result}")
             self.assertEqual("physical_execution_completed", result["status"])
             self.assertEqual("ABSENT\n", result["child_stdout"])
-            self.assertEqual(token_before, token_file.read_bytes())
+            self.assertEqual(owner_before, owner_file.read_bytes())
 
     def test_pause_during_supervised_execution_waits_for_terminal_and_requests_release(self) -> None:
         initialized, claim = self.init_and_claim()
         state_dir = Path(str(initialized["state_dir"]))
+        pause_path = state_dir / "pause.json"
+        pause_payload = json.dumps(
+            {
+                "schema_version": continuation.PAUSE_SCHEMA,
+                "task_id": "WS900",
+                "reason": "test pause while child is live",
+                "requested_by": "test",
+                "created_at": continuation._iso(),
+            },
+            sort_keys=True,
+        )
         lease = claim["lease"]
         self.assertIsInstance(lease, dict)
         args = [
@@ -371,50 +487,24 @@ class ContinuationExecutionTests(unittest.TestCase):
             "--",
             sys.executable,
             "-c",
-            "import time; time.sleep(0.25); print('terminal-after-pause')",
-        ]
-
-        spawned = threading.Event()
-        real_capture_process_identity = continuation_execution.capture_process_identity
-
-        def capture_and_signal(pid: int) -> str:
-            identity = real_capture_process_identity(pid)
-            spawned.set()
-            return identity
-
-        def request_pause() -> None:
-            self.assertTrue(spawned.wait(timeout=1))
-            continuation._write_json(
-                state_dir / "pause.json",
-                {
-                    "schema_version": continuation.PAUSE_SCHEMA,
-                    "task_id": "WS900",
-                    "reason": "test pause while child is live",
-                    "requested_by": "test",
-                    "created_at": continuation._iso(),
-                },
-            )
-
-        pause_thread = threading.Thread(target=request_pause, daemon=True)
-        pause_thread.start()
-        with (
-            patch.object(
-                continuation_execution,
-                "capture_process_identity",
-                side_effect=capture_and_signal,
+            (
+                "import pathlib; "
+                f"pathlib.Path({str(pause_path)!r}).write_text({pause_payload!r}, encoding='utf-8'); "
+                "print('terminal-after-pause')"
             ),
+        ]
+        with (
             patch.object(continuation_execution_commands, "_keepalive_seconds", return_value=0.03),
             patch.object(continuation_execution_commands, "_poll_seconds", return_value=0.01),
         ):
             code, result, stderr = self.run_json(args, already_json=True)
-        pause_thread.join(timeout=1)
 
         self.assertEqual(0, code, f"{stderr}\n{result}")
         self.assertEqual("physical_execution_completed", result["status"])
         self.assertEqual("completed", result["effect"]["status"])
         self.assertEqual("terminal-after-pause\n", result["child_stdout"])
         self.assertTrue(result["pause_pending"])
-        self.assertTrue((state_dir / "pause.json").exists())
+        self.assertTrue(pause_path.exists())
         self.assertTrue(any("Release the current round" in action for action in result["next_actions"]))
 
     def test_fast_terminal_child_does_not_become_unknown_effect(self) -> None:
