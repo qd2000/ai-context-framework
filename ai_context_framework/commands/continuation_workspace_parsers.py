@@ -7,6 +7,7 @@ modules stay small enough for agent review.
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 
@@ -70,9 +71,10 @@ def register_workspace_parsers(subparsers, add_json_argument) -> None:
     )
     intent.add_argument("path", nargs="?", type=Path)
     intent.add_argument("--task-id", default=None)
-    intent.add_argument("--lease-id", required=True)
+    intent.add_argument("--owner-file", default=None)
+    intent.add_argument("--lease-id", default=None)
     intent.add_argument("--generation", type=int, default=None)
-    intent.add_argument("--fence-token", default=None)
+    intent.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     intent.add_argument("--path", dest="intent_path", action="append", required=True)
     add_json_argument(intent)
     intent.set_defaults(func=commands.continuation_workspace_intent_command)
@@ -83,9 +85,10 @@ def register_workspace_parsers(subparsers, add_json_argument) -> None:
     )
     reclassify.add_argument("path", nargs="?", type=Path)
     reclassify.add_argument("--task-id", default=None)
-    reclassify.add_argument("--lease-id", required=True)
+    reclassify.add_argument("--owner-file", default=None)
+    reclassify.add_argument("--lease-id", default=None)
     reclassify.add_argument("--generation", type=int, default=None)
-    reclassify.add_argument("--fence-token", default=None)
+    reclassify.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     reclassify.add_argument(
         "--task-owned",
         dest="task_owned_path",
@@ -162,9 +165,10 @@ def register_workspace_parsers(subparsers, add_json_argument) -> None:
     )
     refresh.add_argument("path", nargs="?", type=Path)
     refresh.add_argument("--task-id", default=None)
-    refresh.add_argument("--lease-id", required=True)
+    refresh.add_argument("--owner-file", default=None)
+    refresh.add_argument("--lease-id", default=None)
     refresh.add_argument("--generation", type=int, default=None)
-    refresh.add_argument("--fence-token", default=None)
+    refresh.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     add_json_argument(refresh)
     refresh.set_defaults(func=commands.continuation_workspace_refresh_command)
 

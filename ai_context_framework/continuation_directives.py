@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from ai_context_framework.sensitive_data import contains_credential_like_text
+
 
 DIRECTIVE_JOURNAL_SCHEMA = "acf.continuation.directive-journal.v1"
 DIRECTIVE_EVENT_SCHEMA = "acf.continuation.directive-event.v1"
@@ -38,14 +40,6 @@ MAX_PRIORITY = 100
 
 _DIRECTIVE_ID_RE = re.compile(r"dir-[0-9a-f]{20}")
 _EVENT_ID_RE = re.compile(r"dev-[0-9a-f]{20}")
-_SENSITIVE_VALUE_RE = re.compile(
-    r"(?i)(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|"
-    r"\b(?:api[_ -]?key|password|passwd|fence[_ -]?token|credential|access[_ -]?token|"
-    r"refresh[_ -]?token|token|license(?:[_ -]?key)?|private[_ -]?key)\b\s*[:=]\s*\S+|"
-    r"\bsk-[A-Za-z0-9_-]{20,})"
-)
-
-
 class DirectiveError(ValueError):
     def __init__(self, message: str, *, code: str = "directive_invalid") -> None:
         super().__init__(message)
@@ -642,7 +636,7 @@ def _text(value: str, *, field: str, max_bytes: int = MAX_DIRECTIVE_TEXT_BYTES) 
     cleaned = _nonempty(value, field=field)
     if len(cleaned.encode("utf-8")) > max_bytes:
         raise DirectiveError(f"{field} exceeds {max_bytes} bytes", code="directive_bounds_exceeded")
-    if _SENSITIVE_VALUE_RE.search(cleaned):
+    if contains_credential_like_text(cleaned):
         raise DirectiveError(
             f"sensitive credential-like value refused in {field}",
             code="directive_sensitive_value_refused",

@@ -13,14 +13,18 @@ from typing import Any, Mapping
 
 from ai_context_framework import continuation_execution, continuation_rounds
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
+from ai_context_framework.sensitive_data import (
+    contains_credential_like_text,
+    is_explicit_credential_key,
+    redact_credential_like_text,
+)
 
 
 MAX_CAPTURE_BYTES = 64 * 1024
+TRUNCATED_OUTPUT_REDACTED = "[truncated child output omitted because sanitization context is incomplete]\n"
 MIN_POLL_SECONDS = 0.05
 MAX_POLL_SECONDS = 1.0
 MAX_KEEPALIVE_SECONDS = 300.0
-
-
 def split_cli_child_argv(argv: list[str]) -> tuple[list[str], list[str] | None]:
     """Detach the literal ``--`` child tail before argparse interprets child flags.
 
@@ -59,34 +63,60 @@ def _command_argv(args: argparse.Namespace) -> list[str]:
                 "Pass the exact local command after `--`; shell interpolation is intentionally not implicit."
             ],
         )
+    for value in values:
+        option = value.split("=", 1)[0].lstrip("-/")
+        if is_explicit_credential_key(option) or contains_credential_like_text(value):
+            raise core.ContinuationError(
+                "physical execution refuses credential-bearing child argv",
+                code="physical_execution_sensitive_argv_refused",
+                exit_code=3,
+                next_actions=[
+                    "Pass only non-secret command arguments. Use a child-local credential file, OS credential mechanism, or another transport that keeps reusable credentials out of the ACF command boundary."
+                ],
+            )
     return values
+
+
+def _command_summary(argv: list[str]) -> dict[str, object]:
+    executable = Path(argv[0]).name or argv[0]
+    return {
+        "executable": executable,
+        "argument_count": max(0, len(argv) - 1),
+        "argv_persisted": False,
+    }
 
 
 def _child_environment() -> dict[str, str]:
     """Inherit ordinary process environment without parent owner credentials.
 
-    ``ACF_CONTINUATION_FENCE_TOKEN_FILE`` is a caller-owned authentication
-    handle for the supervising ACF process.  Passing that handle into the
-    supervised child would let an otherwise ordinary local command (or one of
-    its descendants) read or overwrite the parent's continuation credential.
-    The supervisor keeps its own environment unchanged and only scrubs the
-    child copy.
+    Owner capability paths are CLI-only.  Scrub the retired credential-file
+    environment key as defense in depth so it cannot be delegated to a child.
+    The supervisor keeps its own environment unchanged.
     """
 
     child_env = os.environ.copy()
-    child_env.pop(continuation_workspace_commands.FENCE_TOKEN_FILE_ENV, None)
+    child_env.pop(continuation_workspace_commands.LEGACY_FENCE_TOKEN_FILE_ENV, None)
+    child_env.pop("ACF_CONTINUATION_OWNER_FILE", None)
     return child_env
 
 
 def _bounded_tail(stream) -> str:
     stream.flush()
     size = stream.tell()
-    stream.seek(max(0, size - MAX_CAPTURE_BYTES))
+    if size > MAX_CAPTURE_BYTES:
+        # Starting a regex/redaction pass at an arbitrary byte offset can land
+        # in the middle of a credential value or private-key block after the
+        # identifying key/header has already been discarded.  Do not expose a
+        # context-free fragment.  The caller still reports output_truncated;
+        # short output retains the normal bounded diagnostic path below.
+        return TRUNCATED_OUTPUT_REDACTED
+    stream.seek(0)
     raw = stream.read(MAX_CAPTURE_BYTES)
     # Keep the machine-readable parent JSON platform-neutral.  Child output is
     # diagnostic text, so normalize Windows CRLF/CR newlines after decoding
     # instead of exposing host-specific line endings to callers/tests.
-    return raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    return redact_credential_like_text(text)[0]
 
 
 def _keepalive_seconds(control: Mapping[str, Any]) -> float:
@@ -120,13 +150,12 @@ def _load_owner(
     core = _continuation()
     control = core._load_control(paths, root)
     snapshot = core._lease_snapshot(paths, control)
-    lease = core._assert_lease_owner_with_activity(
+    lease, _owner_context = continuation_workspace_commands.assert_owner_context(
+        args,
         paths,
-        control,
-        snapshot,
-        lease_id=args.lease_id,
-        fence_token=continuation_workspace_commands.resolve_fence_token(args),
-        generation=args.generation,
+        root=root,
+        control=control,
+        snapshot=snapshot,
     )
     core._require_fenced_generation(lease)
     git = core._git_identity(root)
@@ -209,6 +238,7 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
         root = core._workspace_root(args.path)
         paths = core._paths(root, args.task_id)
         argv = _command_argv(args)
+        execution_key = core._validate_public_input_text(args.key, field="execution_key")
         with core._state_lock(paths["lock"]):
             control, lease = _load_owner(root, paths, args)
             if paths["pause"].exists():
@@ -226,11 +256,11 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                         journal,
                         task_id=str(control["task_id"]),
                         generation=generation,
-                        logical_key=args.key,
+                        logical_key=execution_key,
                         kind=continuation_execution.PHYSICAL_EXECUTION_EFFECT_KIND,
                         external_id=None,
                         milestone="spawn_pending",
-                        evidence_refs=[f"physical-execution:{args.key}:prepared"],
+                        evidence_refs=[f"physical-execution:{execution_key}:prepared"],
                         now=core._iso(),
                     )
                 )
@@ -277,10 +307,10 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                         paths,
                         control,
                         generation=generation,
-                        key=args.key,
+                        key=execution_key,
                         status="failed",
                         milestone="spawn_failed",
-                        evidence_ref=f"physical-execution:{args.key}:spawn-failed",
+                        evidence_ref=f"physical-execution:{execution_key}:spawn-failed",
                     )
                 raise core.ContinuationError(
                     f"physical execution spawn failed: {exc}",
@@ -320,10 +350,10 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                             paths,
                             control,
                             generation=generation,
-                            key=args.key,
+                            key=execution_key,
                             status=terminal_status,
                             milestone=f"process_exit_{return_code}",
-                            evidence_ref=f"physical-execution:{args.key}:exit:{return_code}",
+                            evidence_ref=f"physical-execution:{execution_key}:exit:{return_code}",
                         )
                         pause_pending = paths["pause"].exists()
                     return {
@@ -336,8 +366,8 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                         ),
                         "task_id": control["task_id"],
                         "generation": generation,
-                        "key": args.key,
-                        "command_argv": argv,
+                        "key": execution_key,
+                        "command": _command_summary(argv),
                         "returncode": return_code,
                         "process_identity": None,
                         "effect": effect,
@@ -365,10 +395,10 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                             paths,
                             control,
                             generation=generation,
-                            key=args.key,
+                            key=execution_key,
                             status="unknown",
                             milestone="identity_unverifiable",
-                            evidence_ref=f"physical-execution:{args.key}:identity-unverifiable",
+                            evidence_ref=f"physical-execution:{execution_key}:identity-unverifiable",
                         )
                     raise core.ContinuationError(
                         f"physical execution identity is unverifiable: {exc}",
@@ -387,11 +417,11 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                     paths,
                     control,
                     generation=generation,
-                    key=args.key,
+                    key=execution_key,
                     status="active",
                     external_id=process_identity,
                     milestone="process_running",
-                    evidence_ref=f"physical-execution:{args.key}:process-started",
+                    evidence_ref=f"physical-execution:{execution_key}:process-started",
                 )
                 # Refresh owner liveness as soon as the supervised process has
                 # a durable identity.  Without this initial keepalive, a busy
@@ -440,10 +470,10 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                     paths,
                     control,
                     generation=generation,
-                    key=args.key,
+                    key=execution_key,
                     status=terminal_status,
                     milestone=f"process_exit_{return_code}",
-                    evidence_ref=f"physical-execution:{args.key}:exit:{return_code}",
+                    evidence_ref=f"physical-execution:{execution_key}:exit:{return_code}",
                 )
                 pause_pending = paths["pause"].exists()
             return {
@@ -452,8 +482,8 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                 "status": "physical_execution_completed" if return_code == 0 else "physical_execution_failed",
                 "task_id": control["task_id"],
                 "generation": generation,
-                "key": args.key,
-                "command_argv": argv,
+                "key": execution_key,
+                "command": _command_summary(argv),
                 "returncode": return_code,
                 "process_identity": process_identity,
                 "effect": effect,
@@ -497,9 +527,10 @@ def register_execution_parser(subparsers, add_json_argument) -> None:
     )
     run.add_argument("path", nargs="?", type=Path)
     run.add_argument("--task-id", default=None)
-    run.add_argument("--lease-id", required=True)
+    run.add_argument("--owner-file", default=None)
+    run.add_argument("--lease-id", default=None)
     run.add_argument("--generation", type=int, default=None)
-    run.add_argument("--fence-token", default=None)
+    run.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     run.add_argument(
         "--key",
         required=True,

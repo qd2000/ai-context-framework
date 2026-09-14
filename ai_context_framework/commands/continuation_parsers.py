@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -24,9 +25,10 @@ def register_round_effect_parsers(
     )
     progress.add_argument("path", nargs="?", type=Path)
     progress.add_argument("--task-id", default=None)
-    progress.add_argument("--lease-id", required=True)
+    progress.add_argument("--owner-file", default=None)
+    progress.add_argument("--lease-id", default=None)
     progress.add_argument("--generation", type=int, default=None)
-    progress.add_argument("--fence-token", default=None)
+    progress.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     progress.add_argument("--phase", choices=tuple(sorted(set(round_phases) - {"released"})), default=None)
     progress.add_argument("--milestone", default=None)
     progress.add_argument("--evidence-ref", action="append", default=None)
@@ -45,9 +47,10 @@ def register_round_effect_parsers(
     )
     prepare.add_argument("path", nargs="?", type=Path)
     prepare.add_argument("--task-id", default=None)
-    prepare.add_argument("--lease-id", required=True)
+    prepare.add_argument("--owner-file", default=None)
+    prepare.add_argument("--lease-id", default=None)
     prepare.add_argument("--generation", type=int, default=None)
-    prepare.add_argument("--fence-token", default=None)
+    prepare.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     prepare.add_argument("--key", required=True)
     prepare.add_argument("--kind", required=True)
     prepare.add_argument("--external-id", default=None)
@@ -62,9 +65,10 @@ def register_round_effect_parsers(
     )
     update.add_argument("path", nargs="?", type=Path)
     update.add_argument("--task-id", default=None)
-    update.add_argument("--lease-id", required=True)
+    update.add_argument("--owner-file", default=None)
+    update.add_argument("--lease-id", default=None)
     update.add_argument("--generation", type=int, default=None)
-    update.add_argument("--fence-token", default=None)
+    update.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     update.add_argument("--key", required=True)
     update.add_argument("--status", choices=tuple(sorted(effect_statuses)), default=None)
     update.add_argument("--external-id", default=None)

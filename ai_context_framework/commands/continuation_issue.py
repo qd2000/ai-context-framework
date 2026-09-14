@@ -39,12 +39,28 @@ def continuation_issue_command(args: argparse.Namespace) -> int:
                     "Run `acf log enable` from the project context before recording dogfood issues."
                 ],
             )
-        category = str(args.category or "other").strip().lower() or "other"
+        category = core._validate_public_input_text(
+            str(args.category or "other").strip().lower() or "other",
+            field="category",
+        )
         severity = str(args.severity or "medium").strip().lower()
         if severity not in {"low", "medium", "high", "critical"}:
             raise core.ContinuationError("unsupported issue severity", code="issue_invalid")
-        text = core._validate_text(args.text, field="text")
+        text = core._validate_public_input_text(args.text, field="text")
         related_command = str(args.related_command or "").strip()
+        if related_command:
+            related_command = core._validate_public_input_text(
+                related_command,
+                field="related_command",
+            )
+        evidence_refs = [
+            core._validate_public_input_text(value, field="evidence_ref")
+            for value in list(dict.fromkeys(args.evidence_ref or []))[: core.MAX_LIST_ITEMS]
+        ]
+        runner_id = core._validate_public_input_text(
+            str(args.runner_id or "agent").strip() or "agent",
+            field="runner_id",
+        )
         resolve_fingerprint = str(args.resolve_fingerprint or "").strip().lower()
         if resolve_fingerprint:
             if not re.fullmatch(r"[0-9a-f]{20}", resolve_fingerprint):
@@ -76,9 +92,9 @@ def continuation_issue_command(args: argparse.Namespace) -> int:
             "severity": severity,
             "text": text,
             "fingerprint": fingerprint,
-            "evidence_refs": list(dict.fromkeys(args.evidence_ref or []))[: core.MAX_LIST_ITEMS],
+            "evidence_refs": evidence_refs,
             "related_command": related_command or None,
-            "runner_id": str(args.runner_id or "agent").strip() or "agent",
+            "runner_id": runner_id,
             "ok": True,
             "exit_code": 0,
             "error_code": None,

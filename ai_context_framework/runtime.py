@@ -1281,13 +1281,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     continuation_assert_owner_parser = continuation_subparsers.add_parser(
         "assert-owner",
-        help="verify that lease id, generation, and fence token still own the active round",
+        help="verify that a local owner-context capability still owns the active round",
     )
     continuation_assert_owner_parser.add_argument("path", nargs="?", type=Path)
     continuation_assert_owner_parser.add_argument("--task-id", default=None)
-    continuation_assert_owner_parser.add_argument("--lease-id", required=True)
+    continuation_assert_owner_parser.add_argument("--owner-file", default=None)
+    continuation_assert_owner_parser.add_argument("--lease-id", default=None)
     continuation_assert_owner_parser.add_argument("--generation", type=int, default=None)
-    continuation_assert_owner_parser.add_argument("--fence-token", default=None)
+    continuation_assert_owner_parser.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     add_json_argument(continuation_assert_owner_parser)
     continuation_assert_owner_parser.set_defaults(
         func=continuation_commands.continuation_assert_owner_command
@@ -1299,9 +1300,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     continuation_heartbeat_parser.add_argument("path", nargs="?", type=Path)
     continuation_heartbeat_parser.add_argument("--task-id", default=None)
-    continuation_heartbeat_parser.add_argument("--lease-id", required=True)
+    continuation_heartbeat_parser.add_argument("--owner-file", default=None)
+    continuation_heartbeat_parser.add_argument("--lease-id", default=None)
     continuation_heartbeat_parser.add_argument("--generation", type=int, default=None)
-    continuation_heartbeat_parser.add_argument("--fence-token", default=None)
+    continuation_heartbeat_parser.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     add_json_argument(continuation_heartbeat_parser)
     continuation_heartbeat_parser.set_defaults(func=continuation_commands.continuation_heartbeat_command)
 
@@ -1328,9 +1330,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     continuation_renew_parser.add_argument("path", nargs="?", type=Path)
     continuation_renew_parser.add_argument("--task-id", default=None)
-    continuation_renew_parser.add_argument("--lease-id", required=True)
+    continuation_renew_parser.add_argument("--owner-file", default=None)
+    continuation_renew_parser.add_argument("--lease-id", default=None)
     continuation_renew_parser.add_argument("--generation", type=int, default=None)
-    continuation_renew_parser.add_argument("--fence-token", default=None)
+    continuation_renew_parser.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     continuation_renew_parser.add_argument("--ttl-minutes", type=int, default=None)
     add_json_argument(continuation_renew_parser)
     continuation_renew_parser.set_defaults(func=continuation_commands.continuation_renew_command)
@@ -1341,9 +1344,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     continuation_checkpoint_parser.add_argument("path", nargs="?", type=Path)
     continuation_checkpoint_parser.add_argument("--task-id", default=None)
-    continuation_checkpoint_parser.add_argument("--lease-id", required=True)
+    continuation_checkpoint_parser.add_argument("--owner-file", default=None)
+    continuation_checkpoint_parser.add_argument("--lease-id", default=None)
     continuation_checkpoint_parser.add_argument("--generation", type=int, default=None)
-    continuation_checkpoint_parser.add_argument("--fence-token", default=None)
+    continuation_checkpoint_parser.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     continuation_checkpoint_parser.add_argument(
         "--status",
         choices=tuple(sorted(continuation_commands.STATE_STATUSES)),

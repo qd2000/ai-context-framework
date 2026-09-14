@@ -15,8 +15,10 @@ ai_context_framework/continuation_directives.py
 ai_context_framework/continuation_effect_archive.py
 ai_context_framework/continuation_execution.py
 ai_context_framework/continuation_inventory.py
+ai_context_framework/continuation_owner_context.py
 ai_context_framework/continuation_recovery.py
 ai_context_framework/continuation_rounds.py
+ai_context_framework/continuation_transaction.py
 ai_context_framework/continuation_workspace.py
 ai_context_framework/front_matter.py
 ai_context_framework/git_support.py
@@ -35,6 +37,7 @@ ai_context_framework/observer_target_projection.py
 ai_context_framework/observer_targets.py
 ai_context_framework/paths.py
 ai_context_framework/runtime.py
+ai_context_framework/sensitive_data.py
 ai_context_framework/tables.py
 ai_context_framework/templates.py
 ai_context_framework/version.py
@@ -57,6 +60,8 @@ ai_context_framework/commands/continuation_coordination.py
 ai_context_framework/commands/continuation_directives.py
 ai_context_framework/commands/continuation_execution.py
 ai_context_framework/commands/continuation_issue.py
+ai_context_framework/commands/continuation_owner.py
+ai_context_framework/commands/continuation_pause.py
 ai_context_framework/commands/continuation_parsers.py
 ai_context_framework/commands/continuation_recovery.py
 ai_context_framework/commands/continuation_release.py
@@ -150,6 +155,7 @@ tests/test_context_matrix.py
 tests/test_context_routing.py
 tests/test_continuation_cli.py
 tests/test_continuation_execution.py
+tests/test_continuation_owner_context.py
 tests/test_entrypoint_smoke.py
 tests/test_install_scripts.py
 tests/test_log_inventory.py
@@ -158,6 +164,7 @@ tests/test_observer_presentation.py
 tests/test_observer_target_projection.py
 tests/test_observer_targets.py
 tests/test_package_skeleton.py
+tests/test_sensitive_data.py
 tests/test_upgrade_audit.py
 tests/test_upgrade_matrix.py
 tests/test_worktree_artifacts.py
