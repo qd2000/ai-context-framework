@@ -267,6 +267,176 @@ class ResilientMergeCliTests(unittest.TestCase):
         self.assertEqual(payload["collisions"]["identical_overlap_paths"], ["same.txt"])
         self.assertNotIn("same.txt", git(self.repo, "status", "--porcelain").stdout)
 
+    def test_identical_tracked_overlap_does_not_make_fast_forward_pause(self):
+        primary = self.repo / "same.txt"
+        primary.write_text("base\n", encoding="utf-8")
+        git(self.repo, "add", "same.txt")
+        git(self.repo, "commit", "-m", "tracked overlap base")
+        git(self.target, "merge", "main")
+        self.commit_source("same.txt", "candidate\n")
+        self.mark_ready()
+        primary.write_text("candidate\n", encoding="utf-8")
+
+        code, payload, stderr = self.merge(["--wait-timeout", "0"])
+
+        self.assertEqual(code, 0, (stderr, payload))
+        self.assertEqual(payload["status"], "merged")
+        self.assertEqual(payload["collisions"]["identical_overlap_paths"], ["same.txt"])
+        self.assertEqual(primary.read_text(encoding="utf-8"), "candidate\n")
+        self.assertNotIn("same.txt", git(self.repo, "status", "--porcelain").stdout)
+
+    def test_identical_tracked_overlap_is_restored_when_fast_forward_fails(self):
+        primary = self.repo / "same.txt"
+        primary.write_text("base\n", encoding="utf-8")
+        git(self.repo, "add", "same.txt")
+        git(self.repo, "commit", "-m", "tracked overlap restore base")
+        git(self.target, "merge", "main")
+        self.commit_source("same.txt", "candidate\n")
+        self.mark_ready()
+        primary.write_text("candidate\n", encoding="utf-8")
+
+        from ai_context_framework import worktree_resilient_merge
+
+        real_run_git = worktree_resilient_merge.run_git
+
+        def fail_fast_forward(repo, args, *, check=True):
+            if tuple(args[:2]) == ("merge", "--ff-only"):
+                return GitCommandResult(
+                    argv=("git", *args),
+                    cwd=str(repo),
+                    returncode=1,
+                    stdout="",
+                    stderr="synthetic fast-forward refusal",
+                )
+            return real_run_git(repo, args, check=check)
+
+        with patch(
+            "ai_context_framework.worktree_resilient_merge.run_git",
+            side_effect=fail_fast_forward,
+        ):
+            code, payload, _stderr = self.merge(["--wait-timeout", "0"])
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(payload["pause_reason"], "primary_fast_forward_refused")
+        self.assertEqual(primary.read_text(encoding="utf-8"), "candidate\n")
+        self.assertIn("same.txt", git(self.repo, "status", "--porcelain").stdout)
+
+    def test_partial_tracked_quarantine_failure_restores_all_local_overlaps(self):
+        tracked_a = self.repo / "tracked-a.txt"
+        tracked_b = self.repo / "tracked-b.txt"
+        tracked_a.write_text("base-a\n", encoding="utf-8")
+        tracked_b.write_text("base-b\n", encoding="utf-8")
+        git(self.repo, "add", "tracked-a.txt", "tracked-b.txt")
+        git(self.repo, "commit", "-m", "tracked quarantine rollback base")
+        git(self.target, "merge", "main")
+
+        (self.target / "tracked-a.txt").write_text("candidate-a\n", encoding="utf-8")
+        (self.target / "tracked-b.txt").write_text("candidate-b\n", encoding="utf-8")
+        (self.target / "same-untracked.txt").write_text("candidate-untracked\n", encoding="utf-8")
+        git(self.target, "add", "--all")
+        git(self.target, "commit", "-m", "source quarantine rollback candidates")
+        self.mark_ready()
+
+        tracked_a.write_text("candidate-a\n", encoding="utf-8")
+        tracked_b.write_text("candidate-b\n", encoding="utf-8")
+        untracked = self.repo / "same-untracked.txt"
+        untracked.write_text("candidate-untracked\n", encoding="utf-8")
+
+        from ai_context_framework import worktree_resilient_merge
+
+        real_run_git = worktree_resilient_merge.run_git
+        checkout_index_calls = 0
+
+        def fail_second_checkout_index(repo, args, *, check=True):
+            nonlocal checkout_index_calls
+            if args and args[0] == "checkout-index":
+                checkout_index_calls += 1
+                if checkout_index_calls == 2:
+                    return GitCommandResult(
+                        argv=("git", *args),
+                        cwd=str(repo),
+                        returncode=1,
+                        stdout="",
+                        stderr="synthetic checkout-index refusal",
+                    )
+            return real_run_git(repo, args, check=check)
+
+        with patch(
+            "ai_context_framework.worktree_resilient_merge.run_git",
+            side_effect=fail_second_checkout_index,
+        ):
+            code, _payload, _stderr = self.merge(["--wait-timeout", "0"])
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(tracked_a.read_text(encoding="utf-8"), "candidate-a\n")
+        self.assertEqual(tracked_b.read_text(encoding="utf-8"), "candidate-b\n")
+        self.assertEqual(untracked.read_text(encoding="utf-8"), "candidate-untracked\n")
+        status = git(self.repo, "status", "--porcelain").stdout
+        self.assertIn("tracked-a.txt", status)
+        self.assertIn("tracked-b.txt", status)
+        self.assertIn("?? same-untracked.txt", status)
+
+    def test_tracked_identical_overlap_changed_after_snapshot_is_preserved(self):
+        primary = self.repo / "same.txt"
+        primary.write_text("base\n", encoding="utf-8")
+        git(self.repo, "add", "same.txt")
+        git(self.repo, "commit", "-m", "tracked concurrent edit base")
+        git(self.target, "merge", "main")
+        self.commit_source("same.txt", "candidate\n")
+        self.mark_ready()
+        primary.write_text("candidate\n", encoding="utf-8")
+        primary_head = git(self.repo, "rev-parse", "HEAD").stdout.strip()
+
+        real_replace = os.replace
+        changed = False
+
+        def change_source_before_quarantine(source, destination):
+            nonlocal changed
+            if not changed and Path(source) == primary:
+                primary.write_text("concurrent edit\n", encoding="utf-8")
+                changed = True
+            return real_replace(source, destination)
+
+        with patch(
+            "ai_context_framework.worktree_resilient_merge.os.replace",
+            side_effect=change_source_before_quarantine,
+        ):
+            code, _payload, _stderr = self.merge(["--wait-timeout", "0"])
+
+        self.assertNotEqual(code, 0)
+        self.assertTrue(changed)
+        self.assertEqual(primary.read_text(encoding="utf-8"), "concurrent edit\n")
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD").stdout.strip(), primary_head)
+
+    def test_untracked_identical_overlap_changed_after_snapshot_is_preserved(self):
+        self.commit_source("same.txt", "candidate\n")
+        self.mark_ready()
+        primary = self.repo / "same.txt"
+        primary.write_text("candidate\n", encoding="utf-8")
+        primary_head = git(self.repo, "rev-parse", "HEAD").stdout.strip()
+
+        real_replace = os.replace
+        changed = False
+
+        def change_source_before_quarantine(source, destination):
+            nonlocal changed
+            if not changed and Path(source) == primary:
+                primary.write_text("concurrent edit\n", encoding="utf-8")
+                changed = True
+            return real_replace(source, destination)
+
+        with patch(
+            "ai_context_framework.worktree_resilient_merge.os.replace",
+            side_effect=change_source_before_quarantine,
+        ):
+            code, _payload, _stderr = self.merge(["--wait-timeout", "0"])
+
+        self.assertNotEqual(code, 0)
+        self.assertTrue(changed)
+        self.assertEqual(primary.read_text(encoding="utf-8"), "concurrent edit\n")
+        self.assertIn("?? same.txt", git(self.repo, "status", "--porcelain").stdout)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD").stdout.strip(), primary_head)
+
     def test_divergent_overlap_pauses_without_changing_main(self):
         self.commit_source("same.txt", "candidate\n")
         self.mark_ready()

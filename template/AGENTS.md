@@ -64,7 +64,7 @@ archive/     历史归档和 `archive/feedback/` 已处理反馈归档，默认�
 - 处理并行 Workstream 时，先运行 `acf workstream context WSxxx` 获取专属任务入口；需要扩展边界时使用 `acf workstream scope-add WSxxx --reason ...`；完成、ready、done 或切换状态前，优先运行 `acf workstream guard WSxxx --files <本次修改文件...> --json` 做文件集强验收；裸 `guard` / `--from-git` 只适合快速查看当前 git diff，旧式整工作区排他检查需显式使用 `--workspace --strict-workspace`；需要总览时运行 `acf workstream dashboard`。
 - 创建 Workstream 不隐式创建 Git worktree。需要先预约唯一编号时调用 `acf workstream reserve`；长期、并行或需独立合并的任务由 AI 再调用 `acf worktree create --workstream WSxxx --apply --json`。不需要隔离环境的 Workstream 继续在原执行位置推进；不得仅因 Workstream 存在就创建 worktree。
 - `acf workstream reserve` 允许保留与 reservation detail/index 无关的 primary staged/unstaged/untracked 修改；预约路径自身或父子路径冲突时 fail-closed。
-- `acf worktree merge` 必须在 ACF 管理的临时 integration worktree 中完成真实 merge 和 post-check，primary checkout 只执行碰撞保护后的 fast-forward promotion。来源 worktree 必须 clean；primary 可保留无关 staged/unstaged/untracked 修改。发生冲突、检查失败或短时并发竞争时，优先使用 operation ID 等待、重规划或 resume，不得在 primary 中直接制造冲突，也不得自动 stash、reset、clean、rebase 或 force。关闭前必须完成 ignored/untracked artifact handoff。
+- 只有任务实际涉及 worktree 的 merge / close / recovery / artifact handoff 时，才按需查看 `acf worktree --help` 和 `reference/System_Manual.md` 的对应细节；默认入口不复制完整 worktree 状态机。安全边界保持不变：不得自动 stash、reset、clean、rebase、force，也不得静默解决冲突。
 - 需要参数细节时，先查看 `acf --help`；需要系统级说明时，再读取 `reference/System_Manual.md`。
 
 `acf` 只负责结构化落盘、检查和草案生成，不替代人或 AI 对事实和语义的判断。

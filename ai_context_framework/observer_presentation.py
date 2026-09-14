@@ -736,25 +736,29 @@ def read_presentation_state(project: Any) -> dict[str, object]:
     }
 
 
-def read_semantic_review_history(project: Any, target_id: str) -> list[dict[str, object]]:
-    """Read durable semantic-review versions from the presentation event journal.
+def _read_semantic_review_history_with_diagnostics(
+    project: Any,
+    target_id: str,
+) -> tuple[list[dict[str, object]], list[str]]:
+    """Read valid semantic-review history while retaining local journal errors.
 
-    Current state intentionally keeps only the latest reviewed semantics.  The
-    append-only event journal is the authority for older reviewed versions, so
-    history views must read that journal instead of reconstructing old maps
-    from today's target state.
+    Presentation history is append-only and may outlive older validation
+    contracts.  One malformed or legacy-incompatible event must not erase all
+    otherwise-valid archived reviews from the human-facing history view.  The
+    caller still receives fail-visible diagnostics for every skipped event.
     """
 
     target_id = _validated_target_id(target_id)
     path = observer_presentation_paths(project)["events"]
     if not path.is_file():
-        return []
+        return [], []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
         raise ObserverPresentationError(f"cannot read observer presentation history: {exc}") from exc
 
     reviews: list[dict[str, object]] = []
+    diagnostics: list[str] = []
     seen_review_ids: set[str] = set()
     for line_number, line in enumerate(lines, start=1):
         if not line.strip():
@@ -762,20 +766,23 @@ def read_semantic_review_history(project: Any, target_id: str) -> list[dict[str,
         try:
             event = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise ObserverPresentationError(
-                f"cannot read observer presentation history line {line_number}: {exc}"
-            ) from exc
+            diagnostics.append(f"cannot read observer presentation history line {line_number}: {exc}")
+            continue
         if not isinstance(event, dict) or event.get("schema_version") != OBSERVER_PRESENTATION_EVENT_SCHEMA:
-            raise ObserverPresentationError(
-                f"unsupported observer presentation history event at line {line_number}"
-            )
+            diagnostics.append(f"unsupported observer presentation history event at line {line_number}")
+            continue
         if event.get("project_id") != project.project_id:
-            raise ObserverPresentationError(
-                f"observer presentation history project_id mismatch at line {line_number}"
-            )
+            diagnostics.append(f"observer presentation history project_id mismatch at line {line_number}")
+            continue
         if event.get("target_id") != target_id or event.get("event_kind") != "semantic_review_applied":
             continue
-        review = _validated_review(event.get("review"))
+        try:
+            review = _validated_review(event.get("review"))
+        except ObserverPresentationError as exc:
+            diagnostics.append(
+                f"cannot read observer presentation history line {line_number}: {exc}"
+            )
+            continue
         review_id = str(review["review_id"])
         if review_id in seen_review_ids:
             continue
@@ -788,6 +795,24 @@ def read_semantic_review_history(project: Any, target_id: str) -> list[dict[str,
             str(row.get("review_id") or ""),
         )
     )
+    return reviews, diagnostics
+
+
+def read_semantic_review_history(project: Any, target_id: str) -> list[dict[str, object]]:
+    """Read durable semantic-review versions from the presentation event journal.
+
+    Current state intentionally keeps only the latest reviewed semantics.  The
+    append-only event journal is the authority for older reviewed versions, so
+    history views must read that journal instead of reconstructing old maps
+    from today's target state.  This strict public helper preserves the prior
+    contract for callers that require the whole journal to validate cleanly;
+    the dashboard projection uses the diagnostic reader so valid history can
+    remain visible when one legacy event is incompatible.
+    """
+
+    reviews, diagnostics = _read_semantic_review_history_with_diagnostics(project, target_id)
+    if diagnostics:
+        raise ObserverPresentationError(diagnostics[0])
     return reviews
 
 
@@ -983,8 +1008,19 @@ def presentation_status(project: Any, target_views: dict[str, object]) -> dict[s
             target_state = _default_target_state(target_id)
         review = target_state.get("current_review")
         try:
-            review_history = read_semantic_review_history(project, target_id)
-            review_history_error = None
+            review_history, history_diagnostics = _read_semantic_review_history_with_diagnostics(
+                project,
+                target_id,
+            )
+            review_history_error = (
+                history_diagnostics[0]
+                if len(history_diagnostics) == 1
+                else (
+                    f"{history_diagnostics[0]} (+{len(history_diagnostics) - 1} more history errors)"
+                    if history_diagnostics
+                    else None
+                )
+            )
         except ObserverPresentationError as exc:
             review_history = []
             review_history_error = str(exc)

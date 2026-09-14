@@ -426,14 +426,42 @@ Inactive
 ## 使用规则
 
 1. 本索引只保留低噪音摘要，由 `acf workstream sync` 从详情 front matter 同步。
-2. 单个 Workstream 详情文件是该 Workstream 的唯一事实源。
-3. Task / Merge / Maintenance 三类 Workstream 权限不同；Task 不直接写 authority 文件。
-4. Active 类 Workstream 默认禁止重叠 `owned:` 写入；共享文件必须显式 `shared:` 并设置 merge_owner 或 serial coordination。
-5. AI 执行前运行 `acf workstream context WSxxx`，完成、ready、done 或切换状态前优先运行 `acf workstream guard WSxxx --files <本次修改文件...> --json`；裸 guard / `--from-git` 只用于快速查看当前 git diff，旧式整工作区排他检查需显式使用 `--workspace --strict-workspace`。
-6. ReadyToMerge 表示任务产物完成；Done 表示合并或处置完成。
-7. Done / Cancelled workstream 只在当前计划仍需解释时保留在 active 区域。
-8. 当前计划结束后，Done / Cancelled workstream 应归档到 archive/workstreams。
+2. 写入范围超过 3 项时，索引只显示 `详情(N 项)`；完整 machine scope 始终从对应详情 front matter 读取。
+3. 单个 Workstream 详情文件是该 Workstream 的唯一事实源。
+4. Task / Merge / Maintenance 三类 Workstream 权限不同；Task 不直接写 authority 文件。
+5. Active 类 Workstream 默认禁止重叠 `owned:` 写入；共享文件必须显式 `shared:` 并设置 merge_owner 或 serial coordination。
+6. AI 执行前运行 `acf workstream context WSxxx`，完成、ready、done 或切换状态前优先运行 `acf workstream guard WSxxx --files <本次修改文件...> --json`；裸 guard / `--from-git` 只用于快速查看当前 git diff，旧式整工作区排他检查需显式使用 `--workspace --strict-workspace`。
+7. ReadyToMerge 表示任务产物完成；Done 表示合并或处置完成。
+8. Done / Cancelled workstream 只在当前计划仍需解释时保留在 active 区域。
+9. 当前计划结束后，Done / Cancelled workstream 应归档到 archive/workstreams。
 """
+
+
+WORKSTREAM_INDEX_INLINE_WRITE_SCOPE_LIMIT = 3
+WORKSTREAM_INDEX_WRITE_SCOPE_SUMMARY_RE = re.compile(r"^详情\((\d+) 项\)$")
+
+
+def summarize_workstream_index_write_scope(write_scope: str) -> str:
+    values = [value.strip() for value in write_scope.split(", ") if value.strip()]
+    if len(values) <= WORKSTREAM_INDEX_INLINE_WRITE_SCOPE_LIMIT:
+        return write_scope
+    return f"详情({len(values)} 项)"
+
+
+def expand_workstream_index_write_scope(root: Path, write_scope: str, detail: str) -> str:
+    if WORKSTREAM_INDEX_WRITE_SCOPE_SUMMARY_RE.fullmatch(write_scope) is None:
+        return write_scope
+    detail_value = strip_code_ticks(detail).strip()
+    if not detail_value or detail_value == "无。":
+        return write_scope
+    detail_path = (root / detail_value).resolve()
+    if not is_relative_to(detail_path, root):
+        raise SystemExit(f"workstream_schema_failed: detail path is outside context root: {detail_value}")
+    if not detail_path.exists():
+        return write_scope
+    metadata, _body, _diagnostics = parse_front_matter(read_text(detail_path))
+    values = normalize_typed_scope_values(metadata.get("write_scope"))
+    return ", ".join(values) if values else write_scope
 
 
 def parse_workstream_index(root: Path) -> list[WorkstreamEntry]:
@@ -454,16 +482,17 @@ def parse_workstream_index(root: Path) -> list[WorkstreamEntry]:
             continue
         if len(cells) < 8:
             raise SystemExit(f"workstream_schema_failed: {WORKSTREAM_INDEX_REL} has a malformed Workstream row")
+        detail = strip_code_ticks(cells[7])
         entries.append(
             WorkstreamEntry(
                 workstream_id=cells[0],
                 status=cells[1],
                 title=cells[2],
                 owner=cells[3],
-                write_scope=cells[4],
+                write_scope=expand_workstream_index_write_scope(root, cells[4], detail),
                 depends_on=cells[5],
                 output=cells[6],
-                detail=strip_code_ticks(cells[7]),
+                detail=detail,
             )
         )
     return entries
@@ -717,14 +746,19 @@ def render_workstream_index_text(root: Path, entries: Sequence[WorkstreamEntry])
         entry.status,
         entry.title,
         entry.owner,
-        entry.write_scope,
+        summarize_workstream_index_write_scope(entry.write_scope),
         entry.depends_on,
         entry.output,
         entry.detail,
     ]) for entry in entries]
     if not rows:
         rows = [render_table_row(["暂无", "Empty", "无。", "无。", "无。", "无。", "无。", "无。"])]
-    updated = "\n".join(lines[: table.body_start] + rows + lines[table.body_end :]).rstrip() + "\n"
+    updated = "\n".join(
+        lines[: table.header_index]
+        + [WORKSTREAM_TABLE_HEADER, "|---|---|---|---|---|---|---|---|"]
+        + rows
+        + lines[table.body_end :]
+    ).rstrip() + "\n"
     return update_workstream_index_state_text(updated, entries)
 
 

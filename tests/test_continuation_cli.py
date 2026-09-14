@@ -4929,6 +4929,28 @@ merge_resolution: merged
         self.assertEqual([challenge_id], [item["challenge_id"] for item in candidates])
         self.assertTrue(reconciled["observation"]["coordination_digest"])
 
+        # A later scheduler wake is allowed to register another contender
+        # before consuming the already-eligible receipt.  This append-only
+        # coordination bookkeeping must not invalidate the recovery evidence.
+        code, later_attempt, stderr = self.run_json(
+            [
+                "continuation",
+                "coordination",
+                "attempt",
+                str(self.root),
+                "--task-id",
+                "WS908",
+                "--runner-id",
+                "contender-b",
+                "--objective-summary",
+                "Resume the same recovery using the existing eligible receipt.",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{later_attempt}")
+        self.assertEqual("contender", later_attempt["attempt"]["status"])
+        later_challenge = self.open_challenge(later_attempt)
+        self.assertEqual(challenge_id, later_challenge["challenge"]["challenge_id"])
+
         recovery_token_file = Path(self._home.name) / "recovered-owner-fence.token"
         with patch.dict(
             os.environ,
@@ -8248,6 +8270,16 @@ merge_resolution: merged
         self.assertFalse(observer_wrapper["map_review_gate_required_for_semantic_risk"])
         self.assertTrue(observer_wrapper["agent_first_output"]["agent_is_primary_author"])
         self.assertFalse(observer_wrapper["agent_first_output"]["acf_renderer_required"])
+        self.assertTrue(
+            observer_wrapper["agent_first_output"]["update_failure_policy"][
+                "failed_update_must_not_replace_stable_entry"
+            ]
+        )
+        self.assertTrue(
+            observer_wrapper["agent_first_output"]["update_failure_policy"][
+                "freshness_must_remain_truthful_after_failure"
+            ]
+        )
         self.assertFalse(
             automation_contract["presentation_maintenance"]["transient_patch"][
                 "direct_dashboard_edit_allowed"

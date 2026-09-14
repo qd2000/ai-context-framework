@@ -334,23 +334,23 @@
   <main class="wrap">
     <header class="hero">
       <p class="eyebrow">WS012 · Project Observer Operational Dogfood</p>
-      <h1>Observer Agent-first：首个真实候选页</h1>
+      <h1>Observer Agent-first：Post-Beta 维护候选页</h1>
       <p class="hero-lead">
         当前目标不是继续扩展 ACF 的固定 renderer，而是证明 Observer Agent 可以直接理解真实项目材料、组织信息并维护自己的页面。
         这份页面由 Agent 直接编写，生成链不依赖 <code>primary_visualization</code>、Map Review/presentation lifecycle 或 ACF deterministic renderer。
       </p>
       <div class="badge-row">
-        <span class="badge current">当前阶段：S1</span>
-        <span class="badge good">S0 authority switch 已落盘</span>
+        <span class="badge current">当前阶段：Post-Beta S3 / successor maintenance</span>
+        <span class="badge good">.89 Beta 已发布并全局安装</span>
         <span class="badge">Candidate · 非 Production</span>
-        <span class="badge warn">人工视觉验收仍待完成</span>
+        <span class="badge warn">S4 平台提示迁移待用户完成</span>
       </div>
       <div class="facts" aria-label="关键事实">
-        <div class="fact"><b>S1</b><span>Agent-authored 真实页面纵向切片</span></div>
-        <div class="fact"><b>aa0a1d5</b><span>当前 Git HEAD / Agent-first authority commit</span></div>
-        <div class="fact"><b>v0.0.3.88</b><span>当前安装态 stable ACF</span></div>
+        <div class="fact"><b>g194</b><span>当前 Writer generation · recovered owner</span></div>
+        <div class="fact"><b>3c83d3c</b><span>最新 authority checkpoint</span></div>
+        <div class="fact"><b>v0.0.3.89</b><span>当前 canonical installed stable</span></div>
         <div class="fact"><b>0 unresolved</b><span>Continuation effect 未决项</span></div>
-        <div class="fact"><b>16:27 +08</b><span>本候选页观察时间 · 2026-09-11</span></div>
+        <div class="fact"><b>00:28 +08</b><span>本候选页观察时间 · 2026-09-13</span></div>
       </div>
     </header>
 
@@ -365,30 +365,30 @@
           <h3>Authority / Route 切换</h3>
           <p>priority-100 Agent-first directive 已 adopt；旧 v1.2 fixed-renderer 路线降为历史。</p>
         </article>
-        <article class="stage now" role="listitem">
-          <div class="kicker">S1 · 当前</div>
+        <article class="stage done" role="listitem">
+          <div class="kicker">S1 · 已完成最小切片</div>
           <h3>Agent-authored 真实页面</h3>
-          <p>直接从真实材料生成稳定 candidate 页面，证明 renderer/schema 非前置。</p>
+          <p>稳定 candidate 已证明页面生成不依赖 renderer/schema；人工视觉 PASS 仍单独保持 open。</p>
+        </article>
+        <article class="stage done" role="listitem">
+          <div class="kicker">S2 · minimum 已完成</div>
+          <h3>产品解耦与 early Beta</h3>
+          <p>Registry / semantic-review / Map Review / fixed renderer 已从 Agent-owned 输出前置降为 optional/legacy，并发布 v0.0.3.89。</p>
+        </article>
+        <article class="stage now" role="listitem">
+          <div class="kicker">S3 · 当前可推进</div>
+          <h3>历史 / 鲁棒性 / 接续</h3>
+          <p>在平台迁移等待期间继续维护真实 candidate、last-good、历史与可追溯接续，不为旧 schema 做 busywork。</p>
         </article>
         <article class="stage" role="listitem">
-          <div class="kicker">S2 · 下一步</div>
-          <h3>产品解耦与减法</h3>
-          <p>基于 S1 暴露的真实摩擦删除/降级强制 renderer、Registry gate 与旧 lifecycle。</p>
-        </article>
-        <article class="stage" role="listitem">
-          <div class="kicker">S3</div>
-          <h3>历史 / 指标 / 鲁棒性</h3>
-          <p>真实历史、可比指标、局部降级、last-good 与断点接续。</p>
-        </article>
-        <article class="stage" role="listitem">
-          <div class="kicker">S4</div>
+          <div class="kicker">S4 · 外部 handoff</div>
           <h3>Production Observer 迁移</h3>
-          <p>迁移正式提示与稳定入口，并取得独立 Production activation 证据。</p>
+          <p>用户需原位更新 ACF / FCC / AStockT_AI 三个现有 Scheduled Task 提示，再让它们自然运行。</p>
         </article>
         <article class="stage" role="listitem">
-          <div class="kicker">S5</div>
-          <h3>Legacy 删除与正常发布</h3>
-          <p>删除无调用者旧链路，更新文档/模板/测试，走正常 release 与 installed-state 验证。</p>
+          <div class="kicker">S5 · successor</div>
+          <h3>证据驱动清理与发布</h3>
+          <p>真实 dogfood 后再删除无调用者旧链路，并按实时版本 authority 发布 successor stable；不硬编码版本号。</p>
         </article>
       </div>
     </section>
@@ -401,18 +401,18 @@
       <div class="grid-3">
         <article class="panel card">
           <span class="label good">已证明</span>
-          <h3>Authority 已切到 Agent-first</h3>
-          <p>commit <code>aa0a1d5</code> 已把 WS012 正式路线从旧 H1/v1.2 renderer 续接切换为 S0–S5 Agent-first v2.0。</p>
+          <h3>Agent-first 已进入安装态 Beta</h3>
+          <p><code>v0.0.3.89</code> 已完成 immutable release / publish / global install；minimum S2 合同明确 legacy Registry / semantic-review / Map Review / fixed renderer 不是 Agent-owned 页面前置。</p>
         </article>
         <article class="panel card">
-          <span class="label current">正在证明</span>
-          <h3>页面可由 Agent 直接维护</h3>
-          <p>当前文件位于稳定 candidate 入口，直接由 Agent 编写 HTML/CSS；未调用 ACF snapshot、semantic-review 或 renderer 来生成页面。</p>
+          <span class="label current">当前维护</span>
+          <h3>Candidate 独立于 Production 更新</h3>
+          <p>本文件仍由 Agent 直接维护，不调用 canonical snapshot/interpret/narrative/render；因此可推进 S3，而不会把 Maintenance 刷新冒充 Production freshness。</p>
         </article>
         <article class="panel card">
           <span class="label warn">尚未完成</span>
-          <h3>Production 仍是旧链路</h3>
-          <p>安装态 v0.0.3.88 的 Production Dashboard 与 automation contract 仍包含旧 target/semantic-review/Map Review 约束，正式迁移属于 S2–S4。</p>
+          <h3>Production 提示尚未迁移</h3>
+          <p>平台中三个现有 Production Observer Scheduled Task 仍需用户按 §11.1 原位改成 Agent-first wrapper；当前 `.89` Production run 只能证明 installed binary 被消费，不能冒充 Agent-first Production acceptance。</p>
         </article>
       </div>
     </section>
@@ -477,23 +477,23 @@
           <tbody>
             <tr>
               <td>Agent-authored candidate</td>
-              <td>本页首次创建于 2026-09-11 16:27 +08:00；稳定入口不随 generation 改名。</td>
-              <td>可用于 S1 验证；尚未获得人工视觉 PASS。</td>
+              <td>稳定入口自 2026-09-11 起保持不变；本轮更新到 post-Beta / generation 194 事实。</td>
+              <td>用于 S3 维护与人工检查；仍不是 Production freshness 或最终视觉 PASS。</td>
             </tr>
             <tr>
               <td>Production Observer</td>
-              <td>只读 status 显示 revision 629，最近一次正式 run 约 15:47 +08:00 成功，Dashboard render 成功且数据 fresh。</td>
-              <td>Production watchdog 健康运行；Maintenance 没有用 snapshot/render 人工刷新它。</td>
+              <td>只读 status 当前为 revision 701；last run / Dashboard render 均 success，snapshot consistency=stable，lock=idle，数据仍在 fresh 窗口。</td>
+              <td>Production watchdog 仍独立运行；Maintenance 本轮没有调用 snapshot/interpret/narrative/render。</td>
             </tr>
             <tr>
               <td>Production 语义迁移</td>
-              <td>Workstream semantic 已识别 Agent-first v2.0；但 target semantic review / Project Narrative 仍保留旧 H1 路线并以 stale fail-visible。</td>
-              <td>这是迁移中的真实不一致，不应被“自动修绿”；正式更新属于 S4。</td>
+              <td>installed `.89` 仍 fail-visible 报告 critical <code>WS012:source-divergent</code>，Project Narrative 与 <code>ws012-writer</code> semantic review 也保持 stale。</td>
+              <td>source-lineage 修复 <code>9eef0c4</code> 仍是 successor candidate；不得用 Maintenance 手工刷新掩盖正式 `.89` 告警。</td>
             </tr>
             <tr>
               <td>Stable ACF</td>
-              <td>global installed 与 worktree candidate 当前均报告 v0.0.3.88。</td>
-              <td>.88 release 是历史完成事实；本轮禁止 replay publish/install。</td>
+              <td>canonical Windows <code>acf</code> 报告 <code>v0.0.3.89</code>；tag/publish/global install 已完成。</td>
+              <td>当前 worktree 的 post-Beta 修复属于 successor candidate，不冒充 installed stable。</td>
             </tr>
           </tbody>
         </table>
@@ -502,8 +502,8 @@
 
     <section>
       <div class="section-head">
-        <h2>S2 已暴露的第一批真实减法点</h2>
-        <p>不是凭抽象偏好重构，而是由 S1 实际使用反推。</p>
+        <h2>S2 当前结论：legacy 是兼容层，不是 Agent-first 前置</h2>
+        <p>minimum S2 已进入 `.89`；本轮按真实调用关系复核，不凭“清理感”继续删代码。</p>
       </div>
       <div class="split">
         <article class="panel list-card">
@@ -528,12 +528,16 @@
         </article>
       </div>
       <div class="notice" style="margin-top:14px">
-        <strong>当前可复现摩擦：</strong>
-        安装态 <code>acf continuation prompt</code> 仍输出旧 Production Observer wrapper contract，例如
-        <code>display_scope_source=explicit_user_level_target_registry</code>、
-        <code>semantic_review_required_each_refresh=true</code>、
-        <code>map_review_gate_required_for_semantic_risk=true</code>。
-        这些与最新 Agent-first authority 已发生语义冲突，是 S2 优先审查对象；但 Writer continuation 的 ownership/effect/fencing 合同不能随之误删。
+        <strong>本轮调用关系复核：</strong>
+        当前 <code>automation_contracts.py</code> 与回归测试明确要求 <code>semantic_review_required_each_refresh=false</code>、
+        <code>map_review_gate_required_for_semantic_risk=false</code>、<code>acf_renderer_required=false</code>，并把 legacy helper 标为 optional。
+        <code>primary_visualization</code> / semantic-review / renderer 的剩余源码调用集中在显式 legacy presentation/dashboard compatibility 路径；当前没有证据表明 Agent-owned 输出仍被它们强制 gate。
+        因而本轮不做无调用证据的删除；发现真实强制调用时再做最小可验证 S2 修复。
+      </div>
+      <div class="notice" style="margin-top:14px">
+        <strong>本轮确认的 S3 鲁棒性缺口：</strong>
+        现有 Agent-first wrapper 虽要求稳定入口与 fail-visible unknowns，但此前没有把“更新失败不能覆盖稳定入口、last-good 仍可读、部分来源失败显式降级、失败后 freshness 仍必须真实”机器化。
+        generation 194 已在 candidate contract 中增加 <code>agent_first_output.update_failure_policy</code>，focused contract/prompt/status regression 当前 10/10 PASS；该改动仍是未 checkpoint 的 successor candidate，不冒充 installed `.89`。
       </div>
     </section>
 
@@ -544,20 +548,28 @@
       </div>
       <div class="panel timeline">
         <div class="event">
-          <time>15:34 +08</time><span class="dot"></span>
-          <p><strong>Agent-first authority checkpoint：</strong><code>aa0a1d5</code> 提交，旧 fixed-renderer 后续路线退出 current authority。</p>
+          <time>09-12 · earlier</time><span class="dot"></span>
+          <p><strong>v0.0.3.89 Beta 完成：</strong>minimum S2 通过 release gate，immutable tag / publish / global install 完成；installed Windows entrypoints 已 dogfood。</p>
         </div>
         <div class="event">
-          <time>15:47 +08</time><span class="dot"></span>
-          <p><strong>独立 Production Observer 成功运行：</strong>revision 629，dashboard render=success，data=fresh；旧 target/map 语义保持 stale warning。</p>
+          <time>post-release</time><span class="dot"></span>
+          <p><strong>发现 source-lineage false positive：</strong>`.89` 将合法 post-merge Maintenance continuation 报成 critical divergence；candidate fix <code>9eef0c4</code> 已测试通过但未进入 stable。</p>
         </div>
         <div class="event">
-          <time>16:24 +08</time><span class="dot"></span>
-          <p><strong>Writer generation 166 正式接管：</strong>上一 owner stale 且无 live physical execution；challenge timeout 后经 fresh reconcile/recover 完成，不重放未决 side effect。</p>
+          <time>21:xx +08</time><span class="dot"></span>
+          <p><strong>priority-70 context/template lane 闭环：</strong>Workstream scope compaction、non-ACF regeneration、default worktree guidance 与 Global-first Context routing 均形成 reusable-source 证据；directive revision 53/54 正式 resolve。</p>
         </div>
         <div class="event">
-          <time>16:27 +08</time><span class="dot"></span>
-          <p><strong>S1 开始落地产物：</strong>直接写入本稳定 candidate 页面；这一步不调用旧 ACF renderer/presentation lifecycle。</p>
+          <time>23:29 +08</time><span class="dot"></span>
+          <p><strong>Writer generation 193 正式恢复：</strong>generation 192 challenge timeout 后，fresh evidence 证明 physical execution absent、HEAD 未知写入不存在、effects unresolved=0，经 reconcile/recover 接管。</p>
+        </div>
+        <div class="event">
+          <time>23:38 +08</time><span class="dot"></span>
+          <p><strong>authority checkpoint <code>3c83d3c</code>：</strong>当前计划不再把 priority-70 cleanup 当 next action，恢复 post-Beta S2/S3/S5 / successor maintenance；Production revision 699 仍保持 `.89` 告警 fail-visible。</p>
+        </div>
+        <div class="event">
+          <time>00:27 +08</time><span class="dot"></span>
+          <p><strong>Writer generation 194 恢复并转入真实 S3 缺口：</strong>generation 193 的 authenticated challenge 超时后，fresh doctor 证明 physical execution absent、HEAD=<code>3c83d3c</code>、effects unresolved=0；receipt-backed reconcile/recover 完成。调用关系审计没有发现新的强制 legacy gate，但确认 Agent-owned stable entry 缺少 update-failure / last-good / truthful freshness 合同，已进入 candidate 实现与验证。</p>
         </div>
       </div>
     </section>

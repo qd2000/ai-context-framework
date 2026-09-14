@@ -464,26 +464,44 @@ def upgraded_agents_text(text: str, include_human: bool = False) -> str:
         for heading in ("## 目录结构", "## 按需读取指引", "## 事实源优先级", "## 目标信息来源"):
             if section_exists(text, heading):
                 text = replace_section_from_template(text, "AGENTS.md", heading)
-    resilient_merge_rule = (
+    legacy_resilient_merge_rule = (
         "- `acf worktree merge` 必须在 ACF 管理的临时 integration worktree 中完成真实 merge 和 post-check，"
         "primary checkout 只执行碰撞保护后的 fast-forward promotion。来源 worktree 必须 clean；primary 可保留无关 "
         "staged/unstaged/untracked 修改。发生冲突、检查失败或短时并发竞争时，优先使用 operation ID 等待、重规划或 "
         "resume，不得在 primary 中直接制造冲突，也不得自动 stash、reset、clean、rebase 或 force。关闭前必须完成 "
         "ignored/untracked artifact handoff。"
     )
-    if resilient_merge_rule not in text:
-        worktree_rule = (
-            "- 创建 Workstream 不隐式创建 Git worktree。需要先预约唯一编号时调用 `acf workstream reserve`；长期、并行或需独立合并的任务由 AI 再调用 "
-            "`acf worktree create --workstream WSxxx --apply --json`。不需要隔离环境的 Workstream 继续在原执行位置推进；不得仅因 Workstream 存在就创建 worktree。"
-        )
-        if worktree_rule in text:
-            text = text.replace(worktree_rule, worktree_rule + "\n" + resilient_merge_rule)
+    task_triggered_worktree_rule = (
+        "- 只有任务实际涉及 worktree 的 merge / close / recovery / artifact handoff 时，才按需查看 `acf worktree --help` "
+        "和 `reference/System_Manual.md` 的对应细节；默认入口不复制完整 worktree 状态机。安全边界保持不变：不得自动 "
+        "stash、reset、clean、rebase、force，也不得静默解决冲突。"
+    )
+    worktree_rule = (
+        "- 创建 Workstream 不隐式创建 Git worktree。需要先预约唯一编号时调用 `acf workstream reserve`；长期、并行或需独立合并的任务由 AI 再调用 "
+        "`acf worktree create --workstream WSxxx --apply --json`。不需要隔离环境的 Workstream 继续在原执行位置推进；不得仅因 Workstream 存在就创建 worktree。"
+    )
+    if legacy_resilient_merge_rule in text:
+        text = text.replace(legacy_resilient_merge_rule, task_triggered_worktree_rule)
+    elif task_triggered_worktree_rule not in text and worktree_rule in text:
+        text = text.replace(worktree_rule, worktree_rule + "\n" + task_triggered_worktree_rule)
     text = add_context_curation_prompt_entry(text)
     if "active/Task_Plan.md" not in text and not has_upgrade_notes_marker(text):
         text = append_upgrade_notes_if_needed(text, "agents")
     elif "acf plan" not in text and not has_upgrade_notes_marker(text):
         text = append_upgrade_notes_if_needed(text, "agents")
     return text
+
+
+def upgraded_context_text(text: str) -> str:
+    legacy_task_route = "- 当前具体任务请查看：`active/Current_Task.md`"
+    global_first_route = (
+        "- 当前执行入口按 `AGENTS.md` 的 Global-first 规则选择：未显式选择 Workstream 时保持全局上下文；"
+        "选择 Workstream 后先运行 `acf workstream context WSxxx`，再按其 scope 渐进读取。"
+        "`active/Current_Task.md` 只在它本身为当前全局任务时作为任务事实源。"
+    )
+    if legacy_task_route not in text:
+        return text
+    return text.replace(legacy_task_route, global_first_route)
 
 
 def upgraded_feedback_inbox_text(text: str) -> str:
@@ -503,6 +521,19 @@ def upgraded_project_rules_text(text: str) -> str:
         return text
     addition = "- 修改模板目录结构、默认上下文结构或 `acf upgrade` 补齐逻辑时，必须评估旧版本上下文能否通过 `acf upgrade` 良好升级；新增结构应同步到 upgrade 文件清单、打包清单、文档、init/upgrade 测试和 upgrade compatibility runner。"
     return text.rstrip() + "\n" + addition + "\n"
+
+
+def upgraded_always_active_text(text: str) -> str:
+    legacy_worktree_rule = (
+        "12. Workstream 与 Git worktree 相互独立：创建 Workstream 不隐式创建 branch/worktree；AI 只有在任务需要隔离环境时才调用 "
+        "`acf worktree create`，未使用 worktree 的原任务逻辑不得受影响。"
+    )
+    lines = text.splitlines()
+    if legacy_worktree_rule not in lines:
+        return text
+    kept = [line for line in lines if line != legacy_worktree_rule]
+    suffix = "\n" if text.endswith("\n") else ""
+    return "\n".join(kept) + suffix
 
 
 def upgraded_system_manual_text(text: str) -> str:
@@ -641,8 +672,10 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
     changed = [path for path in planned if not path.exists()]
     agents = root / "AGENTS.md"
     feedback = root / "active" / "Feedback_Inbox.md"
+    context = root / "active" / "Context.md"
     task_plan = root / "active" / "Task_Plan.md"
     current_task = root / "active" / "Current_Task.md"
+    always_active = root / "rules" / "Always_Active.md"
     project_rules = root / "rules" / "Project_Rules.md"
     manual = root / "reference" / "System_Manual.md"
     warnings: list[str] = []
@@ -672,6 +705,16 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         updated_feedback = upgraded_feedback_inbox_text(original_feedback)
         if updated_feedback != original_feedback:
             changed.append(feedback)
+    if context.exists():
+        original_context = read_text(context)
+        updated_context = upgraded_context_text(original_context)
+        if updated_context != original_context:
+            changed.append(context)
+    if always_active.exists():
+        original_always_active = read_text(always_active)
+        updated_always_active = upgraded_always_active_text(original_always_active)
+        if updated_always_active != original_always_active:
+            changed.append(always_active)
     if project_rules.exists():
         original_rules = read_text(project_rules)
         updated_rules = upgraded_project_rules_text(original_rules)
@@ -725,6 +768,18 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
         if updated != text:
             feedback.write_text(updated, encoding="utf-8")
 
+    if context.exists():
+        text = read_text(context)
+        updated = upgraded_context_text(text)
+        if updated != text:
+            context.write_text(updated, encoding="utf-8")
+
+    if always_active.exists():
+        text = read_text(always_active)
+        updated = upgraded_always_active_text(text)
+        if updated != text:
+            always_active.write_text(updated, encoding="utf-8")
+
     if task_plan.exists():
         text = read_text(task_plan)
         updated, _warning = upgraded_task_plan_text(text)
@@ -754,6 +809,7 @@ def ensure_upgrade_structure(root: Path, dry_run: bool) -> tuple[list[Path], lis
 
 def upgrade_managed_paths(root: Path) -> list[Path]:
     paths = [
+        root / "active" / "Context.md",
         root / "active" / "Feedback_Inbox.md",
         root / "active" / "Task_Plan.md",
         root / "archive" / "Archive_Index.md",
@@ -765,6 +821,7 @@ def upgrade_managed_paths(root: Path) -> list[Path]:
         root / "reference" / "knowledge" / ".gitkeep",
         root / "worklog" / "knowledge-drafts" / ".gitkeep",
         root / "AGENTS.md",
+        root / "rules" / "Always_Active.md",
         root / "rules" / "Project_Rules.md",
         root / "reference" / "System_Manual.md",
     ]
@@ -777,6 +834,7 @@ def upgrade_detected_features(root: Path) -> list[str]:
     features: list[str] = []
     feature_paths = [
         ("context_agents", root / "AGENTS.md"),
+        ("context", root / "active" / "Context.md"),
         ("task_plan", root / "active" / "Task_Plan.md"),
         ("feedback_inbox", root / "active" / "Feedback_Inbox.md"),
         ("archive", root / "archive" / "Archive_Index.md"),

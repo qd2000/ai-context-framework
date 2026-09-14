@@ -36,7 +36,11 @@ from ai_context_framework.observer import (
 )
 from ai_context_framework.observability import usage_project_dir
 from ai_context_framework.git_support import discover_git_project, write_registry
-from ai_context_framework.observer_storage import render_dashboard_html, semantic_source_fingerprint
+from ai_context_framework.observer_storage import (
+    project_narrative_source_fingerprint,
+    render_dashboard_html,
+    semantic_source_fingerprint,
+)
 
 
 class ObserverCliTests(unittest.TestCase):
@@ -339,6 +343,101 @@ class ObserverCliTests(unittest.TestCase):
             self.assertEqual(
                 workstream["source_consistency_basis"],
                 "active_registered_worktree_descends_clean_primary",
+            )
+            self.assertEqual(len(workstream["sources"]), 2)
+
+    def test_active_registered_worktree_post_merge_continuation_is_not_source_divergence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, context = self.make_project(root)
+            detail_dir = context / "active" / "workstreams"
+            detail_dir.mkdir(parents=True, exist_ok=True)
+            detail = detail_dir / "WS123.md"
+            detail.write_text(
+                "---\n"
+                "id: WS123\n"
+                "type: Maintenance\n"
+                "status: Merging\n"
+                "attention: Now\n"
+                "owner: agent\n"
+                "title: Long-lived observer maintenance\n"
+                "---\n"
+                "# WS123\n\n"
+                "## 目标\n\n"
+                "长期维护 Observer。\n",
+                encoding="utf-8",
+            )
+            self.init_git_project(project)
+
+            owner_worktree = root / "owner-worktree"
+            subprocess.run(
+                ["git", "worktree", "add", "-b", "ws123-owner", str(owner_worktree)],
+                cwd=project,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            marker = owner_worktree / "release-marker.txt"
+            marker.write_text("beta integrated\n", encoding="utf-8")
+            subprocess.run(["git", "add", "release-marker.txt"], cwd=owner_worktree, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "test: prepare integrated beta"],
+                cwd=owner_worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "merge", "--no-ff", "ws123-owner", "-m", "test: integrate beta"],
+                cwd=project,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            owner_detail = owner_worktree / "docs" / "ai" / "active" / "workstreams" / "WS123.md"
+            owner_detail.write_text(
+                owner_detail.read_text(encoding="utf-8")
+                .replace("status: Merging", "status: Active")
+                .replace("attention: Now", "attention: Waiting"),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "docs/ai/active/workstreams/WS123.md"], cwd=owner_worktree, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "test: reactivate post-release maintenance"],
+                cwd=owner_worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            (project / "unrelated-local-artifact").write_text("external\n", encoding="utf-8")
+
+            git_project = discover_git_project(project)
+            write_registry(
+                git_project.common_dir,
+                "WS123",
+                {
+                    "workstream": "WS123",
+                    "branch": "ws123-owner",
+                    "path": str(owner_worktree),
+                    "state": "active",
+                    "slug": "long-lived-observer-maintenance",
+                },
+            )
+
+            observer_project = resolve_observer_project(project)
+            workstreams = capture_project_workstreams(
+                observer_project,
+                capture_project_worktrees(observer_project),
+            )
+            workstream = next(row for row in workstreams if row["id"] == "WS123")
+
+            self.assertEqual(workstream["status"], "Active")
+            self.assertEqual(workstream["attention"], "Waiting")
+            self.assertEqual(workstream["source_consistency"], "consistent")
+            self.assertEqual(
+                workstream["source_consistency_basis"],
+                "active_registered_worktree_post_merge_continuation",
             )
             self.assertEqual(len(workstream["sources"]), 2)
 
@@ -1670,6 +1769,98 @@ class ObserverCliTests(unittest.TestCase):
             self.assertIn("当前主页不会继续渲染旧关系图、里程碑或当前位置", stale_html)
             self.assertNotIn("项目架构关系图 · Architecture Map / 架构地图", stale_visible_html)
             self.assertNotIn("项目 Authority", stale_visible_html)
+
+    def test_project_narrative_source_fingerprint_tracks_dynamic_continuation_facts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project, _context = self.make_project(Path(tmp))
+            observer_project = resolve_observer_project(project)
+            continuations = [
+                {
+                    "task_id": "WS012",
+                    "workstream_id": "WS012",
+                    "stage": "maintenance",
+                    "status": "running",
+                    "objective": "Keep the observer truthful.",
+                    "next_action": "Observe the next production run.",
+                    "state_updated_at": "2026-09-13T16:30:41Z",
+                    "lease": {
+                        "present": True,
+                        "runner_id": "runner-g203",
+                        "generation": 203,
+                        "branch": "codex/ws012-project-observer-operational-dogfood",
+                        "head": "ccd866b",
+                        "liveness": "fresh",
+                        "last_heartbeat_at": "2026-09-13T16:31:00Z",
+                    },
+                    "latest_round": {
+                        "generation": 203,
+                        "runner_id": "runner-g203",
+                        "phase": "executing",
+                        "milestone": "production-dogfood",
+                        "started_at": "2026-09-13T16:30:41Z",
+                        "ended_at": None,
+                        "evidence_refs": ["observer:revision-742"],
+                    },
+                    "effects": {
+                        "status_counts": {"completed": 196, "failed": 31},
+                        "unresolved_count": 0,
+                    },
+                }
+            ]
+            base = project_narrative_source_fingerprint(
+                observer_project,
+                [],
+                continuations,
+                ["AGENTS.md"],
+            )
+
+            generation_changed = json.loads(json.dumps(continuations))
+            generation_changed[0]["latest_round"]["generation"] = 204
+            self.assertNotEqual(
+                base,
+                project_narrative_source_fingerprint(
+                    observer_project,
+                    [],
+                    generation_changed,
+                    ["AGENTS.md"],
+                ),
+            )
+
+            effects_changed = json.loads(json.dumps(continuations))
+            effects_changed[0]["effects"]["status_counts"]["completed"] = 197
+            self.assertNotEqual(
+                base,
+                project_narrative_source_fingerprint(
+                    observer_project,
+                    [],
+                    effects_changed,
+                    ["AGENTS.md"],
+                ),
+            )
+
+            liveness_changed = json.loads(json.dumps(continuations))
+            liveness_changed[0]["lease"]["liveness"] = "stale"
+            self.assertNotEqual(
+                base,
+                project_narrative_source_fingerprint(
+                    observer_project,
+                    [],
+                    liveness_changed,
+                    ["AGENTS.md"],
+                ),
+            )
+
+            heartbeat_only_changed = json.loads(json.dumps(continuations))
+            heartbeat_only_changed[0]["lease"]["last_heartbeat_at"] = "2026-09-13T16:41:00Z"
+            self.assertEqual(
+                base,
+                project_narrative_source_fingerprint(
+                    observer_project,
+                    [],
+                    heartbeat_only_changed,
+                    ["AGENTS.md"],
+                ),
+            )
 
     def test_project_narrative_refuses_sensitive_or_invalid_graph_input_without_writing(self):
         with tempfile.TemporaryDirectory() as tmp:

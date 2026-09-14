@@ -363,6 +363,12 @@ def production_observer_wrapper_contract() -> dict[str, Any]:
             "source_traceability_required": True,
             "unknowns_fail_visible": True,
             "legacy_renderer_must_not_overwrite_agent_owned_output": True,
+            "update_failure_policy": {
+                "failed_update_must_not_replace_stable_entry": True,
+                "last_good_entry_remains_readable": True,
+                "partial_source_failure_must_be_fail_visible": True,
+                "freshness_must_remain_truthful_after_failure": True,
+            },
         },
         "legacy_compatibility": {
             "target_registry": "optional",

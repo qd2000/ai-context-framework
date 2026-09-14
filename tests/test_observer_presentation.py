@@ -1840,8 +1840,90 @@ class ObserverPresentationCliTests(ObserverPresentationStateTests):
             self.assertIn('class="target-story target-map-first"', html)
             self.assertIn("完整推进路线", html)
             self.assertIn("review-current-with-bad-history", html)
-            self.assertIn("历史路线暂不可读", html)
+            self.assertIn("部分历史路线不可读", html)
             self.assertIn("cannot read observer presentation history line", html)
+
+    def test_dashboard_preserves_valid_archived_history_when_one_review_event_is_legacy_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            first = self.make_view("ws012-writer", "WS012", stage="P2")
+            self.apply_review(
+                project,
+                first,
+                expected_target_revision=0,
+                review_id="review-valid-archive",
+            )
+            current_view = self.make_view("ws012-writer", "WS012", stage="P3")
+            self.apply_review(
+                project,
+                current_view,
+                expected_target_revision=1,
+                review_id="review-current-after-legacy",
+            )
+
+            events_path = project.observer_dir / "presentation" / "events.jsonl"
+            valid_event = json.loads(events_path.read_text(encoding="utf-8").splitlines()[0])
+            invalid_event = json.loads(json.dumps(valid_event))
+            invalid_event["event_id"] = "presentation-event-legacy-invalid"
+            invalid_event["review"]["review_id"] = "review-legacy-invalid"
+            invalid_event["review"]["problems"] = [
+                {
+                    "problem_id": "legacy-problem",
+                    "title": "Legacy route problem",
+                    "summary": "Historical event references a route node removed before stricter validation.",
+                    "expectedness": "unexpected",
+                    "handler": "agent_self",
+                    "scope_relation": "in_scope",
+                    "blocking_impact": "blocks_current_step",
+                    "plan_impact": "route_change",
+                    "status": "working",
+                    "node_ref": "maintenance",
+                    "evidence_refs": ["legacy:event"],
+                }
+            ]
+            with events_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(invalid_event, ensure_ascii=False, sort_keys=True) + "\n")
+
+            current_view["semantic_review"] = presentation_status(
+                project,
+                {"targets": [current_view]},
+            )["targets"][0]
+            current = {
+                "observed_at": "2026-09-01T00:00:00Z",
+                "alerts": [],
+                "workstreams": current_view["workstreams"],
+                "continuations": current_view["continuations"],
+                "semantic": {"status": "current"},
+                "targets": {
+                    "targets": [current_view],
+                    "project_overview": {
+                        "decision": "disabled",
+                        "reason": "Single target test",
+                        "evidence_refs": ["test:partial-history-degrade"],
+                    },
+                },
+            }
+
+            semantic = current_view["semantic_review"]
+            self.assertEqual(
+                [row["review_id"] for row in semantic["review_history"]],
+                ["review-valid-archive", "review-current-after-legacy"],
+            )
+            self.assertIn("problem node_ref references an unknown route node: maintenance", semantic["review_history_error"])
+
+            html = render_dashboard_html(
+                project,
+                current=current,
+                status={"data_age": {"state": "fresh"}},
+                machine_events=[],
+                interpretations=[],
+                glossary={"terms": {}},
+            )
+
+            self.assertIn("部分历史路线不可读", html)
+            self.assertIn("review-valid-archive", html)
+            self.assertIn('data-history-version="review-valid-archive"', html)
+            self.assertNotIn('data-history-version="review-legacy-invalid"', html)
 
     def test_semantic_review_rejects_source_drift(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -204,6 +204,11 @@ class AutomationContractTests(unittest.TestCase):
         self.assertFalse(agent_first["primary_visualization_schema_required"])
         self.assertTrue(agent_first["direct_project_owned_html_css_svg_js_allowed"])
         self.assertTrue(agent_first["legacy_renderer_must_not_overwrite_agent_owned_output"])
+        update_failure = agent_first["update_failure_policy"]
+        self.assertTrue(update_failure["failed_update_must_not_replace_stable_entry"])
+        self.assertTrue(update_failure["last_good_entry_remains_readable"])
+        self.assertTrue(update_failure["partial_source_failure_must_be_fail_visible"])
+        self.assertTrue(update_failure["freshness_must_remain_truthful_after_failure"])
         self.assertEqual("optional", contract["legacy_compatibility"]["renderer"])
         self.assertFalse(contract["cross_project_interference_allowed"])
         self.assertFalse(contract["copy_writer_state_machine"])

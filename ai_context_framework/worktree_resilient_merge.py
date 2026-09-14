@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
+import stat
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -617,6 +619,18 @@ def _promote_candidate(
             snapshot=before,
             identical_paths=collisions["identical_overlap_paths"],
         )
+        try:
+            quarantine.extend(
+                _quarantine_identical_tracked_worktree(
+                    project,
+                    operation_id=str(operation["operation_id"]),
+                    snapshot=before,
+                    identical_paths=collisions["identical_overlap_paths"],
+                )
+            )
+        except (Exception, SystemExit):
+            _restore_quarantine(project, quarantine)
+            raise
         operation["primary_protection"]["quarantine"] = quarantine
         _save_operation(project, operation)
         refresh_lock(
@@ -783,6 +797,11 @@ def _quarantine_identical_untracked(
     identical_paths: Sequence[str],
 ) -> list[dict[str, Any]]:
     identical_keys = {comparison_key(path) for path in identical_paths}
+    path_states = {
+        str(row.get("comparison_key")): row
+        for row in snapshot.get("path_states", [])
+        if isinstance(row, Mapping) and row.get("comparison_key")
+    }
     untracked_or_ignored: dict[str, str] = {}
     for row in snapshot.get("entries", []):
         if not isinstance(row, Mapping):
@@ -795,22 +814,123 @@ def _quarantine_identical_untracked(
         return []
     root = project.common_dir / "acf" / "quarantine" / safe_file_key(operation_id)
     records: list[dict[str, Any]] = []
-    for key, relative_path in sorted(untracked_or_ignored.items()):
-        source = project.config.primary_checkout / Path(relative_path)
-        if not source.exists() and not source.is_symlink():
+    try:
+        for key, relative_path in sorted(untracked_or_ignored.items()):
+            source = project.config.primary_checkout / Path(relative_path)
+            if not source.exists() and not source.is_symlink():
+                continue
+            expected_state = path_states.get(key)
+            if expected_state is None:
+                raise SystemExit(f"quarantine_snapshot_state_missing: {relative_path}")
+            destination = root / Path(relative_path)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(source, destination)
+            records.append(
+                {
+                    "kind": "untracked_or_ignored",
+                    "comparison_key": key,
+                    "relative_path": relative_path,
+                    "source": str(source),
+                    "quarantine": str(destination),
+                    "state": "quarantined",
+                }
+            )
+            if not _path_matches_snapshot_state(destination, expected_state):
+                raise SystemExit(f"quarantine_source_changed: {relative_path}")
+    except (Exception, SystemExit):
+        _restore_quarantine(project, records)
+        raise
+    return records
+
+
+def _quarantine_identical_tracked_worktree(
+    project: GitProject,
+    *,
+    operation_id: str,
+    snapshot: Mapping[str, Any],
+    identical_paths: Sequence[str],
+) -> list[dict[str, Any]]:
+    """Temporarily normalize safe tracked overlaps before fast-forward.
+
+    Git refuses a fast-forward when a tracked file is locally modified even
+    when the working-tree bytes already equal the candidate's final blob.  The
+    collision planner correctly classifies that content as identical, so make
+    only the narrow unstaged/ordinary case mergeable: move the exact local
+    file to quarantine, materialize the unchanged index version, then let the
+    fast-forward recreate the quarantined bytes from the candidate commit.
+
+    The index is never modified here.  If promotion fails, the caller restores
+    the quarantined file only while the normalized path still matches the
+    index, so a concurrent local edit is never overwritten silently.
+    """
+
+    identical_keys = {comparison_key(path) for path in identical_paths}
+    if not identical_keys:
+        return []
+    path_states = {
+        str(row.get("comparison_key")): row
+        for row in snapshot.get("path_states", [])
+        if isinstance(row, Mapping) and row.get("comparison_key")
+    }
+    eligible: dict[str, Mapping[str, Any]] = {}
+    for row in snapshot.get("entries", []):
+        if not isinstance(row, Mapping):
             continue
-        destination = root / Path(relative_path)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(source, destination)
-        records.append(
-            {
+        path = str(row.get("path") or "")
+        key = comparison_key(path)
+        state = path_states.get(key)
+        if (
+            key in identical_keys
+            and row.get("record_type") == "ordinary"
+            and bool(row.get("unstaged"))
+            and not bool(row.get("staged"))
+            and row.get("oid_index")
+            and state is not None
+            and state.get("kind") in {"file", "symlink"}
+        ):
+            eligible[key] = row
+    if not eligible:
+        return []
+
+    root = project.common_dir / "acf" / "quarantine" / safe_file_key(operation_id) / "tracked"
+    records: list[dict[str, Any]] = []
+    try:
+        for key, row in sorted(eligible.items()):
+            relative_path = str(row.get("path") or "")
+            source = project.config.primary_checkout / Path(relative_path)
+            if not source.exists() and not source.is_symlink():
+                continue
+            expected_state = path_states[key]
+            destination = root / Path(relative_path)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(source, destination)
+            record = {
+                "kind": "tracked_worktree",
                 "comparison_key": key,
                 "relative_path": relative_path,
                 "source": str(source),
                 "quarantine": str(destination),
+                "index_oid": row.get("oid_index"),
+                "index_mode": row.get("mode_index"),
+                "materialized": False,
                 "state": "quarantined",
             }
-        )
+            records.append(record)
+            if not _path_matches_snapshot_state(destination, expected_state):
+                raise SystemExit(f"quarantine_source_changed: {relative_path}")
+            materialized = run_git(
+                project.config.primary_checkout,
+                ("checkout-index", "--", relative_path),
+                check=False,
+            )
+            if materialized.returncode != 0:
+                raise SystemExit(
+                    f"tracked_quarantine_materialize_failed: {relative_path}: {materialized.stderr.strip()}"
+                )
+            record["materialized"] = True
+    except (Exception, SystemExit):
+        _restore_quarantine(project, records)
+        raise
     return records
 
 
@@ -819,6 +939,30 @@ def _restore_quarantine(project: GitProject, records: Sequence[Mapping[str, Any]
         quarantine = Path(str(record.get("quarantine") or ""))
         source = Path(str(record.get("source") or ""))
         if not quarantine.exists() and not quarantine.is_symlink():
+            continue
+        if record.get("kind") == "tracked_worktree":
+            if record.get("materialized") is not True:
+                if source.exists() or source.is_symlink():
+                    raise SystemExit(f"quarantine_restore_collision: {source}")
+                source.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(quarantine, source)
+                continue
+            relative_path = str(record.get("relative_path") or "")
+            unchanged = run_git(
+                project.config.primary_checkout,
+                ("diff", "--quiet", "--", relative_path),
+                check=False,
+            )
+            if unchanged.returncode != 0:
+                raise SystemExit(f"quarantine_restore_collision: {source}")
+            if source.is_dir() and not source.is_symlink():
+                raise SystemExit(f"quarantine_restore_collision: {source}")
+            try:
+                source.unlink()
+            except FileNotFoundError:
+                pass
+            source.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(quarantine, source)
             continue
         if source.exists() or source.is_symlink():
             raise SystemExit(f"quarantine_restore_collision: {source}")
@@ -860,6 +1004,60 @@ def _cleanup_quarantine_root(
             if path == root:
                 break
             path = path.parent
+
+
+def _path_matches_snapshot_state(path: Path, expected: Mapping[str, Any]) -> bool:
+    """Return whether a quarantined path still equals its captured snapshot."""
+
+    actual = _local_path_identity(path)
+    return all(
+        actual.get(field) == expected.get(field)
+        for field in ("kind", "size", "mode", "sha256", "link_target")
+    )
+
+
+def _local_path_identity(path: Path) -> dict[str, Any]:
+    if path.is_symlink():
+        target = os.readlink(path)
+        return {
+            "kind": "symlink",
+            "size": len(target),
+            "mode": stat.S_IMODE(path.lstat().st_mode),
+            "sha256": hashlib.sha256(target.encode("utf-8", errors="surrogatepass")).hexdigest(),
+            "link_target": target,
+        }
+    if path.is_file():
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        file_stat = path.stat()
+        return {
+            "kind": "file",
+            "size": file_stat.st_size,
+            "mode": stat.S_IMODE(file_stat.st_mode),
+            "sha256": digest.hexdigest(),
+            "link_target": None,
+        }
+    if path.is_dir():
+        directory_stat = path.stat()
+        return {
+            "kind": "directory",
+            "size": None,
+            "mode": stat.S_IMODE(directory_stat.st_mode),
+            "sha256": None,
+            "link_target": None,
+        }
+    return {
+        "kind": "missing",
+        "size": None,
+        "mode": None,
+        "sha256": None,
+        "link_target": None,
+    }
 
 
 def verify_primary_local_protection(

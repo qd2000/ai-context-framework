@@ -3,7 +3,7 @@
 请注意：
 
 - 长期目标请查看：`reference/Project_Brief.md`
-- 当前具体任务请查看：`active/Current_Task.md`
+- 当前执行入口按 `AGENTS.md` 的 Global-first 规则选择：未显式选择 Workstream 时保持全局上下文；选择 Workstream 后先运行 `acf workstream context WSxxx`，再按其 scope 渐进读取。`active/Current_Task.md` 只在它本身为当前全局任务时作为任务事实源。
 - 本文件只维护当前阶段目标和当前有效事实
 
 ---

@@ -33,6 +33,7 @@ ai_context_framework/observer_runtime_storage.py
 ai_context_framework/observer_storage.py
 ai_context_framework/observer_target_projection.py
 ai_context_framework/observer_targets.py
+ai_context_framework/observer_workstream_sources.py
 ai_context_framework/paths.py
 ai_context_framework/runtime.py
 ai_context_framework/tables.py
