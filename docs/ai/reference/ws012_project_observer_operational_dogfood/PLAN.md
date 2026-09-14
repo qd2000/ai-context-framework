@@ -24,6 +24,16 @@ WS011 保持历史事实：核心 Project Observer 产品已经完成、发布�
 
 本节由当前 durable user directives 同步而来；**与后续历史章节冲突时，以本节为准**。历史版本号、旧 acceptance 计数、旧页面模板、旧 renderer contract 与旧 scheduler minute 只保留 provenance，不再作为永久执行约束。
 
+### 2026-09-14 post-migration authority refresh
+
+三个现有 Production Observer 已完成 Agent-first 提示原位迁移，并已有迁移后的自然独立运行证据。因此，任何“等待用户迁移 ACF / FCC / AStockT_AI Observer 提示”的旧表述只保留为历史，不再是 blocker、当前阶段或 next action。
+
+当前阶段为 `post-migration-agent-first-production-dogfood`。下一步只读取三个 Production Observer 的自然运行与真实稳定入口、notes/history/freshness/evidence，检查 Agent-first 行为、项目语义页面自主性、证据真实性、last-good/history/freshness 与 anti-masking。发现项先分类为 prompt-specific、project-specific 或 reusable ACF/Observer product defect；只有可复现的 reusable product defect 才进入 WS012 issue → fix → test → candidate 流。在新的 Production dogfood 形成自然 release boundary 前，不因既有 release-readiness 提前选择、tag 或 publish 后继版本。
+
+本轮首批 post-migration 质量复核结论：ACF、FCC、AStockT_AI 均已形成真实 Agent-authored 页面而非固定 renderer 套壳；FCC 对 WS079/080/086 的科学路线与纠错最具项目语义，AStockT_AI 在 legacy helper 仍为 `.88` 时也能独立维护 WS192/Gate B/盈利证据页面，证明 helper 不是页面前置。ACF 页面自身仍把已经迁移的 FCC / AStockT_AI 写成 pending，暂归类为 ACF Observer 的跨项目证据范围/内容刷新问题，不把它直接升级为通用产品 bug。可复现的通用 S3 缺口是 FCC 稳定 `index.html` 实际包含 159 个 U+FFFD replacement characters，而 ACF / AStockT_AI 当前 Agent-owned 页面均为 strict UTF-8 且 U+FFFD=0；现有 Agent-first contract 只有 last-good/update-failure 保护，没有文本完整性要求。generation 207 因此只补 strict UTF-8 回读、U+FFFD 禁止、稳定入口晋升前验证及既有 last-good 失败语义，并保持 FCC Production 页面由其自然 Observer 自行刷新，Maintenance 不手工改写。
+
+Generation 208 已在 g207 lease 正常到期后，基于 `physical_execution=absent`、HEAD=`57e0de7` 未漂移、workspace 全量分类且 effect journal `197 completed / 31 historical failed / 0 unresolved` 的 fresh reconcile receipt 正式 recover，并继承上述 text-integrity WIP。当前 directive revision 58 已将 post-migration durable plan-change 正式 `adopt`，`PLAN.md` 与 active `WS012.md` 已同步，不再保留“等待 prompt migration”为当前事实。针对本 slice 的 `tests.test_automation_contracts + tests.test_continuation_cli + tests.test_observer_cli` 共 176 项 terminal PASS；`uv run acf check --strict` PASS（仅保留既有 WS012 267/260 行 context-budget warning），13 文件 file-scoped Workstream guard PASS，`git diff --check` PASS。该结果仍是 successor candidate evidence；在 checkpoint/immutable release/global install 与后续自然 Production proof 之前，不得宣称 installed `.89` 已获得文本完整性修复。
+
 ### Observer Agent-first v2.0 — current unique route
 
 2026-09-11 priority-100 durable `plan_change` directive `dir-153b33e6d0cb4bccbb67` 已正式 supersede `dir-41b8581a296544399208` 的 Task-Semantic Visualization v1.2 固定 renderer 后续路线。当前产品判断是：**Project Observer 是自主理解和展示项目的 Agent，不是 ACF 渲染前端；ACF 降为可选上下文导航、部分数据、维护工具和参考材料，不得成为唯一信息源、事实裁判、页面结构或 HTML 生成前置。**

@@ -193,7 +193,7 @@ Agent 对自己页面的设计与维护拥有自主权，可以使用适合项�
 
 后续实际生产/模板迁移应以以下语义为核心，项目只补真实入口、访问方式、允许写目录和必要业务边界，不写死动态 owner/generation/进度：
 
-> 你是本项目的 Observer Agent。你的任务是理解实际进展、问题和下一步，并维护适合本项目的中文进度页面。ACF 是可选工具与信息渠道，不是唯一入口、唯一事实来源或强制渲染器。按任务需要使用被授权的文件、Git、代码、测试、日志、业务结果等来源。你可自主选择展示对象、页面结构、图表、文字和交互，直接编写及修改自己输出空间中的 HTML/CSS/SVG/JS、资源和生成脚本。用真实证据展示进展；未知、冲突或缺失局部说明，不虚构完成、曲线或运行时长。维护稳定入口、可查历史及简明接续记录。自主权不扩大项目权限：不抢占其他 Writer、不修改未授权业务代码、不提交科学任务、不控制共享 Runtime、不读取凭据或外发数据。
+> 你是本项目的 Observer Agent。你的任务是理解实际进展、问题和下一步，并维护适合本项目的中文进度页面。ACF 是可选工具与信息渠道，不是唯一入口、唯一事实来源或强制渲染器。按任务需要使用被授权的文件、Git、代码、测试、日志、业务结果等来源。你可自主选择展示对象、页面结构、图表、文字和交互，直接编写及修改自己输出空间中的 HTML/CSS/SVG/JS、资源和生成脚本。用真实证据展示进展；未知、冲突或缺失局部说明，不虚构完成、曲线或运行时长。维护稳定入口、可查历史及简明接续记录。稳定入口替换前必须回读候选文本并验证严格 UTF-8 解码成功且不含 Unicode replacement character（U+FFFD）；验证失败按更新失败处理，保留 last-good，不得把乱码或半成品晋升为稳定入口。自主权不扩大项目权限：不抢占其他 Writer、不修改未授权业务代码、不提交科学任务、不控制共享 Runtime、不读取凭据或外发数据。
 
 ### 11.1 Beta 前手工迁移包（copy-paste-ready）
 
@@ -359,13 +359,13 @@ git diff --check
 ## 16. 当前执行顺序
 
 1. **`.89` Beta 已完成**：minimum S2、release gate、immutable release/publish/global install 与 installed-state 基础 dogfood 都是已完成事实，禁止再把 minimum-S2 或 Beta preparation 写成当前 next action。
-2. **平台提示迁移仍是外部 handoff**：现有 ACF / FCC / AStockT_AI 三个 Production Observer Scheduled Task 仍需用户按 §11.1 原位迁移 Agent-first 主提示并自然运行；仓库 Writer 不得代改 scheduler，也不得用 Maintenance refresh 冒充 Production acceptance。
+2. **平台提示迁移已完成，进入自然 Production dogfood**：用户已按 §11.1 原位迁移现有 ACF / FCC / AStockT_AI 三个 Production Observer Scheduled Task，三者均已有迁移后的自然独立运行与 Agent-owned 页面/notes/history 证据。仓库 Writer 不再等待迁移，也不得代改 scheduler 或用 Maintenance refresh 冒充后续 Production acceptance。
 3. **priority-70 bounded lane 已关闭**：`dir-0b707f4b16b24550b627` 与 `dir-d54a9978f1964a33926e` 已在 directive revision 53/54 evidence-backed resolve；不再继续“找剩余 cleanup”，除非出现新的可复现 recurring symptom。
-4. **Writer 在平台 handoff 阻塞期间继续安全替代工作**：按当前 Agent-first authority 继续 evidence-backed S2/S3/S5 收口、鲁棒性/历史/last-good 接续与 successor preparation；只做真实缺口，不扩固定 renderer/schema/Registry gate，不因人工视觉 review pending 空转。generation 194 已把 Agent-owned stable-entry/update-failure 合同 checkpoint 到 `0fccdab`，generation 195 又在同一 HEAD 完成 full successor release-readiness gate（`process_exit_0`）；这两项都已完成，不得再作为待办重复执行。
+4. **Writer 只消费迁移后的真实缺口**：按当前 Agent-first authority 对三项目自然页面、notes/history、freshness 与 evidence 做 dogfood；发现项先分类为 prompt-specific、project-specific 或 reusable product defect。generation 207 已确认一个新的 reusable S3 输出完整性缺口：FCC Agent-owned `index.html` 可被成功晋升为稳定入口但文件中实际含 159 个 U+FFFD replacement characters，而 ACF 与 AStockT_AI 当前 Agent-owned 页面均为 strict UTF-8 且 U+FFFD=0。当前 candidate 因此只补“strict UTF-8 回读 + U+FFFD=0 + 失败走既有 last-good”合同/提示/回归，不引入 renderer/schema，也不由 Maintenance 手工覆盖 FCC Production 页面。
 5. **source-lineage fix 保持 candidate-only**：`9eef0c4` 只能在 successor immutable stable/global install 后，由独立 Production Observer 证明 `.89` 的 false-positive `WS012:source-divergent` 消失后才关闭 issue `551b9be5530cc2ce2462`；Maintenance 不主动刷新 canonical Observer runtime 掩盖当前告警。
-6. **successor stable 不是固定配额**：当前 `v0.0.3.89..HEAD` 有 11 个 post-Beta commits，最高 tag 与版本 metadata 仍是 `.89`；full gate PASS 只说明 candidate release-readiness，不自动形成 release authorization。按 S4/S5 顺序，先取得 §11.1 三个现有 Production Observer 的用户手工 prompt migration 与自然独立 dogfood，再用这些新证据判断是否还有必要 S2/S3/S5 收口并形成 successor natural boundary；到那时才按实时 Git/GitHub/PyPI authority 选择未占用 immutable identity、走 release/install/installed-state dogfood。不得仅为“轮到 `.90`”而发布。
+6. **successor stable 不是固定配额**：最高 tag 与版本 metadata 仍是 `.89`；full gate PASS 只说明 candidate release-readiness，不自动形成 release authorization。现在继续用迁移后的自然 Production evidence 判断必要 S2/S3/S5 收口，并等待这些真实问题形成 successor natural boundary；到那时才按实时 Git/GitHub/PyPI authority 选择未占用 immutable identity、走 release/install/installed-state dogfood。不得仅为“轮到 `.90`”而发布。
 
-当前已完成 `agent_first_output.update_failure_policy` checkpoint 与 successor full-gate 诊断；fresh audit 没有新增可复现的独立 S2/S3/S5 产品缺口。**当前主线因此转为 §11.1 / S4 的用户侧平台 handoff：等待现有 ACF / FCC / AStockT_AI Production Observer 原位迁移 Agent-first prompt 并自然运行，Writer 只读取这些独立 Production evidence；若等待期间出现新的真实可复现产品缺口再切入相应 S2/S3/S5 修复，否则不制造 cleanup busywork、不提前发布 successor。**
+当前已完成旧 `agent_first_output.update_failure_policy` checkpoint 与 successor full-gate 诊断，§11.1 平台迁移也已完成。**当前主线是 post-migration Agent-first Production dogfood：三项目页面已证明 Agent 可独立理解不同项目并直接维护输出；本轮新发现的 FCC Unicode replacement-character 稳定入口缺口进入窄 S3 candidate 修复。ACF 页面把已经迁移的 FCC / AStockT_AI 仍写成 pending，先分类为 ACF Observer 的跨项目证据范围/内容刷新问题，不在没有复现为通用产品缺陷前扩张 ACF。AStockT_AI 在 legacy helper 仍为 `.88` 时仍可维护独立 Agent-owned 页面，作为“ACF helper 非页面前置”的正向 dogfood。**
 
 ---
 
