@@ -17,6 +17,7 @@ from ai_context_framework.constants import (
     TARGET_EXISTS_APPEND_REQUIRED,
 )
 from ai_context_framework.models import CheckResult
+from ai_context_framework.sensitive_data import redact_credential_like_text
 
 
 def json_enabled(args: argparse.Namespace) -> bool:
@@ -538,18 +539,19 @@ def classify_cli_error(message: str) -> tuple[str, int]:
 
 
 def emit_cli_error(argv: Sequence[str], message: str, error_code: str, exit_code: int) -> int:
+    safe_message = redact_credential_like_text(message)[0]
     if json_requested(argv):
         print_json(
             {
                 "command": command_name_from_argv(argv),
                 "ok": False,
                 "error_code": error_code,
-                "message": message,
+                "message": safe_message,
                 "next_actions": error_next_actions(error_code),
             }
         )
     else:
-        print(f"ERROR: {message}", file=sys.stderr)
+        print(f"ERROR: {safe_message}", file=sys.stderr)
     return exit_code
 
 

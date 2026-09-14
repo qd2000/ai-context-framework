@@ -135,6 +135,20 @@ class ContinuationExecutionTests(unittest.TestCase):
         self.assertFalse(summary["argv_persisted"])
         self.assertNotIn(public_digest, json.dumps(summary, sort_keys=True))
 
+    def test_plain_positional_credential_words_are_not_misclassified_as_credential_options(self) -> None:
+        values = ["worker.exe", "password", "authorization", "credential", "token", "license"]
+        args = SimpleNamespace(child_argv=values)
+        self.assertEqual(values, continuation_execution_commands._command_argv(args))
+
+    def test_bounded_output_capture_discards_oversized_raw_output(self) -> None:
+        capture = continuation_execution_commands._BoundedOutputCapture()
+        capture.feed(b"x" * (continuation_execution_commands.MAX_CAPTURE_BYTES + 1))
+        self.assertTrue(capture.truncated)
+        self.assertEqual(
+            continuation_execution_commands.TRUNCATED_OUTPUT_REDACTED,
+            capture.render_public(),
+        )
+
     def test_execution_refuses_credential_argv_and_redacts_child_output(self) -> None:
         for child_argv in (
             ["worker.exe", "--api-key=flag-secret-sentinel"],
@@ -454,6 +468,52 @@ class ContinuationExecutionTests(unittest.TestCase):
             self.assertEqual("physical_execution_completed", result["status"])
             self.assertEqual("ABSENT\n", result["child_stdout"])
             self.assertEqual(owner_before, owner_file.read_bytes())
+
+    def test_child_environment_scrubs_explicit_credentials_and_preserves_public_metadata(self) -> None:
+        digest = "d" * 64
+        with patch.dict(
+            os.environ,
+            {
+                "DATABASE_PASSWORD": "child-env-password-sentinel",
+                "GITHUB_TOKEN": "child-env-provider-sentinel",
+                "ACF_FENCE_TOKEN_HASH": "synthetic-verifier-sentinel",
+                "TOKEN": "page-2",
+                "LICENSE": "MIT",
+                "PUBLIC_DIGEST": digest,
+            },
+            clear=True,
+        ):
+            child_env = continuation_execution_commands._child_environment()
+
+        self.assertNotIn("DATABASE_PASSWORD", child_env)
+        self.assertNotIn("GITHUB_TOKEN", child_env)
+        self.assertNotIn("ACF_FENCE_TOKEN_HASH", child_env)
+        self.assertEqual("page-2", child_env["TOKEN"])
+        self.assertEqual("MIT", child_env["LICENSE"])
+        self.assertEqual(digest, child_env["PUBLIC_DIGEST"])
+
+    def test_supervised_execution_uses_null_stdin_without_raw_output_tempfiles(self) -> None:
+        _, claim = self.init_and_claim()
+        args = [
+            "continuation",
+            "execution",
+            "run",
+            str(self.root),
+            "--task-id",
+            "WS900",
+            *self.owner_flags(claim),
+            "--key",
+            "null-stdin-memory-output-001",
+            "--json",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys; print('STDIN_EMPTY' if sys.stdin.read() == '' else 'STDIN_NONEMPTY')",
+        ]
+        with patch("tempfile.TemporaryFile", side_effect=AssertionError("raw tempfile capture used")):
+            code, result, stderr = self.run_json(args, already_json=True)
+        self.assertEqual(0, code, f"{stderr}\n{result}")
+        self.assertEqual("STDIN_EMPTY\n", result["child_stdout"])
 
     def test_pause_during_supervised_execution_waits_for_terminal_and_requests_release(self) -> None:
         initialized, claim = self.init_and_claim()

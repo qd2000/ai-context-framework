@@ -167,8 +167,11 @@ def _quoted_value_end(value: str, start: int) -> int | None:
             continue
         if current == quote:
             return index + 1
-        if current in "\r\n":
-            return index
+        # A quoted credential-like value may span lines (JSON/YAML diagnostics,
+        # exception reprs, wrapped shell output).  Stopping at the first newline
+        # would redact only the prefix and expose the remaining quoted value.
+        # Continue to the closing quote; if it never arrives, fail closed by
+        # redacting the remainder of the string.
     return len(value)
 
 

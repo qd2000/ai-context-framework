@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 import acf
 
@@ -82,6 +83,28 @@ class CliTests(unittest.TestCase):
         rendered = buffer.getvalue().decode("cp936")
         self.assertEqual("状态 A↔B", json.loads(rendered)["message"])
         self.assertIn(r"\u2194", rendered)
+
+    def test_runtime_and_argparse_error_boundaries_redact_explicit_credentials(self):
+        secret = "runtime-error-secret-sentinel"
+        with patch(
+            "ai_context_framework.runtime.run_with_context_lock",
+            side_effect=RuntimeError(f"password={secret}"),
+        ):
+            exit_code, stdout, stderr = self.run_cli_output(["status", "--json"])
+        self.assertEqual(acf.EXIT_RUNTIME_ERROR, exit_code)
+        self.assertEqual("", stderr)
+        payload = self.json_payload(stdout)
+        self.assertNotIn(secret, json.dumps(payload, ensure_ascii=False))
+        self.assertIn("redacted credential-like value", payload["message"])
+
+        argv_secret = "argparse-secret-sentinel"
+        exit_code, stdout, stderr = self.run_cli_output(
+            ["status", f"--api-key={argv_secret}"]
+        )
+        self.assertEqual(acf.EXIT_INPUT_ERROR, exit_code)
+        self.assertEqual("", stdout)
+        self.assertNotIn(argv_secret, stderr)
+        self.assertIn("redacted credential-like value", stderr)
 
     def assert_success_json_contract(self, payload, command=None):
         self.assertEqual(payload.get("schema_version"), 1)
@@ -7605,6 +7628,73 @@ This records a reusable write-safety pattern instead of a current task fact.
             summary_payload = json.loads(stdout)
             self.assertEqual(summary_payload["feedback_count"], 1)
             self.assertEqual(summary_payload["event_kind_counts"], {"feedback": 1})
+
+    def test_usage_log_feedback_refuses_credential_like_text_without_persisting_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acf_home = Path(tmp) / "acf-home"
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            sentinel = "feedback-secret-sentinel"
+
+            with isolated_acf_home(acf_home):
+                exit_code, stdout, stderr = self.run_cli_output(
+                    [
+                        "log",
+                        "feedback",
+                        str(project_root),
+                        "--text",
+                        f"api_key={sentinel}",
+                        "--json",
+                    ]
+                )
+                log_path = acf.usage_log_path(project_root)
+
+            self.assertEqual(acf.EXIT_INPUT_ERROR, exit_code)
+            self.assertEqual("", stderr)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["ok"])
+            self.assertNotIn(sentinel, json.dumps(payload, ensure_ascii=False))
+            if log_path.exists():
+                self.assertNotIn(sentinel, log_path.read_text(encoding="utf-8"))
+
+    def test_usage_log_public_readers_redact_legacy_credential_like_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acf_home = Path(tmp) / "acf-home"
+            project_root = Path(tmp) / "project"
+            target = project_root / "docs" / "ai"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            sentinel = "legacy-log-secret-sentinel"
+            legacy_event = {
+                "schema_version": 1,
+                "timestamp": "2026-09-14T00:00:00Z",
+                "event_kind": "continuation_issue",
+                "command": "continuation issue",
+                "ok": True,
+                "category": "transport",
+                "severity": "high",
+                "fingerprint": "legacy-log-fixture",
+                "text": f"api_key={sentinel}",
+                "evidence_refs": [],
+            }
+            with isolated_acf_home(acf_home):
+                log_path = acf.usage_log_path(project_root)
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                log_path.write_text(json.dumps(legacy_event) + "\n", encoding="utf-8")
+                tail_code, tail_stdout, tail_stderr = self.run_cli_output(
+                    ["log", "tail", str(project_root), "--limit", "1", "--json"]
+                )
+                issues_code, issues_stdout, issues_stderr = self.run_cli_output(
+                    ["log", "issues", str(project_root), "--json"]
+                )
+
+            self.assertEqual(0, tail_code, tail_stderr)
+            self.assertEqual(0, issues_code, issues_stderr)
+            self.assertNotIn(sentinel, tail_stdout)
+            self.assertNotIn(sentinel, issues_stdout)
+            self.assertIn("redacted credential-like value", tail_stdout)
+            self.assertIn("redacted credential-like value", issues_stdout)
+            self.assertIn(sentinel, log_path.read_text(encoding="utf-8"))
 
     def test_usage_log_feedback_respects_disabled_log(self):
         with tempfile.TemporaryDirectory() as tmp:

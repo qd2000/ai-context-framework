@@ -43,6 +43,7 @@ from ai_context_framework.paths import (
     resolve_context_root,
     resolve_status_location,
 )
+from ai_context_framework.sensitive_data import contains_credential_like_text, sanitize_public_payload
 
 
 def command_label(args: argparse.Namespace) -> str:
@@ -271,6 +272,8 @@ def log_tail_command(args: argparse.Namespace) -> int:
     location = resolve_status_location(args.path)
     events = read_usage_events(location.project_root)
     tail_events = events[-args.limit :] if args.limit else []
+    public_tail_events = sanitize_public_payload(tail_events)
+    assert isinstance(public_tail_events, list)
     payload: dict[str, object] = {
         "command": "log tail",
         "ok": True,
@@ -278,12 +281,12 @@ def log_tail_command(args: argparse.Namespace) -> int:
         "log_path": str(usage_log_path(location.project_root)),
         "limit": args.limit,
         "event_count": len(tail_events),
-        "events": tail_events,
+        "events": public_tail_events,
     }
     if json_enabled(args):
         print_json(payload)
     else:
-        for event in tail_events:
+        for event in public_tail_events:
             print(json.dumps(event, ensure_ascii=False, sort_keys=True))
     return 0
 
@@ -444,6 +447,8 @@ def log_issues_command(args: argparse.Namespace) -> int:
     limit = max(0, int(getattr(args, "limit", 100) or 0))
     if limit:
         groups = groups[:limit]
+    public_groups = sanitize_public_payload(groups)
+    assert isinstance(public_groups, list)
     payload: dict[str, object] = {
         "command": "log issues",
         "ok": True,
@@ -452,12 +457,12 @@ def log_issues_command(args: argparse.Namespace) -> int:
         "log_paths": paths,
         "issue_count": len(groups),
         "occurrence_count": sum(int(group.get("count") or 0) for group in groups),
-        "issues": groups,
+        "issues": public_groups,
     }
     if json_enabled(args):
         print_json(payload)
     else:
-        for group in groups:
+        for group in public_groups:
             print(
                 f"[{group['severity']}] {group['fingerprint']} x{group['count']} "
                 f"{group['category']}: {group['text']}"
@@ -489,6 +494,15 @@ def log_feedback_command(args: argparse.Namespace) -> int:
         raise SystemExit("log feedback text cannot be empty")
     feedback_type = (args.type or "Feedback").strip() or "Feedback"
     source = (args.source or "manual").strip() or "manual"
+    related_command = (args.related_command or "").strip()
+    for field, value in (
+        ("text", text),
+        ("type", feedback_type),
+        ("source", source),
+        ("related command", related_command),
+    ):
+        if value and contains_credential_like_text(value):
+            raise SystemExit(f"log feedback {field} cannot contain credential-like material")
     event: dict[str, object] = {
         "schema_version": JSON_SCHEMA_VERSION,
         "timestamp": utc_now_iso(),
@@ -504,8 +518,8 @@ def log_feedback_command(args: argparse.Namespace) -> int:
         "source": source,
         "text": text,
     }
-    if args.related_command:
-        event["related_command"] = args.related_command.strip()
+    if related_command:
+        event["related_command"] = related_command
     append_usage_event(location.project_root, event)
     payload: dict[str, object] = {
         "command": "log feedback",

@@ -303,6 +303,18 @@ class SensitiveDataTests(unittest.TestCase):
         self.assertNotIn("BEGIN PRIVATE KEY", cleaned)
         self.assertNotIn("sk-abcdefghijklmnopqrstuvwxyz123456", cleaned)
 
+    def test_multiline_quoted_credential_value_is_redacted_through_closing_quote_or_end(self) -> None:
+        closed = 'password="first-line\nmultiline-secret-sentinel" tail=public'
+        cleaned, count = redact_credential_like_text(closed)
+        self.assertEqual(1, count)
+        self.assertNotIn("multiline-secret-sentinel", cleaned)
+        self.assertIn("tail=public", cleaned)
+
+        unterminated = 'client_secret="first-line\nunterminated-secret-sentinel'
+        cleaned, count = redact_credential_like_text(unterminated)
+        self.assertEqual(1, count)
+        self.assertNotIn("unterminated-secret-sentinel", cleaned)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -55,6 +55,7 @@ owner-context 文件系统边界也属于认证合同：capability directory 和
 - continuation 公共输出在最终 emit 边界统一移除 ACF reusable credential 与无业务必要的 auth verifier，并对明确 credential-like 文本做 redaction。
 - generated prompt 的 JSON 与非 JSON 路径使用同一 public sanitization contract。
 - usage event log 继续只记录 command/result metadata，不记录原始 argv、正文输入或 owner credential。
+- `acf log feedback` 虽然是显式正文记录接口，也不得把明确 credential-like 内容持久化；此类输入必须 fail-closed，而不是“先写入再依赖展示层脱敏”。
 - redaction 不能把普通 UUID、SHA、digest、generation 或 job id 当作 secret。
 
 ## 4. `continuation execution run`
@@ -63,8 +64,9 @@ owner-context 文件系统边界也属于认证合同：capability directory 和
 
 - ACF 不在结果中回显完整 child argv；只返回非敏感命令摘要和已有 process/effect 审计身份。
 - 明确 credential-bearing child argv 必须 fail-closed；业务命令需要凭据时应使用 child-local credential file、OS credential mechanism 或其他不把 reusable credential 放入 ACF 公共命令文本的机制。
-- child stdout/stderr 仍是 bounded diagnostic tail，但公共返回前对明确 credential-like 文本做 redaction。
-- 为兼容真实业务运行，普通 parent environment 继续继承；ACF 自己的 owner credential/capability transport 不得委托给 child。该规则是 credential containment，不宣称提供通用环境 sandbox。
+- child stdout/stderr 使用 bounded in-memory capture；不得先把 raw child output 写入通用临时文件。超过边界或无法完整 drain 时整体省略诊断正文，完整短输出在公共返回前对明确 credential-like 文本做 redaction。
+- supervised child 的 stdin 固定为 null device，不继承调用方交互 stdin，避免把调用方输入面隐式委托给业务进程。
+- 为兼容真实业务运行，普通 non-credential parent environment 继续继承；明确 credential-keyed / credential-shaped 环境变量和 ACF 自己的 owner credential/capability transport 不得委托给 child。业务进程确需凭据时应使用 child-local credential file、OS credential mechanism 或其他显式最小权限边界。该规则是 credential containment，不宣称提供通用环境 sandbox。
 - effect identity/replay protection 不依赖完整 child argv 回显，因此删除 argv 回显不得削弱 deterministic execution identity。
 
 ## 5. Effect / recovery external identity

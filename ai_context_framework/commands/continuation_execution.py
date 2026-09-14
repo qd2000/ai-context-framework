@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-import tempfile
+import threading
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -22,9 +22,87 @@ from ai_context_framework.sensitive_data import (
 
 MAX_CAPTURE_BYTES = 64 * 1024
 TRUNCATED_OUTPUT_REDACTED = "[truncated child output omitted because sanitization context is incomplete]\n"
+OUTPUT_DRAIN_JOIN_SECONDS = 5.0
 MIN_POLL_SECONDS = 0.05
 MAX_POLL_SECONDS = 1.0
 MAX_KEEPALIVE_SECONDS = 300.0
+
+
+class _BoundedOutputCapture:
+    """Bounded in-memory child output capture with fail-closed overflow."""
+
+    def __init__(self) -> None:
+        self._buffer = bytearray()
+        self._lock = threading.Lock()
+        self._truncated = False
+
+    def feed(self, raw: bytes) -> None:
+        if not raw:
+            return
+        with self._lock:
+            if self._truncated:
+                return
+            if len(self._buffer) + len(raw) > MAX_CAPTURE_BYTES:
+                # Once context is incomplete, keeping an arbitrary suffix can
+                # expose a credential whose identifying key/header was in the
+                # discarded prefix.  Drop the whole diagnostic body instead.
+                self._buffer.clear()
+                self._truncated = True
+                return
+            self._buffer.extend(raw)
+
+    def mark_incomplete(self) -> None:
+        with self._lock:
+            self._buffer.clear()
+            self._truncated = True
+
+    @property
+    def truncated(self) -> bool:
+        with self._lock:
+            return self._truncated
+
+    def render_public(self) -> str:
+        with self._lock:
+            if self._truncated:
+                return TRUNCATED_OUTPUT_REDACTED
+            raw = bytes(self._buffer)
+        text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+        return redact_credential_like_text(text)[0]
+
+
+def _drain_pipe(stream: Any, capture: _BoundedOutputCapture) -> None:
+    try:
+        while True:
+            raw = stream.read(8192)
+            if not raw:
+                break
+            capture.feed(raw)
+    except (OSError, ValueError):
+        capture.mark_incomplete()
+    finally:
+        try:
+            stream.close()
+        except (OSError, ValueError):
+            pass
+
+
+def _start_output_capture(stream: Any) -> tuple[_BoundedOutputCapture, threading.Thread]:
+    capture = _BoundedOutputCapture()
+    thread = threading.Thread(target=_drain_pipe, args=(stream, capture), daemon=True)
+    thread.start()
+    return capture, thread
+
+
+def _finish_output_capture(
+    capture: _BoundedOutputCapture,
+    thread: threading.Thread,
+) -> tuple[str, bool]:
+    thread.join(timeout=OUTPUT_DRAIN_JOIN_SECONDS)
+    if thread.is_alive():
+        capture.mark_incomplete()
+    return capture.render_public(), capture.truncated
+
+
 def split_cli_child_argv(argv: list[str]) -> tuple[list[str], list[str] | None]:
     """Detach the literal ``--`` child tail before argparse interprets child flags.
 
@@ -64,8 +142,16 @@ def _command_argv(args: argparse.Namespace) -> list[str]:
             ],
         )
     for value in values:
-        option = value.split("=", 1)[0].lstrip("-/")
-        if is_explicit_credential_key(option) or contains_credential_like_text(value):
+        option: str | None = None
+        if value.startswith("--") and len(value) > 2:
+            option = value[2:].split("=", 1)[0]
+        elif value.startswith("-") and len(value) > 1:
+            option = value[1:].split("=", 1)[0]
+        elif os.name == "nt" and value.startswith("/") and len(value) > 1:
+            # Windows tools commonly use /NAME.  On POSIX, /password can be a
+            # legitimate absolute path and must not be reclassified by name.
+            option = value[1:].split("=", 1)[0].split(":", 1)[0]
+        if (option and is_explicit_credential_key(option)) or contains_credential_like_text(value):
             raise core.ContinuationError(
                 "physical execution refuses credential-bearing child argv",
                 code="physical_execution_sensitive_argv_refused",
@@ -89,34 +175,19 @@ def _command_summary(argv: list[str]) -> dict[str, object]:
 def _child_environment() -> dict[str, str]:
     """Inherit ordinary process environment without parent owner credentials.
 
-    Owner capability paths are CLI-only.  Scrub the retired credential-file
-    environment key as defense in depth so it cannot be delegated to a child.
+    Owner capability paths are CLI-only.  Ordinary non-credential environment
+    metadata is inherited for compatibility, while explicit credential keys or
+    credential-shaped values are not delegated to the supervised child.
     The supervisor keeps its own environment unchanged.
     """
 
     child_env = os.environ.copy()
     child_env.pop(continuation_workspace_commands.LEGACY_FENCE_TOKEN_FILE_ENV, None)
     child_env.pop("ACF_CONTINUATION_OWNER_FILE", None)
+    for key, value in list(child_env.items()):
+        if is_explicit_credential_key(key) or contains_credential_like_text(value):
+            child_env.pop(key, None)
     return child_env
-
-
-def _bounded_tail(stream) -> str:
-    stream.flush()
-    size = stream.tell()
-    if size > MAX_CAPTURE_BYTES:
-        # Starting a regex/redaction pass at an arbitrary byte offset can land
-        # in the middle of a credential value or private-key block after the
-        # identifying key/header has already been discarded.  Do not expose a
-        # context-free fragment.  The caller still reports output_truncated;
-        # short output retains the normal bounded diagnostic path below.
-        return TRUNCATED_OUTPUT_REDACTED
-    stream.seek(0)
-    raw = stream.read(MAX_CAPTURE_BYTES)
-    # Keep the machine-readable parent JSON platform-neutral.  Child output is
-    # diagnostic text, so normalize Windows CRLF/CR newlines after decoding
-    # instead of exposing host-specific line endings to callers/tests.
-    text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
-    return redact_credential_like_text(text)[0]
 
 
 def _keepalive_seconds(control: Mapping[str, Any]) -> float:
@@ -277,11 +348,26 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                     ],
                 )
 
-        stdout_file = tempfile.TemporaryFile(mode="w+b")
-        stderr_file = tempfile.TemporaryFile(mode="w+b")
         process: subprocess.Popen[bytes] | None = None
+        stdout_capture: _BoundedOutputCapture | None = None
+        stderr_capture: _BoundedOutputCapture | None = None
+        stdout_thread: threading.Thread | None = None
+        stderr_thread: threading.Thread | None = None
         process_identity: str | None = None
         directive_signal: dict[str, Any] | None = None
+
+        def public_child_output() -> tuple[str, str, bool, bool]:
+            if (
+                stdout_capture is None
+                or stderr_capture is None
+                or stdout_thread is None
+                or stderr_thread is None
+            ):
+                return "", "", False, False
+            child_stdout, stdout_truncated = _finish_output_capture(stdout_capture, stdout_thread)
+            child_stderr, stderr_truncated = _finish_output_capture(stderr_capture, stderr_thread)
+            return child_stdout, child_stderr, stdout_truncated, stderr_truncated
+
         try:
             try:
                 popen_kwargs: dict[str, Any] = {}
@@ -293,12 +379,15 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                     argv,
                     cwd=root,
                     env=_child_environment(),
-                    stdin=None,
-                    stdout=stdout_file,
-                    stderr=stderr_file,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     shell=False,
                     **popen_kwargs,
                 )
+                assert process.stdout is not None and process.stderr is not None
+                stdout_capture, stdout_thread = _start_output_capture(process.stdout)
+                stderr_capture, stderr_thread = _start_output_capture(process.stderr)
             except OSError as exc:
                 with core._state_lock(paths["lock"]):
                     control, lease = _load_owner(root, paths, args)
@@ -356,6 +445,7 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                             evidence_ref=f"physical-execution:{execution_key}:exit:{return_code}",
                         )
                         pause_pending = paths["pause"].exists()
+                    child_stdout, child_stderr, stdout_truncated, stderr_truncated = public_child_output()
                     return {
                         "ok": return_code == 0,
                         "error_code": None if return_code == 0 else "physical_execution_child_failed",
@@ -375,11 +465,11 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                         "rollover": rollover,
                         "directive_signal": directive_signal,
                         "pause_pending": pause_pending,
-                        "child_stdout": _bounded_tail(stdout_file),
-                        "child_stderr": _bounded_tail(stderr_file),
+                        "child_stdout": child_stdout,
+                        "child_stderr": child_stderr,
                         "output_truncated": {
-                            "stdout": stdout_file.tell() > MAX_CAPTURE_BYTES,
-                            "stderr": stderr_file.tell() > MAX_CAPTURE_BYTES,
+                            "stdout": stdout_truncated,
+                            "stderr": stderr_truncated,
                         },
                         "next_actions": _terminal_next_actions(
                             return_code=return_code,
@@ -476,6 +566,7 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                     evidence_ref=f"physical-execution:{execution_key}:exit:{return_code}",
                 )
                 pause_pending = paths["pause"].exists()
+            child_stdout, child_stderr, stdout_truncated, stderr_truncated = public_child_output()
             return {
                 "ok": return_code == 0,
                 "error_code": None if return_code == 0 else "physical_execution_child_failed",
@@ -491,11 +582,11 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
                 "rollover": rollover,
                 "directive_signal": directive_signal,
                 "pause_pending": pause_pending,
-                "child_stdout": _bounded_tail(stdout_file),
-                "child_stderr": _bounded_tail(stderr_file),
+                "child_stdout": child_stdout,
+                "child_stderr": child_stderr,
                 "output_truncated": {
-                    "stdout": stdout_file.tell() > MAX_CAPTURE_BYTES,
-                    "stderr": stderr_file.tell() > MAX_CAPTURE_BYTES,
+                    "stdout": stdout_truncated,
+                    "stderr": stderr_truncated,
                 },
                 "next_actions": _terminal_next_actions(
                     return_code=return_code,
@@ -506,8 +597,10 @@ def continuation_execution_run_command(args: argparse.Namespace) -> int:
             if process is not None and process.poll() is None:
                 # A controller exception must not silently orphan the process.
                 continuation_execution.terminate_process_tree(process)
-            stdout_file.close()
-            stderr_file.close()
+            if stdout_capture is not None and stdout_thread is not None:
+                _finish_output_capture(stdout_capture, stdout_thread)
+            if stderr_capture is not None and stderr_thread is not None:
+                _finish_output_capture(stderr_capture, stderr_thread)
 
     return core._guarded(args, "continuation execution run", operation)
 

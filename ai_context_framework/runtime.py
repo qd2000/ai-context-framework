@@ -69,6 +69,7 @@ from ai_context_framework.commands.log import (
     usage_loggable,
 )
 from ai_context_framework.commands.log_inventory import log_projects_command
+from ai_context_framework.sensitive_data import redact_credential_like_text
 from ai_context_framework.commands.edit_link import (
     LINKIFY_DEFAULT_DIRS,
     LINKIFY_DEFAULT_FILES,
@@ -585,8 +586,17 @@ def add_write_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--strict", action="store_true", help="use strict mode for --check-after")
 
 
+class SafeArgumentParser(argparse.ArgumentParser):
+    """Argparse boundary that never echoes explicit credential-like values."""
+
+    def error(self, message: str) -> None:
+        safe_message = redact_credential_like_text(message)[0]
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}: error: {safe_message}\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = SafeArgumentParser(
         prog="acf",
         description="Generate, simplify, and check AI context framework templates.",
     )
@@ -1957,7 +1967,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if isinstance(exc.code, int):
             exit_code = exc.code
         else:
-            message = str(exc.code)
+            message = redact_credential_like_text(str(exc.code))[0]
             error_code, exit_code = classify_cli_error(message)
             if args is not None:
                 set_result_payload(
@@ -1972,7 +1982,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             emit_cli_error(argv_list, message, error_code, exit_code)
     except Exception as exc:  # pragma: no cover - defensive CLI boundary
-        message = str(exc)
+        message = redact_credential_like_text(str(exc))[0]
         exit_code = EXIT_RUNTIME_ERROR
         if args is not None:
             set_result_payload(

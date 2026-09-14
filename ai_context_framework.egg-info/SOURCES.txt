@@ -62,8 +62,8 @@ ai_context_framework/commands/continuation_directives.py
 ai_context_framework/commands/continuation_execution.py
 ai_context_framework/commands/continuation_issue.py
 ai_context_framework/commands/continuation_owner.py
-ai_context_framework/commands/continuation_pause.py
 ai_context_framework/commands/continuation_parsers.py
+ai_context_framework/commands/continuation_pause.py
 ai_context_framework/commands/continuation_recovery.py
 ai_context_framework/commands/continuation_release.py
 ai_context_framework/commands/continuation_workspace.py
