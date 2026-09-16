@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## v0.0.3.91 — 2026-09-16
+
+### Binding-first owner-context contract
+
+- 将 owner-protected continuation 的公共校验合同明确为 binding-first：handle 的文件系统边界、schema、workspace/task/runner 绑定以及 lease identity / credential possession 失败统一返回 `owner_context_binding_mismatch`，不向公共边界暴露 `owner_context_invalid`、`lease_mismatch` 或 `fence_token_*` 深层错误码；独立的 generation fencing 状态错误保持原有合同。
+- 修正 POSIX 与 Windows 对 capability payload 篡改的回归夹具差异，并补充跨平台一致性覆盖；不改变 credential non-transit、constant-time verifier、generation fencing 或 fail-closed 认证强度。
+
 ## v0.0.3.90 — 2026-09-16
 
 ### Continuation sensitive-interface hardening

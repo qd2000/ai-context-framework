@@ -119,6 +119,17 @@ class ContinuationCliTests(unittest.TestCase):
         ]
 
     @staticmethod
+    def _rewrite_owner_context(handle: Path, payload: dict[str, object]) -> None:
+        """Tamper with a capability without introducing a POSIX-only mode failure."""
+
+        mode = None
+        if os.name != "nt":
+            mode = handle.stat().st_mode & 0o777
+        continuation._write_json(handle, payload)
+        if mode is not None:
+            os.chmod(handle, mode)
+
+    @staticmethod
     def _file_snapshot(paths: list[Path]) -> dict[Path, bytes | None]:
         return {path: path.read_bytes() if path.exists() else None for path in paths}
 
@@ -2306,7 +2317,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("legacy_owner_assertion_refused", wrong_generation["error_code"])
 
         capability["credential"] = "0" * 64 if credential != "0" * 64 else "1" * 64
-        continuation._write_json(owner_file, capability)
+        self._rewrite_owner_context(owner_file, capability)
         code, rejected, _ = self.run_json(
             [
                 "continuation",
@@ -2319,9 +2330,9 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(3, code)
-        self.assertEqual("fence_token_mismatch", rejected["error_code"])
+        self.assertEqual("owner_context_binding_mismatch", rejected["error_code"])
         capability["credential"] = credential
-        continuation._write_json(owner_file, capability)
+        self._rewrite_owner_context(owner_file, capability)
 
         code, owner, stderr = self.run_json(
             [
@@ -2531,7 +2542,7 @@ class ContinuationCliTests(unittest.TestCase):
             with self.subTest(field=field):
                 tampered = dict(original)
                 tampered[field] = value
-                continuation._write_json(owner_file, tampered)
+                self._rewrite_owner_context(owner_file, tampered)
                 code, denied, _ = self.run_json(
                     [
                         "continuation",
@@ -2548,7 +2559,7 @@ class ContinuationCliTests(unittest.TestCase):
 
         invalid_schema = dict(original)
         invalid_schema["schema_version"] = "acf.continuation.owner-context.future"
-        continuation._write_json(owner_file, invalid_schema)
+        self._rewrite_owner_context(owner_file, invalid_schema)
         code, denied, _ = self.run_json(
             [
                 "continuation",
@@ -2561,8 +2572,8 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(3, code)
-        self.assertEqual("owner_context_invalid", denied["error_code"])
-        continuation._write_json(owner_file, original)
+        self.assertEqual("owner_context_binding_mismatch", denied["error_code"])
+        self._rewrite_owner_context(owner_file, original)
 
     def test_release_invalidates_owner_context_even_when_cleanup_fails(self) -> None:
         self.init_task()
@@ -5453,7 +5464,7 @@ merge_resolution: merged
         claim_capability["credential"] = (
             "0" * 64 if original_credential != "0" * 64 else "1" * 64
         )
-        continuation._write_json(claim_owner_file, claim_capability)
+        self._rewrite_owner_context(claim_owner_file, claim_capability)
         code, denied, _ = self.run_json(
             [
                 "continuation",
@@ -5468,9 +5479,9 @@ merge_resolution: merged
             ]
         )
         self.assertEqual(3, code)
-        self.assertEqual("fence_token_mismatch", denied["error_code"])
+        self.assertEqual("owner_context_binding_mismatch", denied["error_code"])
         claim_capability["credential"] = original_credential
-        continuation._write_json(claim_owner_file, claim_capability)
+        self._rewrite_owner_context(claim_owner_file, claim_capability)
         code, before, stderr = self.run_json(
             ["continuation", "coordination", "status", str(self.root), "--task-id", "WS908"]
         )

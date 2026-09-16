@@ -206,16 +206,44 @@ def _continuation():
     return continuation
 
 
+_OWNER_CONTEXT_LEASE_VERIFICATION_ERRORS = frozenset(
+    {
+        "lease_mismatch",
+        "fence_token_required",
+        "fence_token_mismatch",
+    }
+)
+
+
+def _owner_context_next_actions() -> list[str]:
+    return [
+        "Use only the local owner_context.handle returned by the current claim/recover generation. "
+        "Do not reconstruct or pass reusable authentication material in command text."
+    ]
+
+
 def _owner_context_error(exc: continuation_owner_context.OwnerContextError):
     core = _continuation()
+    code = exc.code
+    message = str(exc)
+    if code in {"owner_context_invalid", "owner_context_binding_mismatch"}:
+        code = "owner_context_binding_mismatch"
+        message = "owner context binding could not be verified"
     return core.ContinuationError(
-        str(exc),
-        code=exc.code,
+        message,
+        code=code,
         exit_code=3,
-        next_actions=[
-            "Use only the local owner_context.handle returned by the current claim/recover generation. "
-            "Do not reconstruct or pass reusable authentication material in command text."
-        ],
+        next_actions=_owner_context_next_actions(),
+    )
+
+
+def _owner_context_binding_error():
+    core = _continuation()
+    return core.ContinuationError(
+        "owner context binding could not be verified",
+        code="owner_context_binding_mismatch",
+        exit_code=3,
+        next_actions=_owner_context_next_actions(),
     )
 
 
@@ -293,22 +321,27 @@ def assert_owner_context(
             exit_code=3,
         )
     verifier = core._assert_lease_owner_with_activity if record_activity else core._assert_lease_owner
-    if record_activity:
-        lease = verifier(
-            paths,
-            control,
-            snapshot,
-            lease_id=context.lease_id,
-            fence_token=context.credential,
-            generation=context.generation,
-        )
-    else:
-        lease = verifier(
-            snapshot,
-            lease_id=context.lease_id,
-            fence_token=context.credential,
-            generation=context.generation,
-        )
+    try:
+        if record_activity:
+            lease = verifier(
+                paths,
+                control,
+                snapshot,
+                lease_id=context.lease_id,
+                fence_token=context.credential,
+                generation=context.generation,
+            )
+        else:
+            lease = verifier(
+                snapshot,
+                lease_id=context.lease_id,
+                fence_token=context.credential,
+                generation=context.generation,
+            )
+    except core.ContinuationError as exc:
+        if exc.code in _OWNER_CONTEXT_LEASE_VERIFICATION_ERRORS:
+            raise _owner_context_binding_error() from exc
+        raise
     return lease, context
 
 

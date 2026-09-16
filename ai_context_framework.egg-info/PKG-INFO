@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.90
+Version: 0.0.3.91
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -11,7 +11,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.90` 是当前 **Continuation sensitive-interface hardening release candidate**；本 worktree 已完成源码、文档、完整回归以及 wheel/sdist package smoke 验证。本地 release preparation 不等于 PyPI publish 或 global install。`.90` 将 owner-protected continuation transport 收敛为绑定 workspace/task/lease/generation/runner 的本地 `owner_context.handle` capability，并禁止 reusable credential 进入公共 argv、JSON、prompt、usage log、generic diagnostics、child argv 或普通 durable state；pre-.90 owner 仅可通过显式本地迁移命令完成 capability 迁移。`v0.0.3.89` 仍是当前已完成 immutable tag / publish / global install 的 **Agent-first Project Observer Beta 稳定安装态**；canonical Windows `acf` 仍为 `.89`，直到 `.90` 完成外部发布与安装验证。
+`v0.0.3.91` 是当前 **binding-first owner-context contract release candidate**；本 worktree 已完成源码、文档与 Windows 完整回归，Linux CI、package smoke、PyPI publish 和 global install 仍需通过后续门禁。本地 release preparation 不等于外部发布。`.91` 保持 `.90` 的 owner-protected continuation transport：校验 handle 的文件系统边界、schema、workspace/task/runner 绑定以及 lease identity / credential possession；这些已提供 handle 的失败统一返回 `owner_context_binding_mismatch`，generation fencing 状态错误保持独立合同；reusable credential 仍禁止进入公共 argv、JSON、prompt、usage log、generic diagnostics、child argv 或普通 durable state。`v0.0.3.90` 是不可移动的失败 release tag，不得重用或移动；`v0.0.3.89` 仍是当前已完成 immutable tag / publish / global install 的 **Agent-first Project Observer Beta 稳定安装态**；canonical Windows `acf` 仍为 `.89`，直到 `.91` 完成外部发布与安装验证。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)

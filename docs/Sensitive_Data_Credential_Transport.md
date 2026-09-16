@@ -30,6 +30,7 @@ Continuation 继续要求同时满足：
 - owner context 必须绑定 workspace、task、lease、generation、runner/issue identity 与 credential。
 - owner-protected 命令只接受 capability handle 与该命令自身的非秘密业务参数；lease id / generation 仍可作为状态、审计与输出 metadata，但不再作为 owner-protected 公共输入参数。它们从 owner context 与 canonical active lease 内部读取并参与一致性/fencing 校验。
 - handle 缺失、不可读、schema 非法、workspace/task 绑定错误、lease/generation/credential 不匹配或 stale generation 必须 fail-closed。
+- owner-protected 校验采用 binding-first 顺序：先验证 handle 的文件系统边界、schema 以及 workspace/task/runner 绑定，再验证 active lease 的 lease identity、generation 和 credential possession。对已经提供的 handle，只要 schema、绑定、lease identity 或 credential possession 校验失败，公共错误统一为 `owner_context_binding_mismatch`，不向调用方暴露 `owner_context_invalid`、`lease_mismatch` 或 `fence_token_*` 的深层原因；generation fencing 的状态错误仍按其独立 fencing 合同返回。handle 缺失或不可用仍分别保留 `owner_context_required` / `owner_context_unavailable`。
 - owner-context delivery 必须发生在 fresh owner commit 前；delivery 失败不得创建新 active owner，也不得推进 generation。
 - canonical lease 只保存不可逆 verifier，不保存 reusable credential。
 - 正常 release 后应撤销/清理本地 owner context；即使清理异常，已释放或被新 generation 替代的旧 handle 也必须无法再次取得 owner 权限。
