@@ -60,7 +60,23 @@ class ContinuationCliTests(unittest.TestCase):
             self.fail(result.stderr or result.stdout)
         return result
 
-    def run_json(self, args: list[str]) -> tuple[int, dict[str, object], str]:
+    @staticmethod
+    def _handle_only_args(args: list[str]) -> list[str]:
+        """Adapt older behavior fixtures to the current owner-file-only CLI."""
+
+        if "--owner-file" not in args:
+            return list(args)
+        normalized: list[str] = []
+        index = 0
+        while index < len(args):
+            if args[index] in {"--lease-id", "--generation"} and index + 1 < len(args):
+                index += 2
+                continue
+            normalized.append(args[index])
+            index += 1
+        return normalized
+
+    def run_raw_json(self, args: list[str]) -> tuple[int, dict[str, object], str]:
         stdout = io.StringIO()
         stderr = io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
@@ -68,6 +84,9 @@ class ContinuationCliTests(unittest.TestCase):
         raw = stdout.getvalue().strip()
         self.assertTrue(raw, stderr.getvalue())
         return code, json.loads(raw), stderr.getvalue()
+
+    def run_json(self, args: list[str]) -> tuple[int, dict[str, object], str]:
+        return self.run_raw_json(self._handle_only_args(args))
 
     def init_task(self, task_id: str = "WS900") -> dict[str, object]:
         code, payload, stderr = self.run_json(
@@ -92,15 +111,11 @@ class ContinuationCliTests(unittest.TestCase):
         return payload
 
     def owner_flags(self, claim: dict[str, object]) -> list[str]:
-        lease = claim["lease"]
         owner_context = claim["owner_context"]
-        self.assertIsInstance(lease, dict)
         self.assertIsInstance(owner_context, dict)
         return [
             "--owner-file",
             str(owner_context["handle"]),
-            "--generation",
-            str(lease["generation"]),
         ]
 
     @staticmethod
@@ -2254,7 +2269,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(0, code, f"{stderr}\n{owner_without_assertions}")
         self.assertEqual("owner_confirmed", owner_without_assertions["status"])
 
-        code, wrong_lease, _ = self.run_json(
+        code, wrong_lease, wrong_lease_stderr = self.run_raw_json(
             [
                 "continuation",
                 "assert-owner",
@@ -2268,9 +2283,11 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(3, code)
-        self.assertEqual("owner_context_binding_mismatch", wrong_lease["error_code"])
+        self.assertEqual("legacy_owner_assertion_refused", wrong_lease["error_code"])
+        self.assertNotIn("wrong-lease-id", json.dumps(wrong_lease, ensure_ascii=False))
+        self.assertNotIn("wrong-lease-id", wrong_lease_stderr)
 
-        code, wrong_generation, _ = self.run_json(
+        code, wrong_generation, _ = self.run_raw_json(
             [
                 "continuation",
                 "assert-owner",
@@ -2286,7 +2303,7 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(3, code)
-        self.assertEqual("owner_context_binding_mismatch", wrong_generation["error_code"])
+        self.assertEqual("legacy_owner_assertion_refused", wrong_generation["error_code"])
 
         capability["credential"] = "0" * 64 if credential != "0" * 64 else "1" * 64
         continuation._write_json(owner_file, capability)
@@ -2379,18 +2396,12 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertIn("owner_context.handle", str(prompt["prompt"]))
         self.assertNotIn(credential, json.dumps(prompt, ensure_ascii=False))
 
-        lease = claim["lease"]
-        self.assertIsInstance(lease, dict)
         owner_base = [
             str(self.root),
             "--task-id",
             "WS900",
             "--owner-file",
             str(owner_file),
-            "--lease-id",
-            str(lease["lease_id"]),
-            "--generation",
-            str(claim["generation"]),
         ]
 
         code, owner, stderr = self.run_json(
@@ -2473,8 +2484,6 @@ class ContinuationCliTests(unittest.TestCase):
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{claim}")
-        lease = claim["lease"]
-        self.assertIsInstance(lease, dict)
         owner_context = claim["owner_context"]
         self.assertIsInstance(owner_context, dict)
         missing_file = Path(str(owner_context["handle"]))
@@ -2489,10 +2498,6 @@ class ContinuationCliTests(unittest.TestCase):
                 "WS900",
                 "--owner-file",
                 str(missing_file),
-                "--lease-id",
-                str(lease["lease_id"]),
-                "--generation",
-                str(claim["generation"]),
             ]
         )
         self.assertEqual(3, code)
@@ -2904,7 +2909,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertTrue(recovered_file.is_file())
         self.assertTrue(owner_files_before.issubset(set((state_dir / "owner_contexts").glob("ctx-*.json"))))
 
-    def test_missing_and_legacy_owner_transports_are_explicitly_refused(self) -> None:
+    def test_missing_and_retired_owner_transports_are_safe(self) -> None:
         init = self.init_task()
         state_dir = Path(str(init["state_dir"]))
         code, claim, stderr = self.run_json(
@@ -2933,7 +2938,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual("owner_context_required", missing["error_code"])
 
         legacy_secret = "legacy-owner-secret-must-not-be-reflected"
-        code, raw_legacy, _ = self.run_json(
+        code, raw_legacy, raw_legacy_stderr = self.run_raw_json(
             [
                 "continuation",
                 "assert-owner",
@@ -2947,6 +2952,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(3, code)
         self.assertEqual("legacy_owner_transport_refused", raw_legacy["error_code"])
         self.assertNotIn(legacy_secret, json.dumps(raw_legacy, ensure_ascii=False))
+        self.assertNotIn(legacy_secret, raw_legacy_stderr)
 
         code, released, stderr = self.run_json(
             [
@@ -2962,12 +2968,8 @@ class ContinuationCliTests(unittest.TestCase):
         )
         self.assertEqual(0, code, f"{stderr}\n{released}")
 
-        with patch.dict(
-            os.environ,
-            {continuation_workspace_command.LEGACY_FENCE_TOKEN_FILE_ENV: "retired-owner-file"},
-            clear=False,
-        ):
-            code, legacy_environment, _ = self.run_json(
+        with patch.dict(os.environ, {"ACF_CONTINUATION_FENCE_TOKEN_FILE": "retired-owner-file"}, clear=False):
+            code, second_claim, stderr = self.run_json(
                 [
                     "continuation",
                     "claim",
@@ -2978,9 +2980,57 @@ class ContinuationCliTests(unittest.TestCase):
                     "runner-b",
                 ]
             )
-        self.assertEqual(3, code)
-        self.assertEqual("legacy_owner_transport_refused", legacy_environment["error_code"])
-        self.assertFalse((state_dir / "lease.json").exists())
+        self.assertEqual(0, code, f"{stderr}\n{second_claim}")
+        self.assertEqual("claimed", second_claim["status"])
+        self.assertTrue((state_dir / "lease.json").exists())
+
+    def test_owner_protected_parser_schema_is_handle_only(self) -> None:
+        commands = (
+            ["continuation", "assert-owner"],
+            ["continuation", "heartbeat"],
+            ["continuation", "renew"],
+            ["continuation", "checkpoint"],
+            ["continuation", "progress"],
+            ["continuation", "effect", "prepare"],
+            ["continuation", "effect", "update"],
+            ["continuation", "workspace", "intent"],
+            ["continuation", "workspace", "reclassify"],
+            ["continuation", "workspace", "refresh"],
+            ["continuation", "execution", "run"],
+            ["continuation", "release"],
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    code = acf.main([*command, "--help"])
+                self.assertEqual(0, code, stderr.getvalue())
+                help_text = stdout.getvalue()
+                self.assertIn("--owner-file", help_text)
+                self.assertNotIn("--fence-token", help_text)
+                self.assertNotIn("--lease-id", help_text)
+                self.assertNotIn("--generation", help_text)
+
+        for retired_option, retired_value in (
+            ("--lease-id", "lease-should-not-be-public"),
+            ("--generation", "17"),
+        ):
+            code, refused, refused_stderr = self.run_raw_json(
+                [
+                    "continuation",
+                    "assert-owner",
+                    str(self.root),
+                    "--task-id",
+                    "WS900",
+                    retired_option,
+                    retired_value,
+                ]
+            )
+            self.assertEqual(3, code)
+            self.assertEqual("legacy_owner_assertion_refused", refused["error_code"])
+            self.assertNotIn(retired_value, json.dumps(refused, ensure_ascii=False))
+            self.assertNotIn(retired_value, refused_stderr)
 
     def test_active_lease_without_current_owner_context_projects_migration_hold(self) -> None:
         self.init_task("WS950")
@@ -3026,6 +3076,113 @@ class ContinuationCliTests(unittest.TestCase):
         )
         self.assertIn("Do not perform .90 owner-protected writes", prompt["prompt"])
         self.assertNotIn("Continue under the current local owner-context capability", prompt["prompt"])
+
+    def test_active_legacy_token_file_migrates_locally_without_owner_identity_change(self) -> None:
+        init = self.init_task("WS953")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS953",
+                "--runner-id",
+                "runner-pre-90",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner_file = Path(str(claim["owner_context"]["handle"]))
+        credential = json.loads(owner_file.read_text(encoding="utf-8"))["credential"]
+        owner_file.unlink()
+        legacy_file = Path(self._home.name) / "pre-90-owner.token"
+        legacy_file.write_text(str(credential) + "\n", encoding="utf-8")
+        if os.name != "nt":
+            os.chmod(legacy_file, 0o600)
+
+        code, doctor, stderr = self.run_json(
+            ["continuation", "doctor", str(self.root), "--task-id", "WS953"]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{doctor}")
+        self.assertTrue(doctor["owner_context_transport"]["migration_required"])
+
+        code, migrated, stderr = self.run_json(
+            [
+                "continuation",
+                "owner",
+                "migrate-legacy-token-file",
+                str(self.root),
+                "--task-id",
+                "WS953",
+                "--legacy-token-file",
+                str(legacy_file),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{migrated}")
+        self.assertEqual("owner_context_migrated", migrated["status"])
+        self.assertEqual(claim["generation"], migrated["generation"])
+        self.assertEqual(claim["lease"]["lease_id"], migrated["lease"]["lease_id"])
+        self.assertFalse(legacy_file.exists())
+        self.assertNotIn(str(credential), json.dumps(migrated, ensure_ascii=False))
+        self.assertNotIn(str(credential), stderr)
+
+        code, heartbeat, stderr = self.run_json(
+            [
+                "continuation",
+                "heartbeat",
+                str(self.root),
+                "--task-id",
+                "WS953",
+                "--owner-file",
+                str(migrated["owner_context"]["handle"]),
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{heartbeat}")
+        self.assertEqual("heartbeat_recorded", heartbeat["status"])
+        persisted = json.loads((state_dir / "lease.json").read_text(encoding="utf-8"))
+        self.assertEqual(claim["generation"], persisted["generation"])
+        self.assertEqual(claim["lease"]["lease_id"], persisted["lease_id"])
+
+    def test_active_legacy_token_file_migration_mismatch_fails_closed(self) -> None:
+        init = self.init_task("WS954")
+        state_dir = Path(str(init["state_dir"]))
+        code, claim, stderr = self.run_json(
+            [
+                "continuation",
+                "claim",
+                str(self.root),
+                "--task-id",
+                "WS954",
+                "--runner-id",
+                "runner-pre-90",
+            ]
+        )
+        self.assertEqual(0, code, f"{stderr}\n{claim}")
+        owner_file = Path(str(claim["owner_context"]["handle"]))
+        owner_file.unlink()
+        legacy_file = Path(self._home.name) / "wrong-pre-90-owner.token"
+        legacy_file.write_text("0" * 64 + "\n", encoding="utf-8")
+        if os.name != "nt":
+            os.chmod(legacy_file, 0o600)
+
+        code, refused, stderr = self.run_json(
+            [
+                "continuation",
+                "owner",
+                "migrate-legacy-token-file",
+                str(self.root),
+                "--task-id",
+                "WS954",
+                "--legacy-token-file",
+                str(legacy_file),
+            ]
+        )
+        self.assertEqual(3, code)
+        self.assertEqual("legacy_owner_transport_mismatch", refused["error_code"])
+        self.assertTrue(legacy_file.exists())
+        self.assertEqual([], list((state_dir / "owner_contexts").glob("ctx-*.json")))
+        self.assertNotIn("0" * 64, json.dumps(refused, ensure_ascii=False))
+        self.assertNotIn("0" * 64, stderr)
 
     def test_owner_protected_public_fields_refuse_credentials_but_allow_digests(self) -> None:
         init = self.init_task()

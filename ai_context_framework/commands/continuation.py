@@ -1133,7 +1133,7 @@ def continuation_doctor_command(args: argparse.Namespace) -> int:
             )
         if result["owner_context_transport"].get("migration_required"):
             next_actions.append(
-                "This active lease has no usable current owner-context capability. Do not use .90 owner-protected writes or re-enable raw-secret transport. Preserve any already-running pre-upgrade process; if it cannot release through its already-loaded old runtime, wait for stale/expired ownership and use evidence-backed reconcile/recover to mint a fresh owner context."
+                "This active lease has no usable current owner-context capability. Do not use .90 owner-protected writes or re-enable raw-secret argv/environment transport. If the legitimate pre-.90 owner still has its local token file, migrate it in-process with `acf continuation owner migrate-legacy-token-file ... --legacy-token-file <local-path> --json`; otherwise preserve any already-running pre-upgrade process and use evidence-backed reconcile/recover only after ownership becomes stale/expired."
             )
         if "workspace_provenance_missing" in result["blocked_reasons"]:
             next_actions.extend(
@@ -1947,6 +1947,7 @@ continuation_reconcile_command = continuation_recovery_commands.continuation_rec
 continuation_issue_command = continuation_issue_commands.continuation_issue_command
 continuation_assert_owner_command = continuation_owner_commands.continuation_assert_owner_command
 continuation_heartbeat_command = continuation_owner_commands.continuation_heartbeat_command
+continuation_migrate_legacy_token_file_command = continuation_owner_commands.continuation_migrate_legacy_token_file_command
 continuation_renew_command = continuation_owner_commands.continuation_renew_command
 continuation_pause_command = continuation_pause_commands.continuation_pause_command
 continuation_resume_command = continuation_pause_commands.continuation_resume_command
@@ -1955,6 +1956,7 @@ register_configure_parser = continuation_workspace_commands.register_configure_p
 register_coordination_parsers = continuation_coordination_commands.register_coordination_parsers
 register_issue_parser = continuation_issue_commands.register_issue_parser
 register_execution_parser = continuation_execution_commands.register_execution_parser
+register_owner_parser = continuation_owner_commands.register_owner_parser
 
 
 __all__ = [
@@ -1972,6 +1974,7 @@ __all__ = [
     "continuation_heartbeat_command",
     "continuation_init_command",
     "continuation_issue_command",
+    "continuation_migrate_legacy_token_file_command",
     "continuation_pause_command",
     "continuation_progress_command",
     "continuation_prompt_command",
@@ -1988,6 +1991,7 @@ __all__ = [
     "register_coordination_parsers",
     "register_configure_parser",
     "register_execution_parser",
+    "register_owner_parser",
     "register_workspace_parsers",
     "register_issue_parser",
 ]

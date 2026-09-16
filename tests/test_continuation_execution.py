@@ -58,7 +58,21 @@ class ContinuationExecutionTests(unittest.TestCase):
             self.fail(result.stderr or result.stdout)
         return result
 
-    def run_json(self, args: list[str], *, already_json: bool = False) -> tuple[int, dict[str, object], str]:
+    @staticmethod
+    def _handle_only_args(args: list[str]) -> list[str]:
+        if "--owner-file" not in args:
+            return list(args)
+        normalized: list[str] = []
+        index = 0
+        while index < len(args):
+            if args[index] in {"--lease-id", "--generation"} and index + 1 < len(args):
+                index += 2
+                continue
+            normalized.append(args[index])
+            index += 1
+        return normalized
+
+    def run_raw_json(self, args: list[str], *, already_json: bool = False) -> tuple[int, dict[str, object], str]:
         stdout = io.StringIO()
         stderr = io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
@@ -66,6 +80,10 @@ class ContinuationExecutionTests(unittest.TestCase):
         raw = stdout.getvalue().strip()
         self.assertTrue(raw, stderr.getvalue())
         return code, json.loads(raw), stderr.getvalue()
+
+    def run_json(self, args: list[str], *, already_json: bool = False) -> tuple[int, dict[str, object], str]:
+        effective = self._handle_only_args(args)
+        return self.run_raw_json(effective, already_json=already_json)
 
     def init_and_claim(self) -> tuple[dict[str, object], dict[str, object]]:
         code, initialized, stderr = self.run_json(
@@ -99,15 +117,11 @@ class ContinuationExecutionTests(unittest.TestCase):
         return initialized, claim
 
     def owner_flags(self, claim: dict[str, object]) -> list[str]:
-        lease = claim["lease"]
         owner_context = claim["owner_context"]
-        self.assertIsInstance(lease, dict)
         self.assertIsInstance(owner_context, dict)
         return [
             "--owner-file",
             str(owner_context["handle"]),
-            "--generation",
-            str(lease["generation"]),
         ]
 
     def test_command_summary_does_not_echo_child_argv_and_allows_public_digests(self) -> None:
@@ -477,6 +491,7 @@ class ContinuationExecutionTests(unittest.TestCase):
                 "DATABASE_PASSWORD": "child-env-password-sentinel",
                 "GITHUB_TOKEN": "child-env-provider-sentinel",
                 "ACF_FENCE_TOKEN_HASH": "synthetic-verifier-sentinel",
+                "ACF_CONTINUATION_FENCE_TOKEN_FILE": "legacy-owner-token-path",
                 "TOKEN": "page-2",
                 "LICENSE": "MIT",
                 "PUBLIC_DIGEST": digest,
@@ -488,6 +503,7 @@ class ContinuationExecutionTests(unittest.TestCase):
         self.assertNotIn("DATABASE_PASSWORD", child_env)
         self.assertNotIn("GITHUB_TOKEN", child_env)
         self.assertNotIn("ACF_FENCE_TOKEN_HASH", child_env)
+        self.assertNotIn("ACF_CONTINUATION_FENCE_TOKEN_FILE", child_env)
         self.assertEqual("page-2", child_env["TOKEN"])
         self.assertEqual("MIT", child_env["LICENSE"])
         self.assertEqual(digest, child_env["PUBLIC_DIGEST"])

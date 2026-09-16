@@ -192,9 +192,6 @@ def register_release_parser(subparsers, add_json_argument) -> None:
     parser.add_argument("path", nargs="?", type=core.Path)
     parser.add_argument("--task-id", default=None)
     parser.add_argument("--owner-file", default=None)
-    parser.add_argument("--lease-id", default=None)
-    parser.add_argument("--generation", type=int, default=None)
-    parser.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--handoff",
         action="store_true",

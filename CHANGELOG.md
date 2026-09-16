@@ -4,10 +4,13 @@
 
 ## Unreleased
 
+## v0.0.3.90 — 2026-09-16
+
 ### Continuation sensitive-interface hardening
 
 - 定义模型/平台无关的 Sensitive Data / Credential Transport Contract：reusable credential 不进入公共 argv、JSON、generated prompt、usage log、generic diagnostics、child argv 或普通 durable state；UUID、Git SHA、deterministic digest、generation 与普通 external job id 不因高熵外观被误判为秘密。
 - Continuation owner transport 目标接口改为本地 `owner_context.handle` capability：handle 绑定 workspace/task/lease/generation/credential，canonical lease 仍只保存不可逆 verifier；缺失、错绑定、stale generation 或 credential 不匹配 fail-closed，delivery 必须先于 fresh owner commit。旧 raw-secret/token-file transport 不作为泄露兼容旁路。
+- owner-protected parser 只保留 `--owner-file` 与业务参数，不再暴露 `--fence-token`、`--lease-id`、`--generation`；旧 token-file 环境变量不再是认证入口。pre-.90 active owner 可用显式本地 `owner migrate-legacy-token-file` 在不改变 lease/generation/runner 的前提下验证并迁移，旧文件无法安全退休时回滚新 capability。
 - Continuation 公共输出统一移除 ACF reusable credential / auth verifier，并对明确 credential-like 文本做防御性 redaction。`continuation execution run` 不再回显完整 child argv，对明确 credential-bearing argv fail-closed，并在 bounded stdout/stderr 返回前做 credential-like redaction；普通 parent environment 仍为业务兼容继承，因此该边界是 credential containment 而不是通用 sandbox。
 
 ## v0.0.3.89 — 2026-09-12

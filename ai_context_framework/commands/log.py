@@ -88,7 +88,10 @@ def command_label(args: argparse.Namespace) -> str:
     if command == "worktree":
         return f"worktree {getattr(args, 'worktree_command', '')}".strip()
     if command == "continuation":
-        return f"continuation {getattr(args, 'continuation_command', '')}".strip()
+        continuation_command = getattr(args, "continuation_command", "")
+        if continuation_command == "owner":
+            return f"continuation owner {getattr(args, 'continuation_owner_command', '')}".strip()
+        return f"continuation {continuation_command}".strip()
     if command == "link":
         return f"link {getattr(args, 'link_command', '')}".strip()
     return command

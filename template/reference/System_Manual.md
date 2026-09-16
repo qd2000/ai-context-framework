@@ -400,6 +400,8 @@ acf continuation coordination attempt <worktree> --task-id WS001 --runner-id sch
 acf continuation coordination wait <worktree> --task-id WS001 --challenge-id <challenge_id> --attempt-id <attempt_id> --json
 acf continuation claim <worktree> --task-id WS001 --runner-id scheduled-agent --json
 acf continuation assert-owner <worktree> --task-id WS001 --owner-file <owner_context_handle> --json
+# 仅用于 pre-.90 active owner 的本地 token-file 迁移；不改变 lease/generation/runner
+acf continuation owner migrate-legacy-token-file <worktree> --task-id WS001 --legacy-token-file <local_legacy_token_file> --json
 acf continuation workspace status <worktree> --task-id WS001 --json
 acf continuation workspace intent <worktree> --task-id WS001 --owner-file <owner_context_handle> --path src/example.py --json
 acf continuation workspace reclassify <worktree> --task-id WS001 --owner-file <owner_context_handle> --task-owned build/generated.txt --evidence-ref effect:release-job:terminal --reason "Reviewed durable-writer output." --json
@@ -425,7 +427,7 @@ acf continuation checkpoint <worktree> --task-id WS001 --owner-file <owner_conte
 acf continuation release <worktree> --task-id WS001 --owner-file <owner_context_handle> --final-status ready --json
 ```
 
-Continuation owner credential 不通过普通命令文本或 JSON 交付。`claim` / `recover` 在提交 fresh owner 之前创建本地 `owner_context.handle`，该 ephemeral owner context 绑定 workspace、task、lease、generation 与 possession credential；后续 owner-protected 命令只传 `--owner-file <owner_context_handle>`。handle 缺失、错误绑定、stale generation、credential 不匹配或 delivery 失败均 fail-closed，且 delivery 失败不得创建 active owner 或推进 generation。旧 raw-secret / token-file transport 不作为兼容旁路；UUID、Git SHA、deterministic digest、generation 与普通 external job id 继续作为合法非秘密 metadata。
+Continuation owner credential 不通过普通命令文本或 JSON 交付。`claim` / `recover` 在提交 fresh owner 之前创建本地 `owner_context.handle`，该 ephemeral owner context 绑定 workspace、task、lease、generation 与 possession credential；后续 owner-protected 命令只传 `--owner-file <owner_context_handle>`，公共 parser 不再接收 `--fence-token`、`--lease-id` 或 `--generation`。pre-.90 active owner 若仍持有正确的本地 token file，可用显式本地 migration 命令转成同一 lease/generation/runner 的 owner context；旧环境变量不再作为认证输入，迁移失败或旧文件无法安全退休时 fail-closed。UUID、Git SHA、deterministic digest、generation 与普通 external job id 继续作为合法非秘密 metadata。
 
 可能跨 stale window 的确定性本地命令使用 `continuation execution run`。supervisor 在既有 effect journal 中占用不可 replay 的 deterministic key，记录 generation-bound PID + process-start identity，并在精确进程仍 live 时自动 heartbeat/按需 renew；进程退出后 effect terminalize。普通 heartbeat 已 stale 时，只有 active lease + 同 generation 的 active physical-execution effect + 精确 PID/start identity 才能以 `liveness_source=physical_execution` 保持 verified-live。裸 PID、PID reuse、zombie/dead process、unverifiable probe 或 stale effect label 都不算 live；physical evidence 不复活 expired lease。公共结果不回显完整 child argv，只保留非敏感命令摘要与 process/effect 审计身份；明确 credential-bearing argv fail-closed，bounded stdout/stderr 返回前做 credential-like redaction。普通 parent environment 仍为业务兼容继承，但 ACF owner capability/credential transport 不委托给 child；这只是 credential containment，不是通用 sandbox。DevSpace 返回 running session 时仍必须 poll 同一个 session 到 terminal，不能遗弃或重复启动。该能力不引入 daemon/数据库/第二套 scheduler。
 

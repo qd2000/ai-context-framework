@@ -23,6 +23,7 @@ from typing import Any, Mapping
 OWNER_CONTEXT_SCHEMA = "acf.continuation.owner-context.v1"
 OWNER_CONTEXT_DIRECTORY = "owner_contexts"
 MAX_OWNER_CONTEXT_BYTES = 16 * 1024
+MAX_LEGACY_CREDENTIAL_BYTES = 4096
 _CONTEXT_ID_RE = re.compile(r"ctx-[0-9a-f]{32}")
 _CREDENTIAL_RE = re.compile(r"[0-9a-f]{64}")
 
@@ -384,6 +385,159 @@ def load_owner_context(
     return context
 
 
+def _load_legacy_credential_file(raw_handle: str | Path) -> tuple[Path, str, tuple[int, int, int]]:
+    """Read one retired token-file credential without exposing it publicly."""
+
+    value = str(raw_handle).strip()
+    if not value:
+        raise OwnerContextError(
+            "legacy owner credential file is required",
+            code="legacy_owner_transport_unavailable",
+        )
+    unresolved = Path(value).expanduser()
+    try:
+        if _is_reparse_or_link(unresolved):
+            raise OwnerContextError(
+                "legacy owner credential file cannot be a link or reparse point",
+                code="legacy_owner_transport_invalid",
+            )
+        handle = _resolved(unresolved)
+    except OwnerContextError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise OwnerContextError(
+            "legacy owner credential file is unavailable",
+            code="legacy_owner_transport_unavailable",
+        ) from exc
+
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOINHERIT", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    fd = -1
+    try:
+        fd = os.open(handle, flags)
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise OwnerContextError(
+                "legacy owner credential file is not a single-link regular file",
+                code="legacy_owner_transport_invalid",
+            )
+        if metadata.st_size < 1 or metadata.st_size > MAX_LEGACY_CREDENTIAL_BYTES:
+            raise OwnerContextError(
+                "legacy owner credential file size is invalid",
+                code="legacy_owner_transport_invalid",
+            )
+        if os.name != "nt":
+            if stat.S_IMODE(metadata.st_mode) & 0o077:
+                raise OwnerContextError(
+                    "legacy owner credential file permissions are not private",
+                    code="legacy_owner_transport_invalid",
+                )
+            getuid = getattr(os, "getuid", None)
+            if callable(getuid) and metadata.st_uid != getuid():
+                raise OwnerContextError(
+                    "legacy owner credential file owner does not match the current user",
+                    code="legacy_owner_transport_invalid",
+                )
+        chunks: list[bytes] = []
+        remaining = MAX_LEGACY_CREDENTIAL_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(fd, min(4096, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if len(raw) > MAX_LEGACY_CREDENTIAL_BYTES:
+            raise OwnerContextError(
+                "legacy owner credential file size is invalid",
+                code="legacy_owner_transport_invalid",
+            )
+        credential = raw.decode("utf-8").strip()
+    except OwnerContextError:
+        raise
+    except FileNotFoundError as exc:
+        raise OwnerContextError(
+            "legacy owner credential file is unavailable",
+            code="legacy_owner_transport_unavailable",
+        ) from exc
+    except PermissionError as exc:
+        raise OwnerContextError(
+            "legacy owner credential file is unavailable",
+            code="legacy_owner_transport_unavailable",
+        ) from exc
+    except (OSError, UnicodeError) as exc:
+        raise OwnerContextError(
+            "legacy owner credential file could not be read",
+            code="legacy_owner_transport_invalid",
+        ) from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    if not _CREDENTIAL_RE.fullmatch(credential):
+        raise OwnerContextError(
+            "legacy owner credential file does not contain a valid owner credential",
+            code="legacy_owner_transport_invalid",
+        )
+    return handle, credential, (int(metadata.st_dev), int(metadata.st_ino), int(metadata.st_size))
+
+
+def migrate_legacy_token_file(
+    task_directory: Path,
+    *,
+    legacy_token_file: str | Path,
+    workspace_root: Path,
+    task_id: str,
+    lease_id: str,
+    generation: int,
+    runner_id: str,
+    credential_verifier: str,
+    created_at: str,
+) -> OwnerContext:
+    """Convert a pre-.90 local token file into the current owner capability.
+
+    The active lease and generation are not changed.  The retired file path is
+    only a local input handle; its reusable credential is read in-process,
+    verified against the durable lease verifier, and never returned.
+    """
+
+    legacy_handle, credential, identity = _load_legacy_credential_file(legacy_token_file)
+    actual_verifier = hashlib.sha256(credential.encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(str(credential_verifier), actual_verifier):
+        raise OwnerContextError(
+            "legacy owner credential does not authenticate the active lease",
+            code="legacy_owner_transport_mismatch",
+        )
+
+    context = create_owner_context(
+        task_directory,
+        workspace_root=workspace_root,
+        task_id=task_id,
+        lease_id=lease_id,
+        generation=generation,
+        runner_id=runner_id,
+        credential=credential,
+        created_at=created_at,
+    )
+    try:
+        current = legacy_handle.lstat()
+        current_identity = (int(current.st_dev), int(current.st_ino), int(current.st_size))
+        if current_identity != identity or _is_reparse_or_link(legacy_handle):
+            raise OSError("legacy owner credential file changed during migration")
+        legacy_handle.unlink()
+    except OSError as exc:
+        revoked = revoke_owner_context(context, task_directory)
+        if not revoked:
+            raise OwnerContextError(
+                "legacy owner migration cleanup and rollback were incomplete",
+                code="owner_context_migration_rollback_failed",
+            ) from exc
+        raise OwnerContextError(
+            "legacy owner credential file could not be retired; migration was rolled back",
+            code="owner_context_migration_cleanup_failed",
+        ) from exc
+    return context
+
+
 def revoke_owner_context(context: OwnerContext | Path | str, task_directory: Path) -> bool:
     """Best-effort removal of one exact task-local owner context."""
 
@@ -486,6 +640,7 @@ def inspect_owner_context_transport(
 
 
 __all__ = [
+    "MAX_LEGACY_CREDENTIAL_BYTES",
     "MAX_OWNER_CONTEXT_BYTES",
     "OWNER_CONTEXT_DIRECTORY",
     "OWNER_CONTEXT_SCHEMA",
@@ -493,6 +648,7 @@ __all__ = [
     "OwnerContextError",
     "create_owner_context",
     "load_owner_context",
+    "migrate_legacy_token_file",
     "inspect_owner_context_transport",
     "owner_context_directory",
     "revoke_other_owner_contexts",

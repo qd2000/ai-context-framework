@@ -145,6 +145,8 @@ acf continuation coordination wait C:\PROJECT\repo_worktrees\ws001-example --tas
 acf continuation claim C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --runner-id scheduled-agent --json
 # 保存 claim/recover 返回的本地 owner_context.handle；不要读取或复制 handle 内的认证材料
 acf continuation assert-owner C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --owner-file <owner_context_handle> --json
+# 仅在 pre-.90 active owner 没有 owner context、但仍持有原本地 token file 时使用；迁移不改变 lease/generation/runner
+acf continuation owner migrate-legacy-token-file C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --legacy-token-file <local_legacy_token_file> --json
 acf continuation workspace status C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --json
 # 修改项目文件前声明 concrete intent；绑定 Workstream 时必须命中其直接 write_scope
 acf continuation workspace intent C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --owner-file <owner_context_handle> --path src/example.py --json
@@ -185,7 +187,7 @@ acf continuation issue C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 -
 acf log issues --all-projects --open-only --json
 ```
 
-Continuation owner transport 遵守 [Sensitive Data / Credential Transport Contract](../../Sensitive_Data_Credential_Transport.md)。`claim` / `recover` 在提交 fresh owner 之前创建并交付本地 `owner_context.handle`；handle 指向的 ephemeral owner context 绑定 workspace、task、lease、generation 与 possession credential，公共 JSON、prompt、usage log 与普通 diagnostics 不返回 reusable credential 或无业务必要的 verifier。后续 owner-protected 命令只传 `--owner-file <owner_context_handle>`。handle 缺失、错误绑定、stale generation、credential 不匹配或 delivery 失败均 fail-closed；delivery 失败不得创建 active owner 或推进 generation。旧 raw-secret / token-file transport 不作为兼容旁路。
+Continuation owner transport 遵守 [Sensitive Data / Credential Transport Contract](../../Sensitive_Data_Credential_Transport.md)。`claim` / `recover` 在提交 fresh owner 之前创建并交付本地 `owner_context.handle`；handle 指向的 ephemeral owner context 绑定 workspace、task、lease、generation 与 possession credential，公共 JSON、prompt、usage log 与普通 diagnostics 不返回 reusable credential 或无业务必要的 verifier。后续 owner-protected 命令只传 `--owner-file <owner_context_handle>`，公共 parser 不再接收 `--fence-token`、`--lease-id` 或 `--generation`。pre-.90 active owner 若仍持有正确的本地 token file，可显式迁移到同一 lease/generation/runner 的 owner context；CLI 只接收该本地文件路径，旧环境变量不再参与认证。handle 缺失、错误绑定、stale generation、credential 不匹配或 migration/delivery 失败均 fail-closed。
 
 ```powershell
 $claim = acf continuation claim <worktree> --task-id WS001 --runner-id $runnerId --json | ConvertFrom-Json

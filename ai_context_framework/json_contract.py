@@ -20,6 +20,47 @@ from ai_context_framework.models import CheckResult
 from ai_context_framework.sensitive_data import redact_credential_like_text
 
 
+class SafeArgumentParser(argparse.ArgumentParser):
+    """Argparse boundary that never echoes explicit credential-like values."""
+
+    def error(self, message: str) -> None:
+        safe_message = redact_credential_like_text(message)[0]
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}: error: {safe_message}\n")
+
+
+def _retired_owner_argument(argv: Sequence[str]) -> str | None:
+    """Detect removed owner-transport options without retaining their values."""
+
+    for token in argv:
+        if token == "--fence-token" or token.startswith("--fence-token="):
+            return "secret"
+        if token in {"--lease-id", "--generation"} or token.startswith("--lease-id=") or token.startswith("--generation="):
+            return "assertion"
+    return None
+
+
+def refuse_retired_owner_arguments(argv: Sequence[str]) -> int | None:
+    """Reject removed ACF arguments after the literal child tail is detached."""
+
+    retired_owner_argument = _retired_owner_argument(argv)
+    if retired_owner_argument == "secret":
+        return emit_cli_error(
+            argv,
+            "legacy raw owner credential arguments are no longer accepted; use a current owner-context handle or the explicit local legacy-token-file migration command",
+            "legacy_owner_transport_refused",
+            EXIT_SAFETY_REFUSED,
+        )
+    if retired_owner_argument == "assertion":
+        return emit_cli_error(
+            argv,
+            "public owner commands no longer accept lease or generation assertions; use only the current owner-context handle",
+            "legacy_owner_assertion_refused",
+            EXIT_SAFETY_REFUSED,
+        )
+    return None
+
+
 def json_enabled(args: argparse.Namespace) -> bool:
     return bool(getattr(args, "json", False))
 

@@ -28,7 +28,7 @@ Continuation 继续要求同时满足：
 
 - `claim` / `recover` 成功时只向调用方交付一个本地 owner-context capability handle；公共 JSON 不返回 reusable credential。
 - owner context 必须绑定 workspace、task、lease、generation、runner/issue identity 与 credential。
-- owner-protected 命令只要求 capability handle；lease id / generation 可以保留为非秘密兼容性断言，但不得再要求或接受 raw reusable credential 作为正常公共参数。
+- owner-protected 命令只接受 capability handle 与该命令自身的非秘密业务参数；lease id / generation 仍可作为状态、审计与输出 metadata，但不再作为 owner-protected 公共输入参数。它们从 owner context 与 canonical active lease 内部读取并参与一致性/fencing 校验。
 - handle 缺失、不可读、schema 非法、workspace/task 绑定错误、lease/generation/credential 不匹配或 stale generation 必须 fail-closed。
 - owner-context delivery 必须发生在 fresh owner commit 前；delivery 失败不得创建新 active owner，也不得推进 generation。
 - canonical lease 只保存不可逆 verifier，不保存 reusable credential。
@@ -36,17 +36,18 @@ Continuation 继续要求同时满足：
 
 ### 旧 transport 边界
 
-旧 raw-secret 参数或仅保存 raw secret 的 token-file transport 不再是可用认证旁路。升级后的 CLI 应给出可测试的 input/migration failure，而不是继续接受 secret 后仅在输出层隐藏。
+旧 raw-secret 参数或环境变量 token-file transport 不再是可用认证旁路。`--fence-token`、`--lease-id`、`--generation` 不属于 owner-protected parser schema；旧调用仍把这些参数提交到 ACF 公共边界时，CLI 必须在不回显其值的情况下安全拒绝。
 
-对于升级时仍存在的旧 active fenced lease，`.90` 不从 durable verifier 反推 credential，也不读取旧 raw-secret transport 来静默重建权限：
+对于升级时仍存在的旧 active fenced lease，`.90` 不从 durable verifier 反推 credential，也不从旧环境变量静默读取 secret。合法旧 owner 若仍持有本地 token file，可显式执行 `acf continuation owner migrate-legacy-token-file ... --legacy-token-file <local-path> --json`：公共边界只接收本地路径，ACF 在进程内读取 credential、与当前 active lease verifier 做 constant-time 校验，并创建绑定同一 workspace/task/lease/generation/runner 的 owner context；迁移不推进 generation、不替换 owner，也不形成 takeover。
 
 - read-only `doctor/status/prompt/reconcile` 仍可观察 lease、generation、liveness 与 recovery evidence；
-- owner-protected 写操作若没有 `.90` owner-context handle，返回明确的 `owner_context_required` / legacy-transport migration error，不降级为未认证写入；
+- owner-protected 写操作若没有 `.90` owner-context handle，返回明确的 `owner_context_required` / migration error，不降级为未认证写入；
+- 显式本地迁移成功后必须删除旧 token file；如果旧文件无法安全退休，必须撤销新 owner context 并 fail-closed，不能留下两个可用 credential transport；
 - 旧 owner 若仍真实存活，应先由原执行链正常结束/释放；不得因升级而 takeover；
 - 旧 owner 已结束或 lease 进入正式可恢复状态后，继续使用既有 evidence-backed reconcile/recover 语义，由新 recover 原子生成新的 owner-context handle；
-- 旧 credential 文件即使仍在磁盘，也不获得 `.90` owner 权限。清理它是本地 secret hygiene，不是恢复凭据。
+- 如果旧 owner 已不再持有正确的本地 token file，则不得根据 verifier、runner id、lease id 或 generation 重建权限；只能保留旧进程，或在 stale/expired 后走正式 reconcile/recover。
 
-`doctor` / `prompt` 必须把“active lease 存在、但当前 generation 没有可验证 owner-context capability”投影为显式 `owner_context_migration_required`，而不是把同 runner 继续标成可写 current owner。fresh lease 只允许保护仍在运行的旧进程/等待原执行链收口；若原进程已无法通过其已加载旧 runtime 正常 release，则等待 stale/expired 后按正式 reconcile/recover 迁移，不能重新开放 raw secret transport。
+`doctor` / `prompt` 必须把“active lease 存在、但当前 generation 没有可验证 owner-context capability”投影为显式 `owner_context_migration_required`，而不是把同 runner 继续标成可写 current owner。合法旧 owner 可以显式使用本地 token-file migration；若没有该本地 possession proof，fresh lease 只保护仍在运行的旧进程/等待原执行链收口，不能重新开放 raw-secret argv/environment transport。
 
 owner-context 文件系统边界也属于认证合同：capability directory 和 handle 不得经 symbolic link、junction 或其他 reparse point 重定向；读取应尽量基于单一已打开 fd 做 regular-file、link-count、size 与平台可证明的权限/owner 校验。POSIX 要求私有 mode 与当前 uid；Windows 标准库无法可靠证明 inherited ACL，因此只声明 reparse/regular-file 等可验证约束，不把 `chmod` 结果冒充 owner-only ACL 证明。
 

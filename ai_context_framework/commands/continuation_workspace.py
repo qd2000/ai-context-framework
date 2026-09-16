@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import uuid
 from pathlib import Path
 from typing import Any, Mapping
@@ -52,7 +51,6 @@ LONG_RUNNING_RENEW_INTERVAL_MINUTES = 45
 LONG_RUNNING_HEARTBEAT_INTERVAL_MINUTES = 10
 LONG_RUNNING_STALE_AFTER_MINUTES = 25
 MAX_LEASE_TTL_MINUTES = 24 * 60
-LEGACY_FENCE_TOKEN_FILE_ENV = "ACF_CONTINUATION_FENCE_TOKEN_FILE"
 
 TIMING_PROFILES: dict[str, dict[str, int]] = {
     "standard": {
@@ -221,25 +219,6 @@ def _owner_context_error(exc: continuation_owner_context.OwnerContextError):
     )
 
 
-def reject_legacy_owner_transport(args: argparse.Namespace | None = None) -> None:
-    """Fail closed instead of silently accepting either legacy secret path."""
-
-    legacy_argument = args is not None and getattr(args, "fence_token", None) is not None
-    legacy_environment = LEGACY_FENCE_TOKEN_FILE_ENV in os.environ
-    if not legacy_argument and not legacy_environment:
-        return
-    core = _continuation()
-    raise core.ContinuationError(
-        "legacy raw owner-credential transport is no longer accepted",
-        code="legacy_owner_transport_refused",
-        exit_code=3,
-        details={"legacy_environment_present": legacy_environment},
-        next_actions=[
-            f"Remove {LEGACY_FENCE_TOKEN_FILE_ENV} and use the owner_context.handle returned by a fresh claim/recover."
-        ],
-    )
-
-
 def deliver_owner_context(
     args: argparse.Namespace,
     paths: Mapping[str, Path],
@@ -251,7 +230,6 @@ def deliver_owner_context(
 ) -> continuation_owner_context.OwnerContext:
     """Create a local capability before committing a fresh owner generation."""
 
-    reject_legacy_owner_transport(args)
     try:
         return continuation_owner_context.create_owner_context(
             paths["directory"],
@@ -274,7 +252,6 @@ def resolve_owner_context(
     root: Path,
     control: Mapping[str, Any],
 ) -> continuation_owner_context.OwnerContext:
-    reject_legacy_owner_transport(args)
     raw_handle = getattr(args, "owner_file", None)
     if raw_handle is None:
         raise _continuation().ContinuationError(
@@ -292,20 +269,6 @@ def resolve_owner_context(
     except continuation_owner_context.OwnerContextError as exc:
         raise _owner_context_error(exc) from exc
 
-    lease_assertion = getattr(args, "lease_id", None)
-    if lease_assertion is not None and str(lease_assertion) != context.lease_id:
-        raise _continuation().ContinuationError(
-            "optional lease assertion does not match the owner context",
-            code="owner_context_binding_mismatch",
-            exit_code=3,
-        )
-    generation_assertion = getattr(args, "generation", None)
-    if generation_assertion is not None and generation_assertion != context.generation:
-        raise _continuation().ContinuationError(
-            "optional generation assertion does not match the owner context",
-            code="owner_context_binding_mismatch",
-            exit_code=3,
-        )
     return context
 
 
@@ -1045,13 +1008,14 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
         conditional_sections: list[str] = []
         if owner_context_migration_required:
             control_actions.append(
-                "The active lease predates the current owner-context transport or its current-generation capability is unavailable. Do not perform .90 owner-protected writes and do not restore raw-secret transport. Preserve any already-running pre-upgrade process; if it cannot release through its already-loaded old runtime, wait for stale/expired ownership and use formal reconcile/recover to mint a new owner context."
+                "The active lease predates the current owner-context transport or its current-generation capability is unavailable. Do not perform .90 owner-protected writes and do not restore raw-secret argv/environment transport. The legitimate pre-.90 owner may migrate its existing local token file with `acf continuation owner migrate-legacy-token-file ... --legacy-token-file <local-path> --json`; this verifies the current lease without changing lease/generation/runner identity. If that local credential is unavailable, preserve any already-running pre-upgrade process and wait for stale/expired ownership before formal reconcile/recover."
             )
             conditional_sections.append(
                 "Owner-context migration hold:\n"
                 "- This is a fail-closed compatibility state, not permission to take over the lease.\n"
-                "- Do not reconstruct credentials from verifier state and do not use the retired raw-secret/token-file transport.\n"
-                "- A still-live pre-upgrade physical process should be left undisturbed. If its original already-loaded runtime can release normally, let it finish; otherwise wait for stale/expired ownership, refresh evidence, and use the normal reconcile/recover path.\n"
+                "- Do not reconstruct credentials from verifier state and do not restore retired raw-secret argv/environment transport.\n"
+                "- If the legitimate pre-upgrade owner still possesses its local token file, use the explicit local migration command; only the file path crosses the CLI boundary, the credential is verified in-process, the active lease/generation/runner remain unchanged, and the retired file is removed on success.\n"
+                "- A still-live pre-upgrade physical process should otherwise be left undisturbed. If its original already-loaded runtime can release normally, let it finish; otherwise wait for stale/expired ownership, refresh evidence, and use the normal reconcile/recover path.\n"
                 "- New recover creates a fresh generation-bound owner_context.handle."
             )
         elif same_runner_owner:

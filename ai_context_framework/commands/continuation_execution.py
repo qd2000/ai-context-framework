@@ -23,6 +23,7 @@ from ai_context_framework.sensitive_data import (
 MAX_CAPTURE_BYTES = 64 * 1024
 TRUNCATED_OUTPUT_REDACTED = "[truncated child output omitted because sanitization context is incomplete]\n"
 OUTPUT_DRAIN_JOIN_SECONDS = 5.0
+RETIRED_OWNER_TOKEN_FILE_ENV = "ACF_CONTINUATION_FENCE_TOKEN_FILE"
 MIN_POLL_SECONDS = 0.05
 MAX_POLL_SECONDS = 1.0
 MAX_KEEPALIVE_SECONDS = 300.0
@@ -182,7 +183,7 @@ def _child_environment() -> dict[str, str]:
     """
 
     child_env = os.environ.copy()
-    child_env.pop(continuation_workspace_commands.LEGACY_FENCE_TOKEN_FILE_ENV, None)
+    child_env.pop(RETIRED_OWNER_TOKEN_FILE_ENV, None)
     child_env.pop("ACF_CONTINUATION_OWNER_FILE", None)
     for key, value in list(child_env.items()):
         if is_explicit_credential_key(key) or contains_credential_like_text(value):
@@ -621,9 +622,6 @@ def register_execution_parser(subparsers, add_json_argument) -> None:
     run.add_argument("path", nargs="?", type=Path)
     run.add_argument("--task-id", default=None)
     run.add_argument("--owner-file", default=None)
-    run.add_argument("--lease-id", default=None)
-    run.add_argument("--generation", type=int, default=None)
-    run.add_argument("--fence-token", default=None, help=argparse.SUPPRESS)
     run.add_argument(
         "--key",
         required=True,

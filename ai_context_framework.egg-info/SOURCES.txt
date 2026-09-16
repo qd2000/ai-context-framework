@@ -151,6 +151,7 @@ template/worklog/daily/YYYY-MM-DD.md
 template/worklog/knowledge-drafts/.gitkeep
 tests/test_automation_contracts.py
 tests/test_cli.py
+tests/test_cli_owner_boundary.py
 tests/test_closeout_authorization.py
 tests/test_context_matrix.py
 tests/test_context_routing.py
