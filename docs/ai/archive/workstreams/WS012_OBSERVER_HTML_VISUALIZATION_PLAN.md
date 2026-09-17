@@ -1,5 +1,7 @@
 # Project Observer Agent-first 重构与 ACF 大减法执行计划
 
+> Archived on 2026-09-17. The Observer visualization route is retired and retained here only for historical review; current product authority is WS013.
+
 - 计划编号：`OBSERVER-AGENT-FIRST-20260911-01`
 - 当前版本：`2.1`（计划版本，不是 ACF 软件版本）
 - 日期：2026-09-11（北京时间）

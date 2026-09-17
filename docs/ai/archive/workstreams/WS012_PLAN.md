@@ -1,5 +1,7 @@
 # WS012 — Project Observer Operational Dogfood & Maintenance
 
+> Archived on 2026-09-17. WS012 is terminal; current Observer retirement and v0.0.3.92 work is owned by WS013. This file is historical evidence, not current execution authority.
+
 ## 1. Mission
 
 WS012 承接已经完成并归档的 WS011 之后的 **production operational dogfood**，不是重新开发 Project Observer。
@@ -62,7 +64,7 @@ Generation 216 的自然 Production 证据进一步扩展了同一 text-integrit
 
 当前唯一详细执行计划仍使用既有正式路径，但内容已经切换为 Agent-first successor：
 
-`docs/ai/reference/ws012_project_observer_operational_dogfood/OBSERVER_HTML_VISUALIZATION_PLAN.md`
+`docs/ai/archive/workstreams/WS012_OBSERVER_HTML_VISUALIZATION_PLAN.md`
 
 原始用户交接材料为 `D:/PROJECT/Tools/ai-context-framework/.omx/user_inbox/observer-agent-first-20260911/OBSERVER_AGENT_FIRST_REDESIGN_PLAN.md`，SHA256=`84199c1a3fccf0b68b84a3ed71afd23b8f78a22772765bc9b5cddfcff0b8920d`。正式仓库 authority 以本 PLAN 与上述详细计划为准；外部 inbox 只保留来源凭证。
 
@@ -96,7 +98,7 @@ Generation 204 又由独立 installed `.89` Production Observer revision 743 暴
 
 2026-09-08 用户通过 durable `plan_change` directive `dir-4dd0233543ac4a3b9202` 明确确认了 Q1–Q6，并用审阅修订后的 **Observer HTML Visualization v1.1** supersede 旧 Human-First visualization directive `dir-5272efd83a0e434298e1`。2026-09-10 人工复核明确 H1 FAIL 后，priority-100 durable directive `dir-41b8581a296544399208` 又 supersede `dir-de45c52233d04c97af5d` 的后续纠偏路线，并将 H1 目标升级为 **Task-Semantic Visualization v1.2**。人工 FAIL、Q1–Q6 及 v1.1 中 expected-target、run/history、archive/concurrency、anti-masking 等有效要求继续保留；与 generic roadmap/narrative 作为 H1 终点的历史表述冲突时，以 v1.2 successor 为准。本节仅保存 sequencing/status pointer；本阶段的**唯一详细执行计划**仍是：
 
-`docs/ai/reference/ws012_project_observer_operational_dogfood/OBSERVER_HTML_VISUALIZATION_PLAN.md`
+`docs/ai/archive/workstreams/WS012_OBSERVER_HTML_VISUALIZATION_PLAN.md`
 
 该文件最初从 v1.1 用户 inbox 交接到 WS012 worktree；当前 v1.2 successor 的 source handoff=`D:/PROJECT/Tools/ai-context-framework/.omx/user_inbox/observer-task-semantic-visualization-v1.2-20260910/TASK_SEMANTIC_VISUALIZATION_PLAN.md`，SHA256=`611872fd8c7f03ffc8aea20fbcbab8a4f1bb379af3ba81f386d1ee97e1a5c76c`，已在详细计划 `0.0` 节正式落盘。后续若本 PLAN、旧 directive、历史 P1–P4 描述与该详细计划冲突，以该详细计划及更新后的正式 successor authority 为准；历史内容只保留 provenance。
 
