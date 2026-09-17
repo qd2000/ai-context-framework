@@ -1,6 +1,6 @@
 # WS012 Historical Activity and Evidence through 2026-09-10
 
-This archive preserves closed or superseded WS012 evidence and Activity Log entries that were moved out of the active Workstream packet on 2026-09-12 to reduce recurring context load. Current authority remains `docs/ai/active/workstreams/WS012.md` together with `docs/ai/reference/ws012_project_observer_operational_dogfood/PLAN.md` and its current successor authority.
+This archive preserves closed or superseded WS012 evidence and Activity Log entries that were moved out of the active Workstream packet on 2026-09-12 to reduce recurring context load. WS012 is now terminal; its final authority is preserved in `docs/ai/archive/workstreams/WS012.md`, while remaining Observer-retirement work is owned by WS013 and its current plan.
 
 ## Historical / superseded evidence
 

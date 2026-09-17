@@ -59,6 +59,7 @@
 | 2026-08-20 | workstream | WS009 | active/workstreams/WS009.md | `archive/workstreams/WS009.md` | Done | WS009 completed: merged to master 42370e49, v0.0.3.66 published, Lenovo/FCC/qdspc/AStock adoption green, primary authority cleanup complete. |
 | 2026-08-20 | workstream | WS010 | active/workstreams/WS010.md | `archive/workstreams/WS010.md` | Done | WS010 goal-directed continuation v0.0.3.68 released, two fresh dogfood activations passed, and merge f7cd89b completed. |
 | 2026-08-24 | workstream | WS011 | active/workstreams/WS011.md | `archive/workstreams/WS011.md` | Done | WS011 v0.0.3.76 release and installed-state Observer dogfood are complete; final semantic v26 and revision 84 confirm healthy terminal state, and the Workstream is no longer referenced by current execution. |
+| 2026-09-17 | workstream | WS012 | active/workstreams/WS012.md | `archive/workstreams/WS012.md` | Cancelled | User retired the Project Observer product route after prolonged real-world non-use; all WS012 commits and WIP were absorbed by WS013 commit 83aa92d. |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
