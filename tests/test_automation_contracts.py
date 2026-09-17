@@ -213,6 +213,14 @@ class AutomationContractTests(unittest.TestCase):
         self.assertEqual("utf-8", text_integrity["encoding"])
         self.assertTrue(text_integrity["strict_decode_required"])
         self.assertTrue(text_integrity["unicode_replacement_character_forbidden"])
+        self.assertTrue(text_integrity["successful_decode_does_not_prove_visible_text_integrity"])
+        self.assertTrue(text_integrity["source_expected_text_markers_required"])
+        self.assertTrue(
+            text_integrity[
+                "byte_preserving_or_ascii_safe_transport_required_when_unicode_channel_unverified"
+            ]
+        )
+        self.assertTrue(text_integrity["validate_visible_text_before_stable_entry_replace"])
         self.assertTrue(text_integrity["validate_before_stable_entry_replace"])
         self.assertTrue(text_integrity["failed_integrity_check_uses_update_failure_policy"])
         self.assertEqual("optional", contract["legacy_compatibility"]["renderer"])
