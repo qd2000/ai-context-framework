@@ -18,7 +18,7 @@ Active
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS012 | Active | Project Observer Operational Dogfood & Maintenance | ChatGPT | 详情(75 项) |  | docs/ai/reference/ws012_project_observer_operational_dogfood/ | active/workstreams/WS012.md |
+| WS012 | Cancelled | Project Observer Operational Dogfood & Maintenance | ChatGPT | 详情(75 项) |  | docs/ai/reference/ws012_project_observer_operational_dogfood/ | active/workstreams/WS012.md |
 | WS013 | Active | Observer Retirement and WS012 Closeout | ChatGPT | owned: active/workstreams/WS013.md | WS012 | docs/ai/reference/ws013_observer_retirement_ws012_closeout/ | active/workstreams/WS013.md |
 
 ---

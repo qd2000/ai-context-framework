@@ -369,6 +369,17 @@ def production_observer_wrapper_contract() -> dict[str, Any]:
                 "partial_source_failure_must_be_fail_visible": True,
                 "freshness_must_remain_truthful_after_failure": True,
             },
+            "text_integrity_policy": {
+                "encoding": "utf-8",
+                "strict_decode_required": True,
+                "unicode_replacement_character_forbidden": True,
+                "successful_decode_does_not_prove_visible_text_integrity": True,
+                "source_expected_text_markers_required": True,
+                "byte_preserving_or_ascii_safe_transport_required_when_unicode_channel_unverified": True,
+                "validate_visible_text_before_stable_entry_replace": True,
+                "validate_before_stable_entry_replace": True,
+                "failed_integrity_check_uses_update_failure_policy": True,
+            },
         },
         "legacy_compatibility": {
             "target_registry": "optional",

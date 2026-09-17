@@ -128,6 +128,16 @@ class ObserverCliTests(unittest.TestCase):
             self.assertFalse(observer_wrapper["map_review_gate_required_for_semantic_risk"])
             self.assertTrue(observer_wrapper["agent_first_output"]["agent_is_primary_author"])
             self.assertFalse(observer_wrapper["agent_first_output"]["acf_renderer_required"])
+            self.assertTrue(
+                observer_wrapper["agent_first_output"]["text_integrity_policy"][
+                    "strict_decode_required"
+                ]
+            )
+            self.assertTrue(
+                observer_wrapper["agent_first_output"]["text_integrity_policy"][
+                    "unicode_replacement_character_forbidden"
+                ]
+            )
             self.assertFalse(
                 automation_contract["observer_semantic_review"]["required_each_semantic_refresh"]
             )
