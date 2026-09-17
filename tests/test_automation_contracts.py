@@ -4,18 +4,10 @@ import unittest
 
 from ai_context_framework.automation_contracts import (
     AUTOMATION_PROMPT_EXECUTION_SCHEMA,
-    OBSERVER_AUTHORITY_REVIEW_INPUTS,
-    OBSERVER_PRIMARY_VISUALIZATION_KINDS,
-    OBSERVER_PRESENTATION_TYPES,
-    OBSERVER_SEMANTIC_REVIEW_DECISIONS,
-    PRESENTATION_MAINTENANCE_LIFECYCLES,
     WRITER_ACTIVE_SEARCH_ALTERNATIVE_CLASSES,
     WRITER_BOOTSTRAP_TOPICS,
     WRITER_EXECUTION_EVIDENCE_FIELDS,
     automation_prompt_execution_contract,
-    observer_semantic_review_contract,
-    presentation_maintenance_contract,
-    production_observer_wrapper_contract,
     writer_continuous_execution_contract,
     writer_runtime_prompt_contract,
     writer_scheduler_wrapper_contract,
@@ -146,178 +138,6 @@ class AutomationContractTests(unittest.TestCase):
         self.assertTrue(observability["timing_values_are_diagnostic_only"])
         self.assertFalse(observability["fixed_timing_budget_allowed"])
 
-    def test_production_observer_wrapper_is_read_broad_write_narrow_control_none(self) -> None:
-        contract = production_observer_wrapper_contract()
-
-        self.assertEqual("production_observer", contract["wrapper_family"])
-        self.assertEqual("broad", contract["access_boundary"]["read"])
-        self.assertEqual(
-            "narrow_observer_owned_output_and_user_state",
-            contract["access_boundary"]["write"],
-        )
-        self.assertEqual("none", contract["access_boundary"]["control"])
-        self.assertTrue(contract["existing_checkout_required"])
-        self.assertEqual("agent_selected_authorized_sources", contract["display_scope_source"])
-        self.assertFalse(contract["display_scope_policy"]["target_registry_required_for_page"])
-        self.assertEqual(
-            "optional_navigation_hint",
-            contract["display_scope_policy"]["target_registry_role"],
-        )
-        self.assertFalse(contract["display_scope_policy"]["acf_is_sole_fact_source"])
-        self.assertFalse(contract["anti_masking"]["maintenance_writer_refresh_counts_as_production"])
-        self.assertTrue(contract["anti_masking"]["production_activation_required_for_acceptance"])
-        self.assertFalse(contract["semantic_review_required_each_refresh"])
-        self.assertFalse(contract["map_review_gate_required_for_semantic_risk"])
-        self.assertTrue(contract["authority_source_policy"]["local_authority_first"])
-        self.assertFalse(contract["authority_source_policy"]["derived_state_replaces_authority"])
-        self.assertTrue(contract["authority_source_policy"]["multi_source_evidence_allowed"])
-        self.assertTrue(contract["authority_source_policy"]["acf_data_optional"])
-        self.assertEqual(
-            OBSERVER_AUTHORITY_REVIEW_INPUTS,
-            contract["authority_source_policy"]["required_review_inputs"],
-        )
-        self.assertTrue(contract["project_overview_policy"]["disable_requires_evidence"])
-        self.assertFalse(contract["project_overview_policy"]["disable_for_convenience_allowed"])
-        self.assertTrue(contract["project_overview_policy"]["reevaluate_when_authority_changes"])
-        self.assertTrue(contract["project_overview_policy"]["agent_decides_from_current_evidence"])
-        self.assertFalse(contract["project_overview_policy"]["registry_decision_required"])
-        self.assertEqual(OBSERVER_PRESENTATION_TYPES, contract["presentation_selection"]["allowed_types"])
-        self.assertFalse(contract["presentation_selection"]["fixed_template_required"])
-        self.assertFalse(contract["presentation_selection"]["primary_progress_question_required"])
-        self.assertFalse(contract["presentation_selection"]["one_dominant_primary_visualization"])
-        self.assertEqual(
-            OBSERVER_PRIMARY_VISUALIZATION_KINDS,
-            contract["presentation_selection"]["allowed_primary_visualization_kinds"],
-        )
-        self.assertFalse(contract["presentation_selection"]["fixed_primary_visualization_contract_required"])
-        self.assertTrue(contract["presentation_selection"]["agent_authored_page_allowed"])
-        self.assertFalse(contract["presentation_selection"]["renderer_required"])
-        self.assertFalse(contract["presentation_selection"]["renderer_selects_kind"])
-        self.assertFalse(contract["presentation_selection"]["project_or_target_hardcoding_allowed"])
-        self.assertTrue(contract["presentation_selection"]["project_specific_page_structure_allowed"])
-        agent_first = contract["agent_first_output"]
-        self.assertTrue(agent_first["enabled"])
-        self.assertTrue(agent_first["agent_is_primary_author"])
-        self.assertFalse(agent_first["acf_renderer_required"])
-        self.assertFalse(agent_first["target_registry_required"])
-        self.assertFalse(agent_first["semantic_review_state_machine_required"])
-        self.assertFalse(agent_first["primary_visualization_schema_required"])
-        self.assertTrue(agent_first["direct_project_owned_html_css_svg_js_allowed"])
-        self.assertTrue(agent_first["legacy_renderer_must_not_overwrite_agent_owned_output"])
-        update_failure = agent_first["update_failure_policy"]
-        self.assertTrue(update_failure["failed_update_must_not_replace_stable_entry"])
-        self.assertTrue(update_failure["last_good_entry_remains_readable"])
-        self.assertTrue(update_failure["partial_source_failure_must_be_fail_visible"])
-        self.assertTrue(update_failure["freshness_must_remain_truthful_after_failure"])
-        text_integrity = agent_first["text_integrity_policy"]
-        self.assertEqual("utf-8", text_integrity["encoding"])
-        self.assertTrue(text_integrity["strict_decode_required"])
-        self.assertTrue(text_integrity["unicode_replacement_character_forbidden"])
-        self.assertTrue(text_integrity["successful_decode_does_not_prove_visible_text_integrity"])
-        self.assertTrue(text_integrity["source_expected_text_markers_required"])
-        self.assertTrue(
-            text_integrity[
-                "byte_preserving_or_ascii_safe_transport_required_when_unicode_channel_unverified"
-            ]
-        )
-        self.assertTrue(text_integrity["validate_visible_text_before_stable_entry_replace"])
-        self.assertTrue(text_integrity["validate_before_stable_entry_replace"])
-        self.assertTrue(text_integrity["failed_integrity_check_uses_update_failure_policy"])
-        self.assertEqual("optional", contract["legacy_compatibility"]["renderer"])
-        self.assertFalse(contract["cross_project_interference_allowed"])
-        self.assertFalse(contract["copy_writer_state_machine"])
-        self.assertIn("run_history", contract["human_visible_required_fields"])
-
-    def test_semantic_review_requires_explicit_audited_decision(self) -> None:
-        contract = observer_semantic_review_contract()
-
-        self.assertEqual("legacy_optional_helper", contract["role"])
-        self.assertFalse(contract["required_for_agent_authored_output"])
-        self.assertFalse(contract["required_each_semantic_refresh"])
-        self.assertEqual(OBSERVER_SEMANTIC_REVIEW_DECISIONS, contract["decision_values"])
-        self.assertTrue(contract["unchanged_is_audited_decision"])
-        self.assertEqual("triage_only_not_semantic_completion", contract["source_fingerprint_role"])
-        self.assertEqual(OBSERVER_AUTHORITY_REVIEW_INPUTS, contract["authority_review_inputs"])
-        self.assertTrue(contract["map_relevant_change_requires_authority_reread"])
-        self.assertTrue(contract["agent_may_reread_authority_without_recording_review"])
-        self.assertIn("route_order", contract["map_relevant_change_classes"])
-        self.assertIn("architecture", contract["map_relevant_change_classes"])
-        task_semantic = contract["task_semantic_visualization"]
-        self.assertFalse(task_semantic["required_for_agent_authored_output"])
-        self.assertTrue(task_semantic["derive_primary_progress_question_from_fresh_authority"])
-        self.assertEqual(OBSERVER_PRIMARY_VISUALIZATION_KINDS, task_semantic["allowed_kinds"])
-        self.assertFalse(task_semantic["renderer_may_infer_project_semantics"])
-        self.assertEqual("remain_stale_fail_visible", contract["insufficient_evidence_behavior"])
-
-    def test_presentation_maintenance_lifecycles_are_narrow_and_non_resurrecting(self) -> None:
-        contract = presentation_maintenance_contract()
-
-        self.assertEqual("legacy_optional_derived_presentation_helper", contract["role"])
-        self.assertFalse(contract["required_for_agent_authored_output"])
-        self.assertEqual(PRESENTATION_MAINTENANCE_LIFECYCLES, contract["lifecycles"])
-        self.assertEqual("broad", contract["access_boundary"]["read"])
-        self.assertEqual(
-            "narrow_user_level_derived_presentation_state",
-            contract["access_boundary"]["write"],
-        )
-        self.assertEqual("none", contract["access_boundary"]["control"])
-        self.assertFalse(contract["access_boundary"]["writer_ownership_required"])
-        self.assertTrue(contract["access_boundary"]["foreign_project_noninterference_required"])
-        self.assertTrue(contract["review_before_record"]["required"])
-        self.assertEqual(
-            ["reviewed_intent", "scope", "rationale", "evidence_refs"],
-            contract["review_before_record"]["required_fields"],
-        )
-        self.assertEqual(
-            "deterministic_record_validation_and_concurrency_only",
-            contract["review_before_record"]["acf_responsibility"],
-        )
-        self.assertFalse(contract["review_before_record"]["acf_judges_semantics"])
-        self.assertTrue(contract["transient_patch"]["may_apply_immediately"])
-        self.assertEqual(
-            "user_level_derived_presentation",
-            contract["transient_patch"]["application_surface"],
-        )
-        self.assertTrue(contract["transient_patch"]["deterministic_rerender_required"])
-        self.assertFalse(contract["transient_patch"]["direct_dashboard_edit_allowed"])
-        self.assertFalse(contract["transient_patch"]["semantic_change_allowed"])
-        self.assertTrue(contract["one_shot_semantic_review"]["remove_from_active_context_after_success"])
-        self.assertFalse(contract["one_shot_semantic_review"]["resolved_guidance_may_resurrect"])
-        self.assertTrue(contract["durable_rule"]["supports_supersede"])
-        self.assertTrue(contract["durable_rule"]["supports_withdraw"])
-        self.assertFalse(contract["durable_rule"]["resolved_transient_guidance_may_resurrect"])
-        self.assertTrue(contract["optimistic_concurrency"]["required"])
-        self.assertEqual(
-            "fail_closed_reread_and_reevaluate",
-            contract["optimistic_concurrency"]["conflict_behavior"],
-        )
-        self.assertEqual(
-            "map_review_and_authority_reread",
-            contract["semantic_risk_escalation"]["action"],
-        )
-        agent_owned = contract["agent_owned_output"]
-        self.assertTrue(agent_owned["direct_edit_allowed"])
-        self.assertFalse(agent_owned["fixed_renderer_required"])
-        self.assertFalse(agent_owned["legacy_presentation_revision_required"])
-        self.assertFalse(agent_owned["legacy_dashboard_direct_edit_allowed"])
-        self.assertTrue(agent_owned["legacy_renderer_must_not_overwrite_agent_owned_output"])
-        self.assertFalse(contract["writer_ownership_required"])
-
-    def test_execution_evidence_preserves_truthful_run_timing(self) -> None:
-        contract = automation_prompt_execution_contract()["observer_execution_evidence"]
-
-        self.assertFalse(contract["heartbeat_generation_only_is_sufficient"])
-        self.assertIn("problem", contract["required_fields"])
-        self.assertIn("plan_impact", contract["required_fields"])
-        self.assertIn("route_impact", contract["required_fields"])
-        self.assertEqual("continuation_round", contract["run_history"]["preferred_time_source"])
-        self.assertEqual(
-            "user_level_observer_run_marker",
-            contract["run_history"]["fallback_time_source"],
-        )
-        self.assertFalse(contract["run_history"]["incomplete_run_may_fabricate_end"])
-        self.assertIn("major_outcome", contract["run_history"]["required_fields"])
-
     def test_aggregate_contract_keeps_role_separation_reviewable(self) -> None:
         contract = automation_prompt_execution_contract()
 
@@ -327,7 +147,6 @@ class AutomationContractTests(unittest.TestCase):
             [
                 "writer_scheduler_wrapper",
                 "writer_runtime_generated",
-                "production_observer_scheduler_wrapper",
             ],
             contract["roles"],
         )
@@ -344,24 +163,19 @@ class AutomationContractTests(unittest.TestCase):
             "writer_runtime_generated",
             contract["writer_runtime_generated"]["role"],
         )
-        self.assertEqual(
-            "production_observer",
-            contract["production_observer_scheduler_wrapper"]["role"],
-        )
-        self.assertFalse(contract["observer_execution_evidence"]["heartbeat_generation_only_is_sufficient"])
+        self.assertNotIn("production_observer_scheduler_wrapper", contract)
+        self.assertNotIn("observer_semantic_review", contract)
+        self.assertNotIn("observer_execution_evidence", contract)
+        self.assertNotIn("presentation_maintenance", contract)
         dogfood = contract["dogfood_acceptance"]
         self.assertTrue(dogfood["shared_core_consistency_required"])
         self.assertTrue(dogfood["project_unique_constraints_preserved"])
         self.assertTrue(dogfood["existing_wrapper_migration_must_be_safe"])
         self.assertTrue(dogfood["real_scheduled_agent_consumption_required"])
         self.assertIn("fcc_ws086_writer", dogfood["task_families"])
-        self.assertIn(
-            "production_render_does_not_resurrect_one_shot",
-            dogfood["presentation_lifecycle_cases"],
-        )
-        self.assertIn("agent_authored_page_without_renderer", dogfood["agent_first_cases"])
-        self.assertIn("target_registry_is_optional_not_display_gate", dogfood["agent_first_cases"])
-        self.assertIn("semantic_review_state_machine_is_optional", dogfood["agent_first_cases"])
+        self.assertNotIn("acf_observer", dogfood["task_families"])
+        self.assertNotIn("presentation_lifecycle_cases", dogfood)
+        self.assertNotIn("agent_first_cases", dogfood)
 
 
 if __name__ == "__main__":

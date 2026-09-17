@@ -1,16 +1,15 @@
 """Reviewable automation wrapper and prompt-execution contracts.
 
-These contracts keep three concerns deliberately separate:
+These contracts keep two concerns deliberately separate:
 
-* the static, high-salience Writer scheduler bootstrap;
-* the dynamic Writer continuation prompt/execution policy; and
-* the Agent-first Production Observer bootstrap, with the older target /
-  semantic-review / renderer lifecycle retained only as optional compatibility
-  helpers during migration.
+* the static, high-salience Writer scheduler bootstrap; and
+* the dynamic Writer continuation prompt/execution policy.
 
 The module is intentionally pure.  It describes machine-readable contracts but
-does not claim continuation ownership, mutate Observer runtime state, or infer
-project-specific semantics.
+does not claim continuation ownership, mutate continuation runtime state, or
+infer project-specific semantics.  The former Production Observer automation
+contracts were retired in ``v0.0.3.92``; only the Writer contracts and the
+historical negative Writer token remain.
 """
 
 from __future__ import annotations
@@ -21,10 +20,6 @@ from typing import Any, Mapping
 AUTOMATION_PROMPT_EXECUTION_SCHEMA = "acf.automation.prompt-execution.v2"
 WRITER_SCHEDULER_WRAPPER_SCHEMA = "acf.automation.writer-scheduler-wrapper.v1"
 WRITER_RUNTIME_PROMPT_SCHEMA = "acf.automation.writer-runtime-prompt.v1"
-PRODUCTION_OBSERVER_WRAPPER_SCHEMA = "acf.automation.production-observer-wrapper.v2"
-OBSERVER_SEMANTIC_REVIEW_SCHEMA = "acf.automation.observer-semantic-review.v2"
-OBSERVER_EXECUTION_EVIDENCE_SCHEMA = "acf.automation.observer-execution-evidence.v1"
-PRESENTATION_MAINTENANCE_SCHEMA = "acf.automation.presentation-maintenance.v2"
 
 
 WRITER_BOOTSTRAP_TOPICS = [
@@ -84,59 +79,6 @@ WRITER_ACTIVE_SEARCH_ALTERNATIVE_CLASSES = [
     "release_preparation",
     "low_side_effect_diagnostics",
 ]
-
-OBSERVER_SEMANTIC_REVIEW_DECISIONS = [
-    "unchanged",
-    "patch",
-    "rebuild",
-    "presentation_change",
-    "project_overview_enable",
-    "project_overview_disable",
-]
-
-OBSERVER_PRESENTATION_TYPES = [
-    "flow",
-    "branch",
-    "architecture",
-    "dependency",
-    "roadmap",
-    "state_machine",
-    "timeline",
-    "multi_lane",
-    "tree",
-    "text",
-    "hybrid",
-]
-OBSERVER_PRIMARY_VISUALIZATION_KINDS = [
-    "metric_trend",
-    "status_matrix",
-    "process_flow",
-    "roadmap",
-]
-
-OBSERVER_AUTHORITY_REVIEW_INPUTS = [
-    "plan",
-    "task_plan",
-    "workstream",
-    "current_task",
-    "planning_references",
-    "adr",
-    "user_directives",
-    "current_stage",
-    "key_evidence",
-    "execution_deviation",
-    "problems",
-    "dependencies",
-    "parallel_paths",
-    "strategy",
-]
-
-PRESENTATION_MAINTENANCE_LIFECYCLES = [
-    "transient_patch",
-    "one_shot_semantic_review",
-    "durable_rule",
-]
-
 
 def _copy_identity(identity: Mapping[str, Any]) -> dict[str, Any]:
     """Copy the stable Writer identity without accepting arbitrary fields."""
@@ -286,267 +228,6 @@ def writer_runtime_prompt_contract() -> dict[str, Any]:
     }
 
 
-def production_observer_wrapper_contract() -> dict[str, Any]:
-    """Return the Agent-first Production Observer scheduler bootstrap contract.
-
-    The Observer Agent owns source selection, semantic interpretation, and its
-    page structure.  ACF may still provide navigation, run/history data, and
-    legacy presentation helpers, but none of those helpers is a prerequisite
-    for authoring or updating the Observer-owned page.
-    """
-
-    return {
-        "schema_version": PRODUCTION_OBSERVER_WRAPPER_SCHEMA,
-        "wrapper_family": "production_observer",
-        "role": "production_observer",
-        "bootstrap_policy": "sufficient_high_salience",
-        "access_boundary": {
-            "read": "broad",
-            "write": "narrow_observer_owned_output_and_user_state",
-            "control": "none",
-        },
-        "existing_checkout_required": True,
-        "display_scope_source": "agent_selected_authorized_sources",
-        "display_scope_policy": {
-            "agent_selects_sources_from_current_authority": True,
-            "target_registry_role": "optional_navigation_hint",
-            "target_registry_required_for_page": False,
-            "acf_is_sole_fact_source": False,
-        },
-        "anti_masking": {
-            "maintenance_writer_refresh_counts_as_production": False,
-            "production_activation_required_for_acceptance": True,
-        },
-        "semantic_review_required_each_refresh": False,
-        "map_review_gate_required_for_semantic_risk": False,
-        "truthful_run_history_required": True,
-        "authority_source_policy": {
-            "local_authority_first": True,
-            "derived_state_replaces_authority": False,
-            "multi_source_evidence_allowed": True,
-            "acf_data_optional": True,
-            "required_review_inputs": list(OBSERVER_AUTHORITY_REVIEW_INPUTS),
-        },
-        "project_overview_policy": {
-            "enable_when_unified_route_is_evidence_backed": True,
-            "disable_requires_evidence": True,
-            "disable_for_convenience_allowed": False,
-            "reevaluate_when_authority_changes": True,
-            "agent_decides_from_current_evidence": True,
-            "registry_decision_required": False,
-        },
-        "presentation_selection": {
-            "select_from_semantics": True,
-            # Retained as legacy suggestions, not a closed renderer enum.
-            "allowed_types": list(OBSERVER_PRESENTATION_TYPES),
-            "fixed_template_required": False,
-            "primary_progress_question_required": False,
-            "one_dominant_primary_visualization": False,
-            "allowed_primary_visualization_kinds": list(OBSERVER_PRIMARY_VISUALIZATION_KINDS),
-            "fixed_primary_visualization_contract_required": False,
-            "agent_authored_page_allowed": True,
-            "renderer_required": False,
-            "renderer_selects_kind": False,
-            "project_or_target_hardcoding_allowed": False,
-            "project_specific_page_structure_allowed": True,
-            "generic_fallback_must_remain_fail_visible": True,
-        },
-        "agent_first_output": {
-            "enabled": True,
-            "agent_is_primary_author": True,
-            "acf_renderer_required": False,
-            "target_registry_required": False,
-            "semantic_review_state_machine_required": False,
-            "primary_visualization_schema_required": False,
-            "direct_project_owned_html_css_svg_js_allowed": True,
-            "stable_entry_required": True,
-            "source_traceability_required": True,
-            "unknowns_fail_visible": True,
-            "legacy_renderer_must_not_overwrite_agent_owned_output": True,
-            "update_failure_policy": {
-                "failed_update_must_not_replace_stable_entry": True,
-                "last_good_entry_remains_readable": True,
-                "partial_source_failure_must_be_fail_visible": True,
-                "freshness_must_remain_truthful_after_failure": True,
-            },
-            "text_integrity_policy": {
-                "encoding": "utf-8",
-                "strict_decode_required": True,
-                "unicode_replacement_character_forbidden": True,
-                "successful_decode_does_not_prove_visible_text_integrity": True,
-                "source_expected_text_markers_required": True,
-                "byte_preserving_or_ascii_safe_transport_required_when_unicode_channel_unverified": True,
-                "validate_visible_text_before_stable_entry_replace": True,
-                "validate_before_stable_entry_replace": True,
-                "failed_integrity_check_uses_update_failure_policy": True,
-            },
-        },
-        "legacy_compatibility": {
-            "target_registry": "optional",
-            "semantic_review": "optional",
-            "map_review_gate": "optional",
-            "renderer": "optional",
-            "presentation_state_machine": "optional",
-        },
-        "cross_project_interference_allowed": False,
-        "human_information_policy": "human_first_but_detailed",
-        "human_visible_required_fields": [
-            "goal",
-            "route",
-            "current_position",
-            "why",
-            "proven",
-            "problems",
-            "next",
-            "health",
-            "run_history",
-        ],
-        "named_extension_slot": {
-            "name": "project_target_specific_observer_rules",
-            "classes": [
-                "project_authority",
-                "target_semantics",
-                "display_policy",
-                "human_time_presentation",
-                "privacy_and_security",
-            ],
-        },
-        "copy_writer_state_machine": False,
-    }
-
-
-def observer_semantic_review_contract() -> dict[str, Any]:
-    """Return the optional legacy semantic-review helper contract.
-
-    Agent-first Observer output may reread authority and update its own page
-    directly without recording this state machine.  If a caller deliberately
-    uses the legacy helper, its evidence and fail-visible rules still apply.
-    """
-
-    return {
-        "schema_version": OBSERVER_SEMANTIC_REVIEW_SCHEMA,
-        "role": "legacy_optional_helper",
-        "applies_to": "legacy_derived_semantic_state_only",
-        "required_for_agent_authored_output": False,
-        "required_each_semantic_refresh": False,
-        "decision_values": list(OBSERVER_SEMANTIC_REVIEW_DECISIONS),
-        "required_evidence_fields": [
-            "decision",
-            "reason",
-            "evidence_refs",
-            "source_fingerprint",
-        ],
-        "source_fingerprint_role": "triage_only_not_semantic_completion",
-        "unchanged_is_audited_decision": True,
-        "authority_review_inputs": list(OBSERVER_AUTHORITY_REVIEW_INPUTS),
-        "map_relevant_change_requires_authority_reread": True,
-        "agent_may_reread_authority_without_recording_review": True,
-        "map_relevant_change_classes": [
-            "node_relationship",
-            "route_order",
-            "dependency",
-            "stage_or_completion_state",
-            "architecture",
-            "mainline_or_branch_semantics",
-            "project_overview_decision",
-        ],
-        "task_semantic_visualization": {
-            "required_for_agent_authored_output": False,
-            "derive_primary_progress_question_from_fresh_authority": True,
-            "record_selection_reason_and_evidence": True,
-            "allowed_kinds": list(OBSERVER_PRIMARY_VISUALIZATION_KINDS),
-            "low_confidence_must_be_fail_visible": True,
-            "renderer_may_infer_project_semantics": False,
-        },
-        "insufficient_evidence_behavior": "remain_stale_fail_visible",
-        "agent_first_insufficient_evidence_behavior": "mark_unknowns_fail_visible_without_blocking_unrelated_page_work",
-    }
-
-
-def observer_execution_evidence_contract() -> dict[str, Any]:
-    """Return the minimum semantic evidence useful to an Observer/human."""
-
-    return {
-        "schema_version": OBSERVER_EXECUTION_EVIDENCE_SCHEMA,
-        "required_fields": list(WRITER_EXECUTION_EVIDENCE_FIELDS),
-        "heartbeat_generation_only_is_sufficient": False,
-        "run_history": {
-            "preferred_time_source": "continuation_round",
-            "fallback_time_source": "user_level_observer_run_marker",
-            "required_fields": ["start", "end", "duration", "result", "major_outcome", "route_link"],
-            "incomplete_run_may_fabricate_end": False,
-            "incomplete_run_display": ["last_activity", "lower_bound_or_approximate_duration"],
-        },
-        "purpose": "explain what changed, what is proven/excluded, route impact, blockers, and next logic",
-    }
-
-
-def presentation_maintenance_contract() -> dict[str, Any]:
-    """Return optional legacy derived-presentation lifecycle/safety rules."""
-
-    return {
-        "schema_version": PRESENTATION_MAINTENANCE_SCHEMA,
-        "role": "legacy_optional_derived_presentation_helper",
-        "applies_to": "legacy_user_level_derived_presentation_state_only",
-        "required_for_agent_authored_output": False,
-        "lifecycles": list(PRESENTATION_MAINTENANCE_LIFECYCLES),
-        "access_boundary": {
-            "read": "broad",
-            "write": "narrow_user_level_derived_presentation_state",
-            "control": "none",
-            "writer_ownership_required": False,
-            "foreign_project_noninterference_required": True,
-        },
-        "review_before_record": {
-            "required": True,
-            "agent_responsibility": "understand_current_derived_state_and_user_intent",
-            "required_fields": ["reviewed_intent", "scope", "rationale", "evidence_refs"],
-            "acf_responsibility": "deterministic_record_validation_and_concurrency_only",
-            "acf_judges_semantics": False,
-        },
-        "transient_patch": {
-            "scope": "presentation_only_derived_state",
-            "may_apply_immediately": True,
-            "application_surface": "user_level_derived_presentation",
-            "deterministic_rerender_required": True,
-            "direct_dashboard_edit_allowed": False,
-            "semantic_change_allowed": False,
-        },
-        "one_shot_semantic_review": {
-            "consumed_by": "next_production_observer_semantic_review",
-            "remove_from_active_context_after_success": True,
-            "preserve_audit_history": True,
-            "resolved_guidance_may_resurrect": False,
-        },
-        "durable_rule": {
-            "active_until_terminal_disposition": True,
-            "supports_supersede": True,
-            "supports_withdraw": True,
-            "resolved_transient_guidance_may_resurrect": False,
-        },
-        "optimistic_concurrency": {
-            "required": True,
-            "compare": ["presentation_revision", "presentation_fingerprint"],
-            "conflict_behavior": "fail_closed_reread_and_reevaluate",
-        },
-        "semantic_risk_escalation": {
-            "required": True,
-            "action": "map_review_and_authority_reread",
-            "change_classes": observer_semantic_review_contract()["map_relevant_change_classes"],
-        },
-        "agent_owned_output": {
-            "direct_edit_allowed": True,
-            "fixed_renderer_required": False,
-            "legacy_presentation_revision_required": False,
-            "legacy_dashboard_direct_edit_allowed": False,
-            "legacy_renderer_must_not_overwrite_agent_owned_output": True,
-        },
-        # Compatibility keys retained for existing first-candidate consumers.
-        "writer_ownership_required": False,
-        "cross_project_interference_allowed": False,
-    }
-
-
 def automation_prompt_execution_contract() -> dict[str, Any]:
     """Return the common reviewable P1.5 automation family contract."""
 
@@ -556,7 +237,6 @@ def automation_prompt_execution_contract() -> dict[str, Any]:
         "roles": [
             "writer_scheduler_wrapper",
             "writer_runtime_generated",
-            "production_observer_scheduler_wrapper",
         ],
         "writer_scheduler_wrapper": {
             "schema_version": WRITER_SCHEDULER_WRAPPER_SCHEMA,
@@ -569,58 +249,28 @@ def automation_prompt_execution_contract() -> dict[str, Any]:
         },
         "writer_continuous_execution": writer_continuous_execution_contract(),
         "writer_runtime_generated": writer_runtime_prompt_contract(),
-        "production_observer_scheduler_wrapper": production_observer_wrapper_contract(),
-        "observer_semantic_review": observer_semantic_review_contract(),
-        "observer_execution_evidence": observer_execution_evidence_contract(),
-        "presentation_maintenance": presentation_maintenance_contract(),
         "dogfood_acceptance": {
             "task_families": [
                 "acf_writer",
-                "acf_observer",
                 "fcc_ws079_writer",
                 "fcc_ws080_writer",
                 "fcc_ws086_writer",
-                "fcc_observer",
                 "astockt_ai_writer",
-                "astockt_ai_observer",
             ],
             "shared_core_consistency_required": True,
             "project_unique_constraints_preserved": True,
             "existing_wrapper_migration_must_be_safe": True,
             "real_scheduled_agent_consumption_required": True,
-            "presentation_lifecycle_cases": [
-                "immediate_interactive_correction",
-                "next_run_semantic_review",
-                "transient_cleanup",
-                "durable_rule_persistence",
-                "production_render_does_not_resurrect_one_shot",
-            ],
-            "agent_first_cases": [
-                "agent_authored_page_without_renderer",
-                "target_registry_is_optional_not_display_gate",
-                "semantic_review_state_machine_is_optional",
-                "legacy_renderer_cannot_overwrite_agent_owned_output",
-                "production_activation_uses_agent_first_prompt_and_entry",
-            ],
         },
     }
 
 
 __all__ = [
     "AUTOMATION_PROMPT_EXECUTION_SCHEMA",
-    "OBSERVER_AUTHORITY_REVIEW_INPUTS",
-    "OBSERVER_PRIMARY_VISUALIZATION_KINDS",
-    "OBSERVER_PRESENTATION_TYPES",
-    "OBSERVER_SEMANTIC_REVIEW_DECISIONS",
-    "PRESENTATION_MAINTENANCE_LIFECYCLES",
     "WRITER_BOOTSTRAP_TOPICS",
     "WRITER_ACTIVE_SEARCH_ALTERNATIVE_CLASSES",
     "WRITER_EXECUTION_EVIDENCE_FIELDS",
     "automation_prompt_execution_contract",
-    "observer_execution_evidence_contract",
-    "observer_semantic_review_contract",
-    "presentation_maintenance_contract",
-    "production_observer_wrapper_contract",
     "writer_continuous_execution_contract",
     "writer_runtime_prompt_contract",
     "writer_scheduler_wrapper_contract",

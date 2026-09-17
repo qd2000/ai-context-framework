@@ -353,7 +353,7 @@ class ContinuationCliTests(unittest.TestCase):
                 "--priority",
                 "80",
                 "--text",
-                "Add a durable project narrative to the Observer dashboard.",
+                "Add a durable project narrative to the dashboard.",
                 "--evidence-ref",
                 "plan:WS012.4",
             ]
@@ -423,7 +423,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(3, journal["revision"])
         self.assertEqual(["added", "adopted", "resolved"], [event["event_kind"] for event in journal["events"]])
         self.assertEqual(
-            "Add a durable project narrative to the Observer dashboard.",
+            "Add a durable project narrative to the dashboard.",
             journal["events"][0]["text"],
         )
 
@@ -573,7 +573,7 @@ class ContinuationCliTests(unittest.TestCase):
                 "--priority",
                 "90",
                 "--text",
-                "Do not refresh production Observer state from maintenance wakes.",
+                "Do not refresh production runtime state from maintenance wakes.",
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{added}")
@@ -639,7 +639,7 @@ class ContinuationCliTests(unittest.TestCase):
         self.assertEqual(2, prompt["directive_context"]["pending_count"])
         self.assertEqual(added2["directive"]["id"], prompt["directive_context"]["latest_directive"]["id"])
         self.assertIn("Pending directives are new user-authority signals", prompt["prompt"])
-        self.assertIn("Do not refresh production Observer state from maintenance wakes.", prompt["prompt"])
+        self.assertIn("Do not refresh production runtime state from maintenance wakes.", prompt["prompt"])
         self.assertTrue(
             prompt["execution_policy"]["pending_user_directive_supersedes_persisted_next_action"]
         )
@@ -8059,7 +8059,7 @@ merge_resolution: merged
         )
         self.assertEqual(0, code, f"{stderr}\n{claim}")
         owner = ["--lease-id", str(claim["lease"]["lease_id"]), *self.owner_flags(claim)]
-        for key in ("installed-observer-dogfood", "final-observer-semantic"):
+        for key in ("installed-writer-dogfood", "final-writer-semantic"):
             code, prepared, stderr = self.run_json(
                 [
                     "continuation",
@@ -8072,7 +8072,7 @@ merge_resolution: merged
                     "--key",
                     key,
                     "--kind",
-                    "local-observer-dogfood",
+                    "local-writer-dogfood",
                 ]
             )
             self.assertEqual(0, code, f"{stderr}\n{prepared}")
@@ -8098,11 +8098,11 @@ merge_resolution: merged
                 "--evidence-ref",
                 "scheduler:legacy-owner-ended",
                 "--effect-key",
-                "installed-observer-dogfood",
+                "installed-writer-dogfood",
                 "--effect-terminal-status",
                 "completed",
                 "--effect-key",
-                "final-observer-semantic",
+                "final-writer-semantic",
                 "--effect-terminal-status",
                 "completed",
                 "--effect-local-terminal",
@@ -8111,7 +8111,7 @@ merge_resolution: merged
                 "--effect-milestone",
                 "final-semantic-verified",
                 "--effect-evidence-ref",
-                "artifact:installed-vs-dev-observer-contract",
+                "artifact:installed-vs-dev-automation-contract",
                 "--effect-evidence-ref",
                 "artifact:final-installed-semantic",
                 "--reason",
@@ -8148,7 +8148,7 @@ merge_resolution: merged
         self.assertEqual(0, code, f"{stderr}\n{effects}")
         self.assertEqual([], effects["summary"]["unresolved"])
         self.assertEqual(
-            {"installed-observer-dogfood", "final-observer-semantic"},
+            {"installed-writer-dogfood", "final-writer-semantic"},
             {effect["logical_key"] for effect in effects["effects"] if effect["status"] == "completed"},
         )
         self.assertTrue(all(effect["external_id"] is None for effect in effects["effects"]))
@@ -8185,7 +8185,7 @@ merge_resolution: merged
                     "--key",
                     "effect-under-test",
                     "--kind",
-                    "local-observer-dogfood",
+                    "local-writer-dogfood",
                 ]
                 if external_id is not None:
                     prepare_args.extend(["--external-id", external_id])
@@ -8267,7 +8267,7 @@ merge_resolution: merged
                 "--key",
                 "active-local-effect",
                 "--kind",
-                "observer-dogfood",
+                "writer-dogfood",
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{prepared}")
@@ -8287,7 +8287,7 @@ merge_resolution: merged
                 "--milestone",
                 "local-output-written",
                 "--evidence-ref",
-                "observer:revision-929",
+                "writer:revision-929",
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{updated}")
@@ -8319,9 +8319,9 @@ merge_resolution: merged
                 "--effect-milestone",
                 "durable-local-output-verified",
                 "--effect-evidence-ref",
-                "observer:revision-929",
+                "writer:revision-929",
                 "--reason",
-                "The interrupted active effect is local deterministic work and durable Observer state proves completion.",
+                "The interrupted active effect is local deterministic work and durable runtime state proves completion.",
                 "--record",
             ]
         )
@@ -8381,7 +8381,7 @@ merge_resolution: merged
                 "--key",
                 "effect-under-test",
                 "--kind",
-                "local-observer-dogfood",
+                "local-writer-dogfood",
             ]
         )
         self.assertEqual(0, code, f"{stderr}\n{prepared}")
@@ -9305,58 +9305,16 @@ merge_resolution: merged
             automation_contract["writer_runtime_generated"]["role"],
         )
         self.assertEqual(
-            "production_observer",
-            automation_contract["production_observer_scheduler_wrapper"]["role"],
+            ["writer_scheduler_wrapper", "writer_runtime_generated"],
+            automation_contract["roles"],
         )
-        self.assertFalse(
-            automation_contract["observer_semantic_review"]["required_each_semantic_refresh"]
-        )
-        observer_wrapper = automation_contract["production_observer_scheduler_wrapper"]
-        self.assertEqual("agent_selected_authorized_sources", observer_wrapper["display_scope_source"])
-        self.assertFalse(observer_wrapper["display_scope_policy"]["target_registry_required_for_page"])
-        self.assertFalse(observer_wrapper["semantic_review_required_each_refresh"])
-        self.assertFalse(observer_wrapper["map_review_gate_required_for_semantic_risk"])
-        self.assertTrue(observer_wrapper["agent_first_output"]["agent_is_primary_author"])
-        self.assertFalse(observer_wrapper["agent_first_output"]["acf_renderer_required"])
-        self.assertTrue(
-            observer_wrapper["agent_first_output"]["text_integrity_policy"][
-                "strict_decode_required"
-            ]
-        )
-        self.assertTrue(
-            observer_wrapper["agent_first_output"]["text_integrity_policy"][
-                "unicode_replacement_character_forbidden"
-            ]
-        )
-        self.assertTrue(
-            observer_wrapper["agent_first_output"]["update_failure_policy"][
-                "failed_update_must_not_replace_stable_entry"
-            ]
-        )
-        self.assertTrue(
-            observer_wrapper["agent_first_output"]["update_failure_policy"][
-                "freshness_must_remain_truthful_after_failure"
-            ]
-        )
-        self.assertFalse(
-            automation_contract["presentation_maintenance"]["transient_patch"][
-                "direct_dashboard_edit_allowed"
-            ]
-        )
-        self.assertEqual(
-            ["reviewed_intent", "scope", "rationale", "evidence_refs"],
-            automation_contract["presentation_maintenance"]["review_before_record"][
-                "required_fields"
-            ],
-        )
-        self.assertTrue(
-            automation_contract["presentation_maintenance"]["transient_patch"][
-                "deterministic_rerender_required"
-            ]
-        )
-        self.assertFalse(
-            automation_contract["presentation_maintenance"]["required_for_agent_authored_output"]
-        )
+        self.assertNotIn("production_observer_scheduler_wrapper", automation_contract)
+        self.assertNotIn("observer_semantic_review", automation_contract)
+        self.assertNotIn("presentation_maintenance", automation_contract)
+        dogfood = automation_contract["dogfood_acceptance"]
+        self.assertNotIn("acf_observer", dogfood["task_families"])
+        self.assertNotIn("presentation_lifecycle_cases", dogfood)
+        self.assertNotIn("agent_first_cases", dogfood)
 
         policy = payload["execution_policy"]
         self.assertEqual("acf.continuation.execution_policy.v1", policy["schema_version"])
