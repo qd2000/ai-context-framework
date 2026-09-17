@@ -23,7 +23,7 @@ Active
 
 ## 任务名称
 
-执行完整兼容与 release 验证
+发布并全局安装 v0.0.3.92
 
 ---
 
@@ -35,7 +35,7 @@ WS013 Observer Retirement and v0.0.3.92
 
 ## 子任务 ID
 
-T004
+T005
 
 ---
 
@@ -53,14 +53,14 @@ T004
 
 ## 本次任务目标
 
-1. 关闭所有回归和文档漂移后形成可发布候选。
-2. 产出并验证输出物：strict/template、全量测试、smoke、upgrade matrix、release check、package evidence
+1. 在 T004 验证通过的候选上完成 `.92` 版本更新、CHANGELOG 与 README/PKG-INFO 同步，并重跑完整 release gate。
+2. 合并 master、创建 immutable `v0.0.3.92` tag、push 触发 PyPI 发布，并用 `scripts/update_acf.ps1` 完成全局安装与 installed-state 验证。
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T004，所属大任务为“WS013 Observer Retirement and v0.0.3.92”。依赖记录：T003
+该任务来自 `active/Task_Plan.md` 中的子任务 T005，所属大任务为“WS013 Observer Retirement and v0.0.3.92”。依赖记录：T004 已 Done（check template/strict、unittest 646 tests OK、minimal smoke、upgrade matrix full、release check 与 P5 七项断言全部通过）。
 
 ---
 
@@ -71,21 +71,24 @@ T004
 - `active/Task_Plan.md`。
 - `active/Context.md`。
 - [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)：WS013 Observer 退役、WS012 收尾、验证矩阵与 v0.0.3.92 发布路线。
-- 依赖 T003 证据：删除 4 个 Observer 专项测试套件与 output/observer 产物；minimal_smoke 改为 human report 场景；release_check 移除 Dashboard 前置；egg-info 重新生成仅保留 stub；新增 2 个墓碑无副作用回归；README/Automation/两份 System Manual/Context 同步退役说明；296+135 tests OK
+- 依赖 T004 证据：check template/strict pass；unittest 646 tests OK（skipped 3）；minimal smoke ok；upgrade matrix full 28 fixtures ok；release_check full ok 且 wheel+sdist 隔离安装 smoke 通过；P5 七项专项断言通过（contract 无 Observer 键、observer_retired、隔离 ACF_HOME 无副作用、产物仅含 stub、无新增依赖）。
+- 发布入口：`ai_context_framework/version.py`、`pyproject.toml`、`uv.lock`、`CHANGELOG.md`、`README.md`、`ai_context_framework.egg-info/PKG-INFO`、`.github/workflows/release.yml`、`scripts/update_acf.ps1`。
 
 ---
 
 ## 输出要求
 
-- strict/template、全量测试、smoke、upgrade matrix、release check、package evidence
+- `.92` 版本更新与 CHANGELOG/README/PKG-INFO 同步。
+- 完整 release gate 重跑证据、master merge、immutable `v0.0.3.92` tag、PyPI publish。
+- 全局安装与 installed-state evidence（version/status/check/workstream/continuation/observer 墓碑）。
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：strict/template、全量测试、smoke、upgrade matrix、release check、package evidence
-2. 子任务 T004 的完成证据已写回任务板。
-3. `acf plan status` 能显示任务板可继续推进。
+1. `acf version show --json` 显示 `.92`，且 version.py / pyproject / uv.lock / PKG-INFO 一致，完整 release gate 通过。
+2. `.92` 完成 master 合并、immutable tag、PyPI publish、`scripts/update_acf.ps1` 全局安装和 installed-state 验证。
+3. 子任务 T005 的完成证据已写回任务板，T006 可以继续。
 
 ---
 
