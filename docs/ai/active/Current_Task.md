@@ -10,7 +10,7 @@
 
 ## 当前任务状态
 
-Empty
+Active
 
 说明：
 
@@ -23,25 +23,25 @@ Empty
 
 ## 任务名称
 
-无。
+固化 Observer 依赖图与允许残留清单
 
 ---
 
 ## 所属大任务
 
-无。
+WS013 Observer Retirement and v0.0.3.92
 
 ---
 
 ## 子任务 ID
 
-无。
+T001
 
 ---
 
 ## 所属 Workstream
 
-无。
+- `WS013`
 
 ---
 
@@ -53,13 +53,14 @@ Empty
 
 ## 本次任务目标
 
-1. 无。
+1. 运行 git grep 与模块调用关系审计，形成可审阅删除清单。
+2. 产出并验证输出物：Observer 当前依赖矩阵、历史保留边界和删除顺序
 
 ---
 
 ## 任务背景
 
-暂无当前任务。
+该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“WS013 Observer Retirement and v0.0.3.92”。依赖记录：无明确依赖。
 
 ---
 
@@ -67,31 +68,39 @@ Empty
 
 当前任务应列出必要 active 文件和相关 reference 规划依据；不要只写 `active/Context.md`。
 
-- 无。
+- `active/Task_Plan.md`。
+- `active/Context.md`。
+- [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)：WS013 Observer 退役、WS012 收尾、验证矩阵与 v0.0.3.92 发布路线。
 
 ---
 
 ## 输出要求
 
-- 无。
+- Observer 当前依赖矩阵、历史保留边界和删除顺序
 
 ---
 
 ## 成功标准
 
-1. 无。
+1. 输出物已完成：Observer 当前依赖矩阵、历史保留边界和删除顺序
+2. 子任务 T001 的完成证据已写回任务板。
+3. `acf plan status` 能显示任务板可继续推进。
 
 ---
 
 ## 失败信号
 
-1. 无。
+1. 依赖任务未完成或证据不足。
+2. 输出物无法通过检查或人工复核验证。
+3. 执行中发现用户当前需求与任务板记录冲突。
 
 ---
 
 ## 约束条件
 
-1. 遵守当前项目规则。
+1. 遵守当前项目规则和默认读取顺序。
+2. 保持 `active/Task_Plan.md` 与 `active/Current_Task.md` 状态同步。
+3. 不要把一次性过程或当前事实直接写入 Knowledge。
 
 ---
 
@@ -103,7 +112,7 @@ Empty
 
 ## 需要 AI 协助判断的问题
 
-1. 无。
+1. 执行过程中是否发现应回写 Context、ADR、rules、Knowledge 或 archive 的内容？
 
 ---
 

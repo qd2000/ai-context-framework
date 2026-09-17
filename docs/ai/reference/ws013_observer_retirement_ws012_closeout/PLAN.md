@@ -1,0 +1,317 @@
+# WS013 Observer Retirement and v0.0.3.92 Plan
+
+本文件是 WS013 的详细执行计划。当前事实仍以 `active/Context.md`、`active/Task_Plan.md`、`active/Current_Task.md` 和 `active/workstreams/WS013.md` 为准；本计划负责保存阶段路线、产品决策、文件范围、验证矩阵和发布边界。
+
+---
+
+## 1. 当前状态
+
+- 当前已发布稳定版本：`v0.0.3.91`，tag / PyPI / 全局安装已完成。
+- 当前主线版本文件仍为 `0.0.3.91`；`v0.0.3.92` 是本 Workstream 的目标版本，不是当前已发布事实。
+- `.91` 当前发布说明已在主线提交 `1d2d5ee` 修正为稳定发布事实，不再把 `.91` 写成 release candidate，也不再把 `.89` 写成当前安装态。
+- WS013 分支：`codex/ws013-observer-retirement-ws012-closeout`。
+- WS012 最终分支 tip `b134f3e` 已通过 merge commit `83aa92d` 完整进入 WS013 血缘；未采用 squash 或选择性复制。
+- WS012 已在 `3109d23` 归档为 `docs/ai/archive/workstreams/WS012.md`。
+- WS012 continuation 已正式结束：generation 217 为 `done/released`，lease absent，两个 Observer directive 已撤销，active / prepared / unresolved effects 均为 0，workspace 无 task-owned / unclassified path。
+- WS012 worktree、branch、registry、专属 ACF_HOME、主项目 Observer 派生 runtime 和匹配的临时文件均已删除；一次清理共移除 375 个派生或临时对象，失败数为 0。
+- WS012→WS013 集成回归已经取得终态：`189 tests`，`OK`，exit 0；`acf check --strict` 与 template check 通过。
+
+---
+
+## 2. 用户决策与产品结论
+
+### 2.1 用户决策
+
+经过一个多月实际使用，用户几乎不查看 Observer 或 HTML 页面，三个 Production Observer Scheduled Task 与 WS012 Scheduled Task 已删除。后续不再把持续 Observer、自动 Dashboard 或 HTML 进度页作为 ACF 核心方向。
+
+### 2.2 产品结论
+
+Observer 应从 ACF 核心产品中退役，而不是继续维护一个“精简但仍需长期兼容”的第二子产品。原因：
+
+1. 它没有进入真实高频工作路径。
+2. 它显著扩大 runtime、状态模型、文档、测试和 release gate。
+3. 当前 `automation_prompt_execution_contract` 中 Observer 子树约占一半序列化体积，给只使用 Writer / continuation 的调用方增加无收益上下文负担。
+4. 它把 ACF 推向长期 Agent runtime、派生展示状态和 HTML 产品，而 ACF 的核心定位应保持模型无关、Markdown-first、人工可审阅、渐进式暴露和确定性 CLI。
+
+### 2.3 保留边界
+
+保留：
+
+- Git 历史、CHANGELOG 和 WS011 / WS012 archive；
+- 与 Observer 无关、已经证明可复用的 continuation、worktree、context 和安全修复；
+- 一个极薄、无副作用的退役兼容入口，用于让旧调用得到稳定的 `observer_retired` 错误与替代命令提示；
+- 旧用户级 Observer 数据默认不由升级过程自动删除。
+
+删除：
+
+- Observer snapshot / history / semantic / glossary / narrative runtime；
+- Target Registry、expected-target recovery 和 target projection；
+- presentation / semantic-review / transient-patch 生命周期；
+- Dashboard / HTML renderer 和 Observer-owned output 产品合同；
+- Observer Scheduled Task wrapper、dogfood acceptance 和 release gate；
+- Observer 专属模块、测试、smoke 和当前产品文档入口。
+
+明确禁止：
+
+- 为了“兼容”保留可继续增长的半套 Observer runtime；
+- 在 `.92` upgrade/install 时自动递归删除用户级 `~/.acf/projects/*/observer/`；
+- 删除或改写历史 CHANGELOG、archive、ADR 和已发布版本事实；
+- 把按需生成一次性报告重新包装成常驻 Observer。
+
+---
+
+## 3. 目标架构
+
+### 3.1 `.92` 之后的核心产品面
+
+ACF 继续聚焦：
+
+- Markdown context / template；
+- `status`、`check`、`upgrade`；
+- plan / task / archive / knowledge / worklog / edit；
+- Workstream / worktree 生命周期；
+- continuation 的确定性 owner、effect、workspace、directive 和 recovery 协议；
+- release、smoke、upgrade compatibility 和安全边界。
+
+### 3.2 退役兼容入口
+
+`.92` 可保留最小 `acf observer` parser，但它不得导入原 Observer 实现，不得读取或写入 Observer runtime，不得创建目录，也不得删除用户数据。调用结果应稳定返回：
+
+```json
+{
+  "schema_version": 1,
+  "ok": false,
+  "command": "observer",
+  "error_code": "observer_retired",
+  "changed_files": [],
+  "next_actions": [
+    "Use `acf status --json` for current context state.",
+    "Use `acf workstream dashboard --json` for Workstream portfolio state.",
+    "Use `acf continuation doctor --json` for continuation health."
+  ]
+}
+```
+
+非 JSON 输出应给出同等明确的退役说明。该入口只是兼容墓碑，不是 Observer 功能保留。
+
+---
+
+## 4. 实施阶段
+
+### P0 — WS012 吸收、终止和本地清理
+
+状态：**Done**。
+
+完成项：
+
+- `.91` 发布事实文档同步；
+- WS013 reservation / worktree / branch 创建；
+- WS012 未提交 WIP 提交；
+- WS012 continuation reconcile / recovery / directive withdraw / terminal release；
+- WS012 完整 Git 血缘合入 WS013；
+- 冲突审查与智能解决；
+- WS012 Workstream archive；
+- WS012 worktree / branch / registry / ACF_HOME / Observer runtime / temp 清理；
+- 189 项集成回归和结构检查。
+
+### P1 — Observer 依赖图和删除清单固化
+
+目标：在写代码前机械确认所有当前依赖，避免删掉 Observer 后留下 import、打包、smoke 或文档断链。
+
+操作：
+
+1. 使用 `git grep` 盘点所有当前非历史 `observer` 引用。
+2. 将命中分为：实现、CLI 注册、自动化合同、测试、打包、release gate、当前文档、历史资料。
+3. 确认保留的历史路径和允许残留的退役 stub 路径。
+4. 为每个删除模块找到唯一调用方和对应测试。
+
+阶段验收：
+
+- 形成可审阅的文件矩阵；
+- 没有“删模块后才发现 release_check 仍依赖”的未知路径；
+- 历史 archive 与当前产品引用已区分。
+
+### P2 — 移除 Observer runtime 与公开产品能力
+
+目标：删除完整 Observer 实现，只保留无副作用退役入口。
+
+主要删除路径：
+
+```text
+ai_context_framework/observer.py
+ai_context_framework/observer_dashboard.py
+ai_context_framework/observer_presentation.py
+ai_context_framework/observer_runtime_storage.py
+ai_context_framework/observer_storage.py
+ai_context_framework/observer_target_projection.py
+ai_context_framework/observer_targets.py
+ai_context_framework/observer_workstream_sources.py
+ai_context_framework/commands/observer.py
+ai_context_framework/commands/observer_presentation.py
+```
+
+主要修改路径：
+
+```text
+ai_context_framework/runtime.py
+ai_context_framework/automation_contracts.py
+ai_context_framework/commands/continuation_workspace.py
+tests/test_automation_contracts.py
+tests/test_cli.py
+tests/test_continuation_cli.py
+```
+
+实现要求：
+
+- root parser 不再导入 Observer 实现；
+- `continuation prompt --json` 不再携带 Production Observer wrapper、semantic review、presentation maintenance 或 Observer dogfood acceptance；
+- Writer scheduler/runtime contract 的稳定键和行为不因 Observer 删除而漂移；
+- retired stub 不访问文件系统状态，不创建 `observer/`，不读取 Git 或 continuation；
+- 删除后不存在 Observer 模块之间的循环或残留 import。
+
+### P3 — 删除 Observer 测试、smoke、打包与输出产物
+
+删除或改写：
+
+```text
+tests/test_observer_cli.py
+tests/test_observer_presentation.py
+tests/test_observer_target_projection.py
+tests/test_observer_targets.py
+scripts/minimal_smoke.py
+scripts/release_check.py
+ai_context_framework.egg-info/SOURCES.txt
+output/observer/OBSERVER_NOTES.md
+output/observer/candidate/index.html
+```
+
+要求：
+
+- minimal smoke 不再创建 Observer project 或 Dashboard；
+- release check 不再要求 `observer status/snapshot` 或 `dashboard.html`；
+- package 不再包含 Observer 实现模块；
+- 增加 retired stub 的 focused regression；
+- 不保留为了删除功能而失去意义的大型 fixture。
+
+### P4 — 当前文档和模板同步
+
+修改：
+
+```text
+README.md
+CHANGELOG.md
+docs/Automation.md
+docs/ai/reference/System_Manual.md
+template/reference/System_Manual.md
+docs/ai/active/Context.md
+```
+
+要求：
+
+- 当前文档不再列出 Observer 为产品能力；
+- 不再提供 Observer Scheduled Task、Dashboard、Target Registry 或 presentation lifecycle 的操作教程；
+- `.89` 的 Observer Beta、WS011/WS012 的过程只保留为历史记录；
+- 文档明确旧用户数据不被自动删除；
+- 替代入口只指向现有确定性 CLI，不虚构新的可视化能力；
+- template、README、dogfooding manual 和 Automation 语义一致。
+
+### P5 — 完整验证和兼容性审计
+
+必跑命令：
+
+```powershell
+uv run acf check template
+uv run acf check --strict
+uv run python -m unittest
+uv run python scripts/minimal_smoke.py --acf uv run acf
+uv run python scripts/upgrade_matrix.py --mode full --acf uv run acf
+uv run python scripts/release_check.py --mode full
+```
+
+专项断言：
+
+1. `uv run acf continuation prompt --json` 中不存在 Observer contract 子树。
+2. `uv run acf observer --json` 或兼容子命令返回 `observer_retired`，`changed_files=[]`。
+3. 在隔离 `ACF_HOME` 下调用 retired stub 前后目录树和文件 hash 不变。
+4. package source / wheel 中不存在 Observer 实现模块。
+5. `git grep` 的当前产品命中只允许：退役 stub、退役说明和历史资料。
+6. `status`、`check`、`workstream`、`worktree`、`continuation` 的完整回归通过。
+7. 没有新增第三方运行依赖。
+
+### P6 — 版本更新与 `v0.0.3.92` 发布
+
+只有 P1–P5 全部闭合后才执行：
+
+```powershell
+uv run acf version set v0.0.3.92
+uv run acf version show --json
+```
+
+随后：
+
+1. 更新 CHANGELOG 的 `.92` 用户可见说明；
+2. 重跑完整 release gate；
+3. 合并到 master；
+4. 创建 immutable `v0.0.3.92` tag；
+5. push / PyPI publish；
+6. 使用 `scripts/update_acf.ps1` 完成 Windows 全局安装和 `acf.cmd` canonicalization；
+7. installed-state 验证 version / status / check / workstream / continuation / retired observer stub；
+8. 禁止移动或重用 `.90`、`.91` tag。
+
+### P7 — WS013 收尾
+
+- 将 WS013 标记 ReadyToMerge / Merging / Done；
+- 记录 merge resolution 和验证证据；
+- 归档 WS013；
+- 移除 WS013 worktree / branch / continuation 运行态；
+- 最终 `acf status --json` 回到 global-only，无活动 Workstream。
+
+---
+
+## 5. 文件矩阵
+
+| 类别 | 处理 | 主要路径 |
+|---|---|---|
+| Observer 实现 | 删除 | `ai_context_framework/observer*.py`、`commands/observer*.py` |
+| CLI 注册 | 改为 retired stub | `ai_context_framework/runtime.py` |
+| 自动化合同 | 删除 Observer 子树 | `ai_context_framework/automation_contracts.py`、continuation prompt adapter |
+| 测试 | 删除专项大套件，增加 stub/无副作用回归 | `tests/test_observer*.py`、automation/CLI/continuation tests |
+| smoke / release | 移除 Dashboard 前置 | `scripts/minimal_smoke.py`、`scripts/release_check.py` |
+| 文档 | 当前文档删除产品说明，历史保留 | README、Automation、两份 System Manual、CHANGELOG、Context |
+| 打包 | 不再包含 Observer 模块 | `SOURCES.txt`、wheel/sdist 检查 |
+| 输出 | 删除仓库内 Observer candidate/notes | `output/observer/` |
+| 用户数据 | 默认不自动删 | `~/.acf/projects/*/observer/` |
+| 历史 | 保留 | CHANGELOG、`docs/ai/archive/`、WS011/WS012 reference/history |
+
+---
+
+## 6. 高风险点与优先验证
+
+1. **Writer contract 被误删**：`automation_contracts.py` 同时包含 Writer 与 Observer，必须先拆除 Observer 子树，不能删除整个模块。
+2. **root runtime import 失败**：删除 `commands/observer.py` 前先替换 parser 注册，否则所有 CLI 都会启动失败。
+3. **release gate 暗含 Dashboard**：`minimal_smoke.py` 和 `release_check.py` 当前直接验证 Observer，需要同步修改。
+4. **文档漂移**：README、Automation、dogfooding manual 和 template manual 必须同批更新。
+5. **打包残留**：egg-info / sdist / wheel 中的 SOURCES 必须重新生成并检查。
+6. **历史误删**：archive 和 CHANGELOG 中的 Observer 内容是历史事实，不能因产品退役而删除。
+7. **用户数据破坏**：`.92` 不能把本次获得明确授权的本机清理扩大成默认升级行为。
+8. **过早 bump**：在删除实现和验证完成前保持版本文件为 `.91`；否则未完成代码会冒充 `.92`。
+
+---
+
+## 7. 成功标准
+
+1. WS012 已完整吸收、终止、归档并清理，无 branch/worktree/registry/continuation/temp 残留。
+2. ACF 安装包不再包含 Observer runtime、Dashboard、Target Registry 或 presentation lifecycle 实现。
+3. continuation prompt 不再携带 Observer 合同和 dogfood acceptance。
+4. `acf observer` 仅为稳定、无副作用的退役提示，或在最终评审中被证明可以安全彻底移除；不得保留半套产品。
+5. 当前文档和模板不再把 Observer 写成现有能力；历史发布记录保持完整。
+6. 升级不会自动删除任何用户级 Observer 数据。
+7. 全量单元测试、strict/template check、minimal smoke、full upgrade matrix、release check 和 package smoke 全部通过。
+8. `v0.0.3.92` 完成 immutable tag、PyPI publish、全局安装和 installed-state 验证。
+9. WS013 最终归档，主线回到无活动 Workstream 状态。
+
+---
+
+## 8. 当前下一步
+
+执行 P1：生成最终依赖图与允许残留清单，然后以最小可审阅切片先移除 root runtime / automation contract 对 Observer 的强依赖，并建立 retired stub 的无副作用回归。版本文件暂时保持 `0.0.3.91`。

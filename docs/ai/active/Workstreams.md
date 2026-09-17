@@ -18,7 +18,7 @@ Active
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS013 | Active | Observer Retirement and WS012 Closeout | ChatGPT | owned: active/workstreams/WS013.md | WS012 | docs/ai/reference/ws013_observer_retirement_ws012_closeout/ | active/workstreams/WS013.md |
+| WS013 | Active | Observer Retirement and WS012 Closeout | ChatGPT | 详情(41 项) | WS012 | docs/ai/reference/ws013_observer_retirement_ws012_closeout/ | active/workstreams/WS013.md |
 
 ---
 

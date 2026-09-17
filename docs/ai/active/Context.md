@@ -8,14 +8,14 @@
 
 ## 审阅标记
 
-- Last reviewed: 2026-08-20
-- Review scope: 文件级；收口 WS009 continuation hardening/release adoption，并移除易漂移的固定版本号副本。
+- Last reviewed: 2026-09-17
+- Review scope: 文件级；同步 `.91` 稳定发布事实、WS012 终止/归档与 WS013 Observer 退役路线。
 
 ---
 
 ## 当前阶段
 
-Dogfooding MVP / 框架稳定化。
+Dogfooding MVP / 框架稳定化与非核心能力收敛。
 
 ---
 
@@ -56,6 +56,7 @@ Dogfooding MVP / 框架稳定化。
 3. 当前发布版本不在 Context 中复制固定数字；以 `README.md`、`ai_context_framework/version.py`、`pyproject.toml`、`uv.lock` 与正式发布元数据为版本权威，安装态用 `acf --version` 验证。
 4. 本仓库使用 uv Python 环境，Python 版本约束为 `>=3.10`；运行项目 Python 或 CLI 时优先使用 `uv run python ...` 和 `uv run acf ...`。
 5. `docs/ai/` 当前应保持 `uv run acf check --strict` 通过；CLI 或模板行为变更后还应运行 `uv run acf check template`、`uv run python -m unittest`，必要时运行 upgrade matrix。
+6. 当前稳定发布版本由 canonical version authority 解析为 `v0.0.3.91`；WS013 的目标是完成 Observer 产品退役并在全部 Gate 通过后发布 `v0.0.3.92`，当前不得把 `.92` 当作已发布事实。
 
 ### 已落地能力摘要
 
@@ -71,13 +72,15 @@ Dogfooding MVP / 框架稳定化。
 
 ### 当前进展与未完成项
 
-1. 当前阶段处在 P2 收尾和阶段 6「事实与注意力治理」深化之间；WS002 模块化拆分、WS003 Workstream-first 上下文治理、WS004 旧项目升级审计、Workstream guard 文档/迁移修复以及 WS009 continuation physical-writer / authority-drift hardening 均已完成；推荐稳定版本以 canonical release/version authority 为准。
-2. 当前无活跃计划；[active/Task_Plan.md](Task_Plan.md) 为 Empty。
-3. 当前无活跃任务；[active/Current_Task.md](Current_Task.md) 为 Empty。
-4. Knowledge / ADR / Archive sync 的 generated marker 设计已落地 [reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)；通用 marker helper、`acf knowledge sync` MVP、`acf decisions sync` MVP 和 `acf archive sync` MVP 已实现。
-5. `acf archive current-task/task-plan` 已修复移动 Markdown 文件后相对链接断裂问题：归档写入前会按新文件位置重写已有本地 Markdown 链接，并追加 `ACF:ARCHIVE:RECORD` marker 供后续 sync 恢复归档原因。
-6. 新反馈 F016 要求 Context 采用渐进式披露；本文件已改为核心事实 + 索引结构，细节不再线性堆放在默认注意力入口。
-7. 新反馈 F017 要求“上次修改/上次更新”精确到分钟并工具化；已 triage，尚未设计统一格式或 CLI 生成能力。
+1. 当前唯一活动 Workstream 是 WS013「Observer Retirement and WS012 Closeout」；详细路线见 [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)。
+2. [active/Task_Plan.md](Task_Plan.md) 已切换为 `WS013 Observer Retirement and v0.0.3.92`，包含依赖审计、实现删除、文档/测试同步、完整验证、`.92` 发布和最终归档六个子任务。
+3. [active/Current_Task.md](Current_Task.md) 当前执行 T001「固化 Observer 依赖图与允许残留清单」，归属 WS013。
+4. WS012 最终 Git 血缘已完整吸收到 WS013，continuation 已终态释放、Workstream 已归档，旧 worktree/branch/registry/专属运行态和临时对象已清理；历史证据保留在 archive 和 Git 历史中。
+5. Observer 的当前产品裁决是从 ACF 核心移除 runtime、Dashboard、Target Registry 和 presentation lifecycle，仅保留无副作用退役提示；升级流程不得自动删除其他用户或项目的旧 Observer 数据。
+6. Knowledge / ADR / Archive sync 的 generated marker 设计已落地 [reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)；通用 marker helper、`acf knowledge sync` MVP、`acf decisions sync` MVP 和 `acf archive sync` MVP 已实现。
+7. `acf archive current-task/task-plan` 已修复移动 Markdown 文件后相对链接断裂问题：归档写入前会按新文件位置重写已有本地 Markdown 链接，并追加 `ACF:ARCHIVE:RECORD` marker 供后续 sync 恢复归档原因。
+8. 新反馈 F016 要求 Context 采用渐进式披露；本文件已改为核心事实 + 索引结构，细节不再线性堆放在默认注意力入口。
+9. 新反馈 F017 要求“上次修改/上次更新”精确到分钟并工具化；已 triage，尚未设计统一格式或 CLI 生成能力。
 
 ### 默认索引
 
@@ -209,5 +212,5 @@ Dogfooding MVP / 框架稳定化。
 
 ## 上次更新
 
-- 日期：2026-08-20
-- 更新原因：WS009 发布/adoption/merge 完成后执行 primary authority maintenance；归档旧 terminal Task/Plan，并将易漂移的固定版本事实改为引用 canonical release/version authority。
+- 日期：2026-09-17
+- 更新原因：同步 `.91` 稳定发布、WS012 完整收尾和 WS013 Observer 退役/`.92` 计划，移除“当前无活跃计划/任务”的过期事实。
