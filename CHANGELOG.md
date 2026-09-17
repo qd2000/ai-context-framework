@@ -2,7 +2,15 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
-## Unreleased
+## v0.0.3.92 — 2026-09-17
+
+### Project Observer retirement
+
+- ACF 核心不再包含 Project Observer 产品能力：Observer snapshot / history / semantic / glossary / narrative runtime、Target Registry 与 expected-target recovery、target projection、semantic-review / presentation / transient-patch 生命周期、Dashboard / HTML renderer 与 Observer-owned output 合同全部移除，对应实现模块、专项测试、smoke 场景和 release gate 依赖一并删除。
+- `acf observer` 保留为无副作用退役入口：不导入旧实现、不读取或写入 Observer runtime、不创建目录、不删除用户数据；任何旧形式（含旧子命令与位置参数）都稳定返回 `observer_retired` 与 `changed_files: []`，并提示改用 `acf status`、`acf workstream dashboard` 或 `acf continuation doctor`。
+- `automation_prompt_execution_contract` 不再携带 `production_observer_scheduler_wrapper`、`observer_semantic_review`、`observer_execution_evidence` 与 `presentation_maintenance` 子树；Writer scheduler / runtime 契约键与行为不变，但 `acf continuation prompt --json` 不再携带 Observer 合同上下文。
+- 升级不会自动删除其他机器或项目的用户级 Observer 数据（`~/.acf/projects/*/observer/`）；历史发布记录、CHANGELOG 既有条目与 `docs/ai/archive/` 中的 Observer 事实保留不变。
+- 当前产品文档不再把 Observer 列为现有能力：README、`docs/Automation.md`、项目与模板 System Manual 已同步退役口径与替代命令。
 
 ## v0.0.3.91 — 2026-09-16
 
