@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Active
+Inactive
 
-说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Active
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS012 | Active | Project Observer Operational Dogfood & Maintenance | ChatGPT | 详情(75 项) |  | docs/ai/reference/ws012_project_observer_operational_dogfood/ | active/workstreams/WS012.md |
+| WS012 | Cancelled | Project Observer Operational Dogfood & Maintenance | ChatGPT | 详情(75 项) |  | docs/ai/reference/ws012_project_observer_operational_dogfood/ | active/workstreams/WS012.md |
 
 ---
 
