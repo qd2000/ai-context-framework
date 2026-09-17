@@ -359,7 +359,7 @@ Windows canonical installed-state 中，`where.exe acf` / `Get-Command acf` 的�
 - `acf init <target> --profile minimal`：生成简化模板，并在项目根目录生成缺失的薄入口 AGENTS.md。
 - `acf init <target> --force-root-agent`：根入口已存在时重写薄入口；默认不会覆盖已有根入口。
 - `acf simplify <source> <target>`：从已有上下文导出简化版本，并保留真实 ADR 与 daily worklog，排除占位模板文件。
-- `acf init` / `acf simplify --force`：在 destructive replacement 既有 target 前保护当前 `ACF_HOME`（默认 `~/.acf`）；target 若等于、位于或包含当前 `ACF_HOME`，会以 `acf_home_target_protected` fail-closed，避免删除 continuation、Observer、closeout authorization 或 usage-log state。普通非破坏性 target 行为保持原语义；destructive dogfood/测试应显式使用隔离的临时 `ACF_HOME`。
+- `acf init` / `acf simplify --force`：在 destructive replacement 既有 target 前保护当前 `ACF_HOME`（默认 `~/.acf`）；target 若等于、位于或包含当前 `ACF_HOME`，会以 `acf_home_target_protected` fail-closed，避免删除 continuation、closeout authorization 或 usage-log state。普通非破坏性 target 行为保持原语义；destructive dogfood/测试应显式使用隔离的临时 `ACF_HOME`。
 - `acf upgrade [target]`：非破坏式补齐当前版本需要的 Feedback_Inbox、Task_Plan、标准 profile 的 human 层（含 `Human_Index.md`）、archive、archive/feedback、Knowledge 结构和 active -> reference 规划依据追溯入口；自定义旧文档无法识别时会追加 marker 包围的升级说明块。
 - `acf plan init|add-task|set-task|focus|complete|status [target]` / `acf plan reference list|add|remove [target]` / `acf plan stage list|add|set|done [target]`：维护当前大任务计划、子任务板、`## 规划依据` 和 `## 任务阶段` 表，并在完成后标记计划 Done；`plan reference add --path reference/X.md --purpose "用途"` 只写 reference 路径和一句话用途，默认要求目标文件存在，可用 `--allow-missing` 显式允许缺失，用 `--force` 更新同一路径，用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md`；Task Stage CLI 只维护 `active/Task_Plan.md` 中的阶段表，要求 `T001.1` 这类阶段 ID 归属于已存在父任务，不创建 task object 单文件，不自动修改 `active/Current_Task.md`，也不自动联动 Workstream。
 - `acf linkify [target] --format markdown --dry-run --json`：把默认范围内安全识别到的本地路径引用转换为可点击 Markdown 链接；默认跳过 archive 详情和 daily worklog，可用 `--include-archive` / `--include-worklog-daily` 显式扩大范围，缺失目标默认跳过并报告，可用 `--allow-missing` 显式允许。
@@ -451,7 +451,7 @@ Worktree lifecycle 与 continuation workspace 共用 read-only semantic-clean：
 
 `continuation prompt --json` 返回可机器读取的 `identity` 与 `scheduler_wrapper_contract`；`bootstrap_policy=sufficient_high_salience` 要求 wrapper 完整提供 exact existing workspace / tool mode / stable ACF upgrade / authority refresh / execute generated plan / owner disclosure / project constraints / final-response contract，同时 `copy_generic_state_machine=false` 禁止复制 generic 状态机。对 DevSpace 已经存在的固定 worktree，应明确使用 existing checkout 语义（`mode="checkout"`），不得再次用 `mode="worktree"` 创建 `.devspace/worktrees` detached/重复副本。任何可能在 owner/tool-call 结束后继续写项目文件或产生非幂等副作用的 Runtime/external writer 仍必须在启动前建立 durable deterministic effect/job identity。
 
-Agent-first P1.5/S2 定义 `automation_prompt_execution_contract` v2，由 `acf continuation prompt --json` 与只读 `acf observer status --json` 暴露同一静态 family contract。Writer static wrapper 继续只承载 sufficient bootstrap、project/task extension 与 volatile-fields-not-static；owner/generation/stage/next_action/directive/release/acceptance 等动态状态仍只由每轮 `acf continuation prompt + execution_policy` 提供。Production Observer wrapper 保留 existing-checkout、`read broad / write narrow / control none`、anti-masking、truthful run history、human-first-but-detailed 与 project/target extension，但改为 **Agent-first**：Agent 可从当前授权的一手来源自主选取展示对象并直接维护 Observer-owned HTML/CSS/SVG/JS。Target Registry 只是 optional navigation hint，semantic-review / Map Review / `primary_visualization` / fixed renderer / presentation lifecycle 均降为 legacy optional helper，不再是页面前置。旧 helper 被显式调用时继续要求 exact revision/fingerprint/evidence、optimistic concurrency、foreign-project non-interference 与 fail-closed；legacy snapshot/render 不得覆盖 Agent-owned 稳定入口。
+P1.5 `automation_prompt_execution_contract` v2 保持 Writer `acf.continuation.scheduler_wrapper.v1` 兼容键：Writer static wrapper 只承载 sufficient bootstrap、project/task extension 与 volatile-fields-not-static；owner/generation/stage/next_action/directive/release/acceptance 等动态状态仍只由每轮 `acf continuation prompt + execution_policy` 提供。`v0.0.3.92` 起该 contract 不再包含 Production Observer wrapper、observer semantic review、observer execution evidence 或 presentation maintenance 子树；已退役的 Observer 状态机不得被重新嵌入 Writer runtime prompt。
 
 Agent-owned 文本稳定入口在晋升前必须能够 strict UTF-8 回读，且不得包含 Unicode replacement character（U+FFFD）；但 successful UTF-8 decode / U+FFFD=0 本身不足以证明可见文本未发生 mojibake。Agent 还必须从当前 authority/source 选取预期可见文本 marker（例如项目原生非 ASCII 标签或等价 sentinel）并在晋升前回读验证；当实际命令/PTY 通道的 Unicode 保真未经证明时，必须改用 byte-preserving 写入或 ASCII-safe payload transport。任一检查失败按更新失败处理并保留 last-good。这不是新的 renderer/schema，只是 Agent 直写页面的最小文本完整性保护，也不硬编码具体语言。
 
@@ -465,120 +465,10 @@ Agent-owned 文本稳定入口在晋升前必须能够 strict UTF-8 回读，且
 
 continuation state 固定存放于 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；默认根目录是 `~/.acf`，`ACF_HOME` override 只替换这个根。`directives.json` 与 `directives.archive.NNNNNN.json`、control/state/round/effect 同属该用户级 namespace，不进入项目 Git。compact `state.json` 的 `completed / evidence_refs / verification` 是最多 64 项的 rolling history summary；旧版本遗留的 current-schema history overflow 会在读取时惰性压缩，并在下一次合法 state write 持久化。`constraints / open_questions / plan_refs` 继续严格限 64 项，超限 fail-closed，不会为了容量静默丢掉仍有效的安全/计划语义；其中 `constraints / open_questions` 属于当前 compact authority hint，newer authority 明确 supersede/resolve 后只能由 authenticated checkpoint exact-match `--supersede-constraint` / `--resolve-open-question` 并带 durable `--evidence-ref` 退休，不能靠模糊匹配或容量裁剪静默删除；裁剪前仍检查 forbidden raw-history 和单项大小。`acf continuation list <worktree> --json` 与 `--all-projects` 只读报告 task/workstream identity、timing、control generation、各 state schema 及 compatibility。支持的 legacy workspace schema 使用 `acf continuation migrate ... --dry-run` 预览，并只在没有 lease record 时显式 `--apply --reason ...`；migration receipt 记录 schema/digest 变化和其余 history 文件（包含 directive current/archive journals）的 byte digest，未知/future schema 继续 fail-closed。不要直接编辑 ACF_HOME JSON。
 
-### Project Observer
 
-`acf observer` 提供项目级 Global Observer。一个项目只维护一个用户级 Observer namespace；同项目 primary checkout 与 ACF 注册 worktree 统一观察。固定边界是 **read broad / write narrow / control none**：Observer 可以读取 Git、Workstream、continuation、计划和 evidence，但只把派生状态写入 `~/.acf/projects/<project-id>/observer/`，不会 claim/challenge/recover continuation，也不会修改 Writer 项目文件。
+### Project Observer（已退役）
 
-```powershell
-acf observer status --json
-acf observer snapshot --dry-run --json
-acf observer snapshot --json
-acf observer history --stream timeline --limit 20 --json
-acf observer glossary --json
-acf observer narrative-source . --source-path reference/Project_Brief.md --json
-acf observer narrative-apply . --source-fingerprint <fingerprint> `
-  --source-path reference/Project_Brief.md --input project-narrative.json --json
-acf observer narrative . --json
-
-# Observer V2：只有显式注册的 scheduled-automation target 才进入 Dashboard 可见范围
-acf observer targets . --json
-acf observer target-set . --target-id ws012-writer --mode fixed_workstream `
-  --title "WS012 Writer" --automation-ref automation:ws012-writer `
-  --workstream WS012 --continuation-task-id WS012 --json
-
-# 没有 continuation round 的自动任务用窄范围 marker 记录真实 start/finish；中断时不要补造 finish
-acf observer target-run-start . --target-id ws012-writer --run-id activation-001 --json
-acf observer target-run-finish . --target-id ws012-writer --run-id activation-001 `
-  --result success --major-outcome "activation completed" --json
-
-# 统一 Project Overview 必须是显式 authority decision；enabled/disabled 需要 evidence + fingerprint
-acf observer project-overview-set . --decision disabled `
-  --reason "Targets are intentionally heterogeneous." `
-  --evidence-ref docs/ai/active/Task_Plan.md --authority-fingerprint <fingerprint> --json
-
-# P2：每个 target 独立 semantic staleness / one-shot / durable rule
-acf observer presentation-status . --json
-acf observer review-request-add . --target-id ws012-writer --request-id review-route-next `
-  --expected-target-revision 0 --reviewed-intent "下一次 Map Review 重新判断主线与分支关系" `
-  --scope "target route semantics" --rationale "当前 authority 已改变" `
-  --evidence-ref active/Task_Plan.md --json
-acf observer presentation-rule-add . --target-id ws012-writer --rule-id route-human-first `
-  --expected-target-revision 1 --reviewed-intent "长期展示当前位置、why-now 与下一步理由" `
-  --scope "target route cards" --rationale "这是明确的长期展示规则" `
-  --evidence-ref reference/System_Manual.md --json
-acf observer presentation-rule-withdraw . --target-id ws012-writer --rule-id route-human-first `
-  --expected-target-revision 2 --reason "该长期规则已被新 authority 取消" `
-  --evidence-ref active/Task_Plan.md --json
-acf observer semantic-review-apply . --target-id ws012-writer --review-id map-review-001 `
-  --expected-target-revision 3 --source-fingerprint <target-fingerprint> `
-  --authority-fingerprint <authority-fingerprint> --authority-reread --decision rebuild `
-  --reason "路线语义发生变化" --evidence-ref active/Task_Plan.md `
-  --map-relevant-signal "route changed" --presentation-type roadmap `
-  --input target-review.json --consume-one-shot review-route-next --json
-acf observer transient-patch-apply . --target-id ws012-writer --patch-id inspect-route `
-  --expected-target-revision 4 --expected-presentation-revision 2 `
-  --presentation-fingerprint <presentation-fingerprint> `
-  --reviewed-intent "本次人工检查临时突出路线与运行证据" `
-  --scope "presentation only" --rationale "不改变事实，只调整当前 Dashboard 可读性" `
-  --evidence-ref user:review --density detailed `
-  --emphasize-section route --emphasize-section runs --json
-acf observer transient-patch-clear . --target-id ws012-writer `
-  --expected-target-revision 5 --expected-presentation-revision 3 `
-  --presentation-fingerprint <presentation-fingerprint> `
-  --reason "本次人工检查结束" --evidence-ref user:review-complete --json
-acf observer transient-patch-apply . --target-id ws012-writer --patch-id inspect-route `
-  --expected-target-revision 4 --expected-presentation-revision 2 `
-  --presentation-fingerprint <presentation-fingerprint> `
-  --reviewed-intent "本次人工检查临时突出路线与运行证据" `
-  --scope "presentation only" --rationale "不改变事实，只调整当前 Dashboard 可读性" `
-  --evidence-ref user:review --density detailed `
-  --emphasize-section route --emphasize-section runs --json
-acf observer transient-patch-clear . --target-id ws012-writer `
-  --expected-target-revision 5 --expected-presentation-revision 3 `
-  --presentation-fingerprint <presentation-fingerprint> `
-  --reason "本次人工检查结束" --evidence-ref user:review-complete --json
-```
-
-Observer V2 不把 Workstream/worktree 的存在自动解释成“用户正在观察这个 Scheduled Task”。Target Registry 是用户级 derived runtime contract：当前支持 `fixed_workstream` 与 `project_dynamic`，每个 target 拥有独立 tab/page、Workstream/continuation scope、run chain、Alerts 与 Timeline。未注册 Workstream 的 health/Alert 不得改变 target 可见的 Overall Health；Project Overview 只有 authority 明确 `enabled` 时才渲染统一 Narrative/Map，`disabled` 或 `undecided` 时保持边界可见而不强拼异构目标。continuation round 可直接投影 run timing；外部任务 marker 若没有 finish，只展示 last activity 与 lower-bound duration，不伪造 end time。
-
-P2 target semantic state 同样严格按 Target Registry scope 隔离。snapshot/read path 暴露每个 target 的 `semantic_review` 和顶层 `presentation` summary，但纯读取不会写 Observer runtime。source fingerprint 漂移、target revision 冲突、map-relevant signal 未 authority reread、route-changing problem 配 `unchanged` 都 fail-closed。one-shot 成功 review 后退出 active context；durable rule 只有显式 active 才进入后续 review context，consumed/superseded/withdrawn 历史仅保留 audit provenance，不会自动复活。
-
-P3 target 页面使用中文 human-first 顺序展示最终目标、完整路线、当前位置/why-now、最近证明/排除/改变、problem + plan impact 与 next-logic，再保留执行范围、run chain、Alerts 和 Timeline。`transient-patch-apply|clear` 只修改 user-level derived presentation：必须同时匹配 exact target revision、presentation revision 与 presentation fingerprint，而且只允许针对已有 canonical `current.json` 中的 target view；随后对同一 canonical snapshot deterministic re-render Dashboard，不新增 snapshot/run，也不把尚未被 Production Observer 采集的新事实混入旧页面。缺少 canonical current、presentation view 冲突、semantic source drift 或 semantic-risk signal 都 fail-closed；semantic-risk 必须升级正式 Map Review + authority reread。新的 semantic review 会使 active transient patch 自动过期，clear 后不得复活；它与 one-shot consume-once、durable rule supersede/withdraw 共同构成三 lifecycle integrated acceptance。
-
-P3 target 页面使用中文 human-first 顺序展示最终目标、完整路线、当前位置/why-now、最近证明/排除/改变、problem + plan impact 与 next-logic，再保留执行范围、run chain、Alerts 和 Timeline。`transient-patch-apply|clear` 只修改 user-level derived presentation：必须同时匹配 exact target revision、presentation revision 与 presentation fingerprint，而且只允许针对已有 canonical `current.json` 中的 target view；随后对同一 canonical snapshot deterministic re-render Dashboard，不新增 snapshot/run，也不把尚未被 Production Observer 采集的新事实混入旧页面。缺少 canonical current、presentation view 冲突、semantic source drift 或 semantic-risk signal 都 fail-closed；semantic-risk 必须升级正式 Map Review + authority reread。新的 semantic review 会使 active transient patch 自动过期，clear 后不得复活；它与 one-shot consume-once、durable rule supersede/withdraw 共同构成三 lifecycle integrated acceptance。
-
-`snapshot` 使用开始/结束 fingerprint 形成一致性快照；读取期间发生变化会重读一次，仍不稳定则标记 critical Alert。Observer 使用自己的轻量锁，不复用 continuation lease；current/status/dashboard 原子替换，render 失败保留 last-good Dashboard。meaningful history 默认永久保留，只按月无损 rotation/index，不按时间自动删除。Execution / Progress / Health 分离；正常 `waiting_external` 不自动等于异常，缺少明确分母时不生成假百分比。
-
-语义解释由 AI 提供，但必须绑定当前 Workstream 的 `semantic.source_fingerprint`。CLI 负责 canonical identity、confidence、provenance、版本历史和 stale-cache fail-closed；底层 meaning-relevant facts 变化后旧解释自动标记 stale，展示层不继续把它当作当前事实。
-
-```powershell
-acf observer interpret . --workstream WS001 --source-fingerprint <fingerprint> `
-  --human-title "人类可读标题" `
-  --current-focus "当前在解决什么" `
-  --why-now "为什么现在做" `
-  --recent-proof "最近证明或排除的事实" `
-  --implication "这些结果意味着什么" `
-  --next-step "下一步以及为什么这样走" `
-  --confidence high `
-  --provenance "active/workstreams/WS001.md" --json
-
-acf observer glossary-set . --term "术语" --human-term "人类解释" `
-  --explanation "稳定解释。" --confidence high --provenance "reference/Source.md" --json
-```
-
-confidence 支持 `authoritative / high / medium / low`；medium/low 在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。结构化 Observer state 与 HTML 都过滤 credential-like 值，API key、password、token、private key、license、fence token 等不得进入 Observer 产物。
-
-Project Narrative 是项目级 derived semantic state，不替代 Context/Task Plan/Workstream/ADR。`narrative-source` 只读取调用方明确列出的项目相对 authority 文件，并把文件内容摘要与稳定 Workstream/continuation meaning projection 组成 source fingerprint；`narrative-apply` 只验证、版本化和持久化 `overall_goal / architecture / milestones / current_position / confidence / provenance`，不会扫描整个仓库或自动创造项目事实。未知 graph 引用、credential-like 文本或 source fingerprint 漂移都会 fail-closed；旧 narrative 在 authority 变化后必须标记 stale。Project Narrative 的 live/history 都保存在用户级 Observer namespace，并与其他 Observer history 一样无损 rotation。
-
-Dashboard 将 Project Narrative 作为长期项目地图单独展示 Overall Goal、Architecture Map、Logical Milestone Flow / Project Evolution、Current Position 和 milestone evidence/provenance；Workstream 卡片与 Meaningful Timeline 继续保留，分别回答“现在”和“最近变化”。地图仍是确定性静态 HTML/CSS、自包含 `file://` 页面，不引入 Mermaid/Graphviz/React runtime、CDN、HTTP server 或外部 fetch；颜色只能作为辅助语义，并始终配套状态文字/符号。
-
-`dashboard.html` 是静态、自包含、直接 `file://` 打开的派生视图，不启动 HTTP/daemon，不依赖外部资源。颜色表达必须同时配文字/符号：红=critical、琥珀=warning、绿=healthy/verified、蓝=active/info、灰=canonical/history/metadata；字体保持连续阅读尺度，不用巨大字号制造重点。Observer structured state/history 的 canonical 时间戳保持 UTC；所有人类可见 Dashboard 时间统一显示为北京时间 `UTC+08:00`，展示层转换不得改写底层 UTC 数据。
-
-正式 production Observer scheduler 与开发/维护 Writer 应职责分离。production task 负责例行 snapshot/render；Maintenance 普通 wake 只读检查 runs/status/current/dashboard freshness，不得用自己的例行 snapshot 掩盖 scheduler miss 或 data-age stale。Maintenance 只有在诊断、修复后验证、release smoke、installed-state dogfood 或 migration 时才主动刷新，并应先保留故障前 evidence。
-
-Workstream source authority 以 primary lifecycle 为 project-level 边界：primary 已归档的 Workstream 不得被其他 linked/registered worktree 中残留的旧 Active detail 复活；Workstream 自己的 bound worktree 只有在 registry state=`active` 时才参与当前 source。active bound worktree 尚未集成到 primary 时，如果 primary checkout clean 且 primary HEAD 是 bound HEAD 的 ancestor，则这种差异属于可证明的有序 branch-forward progress：Observer 保留两份 provenance，但不把它误报为 current-source divergence。只有不能由该 Git lineage 解释的 primary/bound 差异才保持 fail-visible；其他 registered worktree 的历史副本仍只作为 diagnostics/evidence。
-
-Observer Core 不硬编码 MCP、电脑、盘符或具体项目实例。哪个 Scheduled Task 使用哪个项目访问工具属于项目自己的 wrapper/adapter，而不是通用 Observer 产品合同。
+Observer 产品能力已在 `v0.0.3.92` 从 ACF 核心退役。`acf observer` 只保留一个无副作用的退役入口：它不导入旧实现、不读取或写入 Observer runtime、不创建目录，并稳定返回 `observer_retired` 与替代命令提示。原 Observer runtime、Dashboard、Target Registry、semantic-review / presentation lifecycle 与 narrative 能力均不再发布；`acf continuation prompt --json` 也不再携带 Observer 合同子树。旧机器上的用户级 Observer 数据不会被升级流程自动删除。
 
 ### Workstream guard 模式
 

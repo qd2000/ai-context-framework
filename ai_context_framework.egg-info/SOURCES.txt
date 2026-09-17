@@ -28,14 +28,6 @@ ai_context_framework/markdown.py
 ai_context_framework/markers.py
 ai_context_framework/models.py
 ai_context_framework/observability.py
-ai_context_framework/observer.py
-ai_context_framework/observer_dashboard.py
-ai_context_framework/observer_presentation.py
-ai_context_framework/observer_runtime_storage.py
-ai_context_framework/observer_storage.py
-ai_context_framework/observer_target_projection.py
-ai_context_framework/observer_targets.py
-ai_context_framework/observer_workstream_sources.py
 ai_context_framework/paths.py
 ai_context_framework/runtime.py
 ai_context_framework/sensitive_data.py
@@ -81,7 +73,6 @@ ai_context_framework/commands/log_inventory.py
 ai_context_framework/commands/new_context.py
 ai_context_framework/commands/next_status.py
 ai_context_framework/commands/observer.py
-ai_context_framework/commands/observer_presentation.py
 ai_context_framework/commands/plan_task.py
 ai_context_framework/commands/review_audit_curate.py
 ai_context_framework/commands/status_check.py
@@ -161,10 +152,6 @@ tests/test_continuation_owner_context.py
 tests/test_entrypoint_smoke.py
 tests/test_install_scripts.py
 tests/test_log_inventory.py
-tests/test_observer_cli.py
-tests/test_observer_presentation.py
-tests/test_observer_target_projection.py
-tests/test_observer_targets.py
 tests/test_package_skeleton.py
 tests/test_sensitive_data.py
 tests/test_upgrade_audit.py

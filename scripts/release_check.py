@@ -196,35 +196,10 @@ def package_smoke(artifact: Path, root: Path, *, label: str) -> dict[str, Any]:
         env=tool_env,
         label=f"{label} installed acf check",
     )
-    observer_status = run_command(
-        [str(executable), "observer", "status", str(project), "--json"],
-        cwd=project,
-        env=tool_env,
-        label=f"{label} installed acf observer status",
-    )
-    observer_snapshot = run_command(
-        [str(executable), "observer", "snapshot", str(project), "--json"],
-        cwd=project,
-        env=tool_env,
-        label=f"{label} installed acf observer snapshot",
-    )
-    try:
-        observer_payload = json.loads(observer_snapshot.stdout)
-    except json.JSONDecodeError as exc:
-        raise ReleaseCheckError(f"{label} installed Observer snapshot did not return JSON") from exc
-    observer_dir = Path(str(observer_payload.get("observer_dir") or ""))
-    dashboard = observer_dir / "dashboard.html"
-    if not observer_dir.is_dir() or not dashboard.is_file():
-        raise ReleaseCheckError(
-            f"{label} installed Observer did not create its user-level dashboard: {dashboard}"
-        )
     return {
         "artifact": str(artifact),
         "version_output": version.stdout.strip(),
         "context": str(context),
-        "observer_status_ok": bool(json.loads(observer_status.stdout).get("ok")),
-        "observer_snapshot_ok": bool(observer_payload.get("ok")),
-        "observer_dashboard": str(dashboard),
     }
 
 

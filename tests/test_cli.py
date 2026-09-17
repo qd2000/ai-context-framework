@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import os
@@ -3102,7 +3103,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(self.run_cli(["init", str(source)]), 0)
             runtime_home = root / "acf-home"
             runtime_home.mkdir()
-            sentinel = runtime_home / "observer-state.json"
+            sentinel = runtime_home / "runtime-state.json"
             sentinel.write_text("preserve me\n", encoding="utf-8")
             with isolated_acf_home(runtime_home):
                 exit_code, stdout, _stderr = self.run_cli_output(
@@ -3130,6 +3131,52 @@ class CliTests(unittest.TestCase):
             payload = self.json_payload(stdout)
             self.assertTrue(payload["ok"])
             self.assertTrue(target.exists())
+
+    def test_observer_is_a_side_effect_free_retired_tombstone(self):
+        def snapshot(root):
+            state = {}
+            for path in sorted(root.rglob("*")):
+                relative = path.relative_to(root).as_posix()
+                if path.is_dir():
+                    state[relative] = "<dir>"
+                else:
+                    state[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+            return state
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_home = Path(tmp) / "acf-home"
+            runtime_home.mkdir()
+            with isolated_acf_home(runtime_home):
+                before = snapshot(runtime_home)
+                exit_code, stdout, _stderr = self.run_cli_output(["observer", "--json"])
+                after = snapshot(runtime_home)
+            self.assertEqual(acf.EXIT_RUNTIME_ERROR, exit_code)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(
+                payload,
+                error_code="observer_retired",
+                command="observer",
+            )
+            self.assertEqual([], payload["changed_files"])
+            self.assertIn("acf status --json", " ".join(payload["next_actions"]))
+            self.assertEqual(before, after)
+
+    def test_observer_tombstone_tolerates_legacy_subcommands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_home = Path(tmp) / "acf-home"
+            runtime_home.mkdir()
+            with isolated_acf_home(runtime_home):
+                exit_code, stdout, _stderr = self.run_cli_output(
+                    ["observer", "snapshot", str(runtime_home), "--dry-run", "--json"]
+                )
+            self.assertEqual(acf.EXIT_RUNTIME_ERROR, exit_code)
+            payload = self.json_payload(stdout)
+            self.assert_failure_json_contract(
+                payload,
+                error_code="observer_retired",
+                command="observer",
+            )
+            self.assertEqual([], payload["changed_files"])
 
     def test_init_force_allows_cleanup_outside_isolated_acf_home(self):
         with tempfile.TemporaryDirectory() as tmp:

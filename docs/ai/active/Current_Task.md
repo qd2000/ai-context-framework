@@ -23,7 +23,7 @@ Active
 
 ## 任务名称
 
-固化 Observer 依赖图与允许残留清单
+执行完整兼容与 release 验证
 
 ---
 
@@ -35,7 +35,7 @@ WS013 Observer Retirement and v0.0.3.92
 
 ## 子任务 ID
 
-T001
+T004
 
 ---
 
@@ -53,14 +53,14 @@ T001
 
 ## 本次任务目标
 
-1. 运行 git grep 与模块调用关系审计，形成可审阅删除清单。
-2. 产出并验证输出物：Observer 当前依赖矩阵、历史保留边界和删除顺序
+1. 关闭所有回归和文档漂移后形成可发布候选。
+2. 产出并验证输出物：strict/template、全量测试、smoke、upgrade matrix、release check、package evidence
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“WS013 Observer Retirement and v0.0.3.92”。依赖记录：无明确依赖。
+该任务来自 `active/Task_Plan.md` 中的子任务 T004，所属大任务为“WS013 Observer Retirement and v0.0.3.92”。依赖记录：T003
 
 ---
 
@@ -71,19 +71,20 @@ T001
 - `active/Task_Plan.md`。
 - `active/Context.md`。
 - [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)：WS013 Observer 退役、WS012 收尾、验证矩阵与 v0.0.3.92 发布路线。
+- 依赖 T003 证据：删除 4 个 Observer 专项测试套件与 output/observer 产物；minimal_smoke 改为 human report 场景；release_check 移除 Dashboard 前置；egg-info 重新生成仅保留 stub；新增 2 个墓碑无副作用回归；README/Automation/两份 System Manual/Context 同步退役说明；296+135 tests OK
 
 ---
 
 ## 输出要求
 
-- Observer 当前依赖矩阵、历史保留边界和删除顺序
+- strict/template、全量测试、smoke、upgrade matrix、release check、package evidence
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：Observer 当前依赖矩阵、历史保留边界和删除顺序
-2. 子任务 T001 的完成证据已写回任务板。
+1. 输出物已完成：strict/template、全量测试、smoke、upgrade matrix、release check、package evidence
+2. 子任务 T004 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---

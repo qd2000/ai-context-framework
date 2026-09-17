@@ -97,11 +97,7 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 - `uv run acf doctor docs/ai --draft-semantic --today YYYY-MM-DD --json`
 - `uv run acf doctor --projects docs/ai ../other-project/docs/ai --json`
 - `uv run acf curate draft docs/ai --dry-run --json`
-- `uv run acf observer status --json`
-- `uv run acf observer snapshot --dry-run --json`
-- `uv run acf observer snapshot --json`
-- `uv run acf observer history --stream timeline --limit 20 --json`
-- `uv run acf observer glossary --json`
+
 - 需要整理、归纳、精简上下文时，按需读取 [reference/Context_Curation_Prompt.md](Context_Curation_Prompt.md)；默认产物是整理建议，不是文件修改。
 - `uv run acf log projects --scan-root E:\Codes --json`
 - `uv run acf log feedback docs/ai --type Problem --source manual --text "实际使用反馈。" --json`
@@ -220,152 +216,15 @@ Git/worktree 与 continuation workspace 共享同一 semantic-clean 边界：普
 
 `continuation prompt --json` 返回 `identity`、`current`、`owner_context`、`directive_context`、`resume_context`、`execution_policy`、`project_context`、`scheduler_wrapper_contract`、当前 `next_actions` 与 generated `prompt`。`owner_context` 将 lease record 与 caller identity/liveness 分开；传 `--runner-id` 后可稳定区分 `current_owner / verified_live_other_owner / stale_or_unverified_owner / expired_owner / no_active_owner`，未传时 fresh lease 使用 caller-unknown 分类，不武断判 duplicate。`directive_context` 是本次 prompt 看到的 user-authority inbox snapshot；只要存在 pending directive，generated prompt 明确要求先 authority refresh，并由 `pending_user_directive_supersedes_persisted_next_action=true` 表达优先级。`coordination attempt` 对 fresh owner 不再自动 challenge；stale / legacy-unverified 才自动进入 challenge，并在 challenge 形成后使用 tool-backed `coordination wait|await`。`execution_policy` 包含 `next_action_is_default_execution_plan=true`、`next_action_requires_authority_refresh=true`、`active_lease_requires_liveness_verification=true`、`verified_duplicate_owner_may_end_duplicate_wake=true`、`duplicate_wake_exit_is_task_stop=false`、`stale_owner_requires_recovery=true`、`stale_owner_wait_is_tool_backed=true`、`stale_owner_wait_bound_source=persisted_challenge_deadline`、`challenge_pending_is_session_end_reason=false`、`pure_idle_wait_required=false`、`coordination_wait_grants_ownership=false`、`same_activation_recovery_after_timeout=true`、`same_activation_recovery_continues_project_work=true`、`contender_must_create_busywork=false`，并保留 `next_action_is_work_quota=false`、`final_response_is_terminal=true` 等既有字段；条件等待计划还暴露 `claim_requires_present_safe_useful_work=true`、`control_plane_activity_satisfies_wait_condition=false` 与 `no_useful_work_may_end_wake_without_claim=true`，避免控制面活动自证等待条件。`scheduler_wrapper_contract.bootstrap_policy=sufficient_high_salience`，但 `copy_generic_state_machine=false`。
 
-长期自治还机器化为 `mission_open_requires_active_alternative_search=true`、`blocked_lane_should_switch_to_safe_alternative=true`、`anti_busywork_scope=unchanged_failed_action_only`、`no_useful_work_end_requires_alternative_audit=true`、`prefer_mission_stage_over_microtask_fragmentation=true`、`checkpoint_requires_authority_refresh_and_continue=true`。控制面检查必须与 evidence-backed risk 成比例并优先走最便宜的确定性安全 continuation；active lease、历史 abnormal generation、task-owned dirty、scheduler wake、checkpoint/test/commit/Gate 或单 lane blocked 都不是独立 stop signal。wall-clock/liveness timing 只允许作为诊断与可配置 mechanics，不形成固定 execution budget。真正 safe session end 先持久化 progress/next_action/evidence，再用 `acf continuation release --handoff` 释放 owner/round 且保持 long-lived state=`running`；verified-live physical execution 仍必须 yield 且禁止 duplicate。`continuation prompt --json` 的 `execution_observability` 按 bootstrap/control-plane、project work、physical execution、graceful handoff、abnormal/incomplete termination、recovery overhead 分类暴露当前诊断信号，telemetry 不得成为 timing policy。P1.5 的 `automation_prompt_execution_contract` 在 `writer_continuous_execution`、Writer static wrapper 和 Writer runtime-generated prompt 中暴露等价 contract；这些规则只改变 work-selection/session-end 与 handoff 纪律，不放宽 owner/fencing/write-scope/effect/Git/Observer anti-masking 边界。
-
-Agent-first P1.5/S2 的 `automation_prompt_execution_contract` v2 继续在 `acf continuation prompt --json` 与只读 `acf observer status --json` 中暴露同一静态 family contract。Writer wrapper 保持 sufficient high-salience bootstrap，动态 owner/generation/stage/next_action/directive/release/acceptance 仍只由 runtime-generated `acf continuation prompt + execution_policy` 提供。Production Observer wrapper 保留 existing-checkout、`read broad / write narrow / control none`、anti-masking、truthful run history、human-first-but-detailed 与 project/target extension，并明确 **Agent 是展示与页面的主作者**：可从当前授权的一手来源自主选取对象，直接维护 Observer-owned HTML/CSS/SVG/JS。Target Registry 只是 optional navigation hint；semantic-review、Map Review、`primary_visualization`、fixed renderer 与 presentation lifecycle 均降为 legacy optional helper，不再是 Agent-authored output 的必经前置。旧 helper 被显式调用时，其 target-local revision/fingerprint/evidence、optimistic concurrency、foreign-project non-interference 与 fail-closed 语义仍保留，且 legacy snapshot/render 不得覆盖 Agent-owned 稳定入口。
-
-Agent-owned 文本稳定入口在晋升前必须能够 strict UTF-8 回读，且不得包含 Unicode replacement character（U+FFFD）；但 successful UTF-8 decode / U+FFFD=0 本身不足以证明可见文本未发生 mojibake。Agent 还必须从当前 authority/source 选取预期可见文本 marker（例如项目原生非 ASCII 标签或等价 sentinel）并在晋升前回读验证；当实际命令/PTY 通道的 Unicode 保真未经证明时，必须改用 byte-preserving 写入或 ASCII-safe payload transport。任一检查失败按更新失败处理并保留 last-good。这是直写页面的最小文本完整性保护，不重新引入统一 renderer/schema，也不硬编码具体语言。
-
-旧 P2 target semantic-review / one-shot / durable-rule runtime 仍保存在 `~/.acf/projects/<project-id>/observer/presentation/`，作为 legacy derived-state compatibility surface。`presentation-status`、`review-request-add`、`semantic-review-apply`、`presentation-rule-*` 被显式使用时继续执行 exact target revision/source fingerprint/evidence、consume/supersede/withdraw 与 fail-closed concurrency；但 Agent-first Production Observer 不需要为了页面更新先创建、迁移或消费这些状态。
+长期自治还机器化为 `mission_open_requires_active_alternative_search=true`、`blocked_lane_should_switch_to_safe_alternative=true`、`anti_busywork_scope=unchanged_failed_action_only`、`no_useful_work_end_requires_alternative_audit=true`、`prefer_mission_stage_over_microtask_fragmentation=true`、`checkpoint_requires_authority_refresh_and_continue=true`。控制面检查必须与 evidence-backed risk 成比例并优先走最便宜的确定性安全 continuation；active lease、历史 abnormal generation、task-owned dirty、scheduler wake、checkpoint/test/commit/Gate 或单 lane blocked 都不是独立 stop signal。wall-clock/liveness timing 只允许作为诊断与可配置 mechanics，不形成固定 execution budget。真正 safe session end 先持久化 progress/next_action/evidence，再用 `acf continuation release --handoff` 释放 owner/round 且保持 long-lived state=`running`；verified-live physical execution 仍必须 yield 且禁止 duplicate。`continuation prompt --json` 的 `execution_observability` 按 bootstrap/control-plane、project work、physical execution、graceful handoff、abnormal/incomplete termination、recovery overhead 分类暴露当前诊断信号，telemetry 不得成为 timing policy。P1.5 的 `automation_prompt_execution_contract` 在 `writer_continuous_execution`、Writer static wrapper 和 Writer runtime-generated prompt 中暴露等价 contract；这些规则只改变 work-selection/session-end 与 handoff 纪律，不放宽 owner/fencing/write-scope/effect/Git/anti-masking 边界。
 
 同一 stale generation 若同时存在多个已有 durable external id、且由外部 authority 明确证明 terminal 的 unresolved effects，可在一次 `reconcile` 中按相同顺序重复 `--effect-key`、`--effect-terminal-status`、`--effect-external-id`，以一个 receipt 原子绑定全部 effect assertions；本次重复 assertions 共享 `--effect-evidence-ref` 集合，数量、identity 或 digest 不一致仍 fail-closed。如果中断发生在 write-ahead `effect prepare` 之后、真正 external submit 之前，且单个记录仍是 `prepared`、`external_id=null`，外部 authority 又能明确证明 submit 从未启动，则 owner 结束/forfeiture 后可用 `acf continuation reconcile ... --effect-key <key> --effect-terminal-status failed --effect-not-started --effect-evidence-ref <ref>` 记录 no-start receipt，再由 `recover` 原子收口为 failed。`--effect-local-terminal` 用于已经执行的**本地确定性动作**：当记录仍为 `prepared` 或 `active`、没有 external id、durable local artifact/state/hash 等 authority evidence 已能证明 `completed|failed` 时，允许显式生成 receipt；同一 receipt 可覆盖多个此类 local effects。该模式与 `--effect-not-started` / `--effect-external-id` 互斥，已有 external id、`unknown` effect、证据不足或 receipt 后 observation 漂移仍 fail-closed。ACF 不自动判断 effect 是否“本地”或已完成，只验证机械边界并持久化调用方的可审计 assertion。
 
-continuation state 的 canonical 位置是 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；默认 `ACF_HOME=~/.acf`，override 只替换根目录，不改变 namespace/schema。`directives.json` 与 control/state/round/effect 等文件同属该用户级 task namespace，不进入项目 Git。当前 `ACF_HOME` 是保留的用户级 runtime tree；`acf init` / `acf simplify --force` 在真正替换既有 target 前检查 destructive overlap，若 target 等于、位于或包含当前 `ACF_HOME`，以 `acf_home_target_protected` fail-closed，明确阻止删除 continuation、Observer、closeout authorization 或 usage-log state。普通非破坏性 target 行为保持原语义；任何可能创建、重建或清理 ACF 用户态的 dogfood/测试都应显式使用隔离的临时 `ACF_HOME`。使用 `acf continuation list <worktree> --json` 查看当前项目 task，或 `acf continuation list --all-projects --json` 只读盘点全部 project/task；输出稳定区分 `task_id` 与 `workstream_id`，并列出 control generation、timing profile、每个 state 文件 schema 以及 `current / migration_available / blocked`。已知 legacy workspace schema 用 `acf continuation migrate <worktree> --task-id <id> --dry-run --json` 先预览；确认无 active/expired lease record 后再 `--apply --reason ...`。迁移 receipt 写入 `last_migration.json`，记录 from/to schema 与 workspace digest，同时保存其余 control/state/round/effect/coordination/directive/reconcile/recovery 历史文件的 byte digest；未知/future schema 继续 fail-closed，任何 scheduler/Agent 都不得手改这些 JSON。
+continuation state 的 canonical 位置是 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`；默认 `ACF_HOME=~/.acf`，override 只替换根目录，不改变 namespace/schema。`directives.json` 与 control/state/round/effect 等文件同属该用户级 task namespace，不进入项目 Git。当前 `ACF_HOME` 是保留的用户级 runtime tree；`acf init` / `acf simplify --force` 在真正替换既有 target 前检查 destructive overlap，若 target 等于、位于或包含当前 `ACF_HOME`，以 `acf_home_target_protected` fail-closed，明确阻止删除 continuation、closeout authorization 或 usage-log state。普通非破坏性 target 行为保持原语义；任何可能创建、重建或清理 ACF 用户态的 dogfood/测试都应显式使用隔离的临时 `ACF_HOME`。使用 `acf continuation list <worktree> --json` 查看当前项目 task，或 `acf continuation list --all-projects --json` 只读盘点全部 project/task；输出稳定区分 `task_id` 与 `workstream_id`，并列出 control generation、timing profile、每个 state 文件 schema 以及 `current / migration_available / blocked`。已知 legacy workspace schema 用 `acf continuation migrate <worktree> --task-id <id> --dry-run --json` 先预览；确认无 active/expired lease record 后再 `--apply --reason ...`。迁移 receipt 写入 `last_migration.json`，记录 from/to schema 与 workspace digest，同时保存其余 control/state/round/effect/coordination/directive/reconcile/recovery 历史文件的 byte digest；未知/future schema 继续 fail-closed，任何 scheduler/Agent 都不得手改这些 JSON。
 
-### Project Observer
+### Project Observer（已退役）
 
-`acf observer` 是项目级只读可观测入口，和 continuation Writer 控制面严格分离。一个项目只对应一个用户级 Observer namespace；primary checkout 与 ACF 注册的同项目 worktree 会被统一扫描。Observer 的固定权限边界是 **read broad / write narrow / control none**：它可以读取 Git、Workstream、continuation、计划、evidence 和必要代码，但只把派生状态写入 `~/.acf/projects/<project-id>/observer/`，不会 claim/challenge/recover continuation、不会提交 Git、不会修改 Writer 的项目文件。
-
-当 candidate/dogfood 需要把 Observer writable runtime 隔离到临时 `ACF_HOME`，但仍必须读取真实 stable continuation evidence 时，可额外设置 `ACF_OBSERVER_CONTINUATION_READ_HOME=<canonical ACF home>`。该变量**只改变 Observer 对 continuation namespace 的只读来源**；Target Registry、presentation、snapshot/dashboard 等 Observer 派生写入仍落在当前 `ACF_HOME`。override 必须是已存在的绝对目录，缺失/相对/非目录会 fail-visible，Observer 不会创建、迁移、复制或修改这个 read home，也不会因此取得 continuation control 权限。正常 installed-state/Production Observer 不需要设置该变量，默认仍从当前 `ACF_HOME` 读取 continuation。
-
-```powershell
-# 只读查看当前 Observer runtime、自健康和数据年龄
-acf observer status --json
-
-# 只生成/验证本轮事实，不写 Observer runtime
-acf observer snapshot --dry-run --json
-
-# 原子更新 current/history/self-health，并生成自包含 dashboard.html
-acf observer snapshot --json
-
-# 读取 live + rotated 历史；stream 可选 timeline/observations/alerts/runs/interpretations/narratives
-acf observer history --stream timeline --limit 20 --json
-
-# 读取项目级 semantic glossary
-acf observer glossary --json
-
-# 只读计算 Project Narrative 的显式 authority source projection/fingerprint
-acf observer narrative-source . --source-path docs/ai/reference/Project_Brief.md --json
-
-# 把模型/Agent 生成的 Project Narrative JSON 绑定到精确 source fingerprint 后写入 derived semantic state
-acf observer narrative-apply . --source-fingerprint <fingerprint> `
-  --source-path docs/ai/reference/Project_Brief.md --input project-narrative.json --json
-
-# 只读检查当前 Project Narrative 是否仍与最新 authority 一致
-acf observer narrative . --json
-
-# Observer V2：只有显式注册的 scheduled-automation target 才进入 Dashboard 可见范围
-acf observer targets . --json
-acf observer target-set . --target-id ws012-writer --mode fixed_workstream `
-  --title "WS012 Writer" --automation-ref automation:ws012-writer `
-  --workstream WS012 --continuation-task-id WS012 --json
-
-# 没有 continuation round 的自动任务用窄范围 marker 记录真实 start/finish；中断时不要补造 finish
-acf observer target-run-start . --target-id ws012-writer --run-id activation-001 --json
-acf observer target-run-finish . --target-id ws012-writer --run-id activation-001 `
-  --result success --major-outcome "activation completed" --json
-
-# 统一 Project Overview 必须是显式 authority decision；enabled/disabled 需要 evidence + fingerprint
-acf observer project-overview-set . --decision disabled `
-  --reason "Targets are intentionally heterogeneous." `
-  --evidence-ref docs/ai/active/Task_Plan.md --authority-fingerprint <fingerprint> --json
-
-# P2：只读查看每个 target 的独立 semantic staleness、active one-shot 与 durable rule
-acf observer presentation-status . --json
-
-# 下一次 Production Map Review 消费的一次性 semantic/presentation review request
-acf observer review-request-add . --target-id ws012-writer --request-id review-route-next `
-  --expected-target-revision 0 --reviewed-intent "下一次 Map Review 重新判断主线与分支关系" `
-  --scope "target route semantics" --rationale "当前 authority 已改变" `
-  --evidence-ref docs/ai/active/Task_Plan.md --json
-
-# 明确长期有效的 presentation rule；新规则可以 --supersedes 旧 active rule
-acf observer presentation-rule-add . --target-id ws012-writer --rule-id route-human-first `
-  --expected-target-revision 1 --reviewed-intent "长期展示当前位置、why-now 与下一步理由" `
-  --scope "target route cards" --rationale "这是明确的长期展示规则" `
-  --evidence-ref docs/ai/reference/System_Manual.md --json
-
-# 明确取消 durable rule；withdraw 与 semantic completion 不混淆
-acf observer presentation-rule-withdraw . --target-id ws012-writer --rule-id route-human-first `
-  --expected-target-revision 2 --reason "该长期规则已被新 authority 取消" `
-  --evidence-ref docs/ai/active/Task_Plan.md --json
-
-# target-review.json 由 Agent 在重新读取 authority 后生成，至少包含 narrative，可选 problems
-acf observer semantic-review-apply . --target-id ws012-writer --review-id map-review-001 `
-  --expected-target-revision 3 --source-fingerprint <target-fingerprint> `
-  --authority-fingerprint <authority-fingerprint> --authority-reread --decision rebuild `
-  --reason "路线语义发生变化" --evidence-ref docs/ai/active/Task_Plan.md `
-  --map-relevant-signal "route changed" --presentation-type roadmap `
-  --input target-review.json --consume-one-shot review-route-next --json
-
-# P3：即时 presentation-only patch；必须绑定 canonical current 的 target/presentation view
-acf observer transient-patch-apply . --target-id ws012-writer --patch-id inspect-route `
-  --expected-target-revision 4 --expected-presentation-revision 2 `
-  --presentation-fingerprint <presentation-fingerprint> `
-  --reviewed-intent "本次人工检查临时突出路线与运行证据" `
-  --scope "presentation only" --rationale "不改变事实，只调整当前 Dashboard 可读性" `
-  --evidence-ref user:review --density detailed `
-  --emphasize-section route --emphasize-section runs --json
-
-# 检查结束后显式清除；同样要求 exact presentation view
-acf observer transient-patch-clear . --target-id ws012-writer `
-  --expected-target-revision 5 --expected-presentation-revision 3 `
-  --presentation-fingerprint <presentation-fingerprint> `
-  --reason "本次人工检查结束" --evidence-ref user:review-complete --json
-```
-
-Observer V2 不把 Workstream/worktree 的存在自动解释成“用户正在观察这个 Scheduled Task”。Target Registry 是用户级 derived runtime contract：当前支持 `fixed_workstream` 与 `project_dynamic`，每个 target 拥有独立 tab/page、Workstream/continuation scope、run chain、Alerts 与 Timeline。未注册 Workstream 的 health/Alert 不得改变 target 可见的 Overall Health；Project Overview 只有 authority 明确 `enabled` 时才渲染统一 Narrative/Map，`disabled` 或 `undecided` 时保持边界可见而不强拼异构目标。continuation round 可直接投影 run timing；外部任务 marker 若没有 finish，只展示 last activity 与 lower-bound duration，不伪造 end time。
-
-P2 target semantic state 也严格按 Target Registry scope 隔离。snapshot/read path 会把每个 target 的 `semantic_review` 与顶层 `presentation` summary 作为 derived observation 暴露，但不会因为“读取状态”写 Observer runtime。Map Review 写入只接受当前 target projection；source fingerprint 已变化、target revision 冲突、map-relevant signal 未重新读取 authority、route-changing problem 却声称 `unchanged`，都会 fail-closed。one-shot 在成功 review 后退出 active context，durable rule 只有显式 active 才会进入下一次 review context；superseded/withdrawn rule 与 consumed one-shot 保留 audit provenance，但不会再次成为 active guidance。
-
-P3 target 页面采用中文 human-first 信息顺序：最终目标 → 完整路线 → 当前位置与 why-now → 最近证明/排除/改变 → problem 与 plan impact → next-logic，再向下保留当前执行范围、run chain、Alerts 与 Timeline。即时 `transient_patch` 是 user-level derived presentation 的窄接口，不是新的 semantic authority：apply/clear 都要求 exact target revision、presentation revision 与 presentation fingerprint，并且命令先读取已经存在的 canonical `current.json`，只允许针对其中同一 target view 修改 presentation state。写入后 Dashboard 对该**同一 canonical snapshot** deterministic re-render；不会追加 snapshot/run，也不会用 fresh project scan 把尚未被 Production Observer 采集的新事实混入旧 Dashboard。canonical current 缺失、presentation view 冲突、semantic source drift 或 semantic-risk signal 都 fail-closed；semantic-risk 必须改走正式 `semantic-review-apply` 并重新读取 map-relevant authority。新的 semantic review 自动使 active transient patch 过期；显式 clear 后也不得复活。one-shot consume-once、durable rule supersede/withdraw 与 transient apply/clear 因而可以联合验收，但生命周期彼此不混淆。
-
-`snapshot` 会对项目事实做开始/结束 fingerprint；第一次读取期间发生变化时自动重读一次，仍不稳定则把 `snapshot_consistency=unstable` 并生成 critical Alert，不把混合快照包装成高置信度事实。Observer 自己使用独立轻量锁，正常 overlap fail-closed；只有锁已超过 grace 且本机只读进程检查明确证明旧 PID 不存在时才回收 abandoned lock。`current.json`、`observer_status.json` 和 `dashboard.html` 都用 temp → validate → atomic replace；HTML render 失败会保留上一份 last-good Dashboard。meaningful timeline/observation/alert/run/interpretation 默认永久保留，只按月无损 rotation 到 `history/<stream>/YYYY-MM.jsonl` 并维护 `history/index.json`，不做按时间删除。
-
-机器层把 Execution、Progress、Health 分开：`waiting_external` 不等于故障；缺少明确分母时不生成百分比。continuation running 且 fresh lease 时可以健康，stale owner 为 warning，expired owner 为 critical；Observer 只报告，不执行 contention/recovery。Workstream 在不同 source 中出现不一致时保留 canonical identity 与所有来源，并提升 Alert，而不是静默挑一个版本当事实。
-
-人类语义由 AI 负责解释，CLI 只提供确定性持久化合同：先从当前 snapshot 取得 Workstream 的 `semantic.source_fingerprint`，再使用 `observer interpret` 写入解释；如果底层 meaning-relevant facts 已变化，命令返回 `observer_semantic_source_changed`，旧解释在下一次 snapshot 中标记 `stale`，Dashboard 不继续把它当作当前事实。
-
-```powershell
-acf observer interpret . --workstream WS001 --source-fingerprint <fingerprint> `
-  --human-title "人类可读标题" `
-  --current-focus "当前在解决什么" `
-  --why-now "为什么现在做" `
-  --recent-proof "最近证明或排除的事实" `
-  --implication "这些结果意味着什么" `
-  --next-step "下一步以及为什么这样走" `
-  --confidence high `
-  --provenance "active/workstreams/WS001.md" `
-  --json
-
-acf observer glossary-set . --term "LM/TR" --human-term "LM/信赖域优化" `
-  --explanation "利用局部模型和信赖域限制优化步长的方法。" `
-  --confidence high --provenance "reference/Optimization.md" --json
-```
-
-confidence 支持 `authoritative / high / medium / low`；medium/low 会在展示层明确标记“当前理解/暂译”，canonical 原始名称始终保留。interpretation 以 append-only 版本历史记录，`observer history --stream interpretations` 可追溯 old/new interpretation、source fingerprint 和 provenance。结构化 Observer state 与 HTML 共用 credential-like 值过滤；API key、password、token、private key、license、fence token 等值拒绝写入或替换为 `[redacted]`。
-
-Project Narrative 是 Workstream interpretation 之上的**项目级 derived semantic state**，不是新的 Markdown authority。`narrative-source` 只接受显式、项目相对的 authority 文件路径；它记录文件 content digest，并把稳定的 Workstream/continuation meaning projection 一起纳入 source fingerprint，不默认全仓扫描。`narrative-apply` 只负责机械验证/版本化/原子写入，要求 JSON 明确提供 `overall_goal`、architecture nodes/edges、milestones、`current_position`、confidence 和逐项 provenance/evidence；未知 node/milestone 引用、credential-like 文本或读取后 authority fingerprint 漂移都会 fail-closed。当前 narrative 写入 `semantic/project_narrative.json`，历史追加到 `semantic/project_narratives.jsonl` 并参与无损 monthly rotation；source 文件或相关项目 authority 改变后，下一次只读 snapshot 会把旧 narrative 标记 `stale` 并生成 warning Alert，而不是继续当作 current project story。
-
-Dashboard 将 Project Narrative 与 Meaningful Timeline 明确分层：Project Map 展示 Overall Goal、Architecture Map、Logical Milestone Flow / Project Evolution、Current Position 和 milestone Evidence/Provenance；Workstream 卡片继续解释“现在”，Timeline 继续表达“最近发生了什么”。项目地图仍使用确定性 HTML/CSS、文本/符号和静态自包含数据，不引入 Mermaid/Graphviz/React runtime、CDN、HTTP server 或外部 fetch；颜色只做稳定语义引导，并始终同时保留文字状态。
-
-`dashboard.html` 是纯静态、自包含、可直接 `file://` 打开的展示层，不启动 HTTP/daemon，也不依赖外部 CSS/JS/fetch。红色只用于 critical，琥珀用于 warning，绿色用于 healthy/verified，蓝色用于 active/info，灰色用于 canonical/历史/metadata；颜色必须同时配文字/符号，主标题约 24px、Workstream 标题约 17px，不用巨大字号制造重点。Observer structured state/history 中的 canonical 时间戳保持 UTC；Dashboard 头部和 Meaningful Timeline 等人类可见时间统一转换为北京时间 `UTC+08:00` 并明确标注，底层 UTC 不因展示需求改写。Dashboard 是派生视图，Observer structured state 才是观测事实层。
-
-正式 production Observer scheduler 与开发/维护 Writer 必须分离。production task 才承担例行 snapshot/render；Maintenance 普通 wake 应先读取 `observer_status.json`、runs/current/history 与 Dashboard mtime 判断 watchdog 是否真实按期成功，不得为了维持 freshness 自己例行刷新，否则会掩盖 scheduler miss、data-age stale 和 Observer 自身故障。Maintenance snapshot 只用于诊断、修复后验证、release smoke、installed-state dogfood 或 migration，并应保留故障前 evidence。
-
-Workstream source authority 以 primary lifecycle 为 project-level 边界：primary archive 表示该 Workstream 已进入历史终态，其他 linked/registered worktree 中残留的旧 Active detail 不得将其复活。Workstream 自己的 bound worktree 只有在 registry state=`active` 时才可作为当前专属 source；非 active registry 下优先 primary current/terminal source。对于 active bound worktree，如果 primary checkout clean，且 primary HEAD 是该 bound worktree HEAD 的 ancestor，则两者文本差异属于尚未集成的有序 branch-forward progress：Observer 保留 primary + bound 两份 provenance，但 `source_consistency` 视为 consistent，并记录 `source_consistency_basis=active_registered_worktree_descends_clean_primary`。只有无法由该 Git lineage 解释的 primary/bound current-source 差异才保持 divergence/Alert fail-visible；unrelated registered worktree 仍只保留在 diagnostics/history evidence 中。
-
-Observer Core 不硬编码 MCP 名称、电脑、盘符或项目实例。Scheduled Task 需要调用哪个项目访问工具由项目自己的 wrapper/adapter 决定；例如某个具体项目的 wrapper 可以指定一个 DevSpace connector，但该名字不能进入通用 Observer Core。开发 Observer 自身时，稳定安装态 ACF 继续作为 continuation canonical control plane，worktree 内 `uv run acf observer ...` 作为 product-under-test；先在 ACF 项目连续 dogfood 并收口高优先级 issue，再进入合并、PyPI 和全局稳定安装。
+Observer 产品能力已在 `v0.0.3.92` 从 ACF 核心退役。`acf observer` 只保留一个无副作用的退役入口：它不导入旧实现、不读取或写入 Observer runtime、不创建目录，并稳定返回 `observer_retired` 与替代命令提示。原 Observer runtime、Dashboard、Target Registry、semantic-review / presentation lifecycle、narrative 与 dogfood acceptance 均不再发布；`acf continuation prompt --json` 也不再携带 Observer 合同子树。旧机器上的用户级 Observer 数据不会被升级流程自动删除；历史说明与证据保留在 `docs/ai/archive/`。
 
 ### Workstream guard 模式
 
