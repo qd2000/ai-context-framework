@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Active
+Inactive
 
-说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Active
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS013 | Merging | Observer Retirement and WS012 Closeout | ChatGPT | 详情(48 项) | WS012 | docs/ai/reference/ws013_observer_retirement_ws012_closeout/ | active/workstreams/WS013.md |
+| WS013 | Done | Observer Retirement and WS012 Closeout | ChatGPT | 详情(48 项) | WS012 | docs/ai/reference/ws013_observer_retirement_ws012_closeout/ | active/workstreams/WS013.md |
 
 ---
 
