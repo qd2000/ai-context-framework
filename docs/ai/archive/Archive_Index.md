@@ -64,6 +64,7 @@
 | 2026-09-18 | Task | 归档 WS013 并清理开发运行态 | active/Current_Task.md | `archive/tasks/2026-09-18-归档-ws013-并清理开发运行态.md` | Archived | WS013 Observer Retirement 与 v0.0.3.92 发布收尾闭环，T006 归档与开发运行态清理完成。 |
 | 2026-09-18 | workstream | WS013 | active/workstreams/WS013.md | `archive/workstreams/WS013.md` | Done | Observer retirement released as v0.0.3.92, fast-forward merged to master, PyPI published and globally installed; terminal closeout per WS013 PLAN P7. |
 | 2026-09-18 | workstream | WS014 | active/workstreams/WS014.md | `archive/workstreams/WS014.md` | Done | WS014 stabilization and product health work completed and verified; terminal closeout moves the detail out of the active Workstream layer. |
+| 2026-09-18 | Plan | WS014 Post-v0.0.3.92 稳定化与产品健康治理 | 无。 | `archive/plans/2026-09-18-ws014-post-v0.0.3.92-稳定化与产品健康治理.md` | Archived | WS014 稳定化与产品健康治理已收口并归档；其子任务板与证据移入 archive/plans 保留追溯，Task_Plan 改由 WS015 计划承载。 |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |

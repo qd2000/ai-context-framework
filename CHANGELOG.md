@@ -2,6 +2,16 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.94 — 2026-09-18
+
+### Release closure and worktree retire narrow path
+
+- 新增 `acf worktree retire`：为「必要提交已由 reviewed cherry-pick 等保存在别处、但分支因无关历史而刻意不可合并」的已登记 worktree 提供受控退役。默认只输出计划，`--apply` 才执行；退役要求显式 `--disposition curated_handoff` 与非空 `--evidence-ref`，只移除 worktree 工作目录与本地 registry 记录，**永不删除分支或 Git 引用**，也不提供删除分支的开关。
+- `retire` 与 `close` 严格分离：`acf worktree close` 的 merged-only 语义与 `branch_not_merged` 硬门完全不变；分支其实已是 primary ancestor 时 `retire` 返回 `worktree_retire_branch_already_merged` 并提示改用 `close`。`retire` 复用既有 lifecycle 锁与 operation journal（`command=worktree.retire`），持久化 disposition、evidence、退役时分支 HEAD 与 primary HEAD 快照，支持同一 operation ID resume 与 `already_retired` 幂等。
+- 失败一律 fail-closed 并返回稳定错误码：`worktree_not_registered`、`worktree_dirty`、`artifact_handoff_required`、`worktree_retire_evidence_required`、`worktree_retire_disposition_unsupported`、`worktree_retire_branch_already_merged`，以及既有的 `workstream_human_approval_required` / `workstream_closeout_denied`。
+- 同步更新 `docs/Worktree_Lifecycle.md`、项目与模板 `System_Manual.md`、`docs/Automation.md`、`README.md` 与六域 Gap Matrix；新增 `tests/test_worktree_retire.py` 覆盖可退役、各类拒绝、幂等、journal 证据与 `close` 行为不变。
+- 发布链状态记录：`v0.0.3.93` tag 已推送到远端且指向 master HEAD，但 PyPI 上仍无该版本；本地制品复现（wheel + sdist 隔离安装）证明失败不在代码与制品层。本版本作为新的不可变版本发布，不改写既有 tag。
+
 ## v0.0.3.93 — 2026-09-18
 
 ### Post-0.0.3.92 stabilization and product health

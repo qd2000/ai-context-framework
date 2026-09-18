@@ -3484,7 +3484,7 @@ class CliTests(unittest.TestCase):
 
             new_manual_line = (
                 "非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。"
-                "`worktree list|audit|verify|attach|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|resume` 提供发现、恢复、同步、临时候选合并、结果迁移和安全关闭。"
+                "`worktree list|audit|verify|attach|sync|merge-plan|merge|artifact-plan|artifact-migrate|close|retire|resume` 提供发现、恢复、同步、临时候选合并、结果迁移、安全关闭和 curated handoff 退役。"
             )
             old_manual_line = (
                 "非 WS 任务使用 `--kind bugfix|docs|experiment|investigation|maintenance|refactor|release --slug ...`。"

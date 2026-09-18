@@ -10,9 +10,9 @@ Active
 
 ### 当前阶段
 
-WS014「Post-v0.0.3.92 Stabilization and Product Health」：在已收敛的顶层设计、Workstream 层与 continuation 控制面之上做稳定化与产品健康治理（authority 文档收敛、测试运行态隔离、跨项目 issue 生命周期、owner-context 验证协议、ADR-0006 产品边界与 CI 收口）。本阶段不新增产品能力。
+WS015「Release Closure and Worktree Retire Narrow Path」：闭合 `v0.0.3.93` tag 已推送但 PyPI 未发布的发布链，并以新的不可变版本完成发布与全局安装验证；同时落地 `acf worktree retire` 窄路径，为必要提交已另存、但分支因无关历史而刻意不可合并的已登记 worktree 提供正式退役。本阶段只新增这一个受控能力，不扩张通用产品面。
 
-明确不在当前范围、留待后续独立阶段：runtime 全局注入解耦、通用 hunk 级别所有权、high-risk semantic audit 扩张、System Manual marker 共享区块同步机制。
+明确不在当前范围、留待后续独立阶段：runtime 全局注入解耦、supervised child effect 委派、owner-context 真实网页链路复测、通用 hunk 级别所有权、high-risk semantic audit 扩张、System Manual marker 共享区块同步机制。
 
 ---
 
@@ -383,7 +383,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 ### 当前最建议做
 
 1. 使用 [reference/Top_Level_Implementation_Gap.md](Top_Level_Implementation_Gap.md) 作为进入新代码 PR 前的 gap-driven 实施依据；该文件按六域矩阵维护当前真实差距与下一批候选。
-2. 当前实际优先事项是本文 `## 状态` 的「当前阶段」（WS014 稳定化与产品健康治理）。
+2. 当前实际优先事项是本文 `## 状态` 的「当前阶段」（WS015 发布收口与 worktree 退役窄路径）。
 3. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge，暂不为 Obsidian 新增 CLI。
 4. 后续每个新能力先补 fixture，再实现命令或规则。
 5. 历史切片完成记录见下方「已完成切片记录（历史）」，该清单不再作为待办队列使用。

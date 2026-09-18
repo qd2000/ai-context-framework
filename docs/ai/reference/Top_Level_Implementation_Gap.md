@@ -6,7 +6,7 @@
 
 ## 状态
 
-Updated through WS014 post-v0.0.3.92 stabilization and product health governance（六域 Gap Matrix）。上一轮 P2 逐能力矩阵保留在本文「历史 Gap Matrix（P2 阶段，历史记录）」小节。
+Updated through WS015 release closure and worktree retire narrow path（六域 Gap Matrix）。上一轮 P2 逐能力矩阵保留在本文「历史 Gap Matrix（P2 阶段，历史记录）」小节。
 
 ---
 
@@ -45,8 +45,8 @@ Updated through WS014 post-v0.0.3.92 stabilization and product health governance
 
 | 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
 |---|---|---|---|---|
-| 权威文档收口 | 已收敛（WS014 阶段 A） | `docs/Automation.md` 已拆为「当前有效自动化合同」与「历史演进说明」；`docs/ai/active/Context.md` 已收敛；WS013 详细计划移入 `docs/ai/archive/plans/` | 阶段 A2 尚未完成 | 完成 Feedback / Roadmap / Gap 对齐 |
-| 反馈生命周期 | 部分（F015/F017/F019 长期 Triaged） | `docs/ai/active/Feedback_Inbox.md`；`acf review stale` | Triaged 曾长期停留在同一状态 | 转写入规则或转 Planned，并给出证据位置 |
+| 权威文档收口 | 已收敛（WS014） | `docs/Automation.md` 已拆为「当前有效自动化合同」与「历史演进说明」；`docs/ai/active/Context.md` 已收敛；WS013 详细计划移入 `docs/ai/archive/plans/`；WS014 子任务板移入 `docs/ai/archive/plans/` | 无 | 保持收敛，出现真实漂移时再修正 |
+| 反馈生命周期 | 已实现 | `docs/ai/active/Feedback_Inbox.md`：F015/F017 已转 rules 并 Done、F019 转 Planned 指向 ADR-0006；`acf review stale` | 无长期滞留 Triaged 条目 | 保持 Open→Triaged→Planned→Done 推进，不长期停留 |
 | 自检覆盖 | 已实现，但不等于产品健康 | `acf check --strict` 0 errors、`acf doctor` 0 findings、`acf audit context` 0 candidates，同时仓库仍存在文档漂移与运行态污染 | 语义问题不被机械检查覆盖；audit 没有 active 总文件预算 candidate | 保持 advisory；暂不扩 high-risk audit |
 
 ### 2. Workstream / worktree
@@ -54,7 +54,7 @@ Updated through WS014 post-v0.0.3.92 stabilization and product health governance
 | 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
 |---|---|---|---|---|
 | Workstream 生命周期与归档 | 已实现 | `acf workstream reserve/add/set/ready/done/archive-candidates/archive-draft/archive`；`reference/Workstream_Lifecycle_Archive_Design.md` | 无 | 保持显式命令，不做自动归档 |
-| curated handoff 后 worktree 退休 | 未实现 | `acf worktree close` 因 `branch_not_merged` 拒绝；调研分支的必要提交已 cherry-pick 到主线 | 缺窄路径正式关闭 worktree/registry 且默认保留 branch | 设计 `acf worktree retire --disposition curated_handoff --evidence-ref ... --preserve-branch` |
+| curated handoff 后 worktree 退休 | 已实现（WS015） | 新增 `acf worktree retire --disposition curated_handoff --evidence-ref ... [--preserve-branch] [--apply]`；只移除 worktree 与 registry、永不删除分支；`close` 的 `branch_not_merged` 硬门不变；回归见 `tests/test_worktree_retire.py` | 无 | 保持显式证据绑定，不提供删除分支开关 |
 | 通用 hunk 级别所有权 | 不应实现 | 会把 ACF 推向 patch 管理器、三方合并器或通用编辑器 | 无 | 用 serial coordination + 受控移植替代 |
 | closeout authorization | 已实现 | `acf workstream authorization status/list/policy-set/approve/revoke` | 无 | 不改语义 |
 
@@ -71,8 +71,8 @@ Updated through WS014 post-v0.0.3.92 stabilization and product health governance
 
 | 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
 |---|---|---|---|---|
-| usage log | 已实现 | `acf log enable/disable/status/tail/summarize/projects/prune` | 孤儿命名空间累积（实测 `missing_path=538`、`raw_project_count=551`） | `acf log gc --dry-run/--apply`，严格白名单 |
-| 跨项目 issue 生命周期 | 已实现独立生命周期并完成首轮收口 | 新增 `acf log issue list/show/resolve/supersede/reject/reopen` 与用户级台账 `ACF_HOME/issues/ledger.jsonl`；`acf log issues` 叠加台账处置；open 由 9 条降到 4 条 | 没有默认后台消费者；未关闭项依赖真实链路复测或后续设计 | 由明确创建的 ACF maintenance Workstream 继续批量 triage |
+| usage log | 已实现，含孤儿命名空间治理 | `acf log enable/disable/status/tail/summarize/projects/prune` + `acf log gc --dry-run/--apply`（默认干跑、`--apply` 写 receipt） | 无默认后台消费者 | 保持显式 GC，不做自动清理 |
+| 跨项目 issue 生命周期 | 已实现独立生命周期并完成首轮收口 | `acf log issue list/show/resolve/supersede/reject/reopen` 与用户级台账 `ACF_HOME/issues/ledger.jsonl`；`acf log issues` 叠加台账处置；open 由 9 条降到 4 条 | 剩余 4 条 open：curated handoff 退休路径、owner-context 真实链路复测、child effect 委派设计、历史 state-loss 复现确认 | WS015 收口 curated handoff；其余在明确创建的后续 Workstream 中处理 |
 | test / smoke 运行态隔离 | 缺陷 | `scripts/minimal_smoke.py` 多数场景未覆盖 `ACF_HOME`，临时项目删除后留下无法解析的 project namespace | 缺少 no-pollution 回归 | 场景级隔离 + 运行前后真实运行态不变断言 |
 
 ### 5. Release / upgrade compatibility
@@ -82,13 +82,13 @@ Updated through WS014 post-v0.0.3.92 stabilization and product health governance
 | 发布链 | 已实现 | immutable tag、PyPI 发布（GitHub Trusted Publishing）、全局安装与 installed-state 验证 | 无 | 保持 |
 | upgrade matrix | 已实现 | `scripts/upgrade_matrix.py` quick / full | 新对象层需随功能增量补 fixture | 新增结构时同步扩 fixture |
 | CI | 部分 | release workflow 只在 `ubuntu-latest` 发布；`actions/checkout` 仍使用可移动 major tag | Windows package smoke 与 publish 的依赖未在代码中固化 | 固定 immutable SHA；publish 依赖必需 CI |
-| 版本收敛 | 待执行 | `ai_context_framework/version.py`、`CHANGELOG.md` | 本轮变更尚未 bump | 收尾时 `acf version set` + CHANGELOG |
+| 版本收敛与发布闭合 | 部分 | `ai_context_framework/version.py` = `v0.0.3.93`、CHANGELOG 已补、tag 已推送 origin（指向 `5873f0c`） | PyPI 上仍无 `0.0.3.93`；本机无法读取私有仓库 Actions 运行结论 | WS015 判定发布中断层级，并以新的不可变版本闭合发布与全局安装验证 |
 
 ### 6. Dogfooding / current defects
 
 | 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
 |---|---|---|---|---|
-| 跨项目 open issue 收口 | 首轮完成 | 9 条 open 处置为 3 resolved / 1 superseded / 2 rejected / 4 open；处置证据与理由写入用户级台账 `ACF_HOME/issues/ledger.jsonl` | 4 条未关闭项：owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认、worktree curated handoff 退休路径 | 分别进入 owner-context 验证、后续设计决策、真实链路复测与 `acf worktree retire` 窄路径 |
+| 跨项目 open issue 收口 | 首轮完成，curated handoff 已在 WS015 收口 | 9 条 open 处置为 3 resolved / 1 superseded / 2 rejected / 4 open；处置证据与理由写入用户级台账 `ACF_HOME/issues/ledger.jsonl`；`worktree curated handoff 退休路径`（`d33a11a387320d21a862`）由 WS015 的 `acf worktree retire` 落地并处置 | 剩余 3 条未关闭项：owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认 | 分别进入 owner-context 验证、后续设计决策与真实链路复测 |
 | System Manual 双份同步 | 已知成本 | `reference/System_Manual.md` 与 `template/reference/System_Manual.md` 分别维护 | 共享 CLI 合同容易再次漂移 | 本期只修过期内容；marker 共享区块机制后置 |
 | 多 agent / 多 Workstream UX（F019） | 已收为设计输入 | `decisions/ADR-0006.md` | 具体 UX 改进未实现 | 后续独立的 continuation / Workstream UX 计划 |
 | 自检盲区 | 已确认 | 机械检查全绿时仍存在错误绝对路径、版本矛盾、退役命令引用与 issue 滞留 | 无综合只读入口 | 暂缓 `acf maintenance status`，先靠 WS014 收口 |
@@ -355,25 +355,24 @@ acf plan reference list docs/ai --json
 
 ## Next Code PR Decision
 
-当前下一批代码 PR 不是新增 audit 规则，也不是继续扩 curation draft 语义能力，而是 `v0.0.3.92` 后的稳定化与产品健康治理（WS014）。
+当前下一批代码 PR 不是新增 audit 规则，也不是继续扩 curation draft 语义能力，而是发布链收口与 worktree 退役窄路径（WS015）。
 
 推荐 PR 集（按依赖顺序）：
 
 ```text
-1. minimal_smoke ACF_HOME isolation + no-pollution regression
-2. acf log gc (dry-run / apply) + log issues pagination and summary
-3. acf log issue lifecycle command group + user-level issue ledger
-4. cross-project open issue triage closeout
-5. owner-context isolated fixture + verification protocol
-6. CI hardening (immutable action SHAs, release depends on required CI)
-7. version / CHANGELOG convergence and WS014 closeout
+1. release-chain diagnosis for the pushed but unpublished v0.0.3.93 tag
+2. acf worktree retire (curated_handoff) service + CLI + stable error codes
+3. tests/test_worktree_retire.py regression matrix (retire, all refusals, idempotence, close unchanged)
+4. user-facing docs sync (Worktree_Lifecycle, System Manual x2, Automation, README)
+5. version bump, full gate, immutable tag/PyPI publish, global install verification
+6. product issue closeout for d33a11a387320d21a862 and WS015 closeout
 ```
 
 理由：
 
-1. 这些都是 `.92` 后确认为真实的欠账：测试运行态污染真实 `ACF_HOME`、跨项目 issue 生命周期失管、权威文档漂移，而不是缺少新能力。
+1. 这两项都是已确认为真实的欠账：发布链在 tag 推送后中断且 PyPI 上仍无对应版本，以及 curated handoff 分支因 `branch_not_merged` 硬门无法正式退役，而不是缺少新能力。
 2. 它们可以在不触碰 runtime 全局注入与 continuation 语义的前提下完成，影响面可控。
-3. owner-context 的结论必须先重新验证再决定是否改 ACF 代码，避免按历史记录盲改。
+3. `retire` 必须在独立函数中实现，保持 `close` 的 merged-only 硬门与 fail-closed 语义完全不变，从而把回归面限制在新增路径内。
 4. runtime 全局注入解耦需要显式 RuntimeContext 与 parser composition 设计，应作为后续独立 Workstream。
 
 拒绝的替代：

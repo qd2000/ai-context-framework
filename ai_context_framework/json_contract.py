@@ -392,6 +392,13 @@ def error_next_actions(error_code: str) -> list[str]:
     }:
         return ["Close applications holding the worktree or Git refs, then resume the same close operation. ACF will not force-remove a dirty worktree or force-delete a branch."]
     if error_code in {
+        "worktree_retire_disposition_unsupported",
+        "worktree_retire_evidence_required",
+    }:
+        return ["Pass `--disposition curated_handoff` and a non-empty `--evidence-ref`; retire never deletes the branch or its Git refs."]
+    if error_code == "worktree_retire_branch_already_merged":
+        return ["Use `acf worktree close` for a branch that is already merged into the primary branch; retire only serves curated-handoff branches that stay intentionally non-mergeable."]
+    if error_code in {
         "worktree_dirty",
         "branch_not_merged",
         "workstream_not_ready_to_merge",
@@ -523,6 +530,9 @@ def classify_cli_error(message: str) -> tuple[str, int]:
         "quarantine_restore_collision",
         "worktree_close_timeout",
         "worktree_branch_delete_timeout",
+        "worktree_retire_disposition_unsupported",
+        "worktree_retire_evidence_required",
+        "worktree_retire_branch_already_merged",
         "worktree_dirty",
         "branch_not_merged",
         "workstream_not_ready_to_merge",

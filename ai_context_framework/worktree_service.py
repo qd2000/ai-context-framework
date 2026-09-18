@@ -1269,6 +1269,272 @@ def _close_delete_branch_with_retry(
         time.sleep(delay)
 
 
+RETIRE_DISPOSITIONS = frozenset({"curated_handoff"})
+
+
+def _retire_disposition(value: str | None) -> str:
+    normalized = (value or "").strip()
+    if normalized not in RETIRE_DISPOSITIONS:
+        supported = ", ".join(sorted(RETIRE_DISPOSITIONS))
+        raise SystemExit(
+            "worktree_retire_disposition_unsupported: "
+            f"{normalized or 'missing'} (supported: {supported})"
+        )
+    return normalized
+
+
+def _retire_evidence(value: str | None) -> str:
+    normalized = (value or "").strip()
+    if not normalized:
+        raise SystemExit(
+            "worktree_retire_evidence_required: pass --evidence-ref pointing at the durable "
+            "record that preserves this branch's required commits"
+        )
+    return normalized
+
+
+def plan_retire(
+    project: GitProject,
+    target: WorktreeTarget,
+    *,
+    disposition: str | None,
+    evidence_ref: str | None,
+    require_authorization: bool = False,
+) -> dict[str, Any]:
+    """Plan retiring a registered worktree whose branch is intentionally non-mergeable.
+
+    Retirement removes the worktree directory and the local registry record only. The
+    branch and its Git refs are always preserved, so a registry-managed cleanup remains
+    possible after curated handoff without ``branch -D``.
+    """
+
+    disposition_value = _retire_disposition(disposition)
+    evidence_value = _retire_evidence(evidence_ref)
+    registry = read_registry(project.common_dir, target.key)
+    record = record_for_path(list_worktrees(project.repo_root), target.path)
+    branch_present = branch_exists(project.repo_root, target.branch)
+    path_exists = target.path.exists()
+    payload = {
+        "disposition": disposition_value,
+        "evidence_ref": evidence_value,
+        "preserved_branch": True,
+        "target": target_payload(target),
+        "worktree_registered": registry is not None,
+        "branch_exists": branch_present,
+        "path_exists": path_exists,
+    }
+    if registry is None and record is None and not path_exists:
+        return {
+            **payload,
+            "status": "already_retired",
+            "artifact_handoff_ready": True,
+            "artifact_handoff": None,
+            "authorization": None,
+        }
+    if registry is None:
+        raise SystemExit(f"worktree_not_registered: {target.key}")
+    if record and not is_clean(record.path):
+        raise SystemExit(f"worktree_dirty: {record.path}")
+    if branch_present and is_ancestor(
+        project.repo_root, target.branch, project.config.primary_branch
+    ):
+        raise SystemExit(
+            f"worktree_retire_branch_already_merged: {target.branch} is already an ancestor of "
+            f"{project.config.primary_branch}; use `acf worktree close`"
+        )
+    artifact_payload = load_artifact_plan(project.common_dir, target.key)
+    if record and artifact_payload is None and branch_present:
+        artifact_payload = build_artifact_plan(
+            target_key=target.key,
+            source_head=rev_parse(project.repo_root, target.branch),
+            source_path=target.path,
+            cache_patterns=project.config.artifact_cache_patterns,
+            discardable_patterns=project.config.artifact_discardable_patterns,
+        )
+    artifact_ready = (
+        True
+        if artifact_payload is None
+        else artifact_handoff_ready_for_promotion(artifact_payload)
+    )
+    status = "artifact_handoff_required" if not artifact_ready else "ready_to_retire"
+    authorization = None
+    if status == "ready_to_retire":
+        authorization_resolver = (
+            _require_worktree_closeout_authorization
+            if require_authorization
+            else _resolve_worktree_closeout_authorization
+        )
+        authorization = authorization_resolver(
+            project,
+            target,
+            action="archive",
+            authority_path=project.config.primary_checkout,
+        )
+    return {
+        **payload,
+        "status": status,
+        "artifact_handoff_ready": artifact_ready,
+        "artifact_handoff": artifact_payload,
+        "authorization": authorization,
+    }
+
+
+def apply_retire(
+    project: GitProject,
+    target: WorktreeTarget,
+    *,
+    disposition: str | None,
+    evidence_ref: str | None,
+    wait_timeout_seconds: int = 120,
+    operation_id: str | None = None,
+) -> dict[str, Any]:
+    plan = plan_retire(
+        project,
+        target,
+        disposition=disposition,
+        evidence_ref=evidence_ref,
+        require_authorization=True,
+    )
+    if plan["status"] == "already_retired":
+        delete_registry(project.common_dir, target.key)
+        return plan
+    if plan["status"] == "artifact_handoff_required":
+        raise SystemExit(f"artifact_handoff_required: {target.key}")
+    branch_head = (
+        rev_parse(project.repo_root, target.branch) if plan["branch_exists"] else None
+    )
+    snapshot = {
+        "branch": target.branch,
+        "branch_head": branch_head,
+        "primary_head": rev_parse(project.repo_root, project.config.primary_branch),
+    }
+    extras = {
+        "plan": plan,
+        "wait_timeout_seconds": wait_timeout_seconds,
+        "disposition": plan["disposition"],
+        "evidence_ref": plan["evidence_ref"],
+        "preserved_branch": True,
+        "retire_snapshot": snapshot,
+    }
+    if operation_id:
+        try:
+            operation = load_operation(project.common_dir, operation_id)
+        except SystemExit:
+            operation = create_operation(
+                project.common_dir,
+                command="worktree.retire",
+                target=target,
+                extra=extras,
+                operation_id=operation_id,
+            )
+        else:
+            if operation.get("command") != "worktree.retire":
+                raise SystemExit(
+                    f"operation_resume_unsupported: {operation.get('command')}"
+                )
+            operation.update(extras)
+            operation["resume_allowed"] = True
+            update_operation(
+                project.common_dir,
+                operation,
+                status="retiring",
+                error=None,
+            )
+    else:
+        operation = create_operation(
+            project.common_dir,
+            command="worktree.retire",
+            target=target,
+            extra=extras,
+        )
+    policy = MergeRetryPolicy(
+        lock_wait_timeout_seconds=max(0, wait_timeout_seconds),
+        state_wait_timeout_seconds=max(0, wait_timeout_seconds),
+        initial_delay_seconds=1.0,
+        max_delay_seconds=30.0,
+        jitter_ratio=0.10,
+    )
+    lease = None
+    try:
+        lease, waits = acquire_lock_with_wait(
+            project.common_dir,
+            key=f"{target.key}-lifecycle",
+            operation_id=str(operation["operation_id"]),
+            command="worktree.retire",
+            target_key=target.key,
+            policy=policy,
+            timeout_seconds=wait_timeout_seconds,
+        )
+        update_operation(
+            project.common_dir,
+            operation,
+            lock_waits=waits,
+            status="retiring",
+        )
+        fresh = plan_retire(
+            project,
+            target,
+            disposition=disposition,
+            evidence_ref=evidence_ref,
+            require_authorization=True,
+        )
+        if fresh["status"] == "artifact_handoff_required":
+            raise SystemExit(f"artifact_handoff_required: {target.key}")
+        worktree_result = _close_remove_worktree_with_retry(
+            project,
+            target,
+            timeout_seconds=wait_timeout_seconds,
+            policy=policy,
+        )
+        update_operation_step(
+            project.common_dir,
+            operation,
+            "worktree_removed",
+            "completed" if worktree_result["removed"] else "not_present",
+            **worktree_result,
+        )
+        branch_result = {
+            "preserved": True,
+            "branch": target.branch,
+            "branch_exists": branch_exists(project.repo_root, target.branch),
+            "branch_head": branch_head,
+        }
+        update_operation_step(
+            project.common_dir,
+            operation,
+            "branch_preserved",
+            "completed",
+            **branch_result,
+        )
+        delete_registry(project.common_dir, target.key)
+        update_operation(
+            project.common_dir,
+            operation,
+            status="completed",
+            resume_allowed=False,
+        )
+        return {
+            **fresh,
+            "status": "retired",
+            "operation_id": operation["operation_id"],
+            "worktree_cleanup": worktree_result,
+            "branch_cleanup": branch_result,
+            "retire_snapshot": snapshot,
+        }
+    except BaseException as exc:
+        update_operation(
+            project.common_dir,
+            operation,
+            status="failed",
+            resume_allowed=True,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        raise
+    finally:
+        if lease is not None:
+            release_owned_lock(lease)
+
+
 def resume_operation(project: GitProject, operation_id: str) -> dict[str, Any]:
     operation = load_operation(project.common_dir, operation_id)
     raw_target = operation.get("target")
@@ -1308,6 +1574,15 @@ def resume_operation(project: GitProject, operation_id: str) -> dict[str, Any]:
         return apply_close(
             project,
             target,
+            wait_timeout_seconds=int(operation.get("wait_timeout_seconds") or 120),
+            operation_id=operation_id,
+        )
+    if command == "worktree.retire":
+        return apply_retire(
+            project,
+            target,
+            disposition=operation.get("disposition"),
+            evidence_ref=operation.get("evidence_ref"),
             wait_timeout_seconds=int(operation.get("wait_timeout_seconds") or 120),
             operation_id=operation_id,
         )

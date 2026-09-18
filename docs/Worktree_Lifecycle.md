@@ -258,6 +258,31 @@ acf worktree close --workstream WS081 --wait-timeout 120 --apply --json
 
 真实 staged/unstaged/untracked/conflict 一律在 remove 前拒绝；branch 始终只用 `branch -d`，不使用 `branch -D`。当且仅当 canonical semantic-clean helper 已证明没有真实 dirty、但仍存在 content-identical `stat_only_paths` 时，close 可内部调用 `git worktree remove --force` 绕过 Git porcelain/raw remove 对 stat-only 的假 dirty 拒绝。这个 `--force` 只是已证明 semantic-clean 后的兼容桥，不改变 close 的安全门。重复关闭返回 `already_closed`。
 
+## 退役（curated handoff）
+
+```powershell
+acf worktree retire --workstream WS079 --disposition curated_handoff --evidence-ref "git:cherry-pick-commit" --json
+acf worktree retire --workstream WS079 --disposition curated_handoff --evidence-ref "git:cherry-pick-commit" --preserve-branch --apply --json
+```
+
+`retire` 服务一种 `close` 无法覆盖的真实情形：调查或集成分支的必要提交已经通过 reviewed cherry-pick 或等价方式保存在别处，但该分支因为包含无关历史而**刻意不可合并**，因此永远不会成为 primary 的 ancestor。它是独立命令而不是 `close` 的开关，`close` 的 merged-only 语义和 `branch_not_merged` 硬门保持不变。
+
+退役只移除 worktree 工作目录与本地 registry 记录，**绝不删除分支或其 Git 引用**，也不提供删除分支的开关。为了可审计，`--disposition` 与 `--evidence-ref` 都是必需的：第一版只支持 `curated_handoff`，`--evidence-ref` 必须指向「该分支所需提交已在别处保留」的 durable 证据，并随 operation journal 一起持久化 disposition、evidence、退役时的分支 HEAD 与 primary HEAD 快照。
+
+拒绝条件全部 fail-closed，各自返回稳定 error_code：
+
+| 情形 | error_code | 下一步 |
+|---|---|---|
+| 目标未登记 | `worktree_not_registered` | 先用 `worktree verify/list` 确认绑定 |
+| 工作目录存在真实 dirty | `worktree_dirty` | 先提交或移除真实改动 |
+| artifact handoff 未完成 | `artifact_handoff_required` | 先完成 `artifact-plan` / `artifact-migrate` |
+| 缺少 `--evidence-ref` | `worktree_retire_evidence_required` | 提供保留提交的 durable 证据 |
+| `--disposition` 不是 `curated_handoff` | `worktree_retire_disposition_unsupported` | 使用受支持的处置方式 |
+| 分支其实已是 primary 的 ancestor | `worktree_retire_branch_already_merged` | 改用 `acf worktree close` |
+| closeout authorization 为 manual 未批准或 deny | `workstream_human_approval_required` / `workstream_closeout_denied` | 先取得对应 Workstream/action 的授权 |
+
+退役与 `close` 共用同一套 lifecycle 锁、operation journal 和写入顺序（先移除 worktree，再删除 registry），并同样支持文件占用退避与同一 operation ID resume。重复退役返回 `already_retired`。
+
 ## Journal、registry 与锁
 
 本机状态位于 Git common-dir，不写入版本化项目文档：

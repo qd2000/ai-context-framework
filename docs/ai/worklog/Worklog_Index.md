@@ -12,7 +12,7 @@
 
 | 日期 | 摘要 | 关键结论 | 详情 |
 |---|---|---|---|
-| 2026-09-18 | WS014 稳定化与产品健康治理：authority 文档收敛、smoke 运行态隔离、孤儿日志 GC、issue 独立生命周期与首轮 triage、owner-context 隔离验证、ADR-0006 与 CI 收口。 | 机械检查全绿且测试运行不再污染真实运行态；产品 issue 由 9 条 open 收口为 4 条，关闭不再依赖 active continuation。 | `worklog/daily/2026-09-18.md` |
+| 2026-09-18 | WS014 稳定化与产品健康治理：authority 文档收敛、smoke 运行态隔离、孤儿日志 GC、issue 独立生命周期与首轮 triage、owner-context 隔离验证、ADR-0006 与 CI 收口。; 追加：WS015 发布链收口与 worktree 退役窄路径：登记 WS015 目标线；诊断 v0.0.3.93 tag 已推送但 PyPI 未发布的发布链；实现 acf worktree retire 窄路径与 11 项回归；同步 Worktree_Lifecycle、双份 System Manual、Automation、README、六域 Gap Matrix、Roadmap 与 CHANGELOG；版本收敛到 v0.0.3.94 并通过全套本地门禁。 | 机械检查全绿且测试运行不再污染真实运行态；产品 issue 由 9 条 open 收口为 4 条，关闭不再依赖 active continuation。; 追加：发布链失败不在代码与制品层（本地 v0.0.3.93 wheel+sdist 可构建且可隔离安装）；curated handoff 退役只移除 worktree 与 registry、永不删除分支，且 close 的 branch_not_merged 硬门保持不变；v0.0.3.94 的 PyPI 发布与全局安装仍需用户明确授权后才能执行。 | `worklog/daily/2026-09-18.md` |
 | 2026-08-06 | 重写 Worktree 合并韧性计划，完成 T001 合同与测试夹具，并启动 T002 结构化 Git 状态快照。 | 所有 merge 统一使用临时 integration worktree；primary 只做 fast-forward promotion；ignored artifact 在 promotion 前处理。376 项全量回归通过。 | `worklog/daily/2026-08-06.md` |
 | 2026-08-04 | 完成ACF Workstream与Git Worktree生命周期开发和发布验证; 追加：WS005已合入master并升级生产ACF v0.0.3.54 | v0.0.3.54全部功能和353项测试通过，待合并master后升级生产uv tool。; 追加：生产acf.exe完整生命周期smoke通过，开发worktree可安全关闭。 | `worklog/daily/2026-08-04.md` |
 | 2026-06-09 | 清理外部复审后的上下文卫生：F016 标记完成并归档，F001-F014/F016/F018 移入 archive/feedback/2026-06.md，F015/F017 回到真实 Triaged 状态，旧 Knowledge 草案移入 archive/knowledge-drafts，并修正文档安装路径和版本示例。验证：acf check --strict、acf check template、review stale、feedback archive-candidates、version show、git diff --check。 | 无。 | `worklog/daily/2026-06-09.md` |

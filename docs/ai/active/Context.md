@@ -8,14 +8,14 @@
 
 ## 审阅标记
 
-- Last reviewed: 2026-09-18 13:25
-- Review scope: 文件级；WS014 收口后的当前事实。收敛为渐进式披露结构，不复制固定版本数字，也不保留已由 ADR 或 archive 覆盖的历史过程。
+- Last reviewed: 2026-09-18 19:52
+- Review scope: 文件级；WS015 启动后的当前事实。
 
 ---
 
 ## 当前阶段
 
-WS014「稳定化与产品健康治理」已收口，项目回到 global-only。后续工作按需新建 Workstream 或计划，候选见 [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md) 的六域矩阵；本阶段不加新产品能力。
+WS015「发布链收口与 worktree 退役窄路径」正在执行：闭合 `v0.0.3.93` tag 已推送但 PyPI 未发布的发布链，并落地 `acf worktree retire` 窄路径。本轮不新增通用产品能力；runtime 全局注入解耦、child effect 委派、owner-context 真实链路复测仍属后续独立工作。
 
 ---
 
@@ -70,12 +70,13 @@ WS014「稳定化与产品健康治理」已收口，项目回到 global-only。
 
 ### 当前进展与未完成项
 
-1. WS014「Post-v0.0.3.92 Stabilization and Product Health」已完成实现、验收与归档（[archive/workstreams/WS014.md](../archive/workstreams/WS014.md)）：authority 文档收敛、smoke 运行态隔离、`acf log gc`、跨项目 issue 独立生命周期与首轮 triage、owner-context 隔离验证协议、ADR-0006 与 CI 收口全部落地。
-2. 版本已收敛到 `v0.0.3.93` 并补齐 CHANGELOG；是否创建 tag、发布 PyPI 与更新全局安装尚未决定。
-3. 跨项目 issue 首轮 triage 完成：open 由 9 条降到 4 条（1 条同根因 superseded、2 条已修复 resolve、2 条项目特例/明确不做 reject）。剩余 4 条为 owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认与 worktree curated handoff 退休路径。
-4. owner-context 的 ACF 侧隔离验证已通过（`scripts/continuation_owner_fixture.py`）；真实网页工具链复测仍是待执行验收项，协议见 [reference/Continuation_Owner_Context_Verification.md](../reference/Continuation_Owner_Context_Verification.md)。
-5. [active/Feedback_Inbox.md](Feedback_Inbox.md)：F015/F017 已转为 rules 条目并 Done，F019 已转为 Planned 并指向 ADR-0006 与后续 UX 计划；不允许 Triaged 长期停留在同一状态。
-6. 后续独立候选：runtime 全局注入解耦（export allowlist → 显式 RuntimeContext → parser composition）、`acf worktree retire` 窄路径、System Manual 共享区块同步机制。
+1. WS014「Post-v0.0.3.92 Stabilization and Product Health」已完成实现、验收与归档（[archive/workstreams/WS014.md](../archive/workstreams/WS014.md)）；其子任务板已移入 `archive/plans/` 保留追溯。
+2. WS015「发布链收口与 worktree 退役窄路径」进行中：已实现 `acf worktree retire`——只移除 worktree 工作目录与 registry 记录、永不删除分支或 Git 引用、要求显式 `--disposition curated_handoff` 与非空 `--evidence-ref`，并保持 `acf worktree close` 的 merged-only 硬门不变；回归见 `tests/test_worktree_retire.py`。用户可见文档、六域 Gap Matrix、Roadmap 与 CHANGELOG 已同步，版本已收敛到 `v0.0.3.94`。
+3. `v0.0.3.93` 的 tag 已推送到远端且指向 master HEAD，但 PyPI 上仍无该版本；本地制品复现（wheel + sdist 隔离安装）证明失败不在代码与制品层。`v0.0.3.94` 的 commit / tag / push（触发 PyPI 发布）与全局安装更新仍在等待明确授权后执行。
+4. 跨项目 issue 首轮 triage 后 open 4 条：其中 `d33a11a387320d21a862`（worktree curated handoff 退休）已具备实现与回归证据，待发布后用 `v0.0.3.94` 证据正式 resolve；其余 3 条为 owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认。
+5. owner-context 的 ACF 侧隔离验证已通过（`scripts/continuation_owner_fixture.py`）；真实网页工具链复测仍是待执行验收项，协议见 [reference/Continuation_Owner_Context_Verification.md](../reference/Continuation_Owner_Context_Verification.md)。
+6. [active/Feedback_Inbox.md](Feedback_Inbox.md)：F015/F017 已转为 rules 条目并 Done，F019 已转为 Planned 并指向 ADR-0006 与后续 UX 计划。
+7. 后续独立候选：runtime 全局注入解耦（export allowlist → 显式 RuntimeContext → parser composition）、System Manual 共享区块同步机制、分钟级时间字段的 CLI 自动生成能力。
 
 ### 默认索引
 
@@ -109,6 +110,9 @@ WS014「稳定化与产品健康治理」已收口，项目回到 global-only。
 5. 是否为分钟级时间字段提供 CLI 自动生成能力（格式规则已落地，见 [rules/Project_Rules.md](../rules/Project_Rules.md)）。
 6. ACF Core 与 Operations 控制面的边界如何在不拆包的前提下落地（ADR-0006 的设计结论）。
 
+7. `v0.0.3.93` 的 GitHub Actions 发布 run 究竟是等待 `pypi` 环境审批还是失败，需在仓库侧确认；该结论决定是否需要修发布配置，且不影响既有 tag 的不可变性。
+8. `v0.0.3.94` 的 PyPI 发布、全局安装更新与 issue `d33a11a387320d21a862` 的正式收口，都取决于同一项用户授权。
+
 ---
 
 ## 重要决策
@@ -138,5 +142,5 @@ WS014「稳定化与产品健康治理」已收口，项目回到 global-only。
 
 ## 上次更新
 
-- 日期：2026-09-18 13:25
-- 更新原因：WS014 收口——authority 文档收敛、smoke 与日志运行态隔离、issue 独立生命周期与首轮 triage、owner-context 隔离验证、ADR-0006、CI 收口，并把版本收敛到 `v0.0.3.93`。
+- 日期：2026-09-18 21:12
+- 更新原因：WS015 实现与本地验收完成——落地 `acf worktree retire` 与回归测试、同步用户可见文档与六域差距记录、版本收敛到 `v0.0.3.94`；发布与全局安装等待明确授权。

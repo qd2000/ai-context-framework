@@ -12,6 +12,7 @@ from ai_context_framework.git_support import (
     target_payload,
 )
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
+from ai_context_framework.validators.checks import validate_workstream_id
 from ai_context_framework.worktree_artifacts import (
     build_artifact_plan,
     load_artifact_plan,
@@ -24,6 +25,7 @@ from ai_context_framework.worktree_service import (
     apply_close,
     apply_create,
     apply_merge,
+    apply_retire,
     apply_sync,
     attach_workstream,
     audit_project,
@@ -31,6 +33,7 @@ from ai_context_framework.worktree_service import (
     plan_close,
     plan_create,
     plan_merge,
+    plan_retire,
     plan_sync,
     resolve_non_workstream_target,
     resolve_workstream_target,
@@ -414,6 +417,82 @@ def worktree_close_command(args: argparse.Namespace) -> int:
         "worktree close",
         {**result, "applied": True, "ok": True},
     )
+
+
+def worktree_retire_command(args: argparse.Namespace) -> int:
+    project = _project(args)
+    target = _existing_target(args, project)
+    plan = plan_retire(
+        project,
+        target,
+        disposition=getattr(args, "disposition", None),
+        evidence_ref=getattr(args, "evidence_ref", None),
+    )
+    if not args.apply:
+        return _emit(
+            args,
+            "worktree retire",
+            {
+                **plan,
+                "applied": False,
+                "ok": True,
+                "next_actions": []
+                if plan["status"] == "already_retired"
+                else ["Complete artifact handoff first."]
+                if plan["status"] == "artifact_handoff_required"
+                else [
+                    "Review the retire plan and rerun with --apply; the branch is preserved."
+                ],
+            },
+        )
+    result = apply_retire(
+        project,
+        target,
+        disposition=getattr(args, "disposition", None),
+        evidence_ref=getattr(args, "evidence_ref", None),
+        wait_timeout_seconds=args.wait_timeout,
+        operation_id=args.operation_id,
+    )
+    return _emit(
+        args,
+        "worktree retire",
+        {**result, "applied": True, "ok": True},
+    )
+
+
+def register_retire_parser(subparsers, add_json_argument) -> None:
+    parser = subparsers.add_parser(
+        "retire",
+        help=(
+            "retire a registered worktree whose branch stays intentionally non-mergeable "
+            "after its required commits are preserved elsewhere"
+        ),
+    )
+    parser.add_argument("path", nargs="?", type=Path)
+    identity = parser.add_mutually_exclusive_group(required=True)
+    identity.add_argument("--workstream", type=validate_workstream_id)
+    identity.add_argument("--target", type=Path)
+    parser.add_argument(
+        "--disposition",
+        default=None,
+        help="retirement disposition; the first version supports curated_handoff",
+    )
+    parser.add_argument(
+        "--evidence-ref",
+        default=None,
+        help="required durable evidence that this branch's required commits are preserved elsewhere",
+    )
+    parser.add_argument(
+        "--preserve-branch",
+        action="store_true",
+        default=True,
+        help="assert that the branch is preserved; retirement never deletes a branch",
+    )
+    parser.add_argument("--wait-timeout", type=int, default=120)
+    parser.add_argument("--operation-id", default=None)
+    parser.add_argument("--apply", action="store_true")
+    add_json_argument(parser)
+    parser.set_defaults(func=worktree_retire_command)
 
 
 def worktree_resume_command(args: argparse.Namespace) -> int:

@@ -1188,7 +1188,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(worktree_close_parser)
     worktree_close_parser.set_defaults(func=worktree_commands.worktree_close_command)
 
-    worktree_resume_parser = worktree_subparsers.add_parser("resume", help="inspect or resume a journaled create/merge/close operation")
+    worktree_commands.register_retire_parser(worktree_subparsers, add_json_argument)
+
+    worktree_resume_parser = worktree_subparsers.add_parser("resume", help="inspect or resume a journaled create/merge/close/retire operation")
     worktree_resume_parser.add_argument("operation_id")
     worktree_resume_parser.add_argument("path", nargs="?", type=Path)
     worktree_resume_parser.add_argument("--apply", action="store_true")

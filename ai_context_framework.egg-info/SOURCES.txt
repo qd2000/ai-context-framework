@@ -168,6 +168,7 @@ tests/test_worktree_cli.py
 tests/test_worktree_collision.py
 tests/test_worktree_merge_contracts.py
 tests/test_worktree_resilient_merge.py
+tests/test_worktree_retire.py
 tests/test_worktree_retry.py
 tests/test_worktree_status.py
 tests/worktree_scenarios.py
