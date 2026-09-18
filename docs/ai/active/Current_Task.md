@@ -10,7 +10,7 @@
 
 ## 当前任务状态
 
-Active
+Empty
 
 说明：
 
@@ -23,25 +23,25 @@ Active
 
 ## 任务名称
 
-归档 WS013 并清理开发运行态
+无。
 
 ---
 
 ## 所属大任务
 
-WS013 Observer Retirement and v0.0.3.92
+无。
 
 ---
 
 ## 子任务 ID
 
-T006
+无。
 
 ---
 
 ## 所属 Workstream
 
-- `WS013`
+无。
 
 ---
 
@@ -53,14 +53,13 @@ T006
 
 ## 本次任务目标
 
-1. 将 WS013 标记 Done 并归档，记录 merge resolution 与最终验证证据。
-2. 清理 WS013 worktree / branch / registry / continuation 运行态与匹配临时对象，确认项目回到 global-only、无活动 Workstream。
+1. 无。
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T006，所属大任务为“WS013 Observer Retirement and v0.0.3.92”。依赖记录：T005 已 Done（`v0.0.3.92` 完成 immutable tag、PyPI publish、`scripts/update_acf.ps1` 全局安装和 installed-state 验证）。
+暂无当前任务。
 
 ---
 
@@ -68,43 +67,31 @@ T006
 
 当前任务应列出必要 active 文件和相关 reference 规划依据；不要只写 `active/Context.md`。
 
-- `active/Task_Plan.md`。
-- `active/Context.md`。
-- [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)：WS013 Observer 退役、WS012 收尾、验证矩阵与 v0.0.3.92 发布路线（第 4 节 P7 与第 7 节成功标准）。
-- 依赖 T005 证据：master `13d4abf..e8f9bbe` 快进合并并 push；annotated immutable `v0.0.3.92` tag 指向 `6b090d8`；PyPI publish 完成（wheel + sdist）；全局安装 `ai-context-framework 0.0.3.92` 且 canonical `acf.cmd` 生效；installed-state 验证通过。
-- 收尾入口：`acf workstream done/archive`、`acf worktree` 系列命令、`acf status --json`。
+- 无。
 
 ---
 
 ## 输出要求
 
-- WS013 Done/archive 状态迁移与索引同步，merge resolution 证据完整。
-- worktree / branch / registry / continuation 运行态与临时对象清理证据。
-- 项目 global-only、无活动 Workstream 的最终 `acf status --json` 证据。
+- 无。
 
 ---
 
 ## 成功标准
 
-1. WS013 已归档，`Workstreams.md` 与 `Archive_Index.md` 索引同步，且 `acf check --strict` 通过。
-2. WS013 worktree、branch、registry 与临时运行态清理完成，失败数为 0。
-3. `acf status --json` 回到 global-only、无活动 Workstream，T006 证据已写回任务板。
+1. 无。
 
 ---
 
 ## 失败信号
 
-1. 依赖任务未完成或证据不足。
-2. 输出物无法通过检查或人工复核验证。
-3. 执行中发现用户当前需求与任务板记录冲突。
+1. 无。
 
 ---
 
 ## 约束条件
 
-1. 遵守当前项目规则和默认读取顺序。
-2. 保持 `active/Task_Plan.md` 与 `active/Current_Task.md` 状态同步。
-3. 不要把一次性过程或当前事实直接写入 Knowledge。
+1. 遵守当前项目规则。
 
 ---
 
@@ -116,7 +103,7 @@ T006
 
 ## 需要 AI 协助判断的问题
 
-1. 执行过程中是否发现应回写 Context、ADR、rules、Knowledge 或 archive 的内容？
+1. 无。
 
 ---
 

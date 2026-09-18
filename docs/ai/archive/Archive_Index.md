@@ -60,6 +60,8 @@
 | 2026-08-20 | workstream | WS010 | active/workstreams/WS010.md | `archive/workstreams/WS010.md` | Done | WS010 goal-directed continuation v0.0.3.68 released, two fresh dogfood activations passed, and merge f7cd89b completed. |
 | 2026-08-24 | workstream | WS011 | active/workstreams/WS011.md | `archive/workstreams/WS011.md` | Done | WS011 v0.0.3.76 release and installed-state Observer dogfood are complete; final semantic v26 and revision 84 confirm healthy terminal state, and the Workstream is no longer referenced by current execution. |
 | 2026-09-17 | workstream | WS012 | active/workstreams/WS012.md | `archive/workstreams/WS012.md` | Cancelled | User retired the Project Observer product route after prolonged real-world non-use; all WS012 commits and WIP were absorbed by WS013 commit 83aa92d. |
+| 2026-09-18 | Plan | WS013 Observer Retirement and v0.0.3.92 | active/Task_Plan.md | `archive/plans/2026-09-18-ws013-observer-retirement-and-v0.0.3.92.md` | Archived | WS013 Observer Retirement 与 v0.0.3.92 发布大任务 Done；计划归档以保留 T001-T006 证据与发布事实。 |
+| 2026-09-18 | Task | 归档 WS013 并清理开发运行态 | active/Current_Task.md | `archive/tasks/2026-09-18-归档-ws013-并清理开发运行态.md` | Archived | WS013 Observer Retirement 与 v0.0.3.92 发布收尾闭环，T006 归档与开发运行态清理完成。 |
 | 2026-09-18 | workstream | WS013 | active/workstreams/WS013.md | `archive/workstreams/WS013.md` | Done | Observer retirement released as v0.0.3.92, fast-forward merged to master, PyPI published and globally installed; terminal closeout per WS013 PLAN P7. |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 

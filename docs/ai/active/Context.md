@@ -73,9 +73,9 @@ Dogfooding MVP / 框架稳定化与非核心能力收敛。
 
 ### 当前进展与未完成项
 
-1. 当前唯一活动 Workstream 是 WS013「Observer Retirement and WS012 Closeout」，已完成 Observer 退役与 `v0.0.3.92` 发布、PyPI publish 和全局安装，正在执行 T006 归档与运行态清理；详细路线见 [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)，依赖矩阵与安全删除顺序见该文件第 9 节。
-2. [active/Task_Plan.md](Task_Plan.md) 大任务为 `WS013 Observer Retirement and v0.0.3.92`；T001–T005 已 Done（T004 全量门禁与 P5 七项断言、T005 `.92` 发布、PyPI publish 与全局安装验证），当前焦点为 T006「归档 WS013 并清理开发运行态」。
-3. [active/Current_Task.md](Current_Task.md) 当前执行 T006「归档 WS013 并清理开发运行态」，归属 WS013。
+1. WS013「Observer Retirement and WS012 Closeout」已完整闭环并归档：Observer 退役、`v0.0.3.92` 发布、PyPI publish、全局安装与开发运行态清理全部完成；历史证据见 [archive/workstreams/WS013.md](../archive/workstreams/WS013.md) 与 [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)。
+2. WS013 大任务（T001–T006）已 Done，计划与任务板分别归档为 [archive/plans/2026-09-18-ws013-observer-retirement-and-v0.0.3.92.md](../archive/plans/2026-09-18-ws013-observer-retirement-and-v0.0.3.92.md) 与 [archive/tasks/2026-09-18-归档-ws013-并清理开发运行态.md](../archive/tasks/2026-09-18-归档-ws013-并清理开发运行态.md)。
+3. 项目回到 global-only 状态：无活动 Workstream、无活动 Current_Task；后续工作按需新建计划或 Workstream。
 4. WS012 最终 Git 血缘已完整吸收到 WS013，continuation 已终态释放、Workstream 已归档，旧 worktree/branch/registry/专属运行态和临时对象已清理；历史证据保留在 archive 和 Git 历史中。
 5. Observer 退役实现已落地：删除 8 个 `observer*.py` 实现模块与 `commands/observer_presentation.py`，`commands/observer.py` 改写为无副作用 `observer_retired` 墓碑，`automation_contracts.py` 仅保留 Writer 契约；契约测试、墓碑回归与 `acf check --strict` 通过。升级流程不得自动删除其他用户或项目的旧 Observer 数据。
 6. Knowledge / ADR / Archive sync 的 generated marker 设计已落地 [reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)；通用 marker helper、`acf knowledge sync` MVP、`acf decisions sync` MVP 和 `acf archive sync` MVP 已实现。
@@ -214,4 +214,4 @@ Dogfooding MVP / 框架稳定化与非核心能力收敛。
 ## 上次更新
 
 - 日期：2026-09-18
-- 更新原因：同步 `v0.0.3.92` 稳定发布事实——Observer 退役、PyPI publish、全局安装与 installed-state 验证完成，当前进入 T006 WS013 归档与运行态清理。
+- 更新原因：WS013 收尾闭环——Observer 退役与 `v0.0.3.92` 发布完成，WS013 详情、任务与计划已归档，worktree/branch/registry 已清理，项目回到无活动 Workstream 的 global-only 状态。
