@@ -23,7 +23,7 @@ Active
 
 ## 任务名称
 
-发布并全局安装 v0.0.3.92
+归档 WS013 并清理开发运行态
 
 ---
 
@@ -35,7 +35,7 @@ WS013 Observer Retirement and v0.0.3.92
 
 ## 子任务 ID
 
-T005
+T006
 
 ---
 
@@ -53,14 +53,14 @@ T005
 
 ## 本次任务目标
 
-1. 在 T004 验证通过的候选上完成 `.92` 版本更新、CHANGELOG 与 README/PKG-INFO 同步，并重跑完整 release gate。
-2. 合并 master、创建 immutable `v0.0.3.92` tag、push 触发 PyPI 发布，并用 `scripts/update_acf.ps1` 完成全局安装与 installed-state 验证。
+1. 将 WS013 标记 Done 并归档，记录 merge resolution 与最终验证证据。
+2. 清理 WS013 worktree / branch / registry / continuation 运行态与匹配临时对象，确认项目回到 global-only、无活动 Workstream。
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T005，所属大任务为“WS013 Observer Retirement and v0.0.3.92”。依赖记录：T004 已 Done（check template/strict、unittest 646 tests OK、minimal smoke、upgrade matrix full、release check 与 P5 七项断言全部通过）。
+该任务来自 `active/Task_Plan.md` 中的子任务 T006，所属大任务为“WS013 Observer Retirement and v0.0.3.92”。依赖记录：T005 已 Done（`v0.0.3.92` 完成 immutable tag、PyPI publish、`scripts/update_acf.ps1` 全局安装和 installed-state 验证）。
 
 ---
 
@@ -70,25 +70,25 @@ T005
 
 - `active/Task_Plan.md`。
 - `active/Context.md`。
-- [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)：WS013 Observer 退役、WS012 收尾、验证矩阵与 v0.0.3.92 发布路线。
-- 依赖 T004 证据：check template/strict pass；unittest 646 tests OK（skipped 3）；minimal smoke ok；upgrade matrix full 28 fixtures ok；release_check full ok 且 wheel+sdist 隔离安装 smoke 通过；P5 七项专项断言通过（contract 无 Observer 键、observer_retired、隔离 ACF_HOME 无副作用、产物仅含 stub、无新增依赖）。
-- 发布入口：`ai_context_framework/version.py`、`pyproject.toml`、`uv.lock`、`CHANGELOG.md`、`README.md`、`ai_context_framework.egg-info/PKG-INFO`、`.github/workflows/release.yml`、`scripts/update_acf.ps1`。
+- [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)：WS013 Observer 退役、WS012 收尾、验证矩阵与 v0.0.3.92 发布路线（第 4 节 P7 与第 7 节成功标准）。
+- 依赖 T005 证据：master `13d4abf..e8f9bbe` 快进合并并 push；annotated immutable `v0.0.3.92` tag 指向 `6b090d8`；PyPI publish 完成（wheel + sdist）；全局安装 `ai-context-framework 0.0.3.92` 且 canonical `acf.cmd` 生效；installed-state 验证通过。
+- 收尾入口：`acf workstream done/archive`、`acf worktree` 系列命令、`acf status --json`。
 
 ---
 
 ## 输出要求
 
-- `.92` 版本更新与 CHANGELOG/README/PKG-INFO 同步。
-- 完整 release gate 重跑证据、master merge、immutable `v0.0.3.92` tag、PyPI publish。
-- 全局安装与 installed-state evidence（version/status/check/workstream/continuation/observer 墓碑）。
+- WS013 Done/archive 状态迁移与索引同步，merge resolution 证据完整。
+- worktree / branch / registry / continuation 运行态与临时对象清理证据。
+- 项目 global-only、无活动 Workstream 的最终 `acf status --json` 证据。
 
 ---
 
 ## 成功标准
 
-1. `acf version show --json` 显示 `.92`，且 version.py / pyproject / uv.lock / PKG-INFO 一致，完整 release gate 通过。
-2. `.92` 完成 master 合并、immutable tag、PyPI publish、`scripts/update_acf.ps1` 全局安装和 installed-state 验证。
-3. 子任务 T005 的完成证据已写回任务板，T006 可以继续。
+1. WS013 已归档，`Workstreams.md` 与 `Archive_Index.md` 索引同步，且 `acf check --strict` 通过。
+2. WS013 worktree、branch、registry 与临时运行态清理完成，失败数为 0。
+3. `acf status --json` 回到 global-only、无活动 Workstream，T006 证据已写回任务板。
 
 ---
 

@@ -8,8 +8,8 @@
 
 ## 审阅标记
 
-- Last reviewed: 2026-09-17
-- Review scope: 文件级；同步 `.91` 稳定发布事实、WS012 终止/归档与 WS013 Observer 退役实现进展。
+- Last reviewed: 2026-09-18
+- Review scope: 文件级；同步 `v0.0.3.92` 稳定发布事实（immutable tag / PyPI publish / 全局安装）与 WS013 Observer 退役归档收尾进展。
 
 ---
 
@@ -56,7 +56,7 @@ Dogfooding MVP / 框架稳定化与非核心能力收敛。
 3. 当前发布版本不在 Context 中复制固定数字；以 `README.md`、`ai_context_framework/version.py`、`pyproject.toml`、`uv.lock` 与正式发布元数据为版本权威，安装态用 `acf --version` 验证。
 4. 本仓库使用 uv Python 环境，Python 版本约束为 `>=3.10`；运行项目 Python 或 CLI 时优先使用 `uv run python ...` 和 `uv run acf ...`。
 5. `docs/ai/` 当前应保持 `uv run acf check --strict` 通过；CLI 或模板行为变更后还应运行 `uv run acf check template`、`uv run python -m unittest`，必要时运行 upgrade matrix。
-6. 当前稳定发布版本由 canonical version authority 解析为 `v0.0.3.91`；WS013 已完成 Observer 退役实现，全部 Gate 通过后才发布 `v0.0.3.92`（版本文件在验证完成前保持 `.91`，不得把 `.92` 当作已发布事实）。
+6. 当前稳定发布版本由 canonical version authority 解析为 `v0.0.3.92`；`.92` 已完成 immutable tag、PyPI publish 和全局安装，从 ACF 核心退役 Observer 产品能力（`acf observer` 仅保留无副作用 `observer_retired` 墓碑），且升级不会自动删除用户级 Observer 数据。
 
 ### 已落地能力摘要
 
@@ -73,9 +73,9 @@ Dogfooding MVP / 框架稳定化与非核心能力收敛。
 
 ### 当前进展与未完成项
 
-1. 当前唯一活动 Workstream 是 WS013「Observer Retirement and WS012 Closeout」；详细路线见 [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)，当前依赖矩阵与安全删除顺序见该文件第 9 节。
-2. [active/Task_Plan.md](Task_Plan.md) 大任务为 `WS013 Observer Retirement and v0.0.3.92`；T001–T004 已 Done（T004 完成 check template/strict、unittest 646 tests OK、minimal smoke、upgrade matrix full、release check 与 P5 七项专项断言），当前焦点为 T005「发布并全局安装 v0.0.3.92」，后续为 T006 WS013 归档。
-3. [active/Current_Task.md](Current_Task.md) 当前执行 T005「发布并全局安装 v0.0.3.92」，归属 WS013。
+1. 当前唯一活动 Workstream 是 WS013「Observer Retirement and WS012 Closeout」，已完成 Observer 退役与 `v0.0.3.92` 发布、PyPI publish 和全局安装，正在执行 T006 归档与运行态清理；详细路线见 [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)，依赖矩阵与安全删除顺序见该文件第 9 节。
+2. [active/Task_Plan.md](Task_Plan.md) 大任务为 `WS013 Observer Retirement and v0.0.3.92`；T001–T005 已 Done（T004 全量门禁与 P5 七项断言、T005 `.92` 发布、PyPI publish 与全局安装验证），当前焦点为 T006「归档 WS013 并清理开发运行态」。
+3. [active/Current_Task.md](Current_Task.md) 当前执行 T006「归档 WS013 并清理开发运行态」，归属 WS013。
 4. WS012 最终 Git 血缘已完整吸收到 WS013，continuation 已终态释放、Workstream 已归档，旧 worktree/branch/registry/专属运行态和临时对象已清理；历史证据保留在 archive 和 Git 历史中。
 5. Observer 退役实现已落地：删除 8 个 `observer*.py` 实现模块与 `commands/observer_presentation.py`，`commands/observer.py` 改写为无副作用 `observer_retired` 墓碑，`automation_contracts.py` 仅保留 Writer 契约；契约测试、墓碑回归与 `acf check --strict` 通过。升级流程不得自动删除其他用户或项目的旧 Observer 数据。
 6. Knowledge / ADR / Archive sync 的 generated marker 设计已落地 [reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)；通用 marker helper、`acf knowledge sync` MVP、`acf decisions sync` MVP 和 `acf archive sync` MVP 已实现。
@@ -213,5 +213,5 @@ Dogfooding MVP / 框架稳定化与非核心能力收敛。
 
 ## 上次更新
 
-- 日期：2026-09-17
-- 更新原因：同步 WS013 进展——T001–T004 已完成（T004 全量门禁与 P5 七项断言通过），当前进入 T005 `.92` 版本发布；版本文件保持 `.91`，直到 P5 闭合后的 bump 提交。
+- 日期：2026-09-18
+- 更新原因：同步 `v0.0.3.92` 稳定发布事实——Observer 退役、PyPI publish、全局安装与 installed-state 验证完成，当前进入 T006 WS013 归档与运行态清理。
