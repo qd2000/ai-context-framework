@@ -1,6 +1,6 @@
 # WS013 Observer Retirement and v0.0.3.92 Plan
 
-本文件是 WS013 的详细执行计划。当前事实仍以 `active/Context.md`、`active/Task_Plan.md`、`active/Current_Task.md` 和 `active/workstreams/WS013.md` 为准；本计划负责保存阶段路线、产品决策、文件范围、验证矩阵和发布边界。
+本文件是 WS013 的详细执行计划。WS013 已于 2026-09-18 随 `v0.0.3.92` 收尾并归档为 `archive/workstreams/WS013.md`；当前事实仍以 `active/Context.md`、`active/Task_Plan.md` 和 `active/Current_Task.md` 为准；本计划负责保存阶段路线、产品决策、文件范围、验证矩阵和发布边界。
 
 ---
 
