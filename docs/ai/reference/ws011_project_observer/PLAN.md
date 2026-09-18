@@ -1,5 +1,7 @@
 # WS011 Project Observer 实施计划
 
+> Historical / Inactive since 2026-09-18. The Project Observer product was retired in `v0.0.3.92`; this plan is historical implementation evidence for WS011 and is not a current roadmap.
+
 ## 1. 任务定位
 
 WS011 实现 ACF Project Observer：一个项目一个 Global Observer，统一观察同一项目内所有相关 worktree，将机器执行状态转换为详细、易懂、可追溯的人类语义进展，并以用户级结构化状态和自包含静态 HTML 持久化。

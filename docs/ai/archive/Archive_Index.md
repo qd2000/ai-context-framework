@@ -63,6 +63,7 @@
 | 2026-09-18 | Plan | WS013 Observer Retirement and v0.0.3.92 | active/Task_Plan.md | `archive/plans/2026-09-18-ws013-observer-retirement-and-v0.0.3.92.md` | Archived | WS013 Observer Retirement 与 v0.0.3.92 发布大任务 Done；计划归档以保留 T001-T006 证据与发布事实。 |
 | 2026-09-18 | Task | 归档 WS013 并清理开发运行态 | active/Current_Task.md | `archive/tasks/2026-09-18-归档-ws013-并清理开发运行态.md` | Archived | WS013 Observer Retirement 与 v0.0.3.92 发布收尾闭环，T006 归档与开发运行态清理完成。 |
 | 2026-09-18 | workstream | WS013 | active/workstreams/WS013.md | `archive/workstreams/WS013.md` | Done | Observer retirement released as v0.0.3.92, fast-forward merged to master, PyPI published and globally installed; terminal closeout per WS013 PLAN P7. |
+| 2026-09-18 | workstream | WS014 | active/workstreams/WS014.md | `archive/workstreams/WS014.md` | Done | WS014 stabilization and product health work completed and verified; terminal closeout moves the detail out of the active Workstream layer. |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |

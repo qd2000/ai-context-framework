@@ -40,7 +40,7 @@ WS013 Observer Retirement and v0.0.3.92
 
 列出当前大任务必须对齐的 reference 设计、路线或差距文档；只放路径和一句话用途，不复制详细规划。
 
-- [reference/ws013_observer_retirement_ws012_closeout/PLAN.md](../../reference/ws013_observer_retirement_ws012_closeout/PLAN.md)：WS013 Observer 退役、WS012 收尾、验证矩阵与 v0.0.3.92 发布路线。
+- [WS013 Observer Retirement and v0.0.3.92 Plan](2026-09-18-ws013-observer-retirement-and-v0.0.3.92-plan.md)：WS013 Observer 退役、WS012 收尾、验证矩阵与 v0.0.3.92 发布路线。
 
 ---
 

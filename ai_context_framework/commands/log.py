@@ -19,6 +19,7 @@ from ai_context_framework.json_contract import (
     print_json,
 )
 from ai_context_framework.models import ContextLocation
+from ai_context_framework.commands.log_issue import apply_issue_ledger, read_issue_ledger
 from ai_context_framework.observability import (
     acf_home,
     append_usage_event,
@@ -416,10 +417,32 @@ def _continuation_issue_groups(events: list[dict[str, object]]) -> list[dict[str
     )
 
 
-def log_issues_command(args: argparse.Namespace) -> int:
+def _issue_summary(groups: list[dict[str, object]]) -> dict[str, object]:
+    by_severity: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    by_category: dict[str, int] = {}
+    for group in groups:
+        severity = str(group.get("severity") or "medium")
+        by_severity[severity] = by_severity.get(severity, 0) + 1
+        status = str(group.get("status") or "open")
+        by_status[status] = by_status.get(status, 0) + 1
+        category = str(group.get("category") or "other")
+        by_category[category] = by_category.get(category, 0) + 1
+    return {
+        "total": len(groups),
+        "by_severity": dict(sorted(by_severity.items())),
+        "by_status": dict(sorted(by_status.items())),
+        "by_category": dict(sorted(by_category.items())),
+    }
+
+
+def _collect_issue_events(
+    path: Path | None,
+    all_projects: bool,
+) -> tuple[list[dict[str, object]], list[str], str | None]:
     events: list[dict[str, object]] = []
     paths: list[str] = []
-    if bool(getattr(args, "all_projects", False)):
+    if all_projects:
         projects_root = acf_home() / "projects"
         if projects_root.is_dir():
             for log_path in sorted(projects_root.glob("*/logs/usage.jsonl")):
@@ -438,32 +461,71 @@ def log_issues_command(args: argparse.Namespace) -> int:
                 except OSError:
                     continue
                 events.extend(raw_events)
-        project_root: str | None = None
-    else:
-        location = resolve_status_location(getattr(args, "path", None))
-        project_root = str(location.project_root)
-        paths.append(str(usage_log_path(location.project_root)))
-        events = read_usage_events(location.project_root)
+        return events, paths, None
+    location = resolve_status_location(path)
+    project_root = str(location.project_root)
+    paths.append(str(usage_log_path(location.project_root)))
+    events = read_usage_events(location.project_root)
+    return events, paths, project_root
+
+
+def log_issues_command(args: argparse.Namespace) -> int:
+    events, paths, project_root = _collect_issue_events(
+        getattr(args, "path", None),
+        bool(getattr(args, "all_projects", False)),
+    )
     groups = _continuation_issue_groups(events)
+    apply_issue_ledger(groups, read_issue_ledger())
     if bool(getattr(args, "open_only", False)):
         groups = [group for group in groups if group.get("status") == "open"]
+    total_issue_count = len(groups)
+    occurrence_count = sum(int(group.get("count") or 0) for group in groups)
+    offset = max(0, int(getattr(args, "offset", 0) or 0))
     limit = max(0, int(getattr(args, "limit", 100) or 0))
+    summary_only = bool(getattr(args, "summary_only", False))
+    paged = groups[offset:]
     if limit:
-        groups = groups[:limit]
-    public_groups = sanitize_public_payload(groups)
-    assert isinstance(public_groups, list)
+        paged = paged[:limit]
+    has_more = offset + len(paged) < total_issue_count
+    if summary_only:
+        public_groups: list[dict[str, object]] = []
+    else:
+        sanitized = sanitize_public_payload(paged)
+        assert isinstance(sanitized, list)
+        public_groups = sanitized
+    path_limit = 20
+    include_paths = bool(getattr(args, "include_paths", False))
+    if include_paths or len(paths) <= path_limit:
+        payload_paths = paths
+        paths_truncated = False
+    else:
+        payload_paths = paths[:path_limit]
+        paths_truncated = True
     payload: dict[str, object] = {
         "command": "log issues",
         "ok": True,
         "project_root": project_root,
         "all_projects": bool(getattr(args, "all_projects", False)),
-        "log_paths": paths,
-        "issue_count": len(groups),
-        "occurrence_count": sum(int(group.get("count") or 0) for group in groups),
+        "log_path_count": len(paths),
+        "log_paths_truncated": paths_truncated,
+        "log_paths": payload_paths,
+        "issue_count": total_issue_count,
+        "occurrence_count": occurrence_count,
+        "returned_count": len(paged),
+        "offset": offset,
+        "limit": limit,
+        "has_more": has_more,
+        "summary_only": summary_only,
+        "summary": {**_issue_summary(groups), "occurrence_count": occurrence_count},
         "issues": public_groups,
     }
     if json_enabled(args):
         print_json(payload)
+    elif summary_only:
+        print(f"issues: {total_issue_count}")
+        print(f"occurrences: {occurrence_count}")
+        print(f"by_severity: {payload['summary']['by_severity']}")
+        print(f"by_status: {payload['summary']['by_status']}")
     else:
         for group in public_groups:
             print(
@@ -471,6 +533,22 @@ def log_issues_command(args: argparse.Namespace) -> int:
                 f"{group['category']}: {group['text']}"
             )
     return 0
+
+
+def register_log_issues_parser(subparsers, add_json_argument) -> None:
+    parser = subparsers.add_parser(
+        "issues",
+        help="summarize structured continuation dogfood issues",
+    )
+    parser.add_argument("path", nargs="?", type=Path)
+    parser.add_argument("--all-projects", action="store_true")
+    parser.add_argument("--open-only", action="store_true")
+    parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--offset", type=int, default=0)
+    parser.add_argument("--summary-only", action="store_true", help="omit the issue page and return summary counts only")
+    parser.add_argument("--include-paths", action="store_true", help="include the full usage-log path list")
+    add_json_argument(parser)
+    parser.set_defaults(func=log_issues_command)
 
 
 def read_log_feedback_input(args: argparse.Namespace) -> str:

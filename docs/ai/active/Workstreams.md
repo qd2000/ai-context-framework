@@ -18,7 +18,7 @@ Inactive
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS014 | Open | Post-v0.0.3.92 Stabilization and Product Health | ChatGPT | owned: active/workstreams/WS014.md | 无。 | 待补充。 | active/workstreams/WS014.md |
+| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |
 
 ---
 

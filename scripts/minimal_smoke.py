@@ -35,11 +35,17 @@ def render_json_for_console(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=True, indent=2)
 
 
+def isolated_acf_home_env(tmp_path: Path) -> dict[str, str]:
+    """Return the per-scenario ACF_HOME override that isolates runtime state."""
+    return {"ACF_HOME": str(tmp_path / "acf-home")}
+
+
 class SmokeRunner:
     def __init__(self, acf_cmd: list[str], keep_tmp: bool) -> None:
         self.acf_cmd = acf_cmd
         self.keep_tmp = keep_tmp
         self.scenarios: list[dict[str, Any]] = []
+        self._scenario_env: dict[str, str] | None = None
 
     def run_acf(
         self,
@@ -54,6 +60,10 @@ class SmokeRunner:
         env.setdefault("PYTHONUTF8", "1")
         if env_overrides:
             env.update(env_overrides)
+        # Every scenario runs against an isolated ACF_HOME so that a smoke run can
+        # never create or mutate project namespaces in the real user-level state.
+        if self._scenario_env:
+            env.update(self._scenario_env)
         completed = subprocess.run(
             [*self.acf_cmd, *args],
             cwd=str(cwd) if cwd is not None else None,
@@ -87,11 +97,15 @@ class SmokeRunner:
         with tempfile.TemporaryDirectory(prefix="acf-smoke-") as tmp:
             tmp_path = Path(tmp)
             record: dict[str, Any] = {"name": name, "ok": False, "tmp": str(tmp_path), "steps": []}
+            previous_env = self._scenario_env
+            self._scenario_env = isolated_acf_home_env(tmp_path)
             try:
                 func(tmp_path, record["steps"])
                 record["ok"] = all(step["ok"] for step in record["steps"])
             except Exception as exc:  # pragma: no cover - defensive runner boundary
                 record["error"] = str(exc)
+            finally:
+                self._scenario_env = previous_env
             if not self.keep_tmp:
                 record.pop("tmp", None)
             self.scenarios.append(record)
@@ -585,9 +599,8 @@ class SmokeRunner:
     def human_report_minimal_happy_path(self, tmp: Path, steps: list[dict[str, Any]]) -> None:
         project = tmp / "human-report"
         context = project / "docs" / "ai"
-        acf_home = tmp / "acf-home"
-        env = {"ACF_HOME": str(acf_home)}
-        steps.append(self.run_acf(["init", str(context), "--profile", "standard", "--json"], env_overrides=env))
+        # ACF_HOME is isolated per scenario by SmokeRunner.scenario().
+        steps.append(self.run_acf(["init", str(context), "--profile", "standard", "--json"]))
         report = context / "human" / "reports" / "smoke-report-2099-01-01.md"
         report.write_text("# Smoke Human Report\n\nSmoke report body.\n", encoding="utf-8")
         steps.append(self.run_acf(["human", "index", "sync", str(context), "--json"]))

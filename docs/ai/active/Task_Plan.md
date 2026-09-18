@@ -8,25 +8,32 @@
 
 ## 大任务状态
 
-Empty
+Active
 
 ---
 
 ## 大任务名称
 
-无。
+WS014 Post-v0.0.3.92 稳定化与产品健康治理
 
 ---
 
 ## 大任务目标
 
-1. 无。
+1. 收敛 v0.0.3.92 后的权威文档，移除 WS012/Observer 活跃路线与过期发布表述
+2. 隔离 minimal smoke 运行态，新增跨项目孤儿 usage log GC 与 issue 输出分页/摘要
+3. 建立独立于 continuation 的跨项目 issue 生命周期命令组并收口当前 9 条 open issue
+4. 建立隔离最小 continuation fixture 与 owner-context 可重复验证协议
+5. 落定 ADR-0006 产品边界，收口 CI 并完成版本与 CHANGELOG 收敛
 
 ---
 
 ## 成功标准
 
-1. 无。
+1. acf check template、acf check --strict、uv run python -m unittest 全部通过
+2. minimal_smoke 执行前后真实 ACF_HOME projects 目录集合与内容完全不变
+3. 9 条 open issue 全部获得 resolve/supersede/reject/保留 的明确处置与证据
+4. ADR-0006 落盘并同步 reference/Decisions_Index.md
 
 ---
 
@@ -34,13 +41,15 @@ Empty
 
 列出当前大任务必须对齐的 reference 设计、路线或差距文档；只放路径和一句话用途，不复制详细规划。
 
-- 无。
+- [reference/Product_Roadmap.md](../reference/Product_Roadmap.md)：确认产品当前阶段与后续路线，避免把已完成阶段当作当前优先。
+- [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md)：以六域 Gap Matrix 对齐当前真实差距与后续代码决策。
+- [reference/ACF_Top_Level_Design.md](../reference/ACF_Top_Level_Design.md)：确认 ACF 不做 runtime/scheduler、保持 Markdown-first 的产品边界，作为 ADR-0006 输入。
 
 ---
 
 ## 当前焦点
 
-无。
+T012
 
 ---
 
@@ -48,7 +57,18 @@ Empty
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| 暂无 |  |  |  |  |  |  |
+| T001 | Done | 建立 WS014 与任务结构 | 无。 | WS014 详情、范围声明、Task_Plan 与 Current_Task | reservation commit 12c8b90; WS014 detail + scope-add + Task_Plan T001-T012 + 规划依据 | 进入 T002 authority 文档收敛 |
+| T002 | Done | authority 文档收敛与 WS013 计划归档 | T001 | docs/Automation.md 当前合同/历史说明拆分、active/Context.md 收敛、WS013 计划移入 archive/plans | docs/Automation.md 拆为当前有效合同/历史演进说明并撤回 WS012 owner 与 Observer 活跃路线、修正 Trusted Publishing 过期表述；active/Context.md 收敛；WS013 计划归档到 archive/plans；ws011 历史文档标注 Historical；tests/test_docs_retired_references.py 7 项通过；check --strict 全绿 | 扫描已退役 Observer 与已归档 WS012 的活跃引用 |
+| T003 | Done | 反馈与路线对齐 | T002 | Feedback_Inbox F015/F017/F019 处置、Product_Roadmap 阶段状态、Top_Level_Implementation_Gap 六域矩阵 | Feedback F015/F017 转为 rules 并 Done、F019 转 Planned 指向 ADR-0006；Product_Roadmap 阶段状态与当前阶段更新；Top_Level_Implementation_Gap 六域矩阵重建并更新 Next Code PR Decision | 重建当前产品阶段与 Gap Matrix |
+| T004 | Done | smoke ACF_HOME 隔离与 no-pollution 回归 | T001 | scripts/minimal_smoke.py 场景级隔离、tests/test_smoke_isolation.py | scripts/minimal_smoke.py 场景级 ACF_HOME 隔离；tests/test_smoke_isolation.py 断言运行前后真实 ACF_HOME projects 目录集合不变；smoke 8 场景 ok；check --strict 全绿 | 补运行前后真实运行态不变回归 |
+| T005 | Done | acf log gc 与 log issues 分页/摘要 | T001 | commands/log_gc.py、log.py 扩展、单元测试 | 新增 commands/log_gc.py 与 acf log gc（默认 dry-run，--apply 写 receipt）；log issues 增加 --offset/--summary-only/--include-paths 与 summary 字段、log_paths 上限；log/gc/issues 注册下移到各模块，runtime.py 回到 2000 行门禁内；tests/test_log_gc.py 与 test_log_inventory.py 共 20 项通过 | 设计孤儿命名空间白名单判定 |
+| T006 | Done | 孤儿日志干跑审阅与清理执行 | T005 | GC dry-run 计划、apply receipt 与 538 个失效命名空间清理记录 | 真实 ACF_HOME 干跑审阅：30 天保留=0 候选；1 天保留=413 候选且均无仍存在的项目根、当前项目不在候选内；apply 移除 413，保留 138，receipt=C:\Users\lenovo\.acf\gc-receipts\log-gc-20260918T035801Z.json；raw_project_count 551->138 | 对真实 ACF_HOME 先 dry-run 审阅 |
+| T007 | Done | acf log issue 独立生命周期命令组 | T001 | commands/log_issue.py、用户级 issue 台账、单元测试 | 新增 commands/log_issue.py：acf log issue list/show/resolve/supersede/reject/reopen，用户级 append-only 台账 ACF_HOME/issues/ledger.jsonl，聚合叠加台账并兼容既有 continuation_issue_resolution；log.py 抽出 _collect_issue_events 并叠加台账；register 下移保持 runtime.py 在门禁内；tests/test_log_issue.py 6 项通过 | 设计 ledger 事件与聚合覆盖语义 |
+| T008 | Done | 9 条 open issue triage 收口 | T007 | 逐条 resolve/supersede/reject/保留处置与证据 | 核验 42fc9eb/8081983 均为 HEAD 祖先；处置结果 3 resolved / 1 superseded / 2 rejected / 4 open（open 9->4）；台账 ACF_HOME/issues/ledger.jsonl；剩余 open 为 owner-context 复测、child effect 委派、历史 state-loss、worktree curated handoff | 逐 fingerprint 在当前 .92 复核 |
+| T009 | Done | owner-context 隔离 fixture 与验证协议 | T001 | scripts/continuation_owner_fixture.py、reference/Continuation_Owner_Context_Verification.md、隔离测试 | 新增 scripts/continuation_owner_fixture.py 与 tests/test_continuation_owner_fixture.py；隔离验证 assert-owner/progress/release 全部通过（acf_side_ok），并实测 ACF_HOME 必须位于 worktree 之外；协议与结论写入 reference/Continuation_Owner_Context_Verification.md，真实网页链路复测列为待执行 | 构造临时仓库与临时 ACF_HOME 场景 |
+| T010 | Done | ADR-0006 产品边界设计 | T003 | decisions/ADR-0006.md 与 Decisions_Index 同步 | decisions/ADR-0006.md 重写为完整设计 ADR（分层定义、硬约束、替代方案、重新评估条件），Decisions_Index 经 acf decisions sync 同步，check --strict 全绿 | 定义 Core 与 Operations 两层边界 |
+| T011 | Done | CI 收口 | T001 | ci.yml 可复用、actions 固定 SHA、release.yml 依赖必需 CI | actions/checkout 固定到不可变 commit SHA 3d3c42e5aac5ba805825da76410c181273ba90b1；ci.yml 暴露 workflow_call；release.yml 新增 verify 作业调用复用 CI，publish 依赖 verify，并记录 environment/tag protection 需在仓库设置侧对齐；YAML 结构经解析校验 | 确认必需 CI 包含 Windows package smoke |
+| T012 | Done | 版本收敛与 WS014 closeout | T002,T003,T004,T005,T006,T007,T008,T009,T010,T011 | 版本 bump、CHANGELOG、验收命令全绿、WS014 归档 | 完整验收通过：check template 与 check --strict 全绿；unittest 分四批共 669 项通过（batch1 119、test_cli 292、continuation 160 exit=0、worktree 98）；minimal_smoke 8/8；upgrade_matrix --mode full 通过；release_check --mode package（wheel+sdist v0.0.3.93）通过；版本收敛到 v0.0.3.93 并补 CHANGELOG；WS014 已 Done 并归档到 archive/workstreams/WS014.md | 无。 |
 
 ---
 

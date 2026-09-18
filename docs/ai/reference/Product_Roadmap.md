@@ -8,6 +8,12 @@
 
 Active
 
+### 当前阶段
+
+WS014「Post-v0.0.3.92 Stabilization and Product Health」：在已收敛的顶层设计、Workstream 层与 continuation 控制面之上做稳定化与产品健康治理（authority 文档收敛、测试运行态隔离、跨项目 issue 生命周期、owner-context 验证协议、ADR-0006 产品边界与 CI 收口）。本阶段不新增产品能力。
+
+明确不在当前范围、留待后续独立阶段：runtime 全局注入解耦、通用 hunk 级别所有权、high-risk semantic audit 扩张、System Manual marker 共享区块同步机制。
+
 ---
 
 ## 一句话路线
@@ -204,7 +210,7 @@ ACF 应先收敛通用上下文治理蓝图，再按薄切片实现可验证能�
 
 ### Phase A：顶层设计收敛
 
-状态：当前优先阶段。
+状态：已完成。顶层设计、产品分层、准入门槛与 CLI 分层已收敛，不再是当前优先阶段；当前阶段见本文 `## 状态` 的「当前阶段」。
 
 目标：
 
@@ -254,7 +260,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 
 ### Phase C：对象模型补齐
 
-状态：generated marker 设计已完成；等待第一批代码切片。
+状态：generated marker 设计已完成，第一批代码切片（generated marker helper、Knowledge sync MVP、Decisions sync MVP、Archive sync MVP、Task / Plan archive record marker）已完成；后续只按需推进字段口径统一。
 
 目标：
 
@@ -306,7 +312,7 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 
 ### Phase E：Upgrade / Sync 扩展
 
-状态：后续阶段。
+状态：第一批扩展已完成（Knowledge / Decisions / Archive sync MVP、`upgrade_matrix --mode full`、Workstream lifecycle / archive helper）；后续按真实反馈补小边界。
 
 目标：
 
@@ -376,15 +382,15 @@ uv run python scripts/minimal_smoke.py --acf uv run acf
 
 ### 当前最建议做
 
-1. 使用 [reference/Top_Level_Implementation_Gap.md](Top_Level_Implementation_Gap.md) 作为进入新代码 PR 前的 gap-driven 实施依据。
-2. JSON contract consistency tests、Workstream stage flow fixture、upgrade matrix expansion、Task Stage CLI 薄切片、active-reference traceability 与 Workstream archive-candidates / archive-draft / explicit archive 闭环已完成。
-3. P2-5 audit fixture expansion 已完成：`audit_stale_stage` 和 `audit_terminal_merge` 已进入 context_matrix fixtures；未新增 audit rule，未接入 strict。
-4. Knowledge / ADR / Archive sync 的 generated marker 设计已完成，见 [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md)；generated marker helper、Knowledge sync MVP、Decisions sync MVP 和 Archive sync MVP 已完成，Task/Plan archive record marker 已补齐归档原因可恢复性。
-5. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge。
-6. 后续每个新能力先补 fixture，再实现命令或规则。
-7. human layer、Obsidian 边界、统一占位符和 canonical marker 已作为 P2-6 完成；后续不为 Obsidian 新增 CLI，除非出现可抽象、可测试的通用维护需求。
+1. 使用 [reference/Top_Level_Implementation_Gap.md](Top_Level_Implementation_Gap.md) 作为进入新代码 PR 前的 gap-driven 实施依据；该文件按六域矩阵维护当前真实差距与下一批候选。
+2. 当前实际优先事项是本文 `## 状态` 的「当前阶段」（WS014 稳定化与产品健康治理）。
+3. 暂不扩展 high-risk audit rules，暂不做 Task object 单文件化，暂不做自动 Context merge，暂不为 Obsidian 新增 CLI。
+4. 后续每个新能力先补 fixture，再实现命令或规则。
+5. 历史切片完成记录见下方「已完成切片记录（历史）」，该清单不再作为待办队列使用。
 
-### 下一批候选任务
+### 已完成切片记录（历史）
+
+以下清单记录已经完成的薄切片，仅供追溯，不是待办队列。
 
 1. P1-1：JSON contract consistency tests。已完成。
 2. P1-2：补 `tests/fixtures/context_matrix/workstream_stage_flow`，覆盖 stage add/focus/done 的上下文形态。已完成。

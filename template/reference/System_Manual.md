@@ -455,7 +455,7 @@ P1.5 `automation_prompt_execution_contract` v2 保持 Writer `acf.continuation.s
 
 Agent-owned 文本稳定入口在晋升前必须能够 strict UTF-8 回读，且不得包含 Unicode replacement character（U+FFFD）；但 successful UTF-8 decode / U+FFFD=0 本身不足以证明可见文本未发生 mojibake。Agent 还必须从当前 authority/source 选取预期可见文本 marker（例如项目原生非 ASCII 标签或等价 sentinel）并在晋升前回读验证；当实际命令/PTY 通道的 Unicode 保真未经证明时，必须改用 byte-preserving 写入或 ASCII-safe payload transport。任一检查失败按更新失败处理并保留 last-good。这不是新的 renderer/schema，只是 Agent 直写页面的最小文本完整性保护，也不硬编码具体语言。
 
-旧 P2 target semantic-review / one-shot / durable-rule runtime 继续作为 legacy compatibility surface。`presentation-status`、`review-request-add`、`semantic-review-apply`、`presentation-rule-*` 被显式调用时仍保留 target-local staleness、exact revision/fingerprint/evidence 与 consume/supersede/withdraw 语义；新 Agent-authored 页面不需要先创建或消费这些状态，也不要求每轮强制 Map Review。
+旧 P2 target semantic-review / one-shot / durable-rule runtime 已随 Project Observer 退役一并移除，不再是可调用的 legacy compatibility surface。`presentation-status`、`review-request-add`、`semantic-review-apply`、`presentation-rule-*` 等命令不再发布；对它们的旧调用只会得到未知命令错误，而 `acf observer` 稳定返回无副作用的 `observer_retired` 提示。因此新页面与续跑流程都不需要先创建或消费这些状态，也不存在每轮强制 Map Review 的要求。
 
 `continuation prompt --json` 除 `identity` 与 `scheduler_wrapper_contract` 外，还返回 `current`、`owner_context`、`directive_context`、`resume_context`、`execution_policy`、`project_context` 和当前 `next_actions`。`owner_context` 在传入 `--runner-id` 后区分 current owner / verified live other owner / stale-or-unverified / expired / no-owner；未传 runner id 时 fresh lease 保持 caller-unknown。`directive_context` 给出 global revision、pending-set digest、pending/adopted/active count、current pressure、archive count/history digest 和 pending 摘要；pending 时 `authority_refresh_required=true`。`execution_policy` 包含 `pending_user_directive_supersedes_persisted_next_action=true`、`consumed_user_directive_requires_disposition=true`、`next_action_is_default_execution_plan=true`、`next_action_requires_authority_refresh=true`、`active_lease_requires_liveness_verification=true`、`verified_duplicate_owner_may_end_duplicate_wake=true`、`duplicate_wake_exit_is_task_stop=false`、`stale_owner_requires_recovery=true`、`contender_must_create_busywork=false`，并继续保留 `next_action_is_work_quota=false`、`final_response_is_terminal=true` 等既有语义；条件等待计划还显式暴露 `claim_requires_present_safe_useful_work=true`、`control_plane_activity_satisfies_wait_condition=false` 与 `no_useful_work_may_end_wake_without_claim=true`。
 
@@ -513,6 +513,8 @@ acf workstream guard WS001 --files src/foo.py docs/ai/active/workstreams/WS001.m
 - `acf log projects --scan-root <path> --json`：只读汇总全局 usage log 项目，并尝试把日志 project id 映射到磁盘上的真实 context root；`--log-root` 可读取测试或备份日志目录，`--min-events` 和 `--include-unresolved` 用于过滤展示。
 - `acf log feedback [target] --text "..." --type Problem --source manual --json`：显式记录实际使用反馈正文，写入用户级 usage log；普通命令不会自动记录正文。
 - `acf log prune [target] --days 30`：删除旧 usage event。
+- `acf log gc --json`：只读报告可清理的孤儿 usage-log namespace（记录的项目根已不存在、无 continuation / closeout 状态、命名像 synthetic / smoke / temp，且超过保留期）。默认干跑，`--apply` 才实际删除并写出不含凭据的 receipt；仍能解析到真实项目的 namespace 永不删除。
+- `acf log issue list|show|resolve|supersede|reject|reopen ...`：独立于 continuation 的产品 issue 生命周期。occurrence 仍来自各项目 usage log，处置写入用户级 append-only 台账 `<ACF_HOME>/issues/ledger.jsonl`；`resolve` / `supersede` / `reject` / `reopen` 都要求 `--reason`，可重复 `--evidence-ref` 并支持 `--dry-run`。
 
 `target` 省略时，CLI 会从当前目录向上查找 `docs/ai`、`docs-acf/ai` 或上下文根目录；显式传入 `target` 时，以显式路径为准。CLI 的检查结果不能替代人工判断，但可以自动发现维护成本高、容易遗忘的结构性问题。
 

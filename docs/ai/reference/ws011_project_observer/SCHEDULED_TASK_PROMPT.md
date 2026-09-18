@@ -1,5 +1,7 @@
 # WS011 Scheduled Task Prompt
 
+> Historical / Inactive since 2026-09-18. The WS011 Scheduled Task was deleted when the Project Observer product was retired in `v0.0.3.92`. This file is retained as historical evidence only and must not be re-registered as a live wrapper.
+
 以下为 WS011 开发阶段 Scheduled Task wrapper。它只保留固定身份、项目访问工具和 ACF 自 dogfood 特有边界；generic continuation 协议由每轮安装态稳定 `acf continuation prompt` 动态生成。
 
 ---

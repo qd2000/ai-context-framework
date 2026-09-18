@@ -1,14 +1,16 @@
 # WS013 Observer Retirement and v0.0.3.92 Plan
 
-本文件是 WS013 的详细执行计划。WS013 已于 2026-09-18 随 `v0.0.3.92` 收尾并归档为 `archive/workstreams/WS013.md`；当前事实仍以 `active/Context.md`、`active/Task_Plan.md` 和 `active/Current_Task.md` 为准；本计划负责保存阶段路线、产品决策、文件范围、验证矩阵和发布边界。
+> Archived on 2026-09-18. WS013 is terminal; Observer retirement and the `v0.0.3.92` release are complete. This file is historical execution evidence, not current execution authority. Current facts live in `active/Context.md`, `active/Task_Plan.md` and `active/Current_Task.md`.
+
+本文件是 WS013 的详细执行计划。WS013 已于 2026-09-18 随 `v0.0.3.92` 收尾并归档为 `archive/workstreams/WS013.md`；本计划负责保存阶段路线、产品决策、文件范围、验证矩阵和发布边界。
 
 ---
 
-## 1. 当前状态
+## 1. 最终状态（历史记录）
 
-- 当前已发布稳定版本：`v0.0.3.91`，tag / PyPI / 全局安装已完成。
-- 当前主线版本文件仍为 `0.0.3.91`；`v0.0.3.92` 是本 Workstream 的目标版本，不是当前已发布事实。
-- `.91` 当前发布说明已在主线提交 `1d2d5ee` 修正为稳定发布事实，不再把 `.91` 写成 release candidate，也不再把 `.89` 写成当前安装态。
+- 计划执行时的基线版本：`v0.0.3.91`，tag / PyPI / 全局安装已完成。
+- 本计划的目标版本 `v0.0.3.92` 已于 2026-09-18 发布：版本文件 bump 到 `0.0.3.92`，annotated immutable tag `v0.0.3.92` 指向 `6b090d8`，PyPI publish（wheel + sdist）完成，Windows 全局安装并 canonicalize `acf.cmd`。
+- `v0.0.3.92` 的实际发布说明已在主线提交修正为稳定发布事实，不再把 `.92` 写成目标版本。
 - WS013 分支：`codex/ws013-observer-retirement-ws012-closeout`。
 - WS012 最终分支 tip `b134f3e` 已通过 merge commit `83aa92d` 完整进入 WS013 血缘；未采用 squash 或选择性复制。
 - WS012 已在 `3109d23` 归档为 `docs/ai/archive/workstreams/WS012.md`。
@@ -116,6 +118,8 @@ ACF 继续聚焦：
 
 ### P1 — Observer 依赖图和删除清单固化
 
+状态：**Done**（依赖矩阵见第 9 节）。
+
 目标：在写代码前机械确认所有当前依赖，避免删掉 Observer 后留下 import、打包、smoke 或文档断链。
 
 操作：
@@ -132,6 +136,8 @@ ACF 继续聚焦：
 - 历史 archive 与当前产品引用已区分。
 
 ### P2 — 移除 Observer runtime 与公开产品能力
+
+状态：**Done**。
 
 目标：删除完整 Observer 实现，只保留无副作用退役入口。
 
@@ -171,6 +177,8 @@ tests/test_continuation_cli.py
 
 ### P3 — 删除 Observer 测试、smoke、打包与输出产物
 
+状态：**Done**。
+
 删除或改写：
 
 ```text
@@ -194,6 +202,8 @@ ai_context_framework.egg-info/SOURCES.txt
 
 ### P4 — 当前文档和模板同步
 
+状态：**Done**。
+
 修改：
 
 ```text
@@ -215,6 +225,8 @@ docs/ai/active/Context.md
 - template、README、dogfooding manual 和 Automation 语义一致。
 
 ### P5 — 完整验证和兼容性审计
+
+状态：**Done**。
 
 必跑命令：
 
@@ -239,6 +251,8 @@ uv run python scripts/release_check.py --mode full
 
 ### P6 — 版本更新与 `v0.0.3.92` 发布
 
+状态：**Done**。
+
 只有 P1–P5 全部闭合后才执行：
 
 ```powershell
@@ -258,6 +272,8 @@ uv run acf version show --json
 8. 禁止移动或重用 `.90`、`.91` tag。
 
 ### P7 — WS013 收尾
+
+状态：**Done**。
 
 - 将 WS013 标记 ReadyToMerge / Merging / Done；
 - 记录 merge resolution 和验证证据；
@@ -311,9 +327,13 @@ uv run acf version show --json
 
 ---
 
-## 8. 当前下一步
+## 8. 收尾结果（P6 / P7 历史记录）
 
-P1–P3 已闭合（依赖矩阵见第 9 节；实现、测试、打包、smoke 与当前文档同步已完成）。执行 T004/P5：逐条运行 strict/template、全量 unittest、minimal smoke、full upgrade matrix、release check，并补足 wheel/sdist 内容审计与 `git grep` 残留词面审计，形成可发布候选。版本文件保持 `0.0.3.91`；只有 P5 七项专项断言全部通过后才进入 P6 bump。
+- P1–P5 已闭合（依赖矩阵见第 9 节；实现、测试、打包、smoke 与当前文档同步已完成）。
+- P5 七项专项断言通过：continuation contract 无 Observer 键、`observer_retired` 墓碑可容忍旧子命令、隔离 `ACF_HOME` 调用前后无副作用、产物仅含 stub、无新增第三方依赖。
+- P6 发布完成：`acf version set v0.0.3.92`、CHANGELOG/README/PKG-INFO 同步、immutable tag `v0.0.3.92`、PyPI publish、`scripts/update_acf.ps1` 全局安装与 installed-state 验证。
+- P7 归档完成：WS013 已 ReadyToMerge / Merging / Done，merge resolution 与验证证据记录在 `archive/workstreams/WS013.md`，主线回到 global-only（无活动 Workstream）。
+- 本计划文件已从 `reference/` 移入 `archive/plans/`，仅作历史执行证据。
 
 ---
 

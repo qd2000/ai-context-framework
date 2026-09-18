@@ -24,6 +24,7 @@
 | ADR-0003 | 采用两层 AGENTS.md 入口结构 | Active | 采用两层 AGENTS.md 入口结构，根 AGENTS.md 作为薄入口转发到 `docs/ai` 内完整入口，降低重复维护和事实漂移。 | `decisions/ADR-0003.md` |
 | ADR-0004 | 将 acf 演进为可安装的 AI-facing 上下文维护 CLI | Active | 将 acf 从仓库内脚本逐步演进为可安装命令，支持自动发现上下文、机器可读输出、安全结构化编辑和写后检查；语义判断仍由人或 AI 完成，CLI 只负责确定性落盘和校验。 | `decisions/ADR-0004.md` |
 | ADR-0005 | 使用可选 Workstream 层管理并行目标线 | Active | 引入可选 Workstream 层，用于表达并行目标线。 | `decisions/ADR-0005.md` |
+| ADR-0006 | ACF Core 与 Operations Control Plane 的边界 | Active | 采用两层边界：ACF Core 只负责 Markdown-first 的上下文治理，continuation / worktree / closeout authorization / usage log / execution-effect-recovery 构成可选 ACF Operations 控制面。Core 不得依赖 Operations 状态，Operations 可独立关闭或独立打包，且不继续吸收项目业务策略。 | `decisions/ADR-0006.md` |
 <!-- ACF:DECISIONS:INDEX-GENERATED:END -->
 
 ---

@@ -9,8 +9,15 @@ permissions:
   contents: read
 
 jobs:
+  # Required CI gate: reuses ci.yml so a tag can only publish after the same
+  # template/strict/unit/smoke checks pass, including Windows package smoke.
+  verify:
+    name: Required CI before publish
+    uses: ./.github/workflows/ci.yml
+
   publish:
     name: Build, verify, and publish
+    needs: verify
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -20,7 +27,8 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        # actions/checkout v7 pinned to an immutable commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
@@ -37,3 +45,7 @@ jobs:
 
       - name: Publish distributions
         run: uv publish
+
+# Repository settings that must back this gate (configured outside the repo):
+# - the `pypi` environment should require the CI workflow to succeed before deploy;
+# - the `v*` tag protection rule should restrict who can create release tags.

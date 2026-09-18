@@ -6,27 +6,22 @@
 
 ## 状态
 
-Updated through P2-7 Markdown link traceability and Obsidian-friendly navigation.
+Updated through WS014 post-v0.0.3.92 stabilization and product health governance（六域 Gap Matrix）。上一轮 P2 逐能力矩阵保留在本文「历史 Gap Matrix（P2 阶段，历史记录）」小节。
 
 ---
 
 ## 范围
 
-本轮 gap audit 覆盖：
+当前六域矩阵覆盖：
 
-1. 内容组织模型。
-2. 对象模型。
-3. CLI 分层。
-4. strict check。
-5. audit context。
-6. sync。
-7. upgrade。
-8. draft。
-9. JSON / error_code 契约。
-10. Workstream stage flow。
-11. 测试与多项目验证矩阵。
+1. Core context governance。
+2. Workstream / worktree。
+3. Continuation / execution control。
+4. Observability / issue lifecycle。
+5. Release / upgrade compatibility。
+6. Dogfooding / current defects。
 
-本轮是路线校准，不实现新 CLI，不新增 strict 规则，不扩展 high-risk audit rules。
+本文件只做路线校准，不实现新 CLI，不新增 strict 规则，不扩展 high-risk audit rules；具体实施由当前 Workstream 承担。
 
 ---
 
@@ -44,7 +39,65 @@ Updated through P2-7 Markdown link traceability and Obsidian-friendly navigation
 
 ---
 
-## Gap Matrix
+## Gap Matrix（六域，当前）
+
+### 1. Core context governance
+
+| 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
+|---|---|---|---|---|
+| 权威文档收口 | 已收敛（WS014 阶段 A） | `docs/Automation.md` 已拆为「当前有效自动化合同」与「历史演进说明」；`docs/ai/active/Context.md` 已收敛；WS013 详细计划移入 `docs/ai/archive/plans/` | 阶段 A2 尚未完成 | 完成 Feedback / Roadmap / Gap 对齐 |
+| 反馈生命周期 | 部分（F015/F017/F019 长期 Triaged） | `docs/ai/active/Feedback_Inbox.md`；`acf review stale` | Triaged 曾长期停留在同一状态 | 转写入规则或转 Planned，并给出证据位置 |
+| 自检覆盖 | 已实现，但不等于产品健康 | `acf check --strict` 0 errors、`acf doctor` 0 findings、`acf audit context` 0 candidates，同时仓库仍存在文档漂移与运行态污染 | 语义问题不被机械检查覆盖；audit 没有 active 总文件预算 candidate | 保持 advisory；暂不扩 high-risk audit |
+
+### 2. Workstream / worktree
+
+| 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
+|---|---|---|---|---|
+| Workstream 生命周期与归档 | 已实现 | `acf workstream reserve/add/set/ready/done/archive-candidates/archive-draft/archive`；`reference/Workstream_Lifecycle_Archive_Design.md` | 无 | 保持显式命令，不做自动归档 |
+| curated handoff 后 worktree 退休 | 未实现 | `acf worktree close` 因 `branch_not_merged` 拒绝；调研分支的必要提交已 cherry-pick 到主线 | 缺窄路径正式关闭 worktree/registry 且默认保留 branch | 设计 `acf worktree retire --disposition curated_handoff --evidence-ref ... --preserve-branch` |
+| 通用 hunk 级别所有权 | 不应实现 | 会把 ACF 推向 patch 管理器、三方合并器或通用编辑器 | 无 | 用 serial coordination + 受控移植替代 |
+| closeout authorization | 已实现 | `acf workstream authorization status/list/policy-set/approve/revoke` | 无 | 不改语义 |
+
+### 3. Continuation / execution control
+
+| 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
+|---|---|---|---|---|
+| continuation 控制面 | 已实现 | owner lease、generation fencing、directive/effect journal、physical execution supervisor、challenge/reconcile/recover、workspace provenance | 复杂度已接近外部 agent 执行控制面，产品边界此前未正式定义 | 见 ADR-0006；分层实现后置 |
+| ACF Core 与 Operations 边界 | 设计已落盘 | `decisions/ADR-0006.md` | 逻辑分层未实现，也未拆包 | 后续独立 Workstream 落地 |
+| runtime 全局注入 | 未解耦（明确后置） | `ai_context_framework/runtime.py` 双向写入 globals；`ai_context_framework/runtime.py`、`ai_context_framework/commands/continuation.py`、`ai_context_framework/commands/continuation_workspace.py`、`ai_context_framework/commands/workstream.py` 均已贴 2000 行门禁 | 同名符号静默覆盖、静态分析失效、测试 monkeypatch 作用域不清、假模块化 | 独立 Workstream：export allowlist → 显式 RuntimeContext → parser composition → 移除 `acf.py` 私有全局修改 |
+| owner-context 网页链路 | ACF 侧已隔离验证通过，真实链路待复测 | `scripts/continuation_owner_fixture.py` 与 `tests/test_continuation_owner_fixture.py`：`assert-owner`、`progress`、`release --handoff` 全部通过并判定 `acf_side_ok`；协议见 `reference/Continuation_Owner_Context_Verification.md` | 真实网页工具链无法在本仓库复现，需用同一 argv 形状复测并判定失败层 | 若失败落在 `pre_acf`，改 connector invocation contract 而不是 ACF credential 校验 |
+
+### 4. Observability / issue lifecycle
+
+| 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
+|---|---|---|---|---|
+| usage log | 已实现 | `acf log enable/disable/status/tail/summarize/projects/prune` | 孤儿命名空间累积（实测 `missing_path=538`、`raw_project_count=551`） | `acf log gc --dry-run/--apply`，严格白名单 |
+| 跨项目 issue 生命周期 | 已实现独立生命周期并完成首轮收口 | 新增 `acf log issue list/show/resolve/supersede/reject/reopen` 与用户级台账 `ACF_HOME/issues/ledger.jsonl`；`acf log issues` 叠加台账处置；open 由 9 条降到 4 条 | 没有默认后台消费者；未关闭项依赖真实链路复测或后续设计 | 由明确创建的 ACF maintenance Workstream 继续批量 triage |
+| test / smoke 运行态隔离 | 缺陷 | `scripts/minimal_smoke.py` 多数场景未覆盖 `ACF_HOME`，临时项目删除后留下无法解析的 project namespace | 缺少 no-pollution 回归 | 场景级隔离 + 运行前后真实运行态不变断言 |
+
+### 5. Release / upgrade compatibility
+
+| 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
+|---|---|---|---|---|
+| 发布链 | 已实现 | immutable tag、PyPI 发布（GitHub Trusted Publishing）、全局安装与 installed-state 验证 | 无 | 保持 |
+| upgrade matrix | 已实现 | `scripts/upgrade_matrix.py` quick / full | 新对象层需随功能增量补 fixture | 新增结构时同步扩 fixture |
+| CI | 部分 | release workflow 只在 `ubuntu-latest` 发布；`actions/checkout` 仍使用可移动 major tag | Windows package smoke 与 publish 的依赖未在代码中固化 | 固定 immutable SHA；publish 依赖必需 CI |
+| 版本收敛 | 待执行 | `ai_context_framework/version.py`、`CHANGELOG.md` | 本轮变更尚未 bump | 收尾时 `acf version set` + CHANGELOG |
+
+### 6. Dogfooding / current defects
+
+| 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
+|---|---|---|---|---|
+| 跨项目 open issue 收口 | 首轮完成 | 9 条 open 处置为 3 resolved / 1 superseded / 2 rejected / 4 open；处置证据与理由写入用户级台账 `ACF_HOME/issues/ledger.jsonl` | 4 条未关闭项：owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认、worktree curated handoff 退休路径 | 分别进入 owner-context 验证、后续设计决策、真实链路复测与 `acf worktree retire` 窄路径 |
+| System Manual 双份同步 | 已知成本 | `reference/System_Manual.md` 与 `template/reference/System_Manual.md` 分别维护 | 共享 CLI 合同容易再次漂移 | 本期只修过期内容；marker 共享区块机制后置 |
+| 多 agent / 多 Workstream UX（F019） | 已收为设计输入 | `decisions/ADR-0006.md` | 具体 UX 改进未实现 | 后续独立的 continuation / Workstream UX 计划 |
+| 自检盲区 | 已确认 | 机械检查全绿时仍存在错误绝对路径、版本矛盾、退役命令引用与 issue 滞留 | 无综合只读入口 | 暂缓 `acf maintenance status`，先靠 WS014 收口 |
+
+---
+
+## 历史 Gap Matrix（P2 阶段，历史记录）
+
+下表是 P2 阶段的逐能力矩阵，保留用于追溯，不再作为当前路线依据。
 
 | 领域 | 顶层要求 | 当前状态 | 证据 | 缺口 | 优先级 | 下一步 |
 |---|---|---|---|---|---|---|
@@ -302,28 +355,35 @@ acf plan reference list docs/ai --json
 
 ## Next Code PR Decision
 
-下一批代码 PR 不应是新增 audit 规则，也不应直接扩 curation draft 语义能力。
+当前下一批代码 PR 不是新增 audit 规则，也不是继续扩 curation draft 语义能力，而是 `v0.0.3.92` 后的稳定化与产品健康治理（WS014）。
 
-本轮推荐 PR 已完成：
+推荐 PR 集（按依赖顺序）：
 
 ```text
-Generated marker helper and Knowledge sync MVP
+1. minimal_smoke ACF_HOME isolation + no-pollution regression
+2. acf log gc (dry-run / apply) + log issues pagination and summary
+3. acf log issue lifecycle command group + user-level issue ledger
+4. cross-project open issue triage closeout
+5. owner-context isolated fixture + verification protocol
+6. CI hardening (immutable action SHAs, release depends on required CI)
+7. version / CHANGELOG convergence and WS014 closeout
 ```
 
-完成原因：
+理由：
 
-1. 当前路线已完成 JSON contract、Workstream stage、upgrade matrix、Task Stage CLI、active-reference traceability、Workstream archive、Markdown link traceability 和 P2-5 audit fixture expansion。
-2. [reference/Generated_Marker_Sync_Design.md](Generated_Marker_Sync_Design.md) 已明确 generated marker、事实源归属、删除策略和 JSON 契约。
-3. 第一批代码已只实现通用 marker helper 和 Knowledge sync MVP，避免一次扩到 Decisions / Archive。
-4. curation draft 增强和 high-risk audit rules 都应基于更多 fixture 与多项目观察之后再推进。
+1. 这些都是 `.92` 后确认为真实的欠账：测试运行态污染真实 `ACF_HOME`、跨项目 issue 生命周期失管、权威文档漂移，而不是缺少新能力。
+2. 它们可以在不触碰 runtime 全局注入与 continuation 语义的前提下完成，影响面可控。
+3. owner-context 的结论必须先重新验证再决定是否改 ACF 代码，避免按历史记录盲改。
+4. runtime 全局注入解耦需要显式 RuntimeContext 与 parser composition 设计，应作为后续独立 Workstream。
 
 拒绝的替代：
 
 | 替代 | 暂不选择原因 |
 |---|---|
-| 直接扩 high-risk audit rules | 误报风险高，违反当前路线。 |
-| 一次做 Knowledge / ADR / Archive sync | 范围过大；应先用 Knowledge sync MVP 验证 marker helper 和删除策略。 |
-| 扩 curation draft 语义能力 | 需要先有更多 audit fixture 和多项目样本，避免草案噪声。 |
+| 通用 hunk 级别所有权系统 | 会把 ACF 推向 patch 管理器与三方合并器；改用 serial coordination + 保存外部 diff/hash + 独立 patch/commit 受控移植。 |
+| 继续扩 high-risk semantic audit | 当前问题是收口与治理，不是缺少更多审计规则；新增规则只会增加误报与维护负担。 |
+| 在同一版本内重构 runtime 全局注入 | 影响面大，需独立 Workstream 与显式分层设计，不能与本次小范围修复混合。 |
+| 直接扩 curation draft 语义能力 | 需要先有更多 fixture 与多项目样本，避免草案噪声。 |
 | 做自动 Context merge | 明确非目标。 |
 
 ---

@@ -99,7 +99,10 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 - `uv run acf curate draft docs/ai --dry-run --json`
 
 - 需要整理、归纳、精简上下文时，按需读取 [reference/Context_Curation_Prompt.md](Context_Curation_Prompt.md)；默认产物是整理建议，不是文件修改。
-- `uv run acf log projects --scan-root E:\Codes --json`
+- `uv run acf log projects --scan-root <projects-root> --json`
+- `uv run acf log gc --json`（默认干跑；`--apply` 才删除并写 receipt）
+- `uv run acf log issue list --all-projects --status open --json`
+- `uv run acf log issue resolve <fingerprint> --reason "已修复" --evidence-ref <ref> --json`
 - `uv run acf log feedback docs/ai --type Problem --source manual --text "实际使用反馈。" --json`
 - `uv run acf log summarize --days 7 --json`
 - `uv run acf new worklog docs/ai --summary "补记一次上下文维护。" --append --dry-run --json`
@@ -181,6 +184,12 @@ acf continuation renew C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 -
 # 已修复 dogfood issue 用 append-only resolution event 收口；历史 occurrence 不删除
 acf continuation issue C:\PROJECT\repo_worktrees\ws001-example --task-id WS001 --text "fixed by validated checkpoint" --resolve-fingerprint <fingerprint> --evidence-ref git:<commit> --json
 acf log issues --all-projects --open-only --json
+acf log issues --all-projects --open-only --summary-only --json
+# 产品 issue 生命周期不依赖 active continuation：处置写入用户级台账
+acf log issue list --all-projects --status open --json
+acf log issue resolve <fingerprint> --reason "fixed by validated checkpoint" --evidence-ref git:<commit> --json
+acf log issue supersede <duplicate-fingerprint> --by <canonical-fingerprint> --reason "same root cause" --json
+acf log issue reject <fingerprint> --reason "project-specific, migrated to the owning project" --json
 ```
 
 Continuation owner transport 遵守 [Sensitive Data / Credential Transport Contract](../../Sensitive_Data_Credential_Transport.md)。`claim` / `recover` 在提交 fresh owner 之前创建并交付本地 `owner_context.handle`；handle 指向的 ephemeral owner context 绑定 workspace、task、lease、generation 与 possession credential，公共 JSON、prompt、usage log 与普通 diagnostics 不返回 reusable credential 或无业务必要的 verifier。后续 owner-protected 命令只传 `--owner-file <owner_context_handle>`，公共 parser 不再接收 `--fence-token`、`--lease-id` 或 `--generation`。pre-.90 active owner 若仍持有正确的本地 token file，可显式迁移到同一 lease/generation/runner 的 owner context；CLI 只接收该本地文件路径，旧环境变量不再参与认证。handle 缺失、错误绑定、stale generation、credential 不匹配或 migration/delivery 失败均 fail-closed。校验顺序是 binding-first：先验证 handle 文件系统边界、schema 与 workspace/task/runner 绑定，再验证 active lease identity、generation 和 credential possession；已提供 handle 的 schema、绑定、lease identity 或 credential possession 校验失败都返回通用 `owner_context_binding_mismatch`，不暴露 `owner_context_invalid`、`lease_mismatch` 或 `fence_token_*` 深层错误码；generation fencing 的状态错误仍按独立 fencing 合同返回。handle 缺失或不可用仍返回 `owner_context_required` / `owner_context_unavailable`。

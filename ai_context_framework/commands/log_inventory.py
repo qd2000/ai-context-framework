@@ -254,6 +254,16 @@ def collect_log_projects(
     }
 
 
+def register_log_projects_parser(subparsers, add_json_argument) -> None:
+    parser = subparsers.add_parser("projects", help="summarize all usage-log projects")
+    parser.add_argument("--log-root", type=Path, default=None, help="ACF home or projects directory to read")
+    parser.add_argument("--scan-root", type=Path, action="append", default=None, help="scan for real context roots; can be repeated")
+    parser.add_argument("--min-events", type=int, default=0, help="minimum event count for listed projects")
+    parser.add_argument("--include-unresolved", action="store_true", help="include log-only projects not matched to scan roots")
+    add_json_argument(parser)
+    parser.set_defaults(func=log_projects_command)
+
+
 def log_projects_command(args: argparse.Namespace) -> int:
     payload = collect_log_projects(
         log_root=getattr(args, "log_root", None),

@@ -1,5 +1,7 @@
 # ACF Project Observer 完整初版设计
 
+> Historical / Inactive since 2026-09-18. ACF retired the Project Observer product in `v0.0.3.92`; `acf observer` is now only a side-effect-free `observer_retired` tombstone. This document is historical design evidence for WS011, not a description of current ACF capabilities.
+
 ## 1. 定位与目标
 
 ACF Project Observer 是**项目级自治执行可观测系统**。
@@ -1043,7 +1045,7 @@ ACF Project Observer 的核心原则：
 
 ## 42. WS012 计划扩展：Project Narrative / Architecture Map / Logical Milestone Flow
 
-> 状态：**Project Narrative 已进入稳定版；Observer V2 的显式 Target Registry / target-local Dashboard 正由 WS012 继续演进，最终 authority 以 WS012 当前 PLAN 为准。**
+> 状态（历史记录）：**Project Narrative 曾进入稳定版；Observer V2 的显式 Target Registry / target-local Dashboard 原本计划由 WS012 继续演进。Observer 产品能力已于 `v0.0.3.92` 从 ACF 核心退役，WS012 也已归档；本节仅作历史设计记录，不再代表当前活跃路线。**
 
 现有 Dashboard 已经能回答“项目现在是否健康”“当前 Workstream 在做什么”“最近发生了什么”，但仍然缺少长期阅读所需的项目级叙事骨架。WS012 将增加一个独立的 **Project Narrative** derived semantic layer，使 Dashboard 还能稳定回答：
 

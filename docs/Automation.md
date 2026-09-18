@@ -6,15 +6,17 @@
 
 非 PetroSim dogfooding 样本见 `docs/ai/reference/Non_PetroSim_Dogfooding_Sample.md`。当前选择 EcSOS `cracking-yield-prediction-system` 作为论文 / 数据分析 / Python 工具类真实样本；默认只读或 dry-run，写入前需确认目标项目状态。
 
-## 当前已自动化
+## 当前有效自动化合同
+
+本节只描述当前有效的自动化合同。已归档工作流（WS012）与已退役能力（Project Observer）的说明集中在 `## 历史演进说明` 章节，不再作为当前执行路线。
 
 ### Continuation dogfood 反馈闭环
 
 并行 Scheduled Task / 外部 agent 使用 `acf continuation` 时，命令级成功/失败自动进入用户级 usage log；遇到具体、可复用、证据支持的 ACF / continuation / 调度工作流缺口时，agent 通过 `acf continuation issue` 写结构化 issue。`acf log issues --all-projects --json` 按稳定 fingerprint 聚合不同 worktree 的重复 occurrence，供后续产品改进直接复用。正常 active-lease no-op、等待外部任务和业务算法失败不得记录为产品 issue。
 
-ACF 自身的 WS012 Maintenance Writer 负责把该跨项目 issue 池真正消费起来，而不是只累计日志：每次 `:04` wake 可以只读获取 `acf log issues --all-projects --open-only --json`，先按当前稳定版重新验证、识别已修复但未 resolve 的历史项、聚合同根因 fingerprint，再分为 Immediate / Ready Batch / Observe。critical、数据损坏/重复副作用风险、continuation 自锁、阻断 Scheduled Task 或当前稳定版的跨 Workstream 严重 regression 应立即进入修复；普通 high/medium 先形成 deterministic regression、affected files、repair plan 和 validation plan，达到 WS012 PLAN 定义的 batch 条件后一次性处理当时全部 Ready Batch root-cause clusters。原始 open issue 数量本身不作为 batch 触发条件。
+跨项目 issue 池当前没有默认后台消费者：它由**明确创建的 ACF maintenance Workstream** 批量 triage，而不是由某个常驻 Scheduled Task 自动消费。triage 时先用当前稳定版重新验证、识别已修复但未 resolve 的历史项、聚合同根因 fingerprint，再分为 Immediate / Ready Batch / Observe。critical、数据损坏/重复副作用风险、continuation 自锁、阻断 Scheduled Task 或当前稳定版的跨 Workstream 严重 regression 应立即进入修复；普通 high/medium 先形成 deterministic regression、affected files、repair plan 和 validation plan，达到该 maintenance Workstream PLAN 定义的 batch 条件后一次性处理当时全部 Ready Batch root-cause clusters。原始 open issue 数量本身不作为 batch 触发条件。产品 issue 的生命周期由用户级 issue 台账独立维护，不依赖任何 active continuation task。
 
-### WS012 动态用户需求与 live steering
+### Continuation 用户 directive 与 live steering
 
 长时间 continuation 任务通过 `acf continuation directive ...` 正式接收用户中途新增的 requirement、priority change、constraint 和 plan change。directive 是用户级、可审计的 authority inbox；它不是第二套 Task Plan，也不会让 CLI 自动裁决自然语言事实。每条 directive 可声明 `lifetime=transient|durable|unspecified`。pending directive 只负责可靠表达“用户 authority 已变化”；transient one-shot 可以在证据充分时直接 `pending -> resolved`，需要跨轮执行的 transient 只有形成 durable execution evidence 后才可 adopt；durable requirement / constraint / priority / plan change 必须先把持久语义同步进正确 Markdown PLAN / Workstream / Rules / Task authority，再以 evidence-backed adopt 消费。
 
@@ -29,9 +31,9 @@ ACF 自身的 WS012 Maintenance Writer 负责把该跨项目 issue 池真正消�
 - directive current journal 达到软 event/byte pressure 时，只把**完整 terminal prefix**（全部 directive 均已 `resolved|superseded|withdrawn`）archive 到 `directives.archive.NNNNNN.json`；任何 pending/adopted authority 都留在 current。archive-first/current-second 原子写允许崩溃窗口内出现 exact duplicate，加载时按 event identity/revision 精确去重；不一致 duplicate 或 revision gap 直接 fail-closed。archive history 继续参与 list/show、history digest 与 migration-preservation audit；如果 active authority 自身耗尽容量，不会为腾空间删除它。
 - 非 Writer owner 的外部 Agent 可以代表新的用户 authority 执行 directive add/supersede，而不因此获取 writer lease/generation/fence/workspace write authority；当前 Writer 只通过 prompt/heartbeat/renew 的 revision/digest change signal 在下一 safe control point 发现 steering。
 - 第一轮 dogfood 使用该渠道正式注入并消费“Observer Project Narrative / Project Map”和“Global continuation issue maintenance”两个真实需求；
-- 正式稳定版发布/安装前，worktree candidate 只在隔离 ACF_HOME 测试该接口，不得用候选实现改写 canonical continuation；发布后再用安装态命令对 WS012 做真实 steering dogfood。
+- 正式稳定版发布/安装前，worktree candidate 只在隔离 ACF_HOME 测试该接口，不得用候选实现改写 canonical continuation；发布后再用安装态命令做真实 steering dogfood。
 
-WS012 已使用安装态 directive channel 对上述两个真实需求完成 add → prompt exposure → authority refresh → adopt dogfood。Project Map 的实现保持 Observer anti-masking：Maintenance Writer 只构建/验证产品代码与隔离 runtime，正式 `:34` Production Observer 仍独立负责 canonical snapshot/render。项目级叙事由 `observer narrative-source` 对显式 authority 文件和稳定项目 meaning facts 计算 fingerprint，再由 `observer narrative-apply` 保存版本化 derived state；Dashboard 只渲染已经通过 fingerprint/provenance 校验的 Overall Goal、Architecture Map、Logical Milestone Flow、Current Position 和 evidence，不从整个仓库自动猜项目故事。authority 变化后 narrative 必须 stale，直到新的显式语义解释被应用。
+WS012 曾使用安装态 directive channel 对上述两个真实需求完成 add → prompt exposure → authority refresh → adopt dogfood。其中的 Project Narrative / Project Map 与 `:34` Production Observer 属于已退役的 Observer 产品能力，历史实现说明见 `## 历史演进说明：WS012 与 Project Observer（已退役 / 已归档）`。
 
 ### Continuation 长时间物理执行 liveness
 
@@ -93,23 +95,35 @@ durable writer 已权威结束但在启动前遗漏真实输出 intent 时，输
 
 ACF_HOME continuation schema 也属于 control-plane contract：`continuation list --all-projects --json` 只读扫描 `ACF_HOME/projects/<root-slug>-<path-hash>/continuation/<task-id>/`，同时暴露 project/task identity、control generation、timing profile、各 state 文件 schema 与 migration/blocked 状态。`continuation doctor` 在可正常加载的 task 上同步返回 `state_compatibility`。支持的 legacy workspace schema 只通过显式 `continuation migrate --dry-run` → `--apply --reason ...` 升级；apply 要求没有 lease record，生成 `last_migration.json` receipt，并对 rounds/effects/coordination/reconcile/recovery 等历史文件保存 byte digest。未知 schema 不自动写回、不丢历史，保持 blocked。
 - Observer 产品能力已于 `v0.0.3.92` 退役：runtime、Dashboard、Target Registry、semantic-review / presentation lifecycle、narrative 与 dogfood acceptance 均不再发布。`acf observer` 只保留无副作用的退役入口，稳定返回 `observer_retired` 并指向 `acf status` / `acf workstream dashboard` / `acf continuation doctor`；它不导入旧实现、不读写 Observer runtime、不创建目录，也不会删除任何用户级 Observer 数据。
-- 使用状态日志：`log enable|disable|status|tail|summarize|projects|prune` 管理默认开启的用户级全局 usage event log，按项目子目录记录命令结果元数据；`log projects --scan-root <path> --json` 支撑跨项目 dogfooding 和旧项目升级盘点。
+- 使用状态日志：`log enable|disable|status|tail|summarize|projects|prune|gc|issues|issue` 管理默认开启的用户级全局 usage event log，按项目子目录记录命令结果元数据；`log projects --scan-root <path> --json` 支撑跨项目 dogfooding 和旧项目升级盘点；`log gc` 默认干跑报告可清理的孤儿 namespace，只有 `--apply` 才删除并写 receipt，仍可解析到真实项目的 namespace 永不删除；`log issues` 提供分页与 `--summary-only` 摘要，`log issue list|show|resolve|supersede|reject|reopen` 维护独立于 continuation 的用户级 issue 台账，产品 issue 生命周期不再依赖 active continuation task。
 - CLI 渐进式披露入口：`acf status|next` 未显式选择 Workstream 时返回 `GlobalOnly`，只给全局文件指针和 Workstream 摘要；attention 不参与路由。显式 `--workstream`、Active Current_Task 唯一绑定或 verified worktree 只返回 pointer-only 入口，随后再调用 `acf workstream context WSNNN` 才披露专属内容。冲突或无效选择保持全局并以结构化错误 fail-closed。模板和 minimal init 产物只提示这些入口、`acf --help` 和系统手册发现路径，不在默认入口列完整命令手册。
 - 最小 smoke runner：`scripts/minimal_smoke.py` 使用隔离临时目录和 CLI JSON 输出，覆盖 `init -> nested status/check`、`new worklog create/append/error_code`、Workstream 最小 happy path、archive-candidates / archive-draft / explicit archive 主路径和 Task Stage 最小 happy path；最终汇总 JSON 使用 ASCII-safe escaping，避免 Windows legacy console code page 因 Unicode 文本导致 release smoke 假失败。Git worktree 事务由 `tests/test_worktree_cli.py` 的临时真实仓库矩阵单独覆盖，不接触用户仓库。
 - 升级兼容 runner：`scripts/upgrade_matrix.py` 使用风险驱动 fixture 验证旧上下文可被非破坏式带到当前工具可治理状态；quick 模式随单元测试运行，full 模式用于 release 前扩展检查。
 - 发布验收 runner：`scripts/release_check.py` 可运行 template/strict、minimal smoke、unit、full upgrade matrix，并在隔离 uv 环境中分别安装 wheel 与 sdist，验证 `acf --version`、`acf init`、`acf check --strict` 和 `uv tool install` console script。
-- 一键安装/更新脚本：`scripts/install_acf.ps1`、`scripts/update_acf.ps1` 和对应的 `sh` 入口只依赖已安装的 uv；Windows PowerShell 路径在修改全局 tool 前先检查 `uv` tool 环境/`acf.exe` 是否仍被 ACF 进程占用，有占用时 fail-closed，不让 `uv` 先删一半再因文件锁失败。Windows 脚本在 uv mutation 完成后原子生成 uv tool bin 下的 canonical `acf.cmd`，由该 tool environment 的 Python 执行 `-m acf`，再删除同目录 uv console-script `acf.exe`；这是为了机械消除 `.EXE` 在常见 `PATHEXT` 中先于 `.CMD` 的解析歧义，而不是新增第二套 CLI 或 signing/certificate policy。若 tool bin 已在 PATH，脚本还要求 `Get-Command acf` 的第一应用解析结果就是该 `acf.cmd`。`update_acf.ps1` 使用未固定版本的 `uv tool install --force --upgrade`，避免精确版本 receipt 让 `uv tool upgrade` 长期停在旧版；`-Reinstall` 用于无并发进程时修复当前最新稳定版。自动化/多 Writer 环境应优先走该脚本而不是裸跑 `uv tool upgrade/install --force`，因为裸 uv mutation 会重新生成 `acf.exe`。GitHub Actions 的 CI 和 `v*` tag 发布 workflow 负责测试、构建和 PyPI 发布，Trusted Publishing 配置仍需在 GitHub/PyPI 侧完成。
+- 一键安装/更新脚本：`scripts/install_acf.ps1`、`scripts/update_acf.ps1` 和对应的 `sh` 入口只依赖已安装的 uv；Windows PowerShell 路径在修改全局 tool 前先检查 `uv` tool 环境/`acf.exe` 是否仍被 ACF 进程占用，有占用时 fail-closed，不让 `uv` 先删一半再因文件锁失败。Windows 脚本在 uv mutation 完成后原子生成 uv tool bin 下的 canonical `acf.cmd`，由该 tool environment 的 Python 执行 `-m acf`，再删除同目录 uv console-script `acf.exe`；这是为了机械消除 `.EXE` 在常见 `PATHEXT` 中先于 `.CMD` 的解析歧义，而不是新增第二套 CLI 或 signing/certificate policy。若 tool bin 已在 PATH，脚本还要求 `Get-Command acf` 的第一应用解析结果就是该 `acf.cmd`。`update_acf.ps1` 使用未固定版本的 `uv tool install --force --upgrade`，避免精确版本 receipt 让 `uv tool upgrade` 长期停在旧版；`-Reinstall` 用于无并发进程时修复当前最新稳定版。自动化/多 Writer 环境应优先走该脚本而不是裸跑 `uv tool upgrade/install --force`，因为裸 uv mutation 会重新生成 `acf.exe`。GitHub Actions 的 CI 和 `v*` tag 发布 workflow 负责测试、构建和 PyPI 发布；PyPI 通过 GitHub Trusted Publishing（`id-token: write` + `uv publish`）发布，不需要在仓库中保存发布凭据。
 - Context governance fixture matrix：`tests/fixtures/context_matrix/` 和 `tests/test_context_matrix.py` 覆盖 minimal clean、legacy reference、audit long section、complex Workstream、Workstream lifecycle/archive candidate 和 authority gate，作为 P3 audit rule expansion 前的防过拟合样本。
 
 这些检查不需要模型判断，适合作为每次模板修改后的基础验证。
 
-## 长期阶段计划：AI-facing CLI
+## 历史演进说明：WS012 与 Project Observer（已退役 / 已归档）
+
+> Historical / Inactive。WS012 已归档（`docs/ai/archive/workstreams/WS012.md`），其 Scheduled Task 与 Maintenance Writer 已删除；Project Observer 产品能力已从 ACF 核心退役，`acf observer` 只保留无副作用 `observer_retired` 墓碑。以下内容只作历史记录，不得作为当前执行路线。
+
+- WS012 消费跨项目 issue 池的历史机制：由 ACF 自身的 WS012 Maintenance Writer 在每次 `:04` wake 只读获取 `acf log issues --all-projects --open-only --json`，并按 Immediate / Ready Batch / Observe 分批 triage。该 Scheduled Task 已删除；当前 issue triage 改由明确创建的 ACF maintenance Workstream 承担，产品 issue 生命周期由用户级 issue 台账独立维护。
+- Project Narrative / Project Map 的历史实现：Maintenance Writer 只构建/验证产品代码与隔离 runtime，正式 `:34` Production Observer 独立负责 canonical snapshot/render；项目级叙事由 `observer narrative-source` 对显式 authority 文件与稳定项目 meaning facts 计算 fingerprint，再由 `observer narrative-apply` 保存版本化 derived state；Dashboard 只渲染通过 fingerprint/provenance 校验的 Overall Goal、Architecture Map、Logical Milestone Flow、Current Position 和 evidence，不从整个仓库自动猜项目故事。authority 变化后 narrative 必须 stale，直到新的显式语义解释被应用。
+- 退役决策、删除范围与依赖矩阵：`docs/ai/archive/plans/2026-09-18-ws013-observer-retirement-and-v0.0.3.92-plan.md`。
+
+---
+
+## 历史演进说明：AI-facing CLI 长期阶段计划
+
+> Historical / Inactive。以下阶段记录是 `acf` 从仓库内脚本演进为可安装 CLI 的历史路线与验收记录；阶段 1–3 与 P0/P1 治理工作均已收口。当前产品阶段与后续路线以 [reference/Product_Roadmap.md](ai/reference/Product_Roadmap.md) 为准。
 
 长期方向是把 `acf` 从仓库内脚本演进为可安装、可在任意目录调用、主要面向 AI 使用的上下文维护 CLI。它的定位是上下文文件 API，而不是通用 Markdown 编辑器。
 
 ### 阶段 1：可安装命令和上下文发现
 
-状态：已实现第一版；PyPI 发布、安装、更新和发布前验收闭环已加入仓库，正式启用还需配置 PyPI 项目和 Trusted Publishing。
+状态：已实现；PyPI 发布、安装、更新和发布前验收闭环已加入仓库，并已通过 GitHub Trusted Publishing 完成正式发布。
 
 目标：
 

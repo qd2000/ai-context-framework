@@ -218,5 +218,60 @@ class LogInventoryTests(unittest.TestCase):
             self.assertGreaterEqual(payload["resolved_context_count"], 1)
 
 
+    def append_issue(self, project_root, index, severity):
+        self.append_event(
+            project_root,
+            {
+                "schema_version": 1,
+                "timestamp": f"2026-06-{index + 1:02d}T00:00:00Z",
+                "event_kind": "continuation_issue",
+                "command": "continuation issue",
+                "project_root": str(project_root.resolve()),
+                "fingerprint": f"{index + 1:020x}",
+                "category": "other",
+                "severity": severity,
+                "text": f"smoke issue {index}",
+            },
+        )
+
+    def test_log_issues_reports_summary_and_pagination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            context = project / "docs" / "ai"
+            self.assertEqual(self.run_cli_output(["init", str(context), "--profile", "minimal", "--json"])[0], 0)
+            self.append_issue(project, 0, "high")
+            self.append_issue(project, 1, "medium")
+            self.append_issue(project, 2, "medium")
+
+            exit_code, stdout, stderr = self.run_cli_output(["log", "issues", str(project), "--json"])
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["issue_count"], 3)
+            self.assertEqual(payload["returned_count"], 3)
+            self.assertEqual(payload["occurrence_count"], 3)
+            self.assertFalse(payload["has_more"])
+            self.assertEqual(payload["summary"]["by_severity"]["high"], 1)
+            self.assertEqual(payload["summary"]["by_status"]["open"], 3)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["log", "issues", str(project), "--limit", "1", "--offset", "1", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["issue_count"], 3)
+            self.assertEqual(payload["returned_count"], 1)
+            self.assertTrue(payload["has_more"])
+            self.assertEqual(len(payload["issues"]), 1)
+
+            exit_code, stdout, stderr = self.run_cli_output(
+                ["log", "issues", str(project), "--summary-only", "--json"]
+            )
+            self.assertEqual(exit_code, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertTrue(payload["summary_only"])
+            self.assertEqual(payload["issues"], [])
+            self.assertEqual(payload["summary"]["total"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,18 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.93 — 2026-09-18
+
+### Post-0.0.3.92 stabilization and product health
+
+- 新增 `acf log gc`：默认干跑报告孤儿 usage-log namespace（记录的项目根已不存在、无 continuation / closeout 状态、命名像 synthetic / smoke / temp 且超过保留期），只有 `--apply` 才删除并写出不含凭据的 receipt；仍可解析到真实项目的 namespace 永不删除。首次对真实用户运行态执行后移除 413 个孤儿 namespace、保留 138 个。
+- 最小 smoke runner 现在为每个场景强制隔离 `ACF_HOME`，不再向真实用户运行态写入临时项目日志；新增「运行前后真实 `ACF_HOME` 目录集合不变」回归。
+- 新增独立于 continuation 的产品 issue 生命周期：`acf log issue list|show|resolve|supersede|reject|reopen` 维护用户级 append-only 台账 `<ACF_HOME>/issues/ledger.jsonl`，`acf log issues` 叠加台账处置并新增分页（`--offset`）、`--summary-only`、`--include-paths` 与 summary 计数。首轮 triage 把 9 条 open 收口为 3 resolved / 1 superseded / 2 rejected / 4 open。
+- 权威文档收敛：`docs/Automation.md` 拆分为「当前有效自动化合同」与「历史演进说明」，不再把已归档 WS012 当作 issue owner、不再要求运行已退役的 Observer narrative 命令，并修正过期的 Trusted Publishing 表述；`active/Context.md` 收敛为渐进式披露结构，移除机器绝对路径、固定版本数字与已被 ADR 覆盖的整段设计；WS013 详细计划归档到 `archive/plans/`。
+- 新增 `decisions/ADR-0006`：正式定义 ACF Core 与可选 Operations 控制面的边界与硬约束。
+- 新增 `scripts/continuation_owner_fixture.py`：隔离验证 owner-context 传输（`assert-owner` / `progress` / `release --handoff`），真实网页工具链复测记录为待执行验收项。
+- CI 收口：`actions/checkout` 固定到不可变 commit SHA；`ci.yml` 暴露 `workflow_call`，发布 workflow 复用同一套必需 CI（含 Windows package smoke）后才允许 publish。
+
 ## v0.0.3.92 — 2026-09-17
 
 ### Project Observer retirement
