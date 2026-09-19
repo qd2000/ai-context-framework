@@ -143,6 +143,58 @@ class RuntimeExportContractTests(unittest.TestCase):
         self.assertIs(namespace["duplicate"], shared)
         self.assertIs(vars(core)["duplicate"], shared)
 
+    def test_consumer_name_tuples_match_measured_free_names(self) -> None:
+        import ai_context_framework.runtime_context as runtime_context
+
+        expected = {
+            "ai_context_framework/commands/workstream.py": list(
+                runtime_context.WORKSTREAM_CONSUMER_NAMES
+            ),
+            "ai_context_framework/commands/workstream_reserve.py": list(
+                runtime_context.WORKSTREAM_RESERVE_CONSUMER_NAMES
+            ),
+        }
+        measured = {
+            relative: sorted(row["free_names"])
+            for relative, row in self.report["consumers"].items()
+        }
+        self.assertEqual(
+            {relative: sorted(names) for relative, names in expected.items()},
+            measured,
+        )
+
+    def test_build_runtime_context_is_fail_closed(self) -> None:
+        import ai_context_framework.runtime_context as runtime_context
+
+        with self.assertRaises(runtime_context.RuntimeContextError):
+            runtime_context.build_runtime_context(
+                {"present": 1}, ("present", "absent"), label="probe"
+            )
+        context = runtime_context.build_runtime_context(
+            {"present": 1, "other": 2}, ("present",), label="probe"
+        )
+        self.assertEqual(context.as_binding(), {"present": 1})
+        self.assertEqual(context.resolve("present"), 1)
+        with self.assertRaises(runtime_context.RuntimeContextError):
+            context.resolve("other")
+
+    def test_workstream_context_is_bounded(self) -> None:
+        """The Workstream consumer must receive a small explicit subset, not the merge."""
+
+        from ai_context_framework.runtime_parts import archive_workstream
+
+        context = archive_workstream.workstream_context()
+        imported = __import__(
+            "ai_context_framework.runtime", fromlist=["runtime"]
+        )
+        merged_public = {
+            name for name in vars(imported) if not name.startswith("__")
+        }
+        self.assertEqual(
+            len(context.names), len(set(context.names))
+        )
+        self.assertLess(len(context.names), len(merged_public))
+
     def test_lazy_compat_getattr_is_preserved(self) -> None:
         """The merged ``__getattr__`` must keep forwarding workstream helpers."""
 

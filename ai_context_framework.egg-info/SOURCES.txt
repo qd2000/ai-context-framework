@@ -30,6 +30,7 @@ ai_context_framework/models.py
 ai_context_framework/observability.py
 ai_context_framework/paths.py
 ai_context_framework/runtime.py
+ai_context_framework/runtime_context.py
 ai_context_framework/runtime_exports.py
 ai_context_framework/sensitive_data.py
 ai_context_framework/tables.py
@@ -160,6 +161,7 @@ tests/test_log_gc.py
 tests/test_log_inventory.py
 tests/test_log_issue.py
 tests/test_package_skeleton.py
+tests/test_runtime_contracts.py
 tests/test_sensitive_data.py
 tests/test_smoke_isolation.py
 tests/test_upgrade_audit.py

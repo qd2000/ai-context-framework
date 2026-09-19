@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 import inspect
 
+from ai_context_framework import runtime_context
 from ai_context_framework.commands import workstream as workstream_commands
 from ai_context_framework.commands import workstream_reserve as workstream_reserve_commands
 
@@ -895,8 +896,26 @@ def update_workstream_detail_metadata(
 
 
 
+_WORKSTREAM_CONTEXT: runtime_context.RuntimeContext | None = None
+
+
+def workstream_context() -> runtime_context.RuntimeContext:
+    """Build the bounded Workstream consumer context once and reuse it."""
+
+    global _WORKSTREAM_CONTEXT
+    if _WORKSTREAM_CONTEXT is None:
+        _WORKSTREAM_CONTEXT = runtime_context.build_runtime_context(
+            globals(),
+            runtime_context.WORKSTREAM_CONSUMER_NAMES,
+            label="workstream",
+        )
+    return _WORKSTREAM_CONTEXT
+
+
 def workstream_deps() -> workstream_commands.WorkstreamDependencies:
-    return workstream_commands.WorkstreamDependencies(symbols=globals())
+    return workstream_commands.WorkstreamDependencies(
+        symbols=workstream_context().as_binding()
+    )
 
 
 _WORKSTREAM_COMPAT_EXPORTS = {
@@ -948,7 +967,12 @@ def workstream_add_command(args: argparse.Namespace) -> int:
 def workstream_reserve_command(args: argparse.Namespace) -> int:
     deps = workstream_deps()
     workstream_commands._bind(deps)
-    symbols = dict(globals())
+    symbols = runtime_context.build_runtime_context(
+        globals(),
+        runtime_context.WORKSTREAM_RESERVE_CONSUMER_NAMES,
+        label="workstream_reserve",
+        extra_providers=(vars(workstream_commands),),
+    ).as_binding()
     symbols.update(vars(workstream_commands))
     return workstream_reserve_commands.workstream_reserve_command(
         args,

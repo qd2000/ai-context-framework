@@ -40,6 +40,25 @@ def _bind(deps: WorkstreamDependencies) -> None:
         module_globals[name] = value
 
 
+_BOUND = False
+
+
+def _ensure_bound(deps: WorkstreamDependencies) -> None:
+    """Bind the bounded runtime context once per process.
+
+    Every Workstream handler receives the same frozen context built by
+    ``archive_workstream.workstream_context``, so copying hundreds of names into
+    module globals on every call was pure overhead. ``_bind`` keeps its original
+    refresh semantics and is still called directly by the compatibility layer.
+    """
+
+    global _BOUND
+    if _BOUND:
+        return
+    _bind(deps)
+    _BOUND = True
+
+
 def resolve_workstream_closeout_authorization(
     root: Path,
     detail: WorkstreamDetail,
@@ -91,7 +110,7 @@ def emit_closeout_authorization_blocked(
 
 
 def workstream_init_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     index_path = workstream_index_path(root)
@@ -124,7 +143,7 @@ def workstream_init_command(args: argparse.Namespace, *, deps: WorkstreamDepende
 
 
 def workstream_status_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     initialized = workstream_initialized(root)
     entries = parse_workstream_index(root) if initialized else []
@@ -152,7 +171,7 @@ def workstream_status_command(args: argparse.Namespace, *, deps: WorkstreamDepen
 
 
 def workstream_list_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     entries = parse_workstream_index(root)
     payload: dict[str, object] = {
@@ -330,7 +349,7 @@ def count_by_key(items: Sequence[dict[str, object]], key: str) -> dict[str, int]
 
 
 def workstream_archive_candidates_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     today = parse_archive_candidates_today(args.today)
     candidates: list[dict[str, object]] = []
@@ -479,7 +498,7 @@ def render_workstream_archive_draft(
 
 
 def workstream_archive_draft_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     draft_date = parse_workstream_archive_date(args.date)
     dry_run = dry_run_enabled(args)
@@ -521,7 +540,7 @@ def active_workstream_index_matches(entries: Sequence[WorkstreamEntry], workstre
 
 
 def workstream_archive_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     archive_date = parse_workstream_archive_date(args.date)
     dry_run = dry_run_enabled(args)
@@ -611,7 +630,7 @@ def workstream_archive_command(args: argparse.Namespace, *, deps: WorkstreamDepe
 
 
 def workstream_sync_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     index_path = workstream_index_path(root)
@@ -642,7 +661,7 @@ def workstream_sync_command(args: argparse.Namespace, *, deps: WorkstreamDepende
 
 
 def workstream_show_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     detail = read_workstream_detail(root, args.id)
     merge_request = safe_section_body_from_text(detail.body, "## 合并请求")
@@ -673,7 +692,7 @@ def workstream_show_command(args: argparse.Namespace, *, deps: WorkstreamDepende
 
 
 def workstream_add_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     entries = parse_workstream_index(root)
     if workstream_id_exists(root, args.id, entries):
@@ -730,7 +749,7 @@ def workstream_add_command(args: argparse.Namespace, *, deps: WorkstreamDependen
 
 
 def workstream_set_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     goal = args.goal.strip() if args.goal is not None else None
@@ -788,7 +807,7 @@ def required_workstream_reason(args: argparse.Namespace, command: str) -> str:
 
 
 def workstream_block_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     reason = required_workstream_reason(args, "block")
@@ -806,7 +825,7 @@ def workstream_block_command(args: argparse.Namespace, *, deps: WorkstreamDepend
 
 
 def workstream_cancel_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     reason = required_workstream_reason(args, "cancel")
@@ -888,7 +907,7 @@ def merge_request_has_required_fields(body: str) -> bool:
 
 
 def workstream_merge_request_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     detail = read_workstream_detail(root, args.id)
@@ -931,7 +950,7 @@ def workstream_merge_request_command(args: argparse.Namespace, *, deps: Workstre
 
 
 def workstream_ready_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     detail = read_workstream_detail(root, args.id)
@@ -986,7 +1005,7 @@ def required_workstream_merge_resolution(args: argparse.Namespace) -> str:
 
 
 def workstream_done_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     detail = read_workstream_detail(root, args.id)
@@ -1043,7 +1062,7 @@ def canonical_workstream_note_heading(section: str) -> str:
 
 
 def workstream_note_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     detail = read_workstream_detail(root, args.id)
@@ -1146,7 +1165,7 @@ def append_workstream_activity(body: str, message: str) -> str:
 
 
 def workstream_scope_add_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     reason = (args.reason or "").strip()
@@ -1244,7 +1263,7 @@ def workstream_context_payload(root: Path, detail: WorkstreamDetail) -> dict[str
 
 
 def workstream_context_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     detail = read_workstream_detail(root, args.id)
     context = workstream_context_payload(root, detail)
@@ -1288,7 +1307,7 @@ def workstream_context_command(args: argparse.Namespace, *, deps: WorkstreamDepe
 
 
 def workstream_next_actions_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     detail = read_workstream_detail(root, args.id)
     status = workstream_detail_metadata_value(detail, "status", "Unknown")
@@ -1503,7 +1522,7 @@ def guard_violations_for_files(
 
 
 def workstream_guard_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     detail = read_workstream_detail(root, args.id)
     explicit_values: list[str] = []
@@ -1553,7 +1572,7 @@ def workstream_guard_command(args: argparse.Namespace, *, deps: WorkstreamDepend
 
 
 def workstream_preflight_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     detail = read_workstream_detail(root, args.id)
     payload: dict[str, object] = {
@@ -1583,7 +1602,7 @@ def workstream_preflight_command(args: argparse.Namespace, *, deps: WorkstreamDe
 
 
 def workstream_merge_start_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     detail = read_workstream_detail(root, args.id)
@@ -1626,7 +1645,7 @@ def workstream_merge_start_command(args: argparse.Namespace, *, deps: Workstream
 
 
 def workstream_dashboard_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     entries = parse_workstream_index(root)
     details = [read_workstream_detail(root, entry.workstream_id) for entry in entries]
@@ -1712,7 +1731,7 @@ def workstream_dashboard_command(args: argparse.Namespace, *, deps: WorkstreamDe
 
 
 def workstream_claim_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     read_claims = [normalized_read_claim(value) for value in (args.read or [])]
@@ -1749,7 +1768,7 @@ def workstream_claim_command(args: argparse.Namespace, *, deps: WorkstreamDepend
 
 
 def workstream_stage_add_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     workstream_id = args.id
@@ -1792,7 +1811,7 @@ def workstream_stage_add_command(args: argparse.Namespace, *, deps: WorkstreamDe
 
 
 def workstream_stage_list_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     detail = read_workstream_detail(root, args.id)
     rows = read_workstream_stage_rows(detail.body)
@@ -1833,7 +1852,7 @@ def assert_workstream_stage_dependencies_done(workstream_id: str, rows: Sequence
 
 
 def workstream_focus_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     workstream_id = args.id
@@ -1881,7 +1900,7 @@ def workstream_focus_command(args: argparse.Namespace, *, deps: WorkstreamDepend
 
 
 def workstream_stage_done_command(args: argparse.Namespace, *, deps: WorkstreamDependencies) -> int:
-    _bind(deps)
+    _ensure_bound(deps)
     root = require_context_root(args.path)
     dry_run = dry_run_enabled(args)
     workstream_id = args.id
