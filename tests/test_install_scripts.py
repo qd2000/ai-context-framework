@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -16,6 +17,10 @@ INSTALL_SCRIPT = ROOT / "scripts" / "install_acf.ps1"
 @unittest.skipUnless(os.name == "nt", "PowerShell uv-tool process-lock tests are Windows-specific")
 class InstallScriptTests(unittest.TestCase):
     def _fake_uv_environment(self, root: Path) -> tuple[dict[str, str], Path, Path]:
+        # Hosted Windows runners expose TEMP as `C:\Users\RUNNER~1\...` while the install
+        # scripts resolve the canonical `C:\Users\runneradmin\...` form. Use the canonical
+        # root so the generated acf.cmd path is compared against the same representation.
+        root = Path(root).resolve()
         fake_bin = root / "fake-bin"
         fake_bin.mkdir(parents=True)
         tool_dir = root / "tools"
@@ -98,7 +103,13 @@ class InstallScriptTests(unittest.TestCase):
                 self.assertFalse((tool_bin / "acf.exe").exists(), result.stdout)
                 cmd_text = acf_cmd.read_text(encoding="utf-8")
                 self.assertIn("-I -m acf %*", cmd_text)
-                self.assertIn(str(tool_dir / "ai-context-framework" / "Scripts" / "python.cmd"), cmd_text)
+                expected_python = tool_dir / "ai-context-framework" / "Scripts" / "python.cmd"
+                called = re.search(r'call\s+"([^"]+)"', cmd_text)
+                self.assertIsNotNone(called, cmd_text)
+                self.assertTrue(
+                    Path(called.group(1)).samefile(expected_python),
+                    f"acf.cmd must call {expected_python}, got {called.group(1)!r}",
+                )
                 self.assertIn("Canonical Windows ACF command", result.stdout)
 
                 python_log = (root / "python.log").read_text(encoding="utf-8")

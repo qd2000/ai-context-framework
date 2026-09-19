@@ -41,8 +41,28 @@ class ContinuationExecutionTests(unittest.TestCase):
             os.environ.pop("ACF_HOME", None)
         else:
             os.environ["ACF_HOME"] = self.previous_home
-        self._repo.cleanup()
-        self._home.cleanup()
+        self._cleanup_tempdir(self._repo)
+        self._cleanup_tempdir(self._home)
+
+    @staticmethod
+    def _cleanup_tempdir(directory: tempfile.TemporaryDirectory[str]) -> None:
+        """Retry bounded Windows handle release so cleanup cannot fail a passing test.
+
+        Supervised children are terminated inside the test, but Windows releases the last
+        directory handles asynchronously. A bounded retry absorbs that transient lag while a
+        real leak still fails once the retry budget is exhausted.
+        """
+
+        deadline = time.monotonic() + 15.0
+        while True:
+            try:
+                directory.cleanup()
+            except PermissionError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.25)
+            else:
+                return
 
     def _git(self, *args: str) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(

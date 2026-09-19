@@ -2,6 +2,15 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.95 — 2026-09-19
+
+### Windows CI release-gate fixes
+
+- 修复 Windows hosted runner 的发布门禁失败：`tests/test_install_scripts.py` 改为按文件身份（`samefile`）校验 `acf.cmd` 调用的工具 Python，不再比较裸路径字符串；安装脚本写入规范长路径的产品行为不变。
+- 修复 `tests/test_worktree_resilient_merge.py` 的两个 overlap 竞态用例：测试临时根改用规范路径，并改用文件身份而不是路径字符串判断注入点，使 Windows 8.3 短路径别名（`RUNNER~1` vs `runneradmin`）不再让竞态注入静默失效——此前该用例在 runner 上会空跑，把一个本应被阻断的合并误判为通过。
+- 修复 `tests/test_continuation_execution.py` 的 `tearDown`：对被已终止进程短暂占用句柄的临时目录做有界重试（15 秒上限），真实泄漏仍会失败；受监督子进程的终止断言保持不变。
+- 以上都是既有 Windows-only 测试夹具缺陷，不是产品行为变更：`v0.0.3.93` 与 `v0.0.3.94` 的发布 run 都因为它们失败（同一 run 的 Ubuntu 作业与两项 package smoke 均通过）。本版本以新的不可变版本号重新发布，不改写既有 tag。
+
 ## v0.0.3.94 — 2026-09-18
 
 ### Release closure and worktree retire narrow path

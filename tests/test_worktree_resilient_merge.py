@@ -43,13 +43,29 @@ def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProces
     )
 
 
+def same_file(left: object, right: object) -> bool:
+    """Compare by file identity so a Windows 8.3 short path still matches its canonical long path.
+
+    Hosted Windows runners expose TEMP as ``C:\\Users\\RUNNER~1\\...`` while ACF resolves the
+    canonical ``C:\\Users\\runneradmin\\...`` form, so plain path equality would silently stop
+    matching and the injected concurrency race would never happen.
+    """
+
+    try:
+        return os.path.samefile(str(left), str(right))
+    except OSError:
+        return os.path.normcase(os.path.abspath(str(left))) == os.path.normcase(
+            os.path.abspath(str(right))
+        )
+
+
 class ResilientMergeCliTests(unittest.TestCase):
     def setUp(self):
         self._acf_home = tempfile.TemporaryDirectory()
         self._old_acf_home = os.environ.get("ACF_HOME")
         os.environ["ACF_HOME"] = self._acf_home.name
         self._root = tempfile.TemporaryDirectory()
-        root = Path(self._root.name)
+        root = Path(self._root.name).resolve()
         self.repo = root / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-b", "main")
@@ -392,7 +408,7 @@ class ResilientMergeCliTests(unittest.TestCase):
 
         def change_source_before_quarantine(source, destination):
             nonlocal changed
-            if not changed and Path(source) == primary:
+            if not changed and same_file(source, primary):
                 primary.write_text("concurrent edit\n", encoding="utf-8")
                 changed = True
             return real_replace(source, destination)
@@ -420,7 +436,7 @@ class ResilientMergeCliTests(unittest.TestCase):
 
         def change_source_before_quarantine(source, destination):
             nonlocal changed
-            if not changed and Path(source) == primary:
+            if not changed and same_file(source, primary):
                 primary.write_text("concurrent edit\n", encoding="utf-8")
                 changed = True
             return real_replace(source, destination)

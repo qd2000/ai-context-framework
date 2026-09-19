@@ -18,7 +18,7 @@ Active
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS015 | Active | Release closure and worktree retire narrow path | ChatGPT | 详情(39 项) |  | 发布链诊断结论与目标版本；acf worktree retire 命令、测试与文档；issue 台账处置与 WS015 归档。 | active/workstreams/WS015.md |
+| WS015 | Active | Release closure and worktree retire narrow path | ChatGPT | 详情(42 项) |  | 发布链诊断结论与目标版本；acf worktree retire 命令、测试与文档；issue 台账处置与 WS015 归档。 | active/workstreams/WS015.md |
 
 ---
 
