@@ -10,7 +10,7 @@
 
 ## 当前任务状态
 
-Empty
+Active
 
 说明：
 
@@ -23,43 +23,44 @@ Empty
 
 ## 任务名称
 
-无。
+建立 WS016 与任务结构
 
 ---
 
 ## 所属大任务
 
-无。
+WS016 Runtime 全局注入解耦
 
 ---
 
 ## 子任务 ID
 
-无。
+T001
 
 ---
 
 ## 所属 Workstream
 
-无。
+WS016
 
 ---
 
 ## 当前执行线
 
-无。
+WS016 / T001 建立 WS016 与任务结构
 
 ---
 
 ## 本次任务目标
 
-1. 无。
+1. 进入 T002 allowlist 合并
+2. 产出并验证输出物：WS016 详情、范围声明、Task_Plan 与 Current_Task
 
 ---
 
 ## 任务背景
 
-暂无当前任务。
+该任务来自 `active/Task_Plan.md` 中的子任务 T001，所属大任务为“WS016 Runtime 全局注入解耦”。依赖记录：无明确依赖。
 
 ---
 
@@ -67,31 +68,43 @@ Empty
 
 当前任务应列出必要 active 文件和相关 reference 规划依据；不要只写 `active/Context.md`。
 
-- 无。
+- `active/Task_Plan.md`。
+- `active/Context.md`。
+- [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md)：六域真实差距与 runtime 条目的当前状态。
+- [reference/ACF_Top_Level_Design.md](../reference/ACF_Top_Level_Design.md)：模块边界与 CLI 分层上位约束。
+- [reference/Architecture.md](../reference/Architecture.md)：当前模块依赖方向，重构后需同步。
+- [reference/Product_Roadmap.md](../reference/Product_Roadmap.md)：阶段路线，确认本轮属内部重构而非新能力。
+- [reference/System_Manual.md](../reference/System_Manual.md)：用户可见命令合同，重构不得改变。
 
 ---
 
 ## 输出要求
 
-- 无。
+- WS016 详情、范围声明、Task_Plan 与 Current_Task
 
 ---
 
 ## 成功标准
 
-1. 无。
+1. 输出物已完成：WS016 详情、范围声明、Task_Plan 与 Current_Task
+2. 子任务 T001 的完成证据已写回任务板。
+3. `acf plan status` 能显示任务板可继续推进。
 
 ---
 
 ## 失败信号
 
-1. 无。
+1. 依赖任务未完成或证据不足。
+2. 输出物无法通过检查或人工复核验证。
+3. 执行中发现用户当前需求与任务板记录冲突。
 
 ---
 
 ## 约束条件
 
-1. 遵守当前项目规则。
+1. 遵守当前项目规则和默认读取顺序。
+2. 保持 `active/Task_Plan.md` 与 `active/Current_Task.md` 状态同步。
+3. 不要把一次性过程或当前事实直接写入 Knowledge。
 
 ---
 
@@ -103,7 +116,7 @@ Empty
 
 ## 需要 AI 协助判断的问题
 
-1. 无。
+1. 执行过程中是否发现应回写 Context、ADR、rules、Knowledge 或 archive 的内容？
 
 ---
 

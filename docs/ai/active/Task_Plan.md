@@ -8,25 +8,32 @@
 
 ## 大任务状态
 
-Empty
+Active
 
 ---
 
 ## 大任务名称
 
-无。
+WS016 Runtime 全局注入解耦
 
 ---
 
 ## 大任务目标
 
-1. 无。
+1. 把 runtime 与 8 个 runtime_parts 之间的 __dict__ 双向合并收窄为显式 __acf_exports__ allowlist 合并，并对同名不同对象 fail-closed。
+2. 用显式 RuntimeContext 取代 commands/workstream.py 的 28 处 per-call _bind，使命令模块与 runtime 之间只剩显式依赖。
+3. 把 runtime.build_parser() 中内联的命令组分批下移为各模块自己的 register_*_parser，让 runtime.py 成为薄聚合层。
+4. 移除 acf.py 对 runtime 私有全局的写入与手动 re-sync，改为显式 root 传递。
+5. 全程保持对外 CLI 命令/参数/JSON 契约、退出码、help 文本与 usage log 隐私边界不变，并且不再用横向搬运满足 2000 行门禁。
 
 ---
 
 ## 成功标准
 
-1. 无。
+1. acf check template、acf check --strict、uv run python -m unittest（全量 680+ 项）、minimal_smoke、upgrade_matrix --mode full、release_check --mode package 全部通过。
+2. ai_context_framework 包内所有模块 ≤2000 行、acf.py ≤100 行、包内模块不导入顶层 acf。
+3. 新增导出名单快照回归与命令树形状快照回归：每个子命令的 dest/参数/默认值/help 文本被断言锁定；同名不同对象在合并期 fail-closed 且有专门回归。
+4. 对外契约零变化：既有 JSON contract、smoke 场景与 upgrade matrix 无需修改即通过；仅“绑定实现细节”类断言可有意重写并单独记录。
 
 ---
 
@@ -34,13 +41,17 @@ Empty
 
 列出当前大任务必须对齐的 reference 设计、路线或差距文档；只放路径和一句话用途，不复制详细规划。
 
-- 无。
+- [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md)：六域真实差距与 runtime 条目的当前状态。
+- [reference/ACF_Top_Level_Design.md](../reference/ACF_Top_Level_Design.md)：模块边界与 CLI 分层上位约束。
+- [reference/Architecture.md](../reference/Architecture.md)：当前模块依赖方向，重构后需同步。
+- [reference/Product_Roadmap.md](../reference/Product_Roadmap.md)：阶段路线，确认本轮属内部重构而非新能力。
+- [reference/System_Manual.md](../reference/System_Manual.md)：用户可见命令合同，重构不得改变。
 
 ---
 
 ## 当前焦点
 
-无。
+T001
 
 ---
 
@@ -48,7 +59,14 @@ Empty
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| 暂无 |  |  |  |  |  |  |
+| T001 | Done | 建立 WS016 与任务结构 | 无。 | WS016 详情、范围声明、Task_Plan 与 Current_Task | reservation commit 2c441e0；WS016 detail + scope-add（37 read / 30 write）+ Task_Plan T001-T008 + 5 条规划依据；Current_Task 与 Context 已同步到 WS016 阶段。 | 进入 T002 allowlist 合并 |
+| T002 | Pending | __acf_exports__ allowlist 合并与同名冲突 fail-closed | T001 | runtime.py 合并逻辑收窄、8 个 runtime_parts 的显式导出声明 | 无。 | 先用 code-explorer 产出注入名清单 |
+| T003 | Pending | 导出名单审计脚本与契约回归 | T002 | scripts/runtime_export_audit.py、tests/test_runtime_contracts.py 导出名单快照 | 无。 | 用 ast 机械提取真实引用名并锁定快照 |
+| T004 | Pending | RuntimeContext 与移除 per-call _bind | T003 | ai_context_framework/runtime_context.py、workstream.py 与 workstream_reserve.py 去 per-call 绑定 | 无。 | 先用 LSP 建立注入符号引用图谱 |
+| T005 | Pending | 分批 parser composition | T004 | 各命令模块 register_*_parser、runtime.build_parser 瘦身、命令树形状快照回归 | 无。 | 按行为面窄到宽分批下移 |
+| T006 | Pending | 收敛 acf.py shim | T005 | acf.py 移除私有全局写入与 re-sync、显式 root 传递、相关 shim 测试重写 | 无。 | 保持 acf.py ≤100 行与 import acf 兼容 |
+| T007 | Pending | 全量门禁、证据矩阵与文档同步 | T006 | 六域 Gap Matrix 第 3 域、Architecture、Context 与 worklog | 无。 | 跑全量门禁并归档证据 |
+| T008 | Pending | 授权收口与归档 | T007 | WS016 done、归档与 Context 收敛回 global-only | 无。 | 取得用户 closeout 授权后执行 |
 
 ---
 

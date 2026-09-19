@@ -15,7 +15,7 @@
 
 ## 当前阶段
 
-WS015「发布链收口与 worktree 退役窄路径」已收口并归档，项目回到 global-only。本轮交付 `acf worktree retire` 窄路径与 `v0.0.3.95` 发布闭合（含 Windows CI 发布门禁根因修复）；后续工作按需新建 Workstream 或计划，候选见 [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md) 的六域矩阵。
+WS016「Runtime 全局注入解耦」正在执行：把 `runtime.py` 与 8 个 `runtime_parts` 之间的 `__dict__` 双向合并收窄为显式 `__acf_exports__` allowlist 与同名冲突 fail-closed，用显式 RuntimeContext 取代 `commands/workstream.py` 的 per-call `_bind`，分批把 `build_parser` 内联命令组下移为 `register_*_parser`，并移除 `acf.py` 对 runtime 私有全局的写入。这是纯内部重构：对外 CLI 命令/参数/JSON 契约、退出码与 help 文本保持逐字不变，不新增命令、不新增运行依赖、不 bump 版本。
 
 ---
 
@@ -70,14 +70,14 @@ WS015「发布链收口与 worktree 退役窄路径」已收口并归档，项�
 
 ### 当前进展与未完成项
 
-1. WS014「Post-v0.0.3.92 Stabilization and Product Health」已完成实现、验收与归档（[archive/workstreams/WS014.md](../archive/workstreams/WS014.md)）；其子任务板已移入 `archive/plans/` 保留追溯。
-2. WS015「发布链收口与 worktree 退役窄路径」已实现并发布：新增 `acf worktree retire`——只移除 worktree 工作目录与 registry 记录、永不删除分支或 Git 引用、要求显式 `--disposition curated_handoff` 与非空 `--evidence-ref`，并保持 `acf worktree close` 的 merged-only 硬门不变；回归见 `tests/test_worktree_retire.py`。
-3. 发布链已闭合到 `v0.0.3.95`：tag 已推送并发布成功（PyPI `latest=0.0.3.95`），全局安装经 `scripts/update_acf.ps1` 更新并验证 `acf v0.0.3.95`。此前 `v0.0.3.93` 与 `v0.0.3.94` 发布失败的根因是 WS014 引入的 `release.yml` verify 门禁在 Windows runner 上暴露的 3 处既有测试夹具缺陷（Windows 8.3 短路径别名让 overlap 竞态注入静默失效、install 脚本以裸路径字符串比对、tearDown 临时目录被刚终止进程瞬时占用），已修复并用本机构造的别名条件复现验证。
-4. 跨项目 issue：open 由 4 条降到 3 条——`d33a11a387320d21a862`（worktree curated handoff 退休）已由 `v0.0.3.95` 的 `acf worktree retire` 实现并 resolve；剩余 3 条为 owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认。
-5. WS015 尚未 closeout：`ready/merge/done/archive` 需要用户对该 Workstream 给出 durable closeout approval，resolver 明确拒绝裸 `--human-approved` 作为批准证据。
+1. WS014「Post-v0.0.3.92 Stabilization and Product Health」已完成实现、验收与归档（[archive/workstreams/WS014.md](../archive/workstreams/WS014.md)）。
+2. WS015「发布链收口与 worktree 退役窄路径」已完成并归档（[archive/workstreams/WS015.md](../archive/workstreams/WS015.md)）：交付 `acf worktree retire` 窄路径与 `v0.0.3.95` 发布闭合，全局安装经 `scripts/update_acf.ps1` 更新并验证 `acf v0.0.3.95`。
+3. 发布链失败的根因（WS014 引入的 `release.yml` verify 门禁在 Windows runner 上暴露的 3 处既有测试夹具缺陷：8.3 短路径别名让 overlap 竞态注入静默失效、install 脚本裸路径字符串比对、tearDown 临时目录被刚终止进程瞬时占用）已修复并随 `v0.0.3.95` 发布；`v0.0.3.93` 与 `v0.0.3.94` 保留为历史失败 tag，按不可变约定不改写。
+4. 跨项目 issue：open 3 条——owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认；worktree curated handoff 退休已由 `v0.0.3.95` 收口为 resolved。
+5. WS016「Runtime 全局注入解耦」进行中：`runtime.py` 与 `runtime_parts` 的 `__dict__` 双向合并将收窄为显式 allowlist，`commands/workstream.py` 的 28 处 per-call `_bind` 将由显式 RuntimeContext 取代，`build_parser` 内联命令组分批下移，`acf.py` 不再写 runtime 私有全局。目标是纯内部重构，对外契约零变化。
 6. owner-context 的 ACF 侧隔离验证已通过（`scripts/continuation_owner_fixture.py`）；真实网页工具链复测仍是待执行验收项，协议见 [reference/Continuation_Owner_Context_Verification.md](../reference/Continuation_Owner_Context_Verification.md)。
 7. [active/Feedback_Inbox.md](Feedback_Inbox.md)：F015/F017 已转为 rules 条目并 Done，F019 已转为 Planned 并指向 ADR-0006 与后续 UX 计划。
-8. 后续独立候选：runtime 全局注入解耦（export allowlist → 显式 RuntimeContext → parser composition）、System Manual 共享区块同步机制、分钟级时间字段的 CLI 自动生成能力。
+8. 后续独立候选：System Manual 共享区块同步机制、分钟级时间字段的 CLI 自动生成能力。
 
 ### 默认索引
 
@@ -142,5 +142,5 @@ WS015「发布链收口与 worktree 退役窄路径」已收口并归档，项�
 
 ## 上次更新
 
-- 日期：2026-09-19 20:40
-- 更新原因：WS015 收口归档——用户授权 closeout（policy record `cap-9c35f0580dc141008448`），WS015 依次 ready → Merging → Done 并归档到 `archive/workstreams/WS015.md`；大任务计划 Done 并归档到 `archive/plans/`；项目回到 global-only。
+- 日期：2026-09-19 21:30
+- 更新原因：启动 WS016「Runtime 全局注入解耦」（独立 Workstream，纯内部重构）；同步 WS015 已归档与 `v0.0.3.95` 发布闭合的当前事实，并把跨项目 open issue 更新为 3 条。
