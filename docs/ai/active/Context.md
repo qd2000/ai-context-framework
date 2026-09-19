@@ -71,12 +71,13 @@ WS015「发布链收口与 worktree 退役窄路径」正在执行：闭合 `v0.
 ### 当前进展与未完成项
 
 1. WS014「Post-v0.0.3.92 Stabilization and Product Health」已完成实现、验收与归档（[archive/workstreams/WS014.md](../archive/workstreams/WS014.md)）；其子任务板已移入 `archive/plans/` 保留追溯。
-2. WS015「发布链收口与 worktree 退役窄路径」进行中：已实现 `acf worktree retire`——只移除 worktree 工作目录与 registry 记录、永不删除分支或 Git 引用、要求显式 `--disposition curated_handoff` 与非空 `--evidence-ref`，并保持 `acf worktree close` 的 merged-only 硬门不变；回归见 `tests/test_worktree_retire.py`。用户可见文档、六域 Gap Matrix、Roadmap 与 CHANGELOG 已同步，版本已收敛到 `v0.0.3.94`。
-3. `v0.0.3.93` 的 tag 已推送到远端且指向 master HEAD，但 PyPI 上仍无该版本；本地制品复现（wheel + sdist 隔离安装）证明失败不在代码与制品层。`v0.0.3.94` 的 commit / tag / push（触发 PyPI 发布）与全局安装更新仍在等待明确授权后执行。
-4. 跨项目 issue 首轮 triage 后 open 4 条：其中 `d33a11a387320d21a862`（worktree curated handoff 退休）已具备实现与回归证据，待发布后用 `v0.0.3.94` 证据正式 resolve；其余 3 条为 owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认。
-5. owner-context 的 ACF 侧隔离验证已通过（`scripts/continuation_owner_fixture.py`）；真实网页工具链复测仍是待执行验收项，协议见 [reference/Continuation_Owner_Context_Verification.md](../reference/Continuation_Owner_Context_Verification.md)。
-6. [active/Feedback_Inbox.md](Feedback_Inbox.md)：F015/F017 已转为 rules 条目并 Done，F019 已转为 Planned 并指向 ADR-0006 与后续 UX 计划。
-7. 后续独立候选：runtime 全局注入解耦（export allowlist → 显式 RuntimeContext → parser composition）、System Manual 共享区块同步机制、分钟级时间字段的 CLI 自动生成能力。
+2. WS015「发布链收口与 worktree 退役窄路径」已实现并发布：新增 `acf worktree retire`——只移除 worktree 工作目录与 registry 记录、永不删除分支或 Git 引用、要求显式 `--disposition curated_handoff` 与非空 `--evidence-ref`，并保持 `acf worktree close` 的 merged-only 硬门不变；回归见 `tests/test_worktree_retire.py`。
+3. 发布链已闭合到 `v0.0.3.95`：tag 已推送并发布成功（PyPI `latest=0.0.3.95`），全局安装经 `scripts/update_acf.ps1` 更新并验证 `acf v0.0.3.95`。此前 `v0.0.3.93` 与 `v0.0.3.94` 发布失败的根因是 WS014 引入的 `release.yml` verify 门禁在 Windows runner 上暴露的 3 处既有测试夹具缺陷（Windows 8.3 短路径别名让 overlap 竞态注入静默失效、install 脚本以裸路径字符串比对、tearDown 临时目录被刚终止进程瞬时占用），已修复并用本机构造的别名条件复现验证。
+4. 跨项目 issue：open 由 4 条降到 3 条——`d33a11a387320d21a862`（worktree curated handoff 退休）已由 `v0.0.3.95` 的 `acf worktree retire` 实现并 resolve；剩余 3 条为 owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认。
+5. WS015 尚未 closeout：`ready/merge/done/archive` 需要用户对该 Workstream 给出 durable closeout approval，resolver 明确拒绝裸 `--human-approved` 作为批准证据。
+6. owner-context 的 ACF 侧隔离验证已通过（`scripts/continuation_owner_fixture.py`）；真实网页工具链复测仍是待执行验收项，协议见 [reference/Continuation_Owner_Context_Verification.md](../reference/Continuation_Owner_Context_Verification.md)。
+7. [active/Feedback_Inbox.md](Feedback_Inbox.md)：F015/F017 已转为 rules 条目并 Done，F019 已转为 Planned 并指向 ADR-0006 与后续 UX 计划。
+8. 后续独立候选：runtime 全局注入解耦（export allowlist → 显式 RuntimeContext → parser composition）、System Manual 共享区块同步机制、分钟级时间字段的 CLI 自动生成能力。
 
 ### 默认索引
 
@@ -109,9 +110,8 @@ WS015「发布链收口与 worktree 退役窄路径」正在执行：闭合 `v0.
 4. 是否需要继续新增 weekly/report 创建命令，或保持 human layer 只通过 `new human-note` 写 Inbox。
 5. 是否为分钟级时间字段提供 CLI 自动生成能力（格式规则已落地，见 [rules/Project_Rules.md](../rules/Project_Rules.md)）。
 6. ACF Core 与 Operations 控制面的边界如何在不拆包的前提下落地（ADR-0006 的设计结论）。
-
-7. `v0.0.3.93` 的 GitHub Actions 发布 run 究竟是等待 `pypi` 环境审批还是失败，需在仓库侧确认；该结论决定是否需要修发布配置，且不影响既有 tag 的不可变性。
-8. `v0.0.3.94` 的 PyPI 发布、全局安装更新与 issue `d33a11a387320d21a862` 的正式收口，都取决于同一项用户授权。
+7. WS015 的 closeout approval 何时给出；在给出前 WS015 保持 Active/Blocked，不归档、不写 Done。
+8. 下一阶段优先级：runtime 全局注入解耦，还是先处理剩余 3 条产品 issue（child effect 委派、owner-context 真实链路复测、历史 state-loss 复现确认）。
 
 ---
 
@@ -142,5 +142,5 @@ WS015「发布链收口与 worktree 退役窄路径」正在执行：闭合 `v0.
 
 ## 上次更新
 
-- 日期：2026-09-18 21:12
-- 更新原因：WS015 实现与本地验收完成——落地 `acf worktree retire` 与回归测试、同步用户可见文档与六域差距记录、版本收敛到 `v0.0.3.94`；发布与全局安装等待明确授权。
+- 日期：2026-09-19 20:00
+- 更新原因：WS015 发布闭合——`v0.0.3.95` 发布到 PyPI 并完成全局安装验证；定位并修复 Windows CI 发布门禁的 3 处既有测试夹具缺陷；收口 `d33a11a387320d21a862`；WS015 closeout 等待用户授权。

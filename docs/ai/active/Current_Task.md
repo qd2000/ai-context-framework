@@ -23,7 +23,7 @@ Active
 
 ## 任务名称
 
-版本 bump、发布闭环与全局安装验证
+issue 收口、worklog 与 WS015 closeout
 
 ---
 
@@ -35,32 +35,32 @@ WS015 发布链收口与 worktree 退役窄路径
 
 ## 子任务 ID
 
-T006
+T007
 
 ---
 
 ## 所属 Workstream
 
-WS015
+无。
 
 ---
 
 ## 当前执行线
 
-WS015 / T006 版本 bump、发布闭环与全局安装验证
+无。
 
 ---
 
 ## 本次任务目标
 
-1. 等待用户侧两项：确认 v0.0.3.93 Actions run 结论；授权 commit + tag v0.0.3.94 + push 触发 PyPI 发布，随后用 scripts/update_acf.ps1 更新全局安装并验证 acf --version。
-2. 产出并验证输出物：目标版本、门禁全绿、PyPI 版本与 installed-state
+1. resolve issue 并归档
+2. 产出并验证输出物：issue 台账处置、worklog、WS015 归档与 Context 收敛
 
 ---
 
 ## 任务背景
 
-该任务来自 `active/Task_Plan.md` 中的子任务 T006，所属大任务为“WS015 发布链收口与 worktree 退役窄路径”。依赖记录：T004,T005,T002
+该任务来自 `active/Task_Plan.md` 中的子任务 T007，所属大任务为“WS015 发布链收口与 worktree 退役窄路径”。依赖记录：T006
 
 ---
 
@@ -74,22 +74,20 @@ WS015 / T006 版本 bump、发布闭环与全局安装验证
 - [reference/Product_Roadmap.md](../reference/Product_Roadmap.md)：阶段路线与准入门槛，确认本轮属稳定化而非新能力阶段。
 - [reference/ACF_Top_Level_Design.md](../reference/ACF_Top_Level_Design.md)：CLI 分层与 worktree 边界，作为 retire 命令分层的上位约束。
 - [reference/System_Manual.md](../reference/System_Manual.md)：用户可见命令合同，retire 说明需与此保持一致。
-- 依赖 T004 证据：新增 tests/test_worktree_retire.py 共 11 项：可退役（worktree/registry 清理且分支保留）、apply 幂等 already_retired、缺/空 evidence-ref、未知 disposition、已合并分支拒绝并提示 close、dirty 拒绝、未登记拒绝、deny 授权拒绝、journal 记录 disposition/evidence/快照、close 行为不变；与 package_skeleton 合并 19 项通过。
-- 依赖 T005 证据：docs/Worktree_Lifecycle.md 新增退役章节与拒绝条件表；docs/Automation.md、项目与模板 System_Manual.md、README.md 同步 retire；Top_Level_Implementation_Gap 第 2 域改为已实现并更新 Next Code PR Decision 与第 4/5/6 域；Product_Roadmap 当前阶段改为 WS015；CHANGELOG 新增 v0.0.3.94；同步修正 ai_context_framework/runtime_parts/upgrade.py 手册压缩字面量与模板逐字一致（含既有 force 漂移）。
-- 依赖 T002 证据：发布链诊断完成：tag 已推送且不可变、PyPI 仍无 .93、本地制品复现可发布、Actions 结论待用户确认；判定以新的不可变版本发布。
+- 依赖 T006 证据：v0.0.3.95 已发布到 PyPI 并完成全局安装更新与验证。
 
 ---
 
 ## 输出要求
 
-- 目标版本、门禁全绿、PyPI 版本与 installed-state
+- issue 台账处置、worklog、WS015 归档与 Context 收敛
 
 ---
 
 ## 成功标准
 
-1. 输出物已完成：目标版本、门禁全绿、PyPI 版本与 installed-state
-2. 子任务 T006 的完成证据已写回任务板。
+1. 输出物已完成：issue 台账处置、worklog、WS015 归档与 Context 收敛
+2. 子任务 T007 的完成证据已写回任务板。
 3. `acf plan status` 能显示任务板可继续推进。
 
 ---

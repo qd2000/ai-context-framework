@@ -48,7 +48,7 @@ WS015 发布链收口与 worktree 退役窄路径
 
 ## 当前焦点
 
-T006
+T007
 
 ---
 
@@ -61,8 +61,8 @@ T006
 | T003 | Done | acf worktree retire 窄路径实现 | T001 | worktree_service retire plan/apply、CLI 子命令与稳定错误码 | retire 实现完成并通过 11 项回归。 | 无。 |
 | T004 | Done | retire 回归测试 | T003 | tests/test_worktree_retire.py | 新增 tests/test_worktree_retire.py 共 11 项：可退役（worktree/registry 清理且分支保留）、apply 幂等 already_retired、缺/空 evidence-ref、未知 disposition、已合并分支拒绝并提示 close、dirty 拒绝、未登记拒绝、deny 授权拒绝、journal 记录 disposition/evidence/快照、close 行为不变；与 package_skeleton 合并 19 项通过。 | 进入 T005 文档同步 |
 | T005 | Done | 文档与差距矩阵同步 | T003 | Worktree_Lifecycle、双份 System_Manual、Automation、Gap Matrix 第 2 域与 CHANGELOG | docs/Worktree_Lifecycle.md 新增退役章节与拒绝条件表；docs/Automation.md、项目与模板 System_Manual.md、README.md 同步 retire；Top_Level_Implementation_Gap 第 2 域改为已实现并更新 Next Code PR Decision 与第 4/5/6 域；Product_Roadmap 当前阶段改为 WS015；CHANGELOG 新增 v0.0.3.94；同步修正 ai_context_framework/runtime_parts/upgrade.py 手册压缩字面量与模板逐字一致（含既有 force 漂移）。 | 进入 T006 发布闭环 |
-| T006 | Blocked | 版本 bump、发布闭环与全局安装验证 | T004,T005,T002 | 目标版本、门禁全绿、PyPI 版本与 installed-state | 本地部分已完成：acf version set v0.0.3.94（version.py/pyproject/uv.lock/egg-info 一致）；check template 与 check --strict 全绿；unittest 四批共 680 项通过（117 + 292 + 162 + 109）；minimal_smoke 8/8；upgrade_matrix --mode full ok；release_check --mode package 构建 wheel+sdist v0.0.3.94 并在隔离环境安装验证 acf v0.0.3.94。 | 已执行发布：commit 93f04fd + tag v0.0.3.94 已推送 origin。GitHub Actions 实证：v0.0.3.94(run #36) 与 v0.0.3.93(run #35) 均失败（25m57s / 21m39s），而 v0.0.3.92(run #34) 成功且仅 3m48s；差别来自 WS014 新加的 release.yml verify 作业（复用 ci.yml）。因此受阻原因不是等审批，而是 CI 门禁失败，且 v0.0.3.93 在 WS015 改动之前就已失败。下一步：取得失败 job/step 日志后定位并修复，再以 v0.0.3.95 重发。 |
-| T007 | Pending | issue 收口、worklog 与 WS015 closeout | T006 | issue 台账处置、worklog、WS015 归档与 Context 收敛 | 无。 | resolve issue 并归档 |
+| T006 | Done | 版本 bump、发布闭环与全局安装验证 | T004,T005,T002 | 目标版本、门禁全绿、PyPI 版本与 installed-state | v0.0.3.95 已发布到 PyPI 并完成全局安装更新与验证。 | 无。 |
+| T007 | Blocked | issue 收口、worklog 与 WS015 closeout | T006 | issue 台账处置、worklog、WS015 归档与 Context 收敛 | 无。 | WS015 closeout 的 ready/merge/done/archive 需要用户对该 Workstream 给出 durable closeout approval；closeout authorization resolver 明确拒绝裸 --human-approved 作为批准证据，因此不能由我代为记录。 |
 
 ---
 
