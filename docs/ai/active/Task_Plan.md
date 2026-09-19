@@ -8,30 +8,25 @@
 
 ## 大任务状态
 
-Active
+Empty
 
 ---
 
 ## 大任务名称
 
-WS015 发布链收口与 worktree 退役窄路径
+无。
 
 ---
 
 ## 大任务目标
 
-1. 闭合 v0.0.3.93 发布链：以证据判定中断层级，重跑同一不可变发布或修复后以新不可变版本发布，并完成全局安装与 installed-state 验证。
-2. 实现 acf worktree retire 窄路径：为「所需提交已在别处保留、分支因含无关历史而刻意不可合并」的已登记 worktree 提供正式退役，默认只输出计划，退役绑定可审阅证据且绝不删除分支。
-3. 把本轮结论与处置落盘：收口 worktree curated handoff 产品 issue，同步 Gap Matrix、Roadmap、System Manual 与 CHANGELOG。
+1. 无。
 
 ---
 
 ## 成功标准
 
-1. acf check template、acf check --strict、uv run python -m unittest、minimal_smoke、upgrade_matrix --mode full、release_check --mode full 全部通过。
-2. PyPI 上出现本轮目标版本，且 scripts/update_acf.ps1 更新后的全局安装 acf --version 与目标版本一致。
-3. acf worktree retire 默认 fail-closed：未登记、工作目录脏、产物交接未就绪、缺 --evidence-ref、disposition 不支持、分支已是 primary 祖先时均拒绝；成功路径移除 worktree 与 registry 记录且分支保留。
-4. 产品 issue d33a11a387320d21a862 在用户级台账中状态为 resolved 且有证据引用。
+1. 无。
 
 ---
 
@@ -39,16 +34,13 @@ WS015 发布链收口与 worktree 退役窄路径
 
 列出当前大任务必须对齐的 reference 设计、路线或差距文档；只放路径和一句话用途，不复制详细规划。
 
-- [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md)：六域真实差距与下一批代码决策的入口。
-- [reference/Product_Roadmap.md](../reference/Product_Roadmap.md)：阶段路线与准入门槛，确认本轮属稳定化而非新能力阶段。
-- [reference/ACF_Top_Level_Design.md](../reference/ACF_Top_Level_Design.md)：CLI 分层与 worktree 边界，作为 retire 命令分层的上位约束。
-- [reference/System_Manual.md](../reference/System_Manual.md)：用户可见命令合同，retire 说明需与此保持一致。
+- 无。
 
 ---
 
 ## 当前焦点
 
-T007
+无。
 
 ---
 
@@ -56,13 +48,7 @@ T007
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | 建立 WS015 与任务结构 | 无。 | WS015 详情、范围声明、Task_Plan 与 Current_Task | reservation commit 2d18655；WS015 detail + scope-add + Task_Plan T001-T007 + 规划依据；WS014 旧计划归档到 archive/plans/2026-09-18-ws014-post-v0.0.3.92-稳定化与产品健康治理.md | 进入 T002 发布链诊断 |
-| T002 | Done | 发布链诊断与闭合判定 | T001 | 发布链诊断证据与重跑或 bump 判定 | 发布链诊断完成：tag 已推送且不可变、PyPI 仍无 .93、本地制品复现可发布、Actions 结论待用户确认；判定以新的不可变版本发布。 | 无。 |
-| T003 | Done | acf worktree retire 窄路径实现 | T001 | worktree_service retire plan/apply、CLI 子命令与稳定错误码 | retire 实现完成并通过 11 项回归。 | 无。 |
-| T004 | Done | retire 回归测试 | T003 | tests/test_worktree_retire.py | 新增 tests/test_worktree_retire.py 共 11 项：可退役（worktree/registry 清理且分支保留）、apply 幂等 already_retired、缺/空 evidence-ref、未知 disposition、已合并分支拒绝并提示 close、dirty 拒绝、未登记拒绝、deny 授权拒绝、journal 记录 disposition/evidence/快照、close 行为不变；与 package_skeleton 合并 19 项通过。 | 进入 T005 文档同步 |
-| T005 | Done | 文档与差距矩阵同步 | T003 | Worktree_Lifecycle、双份 System_Manual、Automation、Gap Matrix 第 2 域与 CHANGELOG | docs/Worktree_Lifecycle.md 新增退役章节与拒绝条件表；docs/Automation.md、项目与模板 System_Manual.md、README.md 同步 retire；Top_Level_Implementation_Gap 第 2 域改为已实现并更新 Next Code PR Decision 与第 4/5/6 域；Product_Roadmap 当前阶段改为 WS015；CHANGELOG 新增 v0.0.3.94；同步修正 ai_context_framework/runtime_parts/upgrade.py 手册压缩字面量与模板逐字一致（含既有 force 漂移）。 | 进入 T006 发布闭环 |
-| T006 | Done | 版本 bump、发布闭环与全局安装验证 | T004,T005,T002 | 目标版本、门禁全绿、PyPI 版本与 installed-state | v0.0.3.95 已发布到 PyPI 并完成全局安装更新与验证。 | 无。 |
-| T007 | Blocked | issue 收口、worklog 与 WS015 closeout | T006 | issue 台账处置、worklog、WS015 归档与 Context 收敛 | 无。 | WS015 closeout 的 ready/merge/done/archive 需要用户对该 Workstream 给出 durable closeout approval；closeout authorization resolver 明确拒绝裸 --human-approved 作为批准证据，因此不能由我代为记录。 |
+| 暂无 |  |  |  |  |  |  |
 
 ---
 

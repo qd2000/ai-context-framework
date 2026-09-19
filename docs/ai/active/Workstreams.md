@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Active
+Inactive
 
-说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Active
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS015 | Active | Release closure and worktree retire narrow path | ChatGPT | 详情(43 项) |  | 发布链诊断结论与目标版本；acf worktree retire 命令、测试与文档；issue 台账处置与 WS015 归档。 | active/workstreams/WS015.md |
+| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |
 
 ---
 

@@ -15,7 +15,7 @@
 
 ## 当前阶段
 
-WS015「发布链收口与 worktree 退役窄路径」正在执行：闭合 `v0.0.3.93` tag 已推送但 PyPI 未发布的发布链，并落地 `acf worktree retire` 窄路径。本轮不新增通用产品能力；runtime 全局注入解耦、child effect 委派、owner-context 真实链路复测仍属后续独立工作。
+WS015「发布链收口与 worktree 退役窄路径」已收口并归档，项目回到 global-only。本轮交付 `acf worktree retire` 窄路径与 `v0.0.3.95` 发布闭合（含 Windows CI 发布门禁根因修复）；后续工作按需新建 Workstream 或计划，候选见 [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md) 的六域矩阵。
 
 ---
 
@@ -142,5 +142,5 @@ WS015「发布链收口与 worktree 退役窄路径」正在执行：闭合 `v0.
 
 ## 上次更新
 
-- 日期：2026-09-19 20:00
-- 更新原因：WS015 发布闭合——`v0.0.3.95` 发布到 PyPI 并完成全局安装验证；定位并修复 Windows CI 发布门禁的 3 处既有测试夹具缺陷；收口 `d33a11a387320d21a862`；WS015 closeout 等待用户授权。
+- 日期：2026-09-19 20:40
+- 更新原因：WS015 收口归档——用户授权 closeout（policy record `cap-9c35f0580dc141008448`），WS015 依次 ready → Merging → Done 并归档到 `archive/workstreams/WS015.md`；大任务计划 Done 并归档到 `archive/plans/`；项目回到 global-only。
