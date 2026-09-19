@@ -18,6 +18,7 @@ from urllib.parse import unquote
 from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, Sequence
+from ai_context_framework import runtime_exports
 from ai_context_framework.constants import (
     ANCHOR_NOT_FOUND,
     APPEND_FORCE_CONFLICT,
@@ -559,17 +560,7 @@ _RUNTIME_PART_MODULES = (
 
 
 def _install_runtime_parts() -> None:
-    module_globals = globals()
-    for module in _RUNTIME_PART_MODULES:
-        for name, value in module.__dict__.items():
-            if name.startswith("__") and name != "__getattr__":
-                continue
-            module_globals[name] = value
-    for module in _RUNTIME_PART_MODULES:
-        for name, value in module_globals.items():
-            if name.startswith("__"):
-                continue
-            module.__dict__[name] = value
+    runtime_exports.install_runtime_parts(globals(), _RUNTIME_PART_MODULES)
     _sync_runtime_part_globals()
 
 

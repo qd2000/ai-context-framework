@@ -60,8 +60,8 @@ T001
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
 | T001 | Done | 建立 WS016 与任务结构 | 无。 | WS016 详情、范围声明、Task_Plan 与 Current_Task | reservation commit 2c441e0；WS016 detail + scope-add（37 read / 30 write）+ Task_Plan T001-T008 + 5 条规划依据；Current_Task 与 Context 已同步到 WS016 阶段。 | 进入 T002 allowlist 合并 |
-| T002 | Pending | __acf_exports__ allowlist 合并与同名冲突 fail-closed | T001 | runtime.py 合并逻辑收窄、8 个 runtime_parts 的显式导出声明 | 无。 | 先用 code-explorer 产出注入名清单 |
-| T003 | Pending | 导出名单审计脚本与契约回归 | T002 | scripts/runtime_export_audit.py、tests/test_runtime_contracts.py 导出名单快照 | 无。 | 用 ast 机械提取真实引用名并锁定快照 |
+| T002 | Done | __acf_exports__ allowlist 合并与同名冲突 fail-closed | T001 | runtime.py 合并逻辑收窄、8 个 runtime_parts 的显式导出声明 | runtime.py 的 _install_runtime_parts 改为委托 ai_context_framework/runtime_exports.py：只合并 RUNTIME_PART_EXPORTS 显式声明的 202 个名字；未声明 part 模块、声明名在模块中不存在、RUNTIME_PART_EXPORTS 声明了未接入模块、以及同名不同对象四种情况均 fail-closed（RuntimeExportError）。实测 runtime 公开名 769 -> 531、runtime.py 1988 -> 1979 行；PEP 562 的 archive_workstream.__getattr__ 惰性兼容转发按显式契约保留（acf.parse_workstream_archive_date 仍可解析）。 | 进入 T003 契约回归 |
+| T003 | Done | 导出名单审计脚本与契约回归 | T002 | scripts/runtime_export_audit.py、tests/test_runtime_contracts.py 导出名单快照 | 新增 scripts/runtime_export_audit.py（ast 计算各 part 自有名与自由名、跨模块同名冲突、最小必需导出集、part 闭包与消费注入闭包、tests/scripts 对 runtime/acf 的动态属性访问）与 tests/test_runtime_contracts.py 9 项。实测：8 个 part 自有名 447，同名冲突 2（annotations/re，均为同对象），消费名 82 + 13，最小必需导出 202，收窄后注入 534（< 332 + 447），part 闭包/消费注入闭包/动态访问缺口全部为空。 | 进入 T004 RuntimeContext |
 | T004 | Pending | RuntimeContext 与移除 per-call _bind | T003 | ai_context_framework/runtime_context.py、workstream.py 与 workstream_reserve.py 去 per-call 绑定 | 无。 | 先用 LSP 建立注入符号引用图谱 |
 | T005 | Pending | 分批 parser composition | T004 | 各命令模块 register_*_parser、runtime.build_parser 瘦身、命令树形状快照回归 | 无。 | 按行为面窄到宽分批下移 |
 | T006 | Pending | 收敛 acf.py shim | T005 | acf.py 移除私有全局写入与 re-sync、显式 root 传递、相关 shim 测试重写 | 无。 | 保持 acf.py ≤100 行与 import acf 兼容 |
