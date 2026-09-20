@@ -20,6 +20,8 @@ from ai_context_framework.markdown import append_section_text, replace_section_t
 from ai_context_framework.models import CheckResult, KnowledgeEntry
 from ai_context_framework.paths import require_context_root
 from ai_context_framework.tables import find_table, render_table_row, split_table_line
+from ai_context_framework.validators.checks import validate_knowledge_id
+from ai_context_framework.constants import VALID_KNOWLEDGE_STATUSES
 
 
 MaybeCheckAfter = Callable[[argparse.Namespace, Path, str | None], CheckResult | None]
@@ -295,3 +297,73 @@ def knowledge_mark_command(args: argparse.Namespace, *, deps: KnowledgeDependenc
         check_result,
         extra_payload={"id": args.id, "status": args.status},
     )
+
+
+def register_knowledge_parsers(
+    subparsers: Any,
+    add_json_argument: Callable[..., None],
+    add_write_arguments: Callable[..., None],
+    *,
+    draft_handler: Callable[..., int],
+    apply_handler: Callable[..., int],
+    list_handler: Callable[..., int],
+    show_handler: Callable[..., int],
+    mark_handler: Callable[..., int],
+    sync_handler: Callable[..., int],
+) -> None:
+    """Register the `knowledge` group (moved out of ``runtime.build_parser``).
+
+    Handlers are injected because the CLI binds the ``runtime_parts`` adapters that
+    supply each handler's dependencies.
+    """
+
+    knowledge_parser = subparsers.add_parser("knowledge", help="manage reusable knowledge drafts and entries")
+    knowledge_subparsers = knowledge_parser.add_subparsers(dest="knowledge_command", required=True)
+
+    knowledge_draft_parser = knowledge_subparsers.add_parser("draft", help="create a reviewable knowledge draft")
+    knowledge_draft_parser.add_argument("path", nargs="?", type=Path)
+    knowledge_draft_parser.add_argument("--title", required=True, help="knowledge title")
+    knowledge_draft_parser.add_argument("--source", action="append", required=True, help="source path inside context; can be repeated")
+    knowledge_draft_parser.add_argument("--from-workstream", default=None, help="Workstream id that produced this draft")
+    knowledge_draft_parser.add_argument("--evidence", action="append", default=None, help="evidence path; can be repeated")
+    knowledge_draft_parser.add_argument("--applies-to", action="append", default=None, help="applicable scenario; can be repeated")
+    knowledge_draft_parser.add_argument("--not-applies-to", action="append", default=None, help="non-applicable scenario; can be repeated")
+    knowledge_draft_parser.add_argument("--read-when", action="append", default=None, help="read recommendation trigger; can be repeated")
+    knowledge_draft_parser.add_argument("--tag", default="未分类", help="knowledge tags")
+    knowledge_draft_parser.add_argument("--summary", default="待补充。", help="one-line summary")
+    knowledge_draft_parser.add_argument("--force", action="store_true", help="replace existing draft")
+    add_write_arguments(knowledge_draft_parser)
+    knowledge_draft_parser.set_defaults(func=draft_handler)
+
+    knowledge_apply_parser = knowledge_subparsers.add_parser("apply", help="apply a knowledge draft")
+    knowledge_apply_parser.add_argument("draft", type=Path, help="draft path")
+    knowledge_apply_parser.add_argument("path", nargs="?", type=Path, help="context path")
+    knowledge_apply_parser.add_argument("--draft", dest="draft_option", type=Path, default=None, help="draft path when the positional argument is the context path")
+    knowledge_apply_parser.add_argument("--allow-similar", action="store_true", help="apply even when similar Knowledge exists")
+    add_write_arguments(knowledge_apply_parser)
+    knowledge_apply_parser.set_defaults(func=apply_handler)
+
+    knowledge_list_parser = knowledge_subparsers.add_parser("list", help="list knowledge entries")
+    knowledge_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(knowledge_list_parser)
+    knowledge_list_parser.set_defaults(func=list_handler)
+
+    knowledge_show_parser = knowledge_subparsers.add_parser("show", help="show a knowledge entry")
+    knowledge_show_parser.add_argument("path", nargs="?", type=Path)
+    knowledge_show_parser.add_argument("--id", type=validate_knowledge_id, required=True, help="knowledge id")
+    add_json_argument(knowledge_show_parser)
+    knowledge_show_parser.set_defaults(func=show_handler)
+
+    knowledge_mark_parser = knowledge_subparsers.add_parser("mark", help="mark knowledge status")
+    knowledge_mark_parser.add_argument("path", nargs="?", type=Path)
+    knowledge_mark_parser.add_argument("--id", type=validate_knowledge_id, required=True, help="knowledge id")
+    knowledge_mark_parser.add_argument("--status", choices=tuple(sorted(VALID_KNOWLEDGE_STATUSES)), required=True)
+    knowledge_mark_parser.add_argument("--promoted-to", default="", help="target authority when status is Promoted")
+    add_write_arguments(knowledge_mark_parser)
+    knowledge_mark_parser.set_defaults(func=mark_handler)
+
+    knowledge_sync_parser = knowledge_subparsers.add_parser("sync", help="sync the generated Knowledge index block")
+    knowledge_sync_parser.add_argument("path", nargs="?", type=Path)
+    knowledge_sync_parser.add_argument("--init-marker", action="store_true", help="insert generated markers when missing")
+    add_write_arguments(knowledge_sync_parser)
+    knowledge_sync_parser.set_defaults(func=sync_handler)

@@ -339,3 +339,64 @@ def register_link_parser(
     link_add_parser.add_argument("--force", action="store_true", help="allow duplicate links")
     add_write_arguments(link_add_parser)
     link_add_parser.set_defaults(func=handler)
+
+
+def register_edit_parsers(
+    subparsers: Any,
+    add_json_argument: Callable[..., None],
+    add_write_arguments: Callable[..., None],
+    *,
+    section_get_handler: Callable[..., int],
+    section_replace_handler: Callable[..., int],
+    section_append_handler: Callable[..., int],
+    table_upsert_handler: Callable[..., int],
+) -> None:
+    """Register the `edit` group (moved out of ``runtime.build_parser``).
+
+    Handlers are injected because the CLI binds the ``runtime_parts`` adapters that
+    supply each handler's dependencies.
+    """
+
+    edit_parser = subparsers.add_parser("edit", help="safely edit context Markdown files")
+    edit_subparsers = edit_parser.add_subparsers(dest="edit_target", required=True)
+
+    section_parser = edit_subparsers.add_parser("section", help="get or update a Markdown section")
+    section_subparsers = section_parser.add_subparsers(dest="section_command", required=True)
+
+    section_get_parser = section_subparsers.add_parser("get", help="print a section body")
+    section_get_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
+    section_get_parser.add_argument("--heading", required=True, help="exact Markdown heading, for example '## 当前阶段'")
+    section_get_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
+    add_json_argument(section_get_parser)
+    section_get_parser.set_defaults(func=section_get_handler)
+
+    section_replace_parser = section_subparsers.add_parser("replace", help="replace a section body")
+    section_replace_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
+    section_replace_parser.add_argument("--heading", required=True, help="exact Markdown heading to replace")
+    section_replace_parser.add_argument("--text", default=None, help="replacement text")
+    section_replace_parser.add_argument("--input", type=Path, default=None, help="file containing replacement text")
+    section_replace_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
+    add_write_arguments(section_replace_parser)
+    section_replace_parser.set_defaults(func=section_replace_handler)
+
+    section_append_parser = section_subparsers.add_parser("append", help="append text to a section body")
+    section_append_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
+    section_append_parser.add_argument("--heading", required=True, help="exact Markdown heading to append to")
+    section_append_parser.add_argument("--text", default=None, help="text to append")
+    section_append_parser.add_argument("--input", type=Path, default=None, help="file containing text to append")
+    section_append_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
+    add_write_arguments(section_append_parser)
+    section_append_parser.set_defaults(func=section_append_handler)
+
+    table_parser = edit_subparsers.add_parser("table", help="update Markdown tables")
+    table_subparsers = table_parser.add_subparsers(dest="table_command", required=True)
+
+    table_upsert_parser = table_subparsers.add_parser("upsert", help="insert or update a Markdown table row")
+    table_upsert_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
+    table_upsert_parser.add_argument("--header", default=None, help="exact table header line; omitted to use first table")
+    table_upsert_parser.add_argument("--key-column", required=True, help="column used as the row key")
+    table_upsert_parser.add_argument("--key", required=True, help="key value to update or append")
+    table_upsert_parser.add_argument("--cell", action="append", required=True, help="cell update as COLUMN=VALUE; can be repeated")
+    table_upsert_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
+    add_write_arguments(table_upsert_parser)
+    table_upsert_parser.set_defaults(func=table_upsert_handler)

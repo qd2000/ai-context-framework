@@ -7,7 +7,10 @@ migration can stay mechanical while behavior remains unchanged.
 from __future__ import annotations
 import re
 
-from ai_context_framework.constants import VALID_HUMAN_INDEX_STATUSES
+from ai_context_framework.constants import (
+    VALID_HUMAN_INDEX_STATUSES,
+    VALID_KNOWLEDGE_STATUSES,
+)
 
 def iter_markdown_files(root: Path) -> Iterable[Path]:
     yield from sorted(root.rglob("*.md"))

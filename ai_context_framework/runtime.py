@@ -315,7 +315,6 @@ VALID_PLAN_STATUSES = {"Active", "Paused", "Done", "Empty"}
 VALID_SUBTASK_STATUSES = {"Pending", "Active", "Done", "Blocked", "Skipped", "Superseded"}
 VALID_DECISION_STATUSES = {"Active", "Proposed", "Superseded", "Rejected", "Deprecated"}
 VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Rejected"}
-VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
 VALID_HUMAN_NOTE_STATUSES = {"Open", "Triaged", "Done", "Rejected"}
 VALID_WORKSTREAM_STATUSES = {"Proposed", "Open", "Active", "Blocked", "ReadyToMerge", "Merging", "Done", "Cancelled"}
 VALID_WORKSTREAM_TYPES = {"Task", "Merge", "Maintenance"}
@@ -1503,56 +1502,17 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers, add_write_arguments, decisions_sync_command
     )
 
-    knowledge_parser = subparsers.add_parser("knowledge", help="manage reusable knowledge drafts and entries")
-    knowledge_subparsers = knowledge_parser.add_subparsers(dest="knowledge_command", required=True)
-
-    knowledge_draft_parser = knowledge_subparsers.add_parser("draft", help="create a reviewable knowledge draft")
-    knowledge_draft_parser.add_argument("path", nargs="?", type=Path)
-    knowledge_draft_parser.add_argument("--title", required=True, help="knowledge title")
-    knowledge_draft_parser.add_argument("--source", action="append", required=True, help="source path inside context; can be repeated")
-    knowledge_draft_parser.add_argument("--from-workstream", default=None, help="Workstream id that produced this draft")
-    knowledge_draft_parser.add_argument("--evidence", action="append", default=None, help="evidence path; can be repeated")
-    knowledge_draft_parser.add_argument("--applies-to", action="append", default=None, help="applicable scenario; can be repeated")
-    knowledge_draft_parser.add_argument("--not-applies-to", action="append", default=None, help="non-applicable scenario; can be repeated")
-    knowledge_draft_parser.add_argument("--read-when", action="append", default=None, help="read recommendation trigger; can be repeated")
-    knowledge_draft_parser.add_argument("--tag", default="未分类", help="knowledge tags")
-    knowledge_draft_parser.add_argument("--summary", default="待补充。", help="one-line summary")
-    knowledge_draft_parser.add_argument("--force", action="store_true", help="replace existing draft")
-    add_write_arguments(knowledge_draft_parser)
-    knowledge_draft_parser.set_defaults(func=knowledge_draft_command)
-
-    knowledge_apply_parser = knowledge_subparsers.add_parser("apply", help="apply a knowledge draft")
-    knowledge_apply_parser.add_argument("draft", type=Path, help="draft path")
-    knowledge_apply_parser.add_argument("path", nargs="?", type=Path, help="context path")
-    knowledge_apply_parser.add_argument("--draft", dest="draft_option", type=Path, default=None, help="draft path when the positional argument is the context path")
-    knowledge_apply_parser.add_argument("--allow-similar", action="store_true", help="apply even when similar Knowledge exists")
-    add_write_arguments(knowledge_apply_parser)
-    knowledge_apply_parser.set_defaults(func=knowledge_apply_command)
-
-    knowledge_list_parser = knowledge_subparsers.add_parser("list", help="list knowledge entries")
-    knowledge_list_parser.add_argument("path", nargs="?", type=Path)
-    add_json_argument(knowledge_list_parser)
-    knowledge_list_parser.set_defaults(func=knowledge_list_command)
-
-    knowledge_show_parser = knowledge_subparsers.add_parser("show", help="show a knowledge entry")
-    knowledge_show_parser.add_argument("path", nargs="?", type=Path)
-    knowledge_show_parser.add_argument("--id", type=validate_knowledge_id, required=True, help="knowledge id")
-    add_json_argument(knowledge_show_parser)
-    knowledge_show_parser.set_defaults(func=knowledge_show_command)
-
-    knowledge_mark_parser = knowledge_subparsers.add_parser("mark", help="mark knowledge status")
-    knowledge_mark_parser.add_argument("path", nargs="?", type=Path)
-    knowledge_mark_parser.add_argument("--id", type=validate_knowledge_id, required=True, help="knowledge id")
-    knowledge_mark_parser.add_argument("--status", choices=tuple(sorted(VALID_KNOWLEDGE_STATUSES)), required=True)
-    knowledge_mark_parser.add_argument("--promoted-to", default="", help="target authority when status is Promoted")
-    add_write_arguments(knowledge_mark_parser)
-    knowledge_mark_parser.set_defaults(func=knowledge_mark_command)
-
-    knowledge_sync_parser = knowledge_subparsers.add_parser("sync", help="sync the generated Knowledge index block")
-    knowledge_sync_parser.add_argument("path", nargs="?", type=Path)
-    knowledge_sync_parser.add_argument("--init-marker", action="store_true", help="insert generated markers when missing")
-    add_write_arguments(knowledge_sync_parser)
-    knowledge_sync_parser.set_defaults(func=knowledge_sync_command)
+    knowledge_commands.register_knowledge_parsers(
+        subparsers,
+        add_json_argument,
+        add_write_arguments,
+        draft_handler=knowledge_draft_command,
+        apply_handler=knowledge_apply_command,
+        list_handler=knowledge_list_command,
+        show_handler=knowledge_show_command,
+        mark_handler=knowledge_mark_command,
+        sync_handler=knowledge_sync_command,
+    )
 
     next_status_commands.register_draft_parser(
         subparsers, add_json_argument, next_status_commands.draft_status_command
@@ -1708,49 +1668,15 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers, add_write_arguments, writeback_draft_command
     )
 
-    edit_parser = subparsers.add_parser("edit", help="safely edit context Markdown files")
-    edit_subparsers = edit_parser.add_subparsers(dest="edit_target", required=True)
-
-    section_parser = edit_subparsers.add_parser("section", help="get or update a Markdown section")
-    section_subparsers = section_parser.add_subparsers(dest="section_command", required=True)
-
-    section_get_parser = section_subparsers.add_parser("get", help="print a section body")
-    section_get_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
-    section_get_parser.add_argument("--heading", required=True, help="exact Markdown heading, for example '## 当前阶段'")
-    section_get_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
-    add_json_argument(section_get_parser)
-    section_get_parser.set_defaults(func=edit_section_get_command)
-
-    section_replace_parser = section_subparsers.add_parser("replace", help="replace a section body")
-    section_replace_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
-    section_replace_parser.add_argument("--heading", required=True, help="exact Markdown heading to replace")
-    section_replace_parser.add_argument("--text", default=None, help="replacement text")
-    section_replace_parser.add_argument("--input", type=Path, default=None, help="file containing replacement text")
-    section_replace_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
-    add_write_arguments(section_replace_parser)
-    section_replace_parser.set_defaults(func=edit_section_replace_command)
-
-    section_append_parser = section_subparsers.add_parser("append", help="append text to a section body")
-    section_append_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
-    section_append_parser.add_argument("--heading", required=True, help="exact Markdown heading to append to")
-    section_append_parser.add_argument("--text", default=None, help="text to append")
-    section_append_parser.add_argument("--input", type=Path, default=None, help="file containing text to append")
-    section_append_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
-    add_write_arguments(section_append_parser)
-    section_append_parser.set_defaults(func=edit_section_append_command)
-
-    table_parser = edit_subparsers.add_parser("table", help="update Markdown tables")
-    table_subparsers = table_parser.add_subparsers(dest="table_command", required=True)
-
-    table_upsert_parser = table_subparsers.add_parser("upsert", help="insert or update a Markdown table row")
-    table_upsert_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
-    table_upsert_parser.add_argument("--header", default=None, help="exact table header line; omitted to use first table")
-    table_upsert_parser.add_argument("--key-column", required=True, help="column used as the row key")
-    table_upsert_parser.add_argument("--key", required=True, help="key value to update or append")
-    table_upsert_parser.add_argument("--cell", action="append", required=True, help="cell update as COLUMN=VALUE; can be repeated")
-    table_upsert_parser.add_argument("--context", type=Path, default=None, help="context root; omitted to auto-discover")
-    add_write_arguments(table_upsert_parser)
-    table_upsert_parser.set_defaults(func=edit_table_upsert_command)
+    edit_link_commands.register_edit_parsers(
+        subparsers,
+        add_json_argument,
+        add_write_arguments,
+        section_get_handler=edit_section_get_command,
+        section_replace_handler=edit_section_replace_command,
+        section_append_handler=edit_section_append_command,
+        table_upsert_handler=edit_table_upsert_command,
+    )
 
     return parser
 
