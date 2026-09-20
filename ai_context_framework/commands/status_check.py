@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from ai_context_framework.constants import EXIT_CHECK_FAILED, EXIT_INPUT_ERROR
 from ai_context_framework.context_budget import context_budget_warnings
@@ -26,6 +26,7 @@ from ai_context_framework.json_contract import (
 )
 from ai_context_framework.models import CheckResult
 from ai_context_framework.paths import infer_context_profile, resolve_context_root, resolve_status_location
+from ai_context_framework.validators.checks import validate_workstream_id
 from ai_context_framework.validators.checks import WORKSTREAM_ID_TOKEN_RE
 
 
@@ -506,3 +507,39 @@ def status_command(
     if not result.ok:
         return EXIT_CHECK_FAILED
     return 0 if selection_ok else EXIT_INPUT_ERROR
+
+
+def register_status_parser(
+    subparsers: Any, add_json_argument: Callable[..., None], handler: Callable[..., int]
+) -> None:
+    """Register the `status` parser (moved out of ``runtime.build_parser``).
+
+    The handler is injected because the CLI binds the ``runtime_parts`` adapter that
+    supplies this handler's dependencies.
+    """
+
+    status_parser = subparsers.add_parser("status", help="show discovered context status")
+    status_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    status_parser.add_argument("--profile", choices=("standard", "minimal"), default=None)
+    status_parser.add_argument("--strict", action="store_true", help="treat placeholders as errors")
+    status_parser.add_argument(
+        "--workstream",
+        type=validate_workstream_id,
+        default=None,
+        help="explicitly select one Workstream context; omitted means global-only",
+    )
+    add_json_argument(status_parser)
+    status_parser.set_defaults(func=handler)
+
+
+def register_check_parser(
+    subparsers: Any, add_json_argument: Callable[..., None], handler: Callable[..., int]
+) -> None:
+    """Register the `check` parser (moved out of ``runtime.build_parser``)."""
+
+    check_parser = subparsers.add_parser("check", help="check context completeness")
+    check_parser.add_argument("path", nargs="?", type=Path)
+    check_parser.add_argument("--profile", choices=("standard", "minimal"), default=None)
+    check_parser.add_argument("--strict", action="store_true", help="treat placeholders as errors")
+    add_json_argument(check_parser)
+    check_parser.set_defaults(func=handler)

@@ -12,8 +12,9 @@ from typing import Any, Callable
 from ai_context_framework.json_contract import dry_run_enabled, emit_write_result, json_enabled, print_json, set_result_payload
 from ai_context_framework.markdown import replace_section_text
 from ai_context_framework.models import CheckResult, PlanReference
+from ai_context_framework.constants import VALID_SUBTASK_STATUSES
 from ai_context_framework.paths import require_context_root
-from ai_context_framework.validators.checks import validate_task_id
+from ai_context_framework.validators.checks import validate_task_id, validate_task_stage_id
 
 
 MaybeCheckAfter = Callable[[argparse.Namespace, Path, str | None], CheckResult | None]
@@ -619,3 +620,148 @@ def register_task_parser(
     task_clear_parser.add_argument("path", nargs="?", type=Path)
     add_write_arguments(task_clear_parser)
     task_clear_parser.set_defaults(func=clear_handler)
+
+
+def register_plan_parsers(
+    subparsers: Any,
+    add_json_argument: Callable[..., None],
+    add_write_arguments: Callable[..., None],
+    *,
+    init_handler: Callable[..., int],
+    add_task_handler: Callable[..., int],
+    set_task_handler: Callable[..., int],
+    focus_handler: Callable[..., int],
+    complete_handler: Callable[..., int],
+    status_handler: Callable[..., int],
+    reference_list_handler: Callable[..., int],
+    reference_add_handler: Callable[..., int],
+    reference_remove_handler: Callable[..., int],
+    stage_list_handler: Callable[..., int],
+    stage_add_handler: Callable[..., int],
+    stage_set_handler: Callable[..., int],
+    stage_done_handler: Callable[..., int],
+) -> None:
+    """Register the whole `plan` parser tree (moved out of ``runtime.build_parser``).
+
+    Handlers are injected because the CLI binds the ``runtime_parts`` adapters that
+    supply each handler's dependencies.
+    """
+
+    plan_parser = subparsers.add_parser("plan", help="manage active/Task_Plan.md")
+    plan_subparsers = plan_parser.add_subparsers(dest="plan_command", required=True)
+
+    plan_init_parser = plan_subparsers.add_parser("init", help="create or replace the active task plan")
+    plan_init_parser.add_argument("path", nargs="?", type=Path)
+    plan_init_parser.add_argument("--title", required=True, help="large task title")
+    plan_init_parser.add_argument("--goal", action="append", required=True, help="large task goal; can be repeated")
+    plan_init_parser.add_argument("--success", action="append", default=None, help="success criterion; can be repeated")
+    plan_init_parser.add_argument("--force", action="store_true", help="replace an Active task plan")
+    add_write_arguments(plan_init_parser)
+    plan_init_parser.set_defaults(func=init_handler)
+
+    plan_add_parser = plan_subparsers.add_parser("add-task", help="add a subtask to active/Task_Plan.md")
+    plan_add_parser.add_argument("path", nargs="?", type=Path)
+    plan_add_parser.add_argument("--id", type=validate_task_id, default=None, help="subtask id, for example T001")
+    plan_add_parser.add_argument("--title", required=True, help="subtask title")
+    plan_add_parser.add_argument("--depends", default="无。", help="dependency summary")
+    plan_add_parser.add_argument("--output", default="无。", help="expected output")
+    plan_add_parser.add_argument("--next-action", default="无。", help="next action")
+    add_write_arguments(plan_add_parser)
+    plan_add_parser.set_defaults(func=add_task_handler)
+
+    plan_set_parser = plan_subparsers.add_parser("set-task", help="update a subtask row")
+    plan_set_parser.add_argument("path", nargs="?", type=Path)
+    plan_set_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
+    plan_set_parser.add_argument("--status", choices=tuple(sorted(VALID_SUBTASK_STATUSES)), default=None)
+    plan_set_parser.add_argument("--title", default=None)
+    plan_set_parser.add_argument("--depends", default=None)
+    plan_set_parser.add_argument("--output", default=None)
+    plan_set_parser.add_argument("--evidence", default=None)
+    plan_set_parser.add_argument("--next-action", default=None)
+    add_write_arguments(plan_set_parser)
+    plan_set_parser.set_defaults(func=set_task_handler)
+
+    plan_focus_parser = plan_subparsers.add_parser("focus", help="set the current plan focus")
+    plan_focus_parser.add_argument("path", nargs="?", type=Path)
+    plan_focus_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
+    add_write_arguments(plan_focus_parser)
+    plan_focus_parser.set_defaults(func=focus_handler)
+
+    plan_complete_parser = plan_subparsers.add_parser("complete", help="mark the task plan Done")
+    plan_complete_parser.add_argument("path", nargs="?", type=Path)
+    plan_complete_parser.add_argument("--force", action="store_true", help="complete even when subtasks are unfinished")
+    add_write_arguments(plan_complete_parser)
+    plan_complete_parser.set_defaults(func=complete_handler)
+
+    plan_status_parser = plan_subparsers.add_parser("status", help="show task plan status")
+    plan_status_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(plan_status_parser)
+    plan_status_parser.set_defaults(func=status_handler)
+
+    plan_reference_parser = plan_subparsers.add_parser("reference", help="manage plan reference basis entries")
+    plan_reference_subparsers = plan_reference_parser.add_subparsers(dest="plan_reference_command", required=True)
+
+    plan_reference_list_parser = plan_reference_subparsers.add_parser("list", help="list plan reference basis entries")
+    plan_reference_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(plan_reference_list_parser)
+    plan_reference_list_parser.set_defaults(func=reference_list_handler)
+
+    plan_reference_add_parser = plan_reference_subparsers.add_parser("add", help="add or update a plan reference basis entry")
+    plan_reference_add_parser.add_argument("path", nargs="?", type=Path)
+    plan_reference_add_parser.add_argument("--path", dest="ref_path", required=True, help="reference/*.md path")
+    plan_reference_add_parser.add_argument("--purpose", required=True, help="one-sentence purpose for this reference")
+    plan_reference_add_parser.add_argument("--allow-missing", action="store_true", help="allow adding a reference file path that does not exist yet")
+    plan_reference_add_parser.add_argument("--force", action="store_true", help="update an existing reference with the same path")
+    plan_reference_add_parser.add_argument("--sync-current-task", action="store_true", help="also sync a standard bullet into an Active Current_Task input list")
+    add_write_arguments(plan_reference_add_parser)
+    plan_reference_add_parser.set_defaults(func=reference_add_handler)
+
+    plan_reference_remove_parser = plan_reference_subparsers.add_parser("remove", help="remove a plan reference basis entry")
+    plan_reference_remove_parser.add_argument("path", nargs="?", type=Path)
+    plan_reference_remove_parser.add_argument("--path", dest="ref_path", required=True, help="reference/*.md path")
+    plan_reference_remove_parser.add_argument("--missing-ok", action="store_true", help="exit successfully when the reference is already absent")
+    plan_reference_remove_parser.add_argument("--sync-current-task", action="store_true", help="also remove the exact standard bullet from an Active Current_Task input list")
+    add_write_arguments(plan_reference_remove_parser)
+    plan_reference_remove_parser.set_defaults(func=reference_remove_handler)
+
+    plan_stage_parser = plan_subparsers.add_parser("stage", help="manage task stages in active/Task_Plan.md")
+    plan_stage_subparsers = plan_stage_parser.add_subparsers(dest="plan_stage_command", required=True)
+
+    plan_stage_list_parser = plan_stage_subparsers.add_parser("list", help="list task stages")
+    plan_stage_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(plan_stage_list_parser)
+    plan_stage_list_parser.set_defaults(func=stage_list_handler)
+
+    plan_stage_add_parser = plan_stage_subparsers.add_parser("add", help="add a task stage row")
+    plan_stage_add_parser.add_argument("path", nargs="?", type=Path)
+    plan_stage_add_parser.add_argument("--id", type=validate_task_stage_id, required=True, help="task stage id, for example T001.1")
+    plan_stage_add_parser.add_argument("--parent", type=validate_task_id, required=True, help="parent subtask id")
+    plan_stage_add_parser.add_argument("--title", required=True, help="stage title")
+    plan_stage_add_parser.add_argument("--workstream", default="无。", help="optional owning Workstream id")
+    plan_stage_add_parser.add_argument("--depends", default="无。", help="dependency summary")
+    plan_stage_add_parser.add_argument("--output", default="待补充。", help="expected output")
+    plan_stage_add_parser.add_argument("--next-action", default="待推进。", help="next action")
+    add_write_arguments(plan_stage_add_parser)
+    plan_stage_add_parser.set_defaults(func=stage_add_handler)
+
+    plan_stage_set_parser = plan_stage_subparsers.add_parser("set", help="update a task stage row")
+    plan_stage_set_parser.add_argument("path", nargs="?", type=Path)
+    plan_stage_set_parser.add_argument("--id", type=validate_task_stage_id, required=True, help="task stage id")
+    plan_stage_set_parser.add_argument("--status", choices=tuple(sorted(VALID_SUBTASK_STATUSES)), default=None)
+    plan_stage_set_parser.add_argument("--parent", type=validate_task_id, default=None)
+    plan_stage_set_parser.add_argument("--title", default=None)
+    plan_stage_set_parser.add_argument("--workstream", default=None)
+    plan_stage_set_parser.add_argument("--depends", default=None)
+    plan_stage_set_parser.add_argument("--output", default=None)
+    plan_stage_set_parser.add_argument("--evidence", default=None)
+    plan_stage_set_parser.add_argument("--next-action", default=None)
+    add_write_arguments(plan_stage_set_parser)
+    plan_stage_set_parser.set_defaults(func=stage_set_handler)
+
+    plan_stage_done_parser = plan_stage_subparsers.add_parser("done", help="mark a task stage Done")
+    plan_stage_done_parser.add_argument("path", nargs="?", type=Path)
+    plan_stage_done_parser.add_argument("--id", type=validate_task_stage_id, required=True, help="task stage id")
+    plan_stage_done_parser.add_argument("--evidence", required=True, help="completion evidence")
+    plan_stage_done_parser.add_argument("--next-action", default=None)
+    add_write_arguments(plan_stage_done_parser)
+    plan_stage_done_parser.set_defaults(func=stage_done_handler)

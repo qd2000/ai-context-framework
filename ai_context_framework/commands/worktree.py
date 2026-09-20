@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -518,3 +519,144 @@ def worktree_resume_command(args: argparse.Namespace) -> int:
         "worktree resume",
         {**result, "applied": True, "ok": True},
     )
+
+
+def register_worktree_parsers(
+    subparsers: Any, add_json_argument: Callable[..., None]
+) -> None:
+    """Register the whole `worktree` parser tree (moved out of ``runtime.build_parser``).
+
+    This module owns its handlers, so they are referenced directly rather than
+    injected.
+    """
+
+    worktree_parser = subparsers.add_parser(
+        "worktree",
+        help="manage optional Git branches and linked worktrees",
+    )
+    worktree_subparsers = worktree_parser.add_subparsers(dest="worktree_command", required=True)
+
+    worktree_create_parser = worktree_subparsers.add_parser(
+        "create",
+        help="plan or create a Workstream or classified non-Workstream worktree",
+    )
+    worktree_create_parser.add_argument("path", nargs="?", type=Path, help="context path or project directory")
+    create_identity = worktree_create_parser.add_mutually_exclusive_group(required=True)
+    create_identity.add_argument("--workstream", type=validate_workstream_id)
+    create_identity.add_argument("--kind", choices=ALLOWED_NON_WORKSTREAM_KINDS)
+    worktree_create_parser.add_argument("--slug", default=None, help="task slug; required for non-Workstream targets and optional override for Workstreams")
+    worktree_create_parser.add_argument("--operation-id", default=None, help="optional stable operation id for recovery")
+    worktree_create_parser.add_argument("--apply", action="store_true", help="perform the planned Git changes")
+    add_json_argument(worktree_create_parser)
+    worktree_create_parser.set_defaults(func=worktree_create_command)
+
+    worktree_attach_parser = worktree_subparsers.add_parser("attach", help="bind and verify an existing standard worktree")
+    worktree_attach_parser.add_argument("path", nargs="?", type=Path)
+    worktree_attach_parser.add_argument("--workstream", type=validate_workstream_id, required=True)
+    worktree_attach_parser.add_argument("--target", type=Path, required=True)
+    worktree_attach_parser.add_argument("--slug", default=None)
+    worktree_attach_parser.add_argument("--apply", action="store_true")
+    add_json_argument(worktree_attach_parser)
+    worktree_attach_parser.set_defaults(func=worktree_attach_command)
+
+    worktree_verify_parser = worktree_subparsers.add_parser("verify", help="verify repository, branch, path, registry, and reservation identity")
+    worktree_verify_parser.add_argument("path", nargs="?", type=Path)
+    verify_identity = worktree_verify_parser.add_mutually_exclusive_group(required=True)
+    verify_identity.add_argument("--workstream", type=validate_workstream_id)
+    verify_identity.add_argument("--target", type=Path)
+    worktree_verify_parser.add_argument("--slug", default=None)
+    add_json_argument(worktree_verify_parser)
+    worktree_verify_parser.set_defaults(func=worktree_verify_command)
+
+    worktree_list_parser = worktree_subparsers.add_parser("list", help="list Git worktrees and ACF bindings")
+    worktree_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(worktree_list_parser)
+    worktree_list_parser.set_defaults(func=worktree_list_command)
+
+    worktree_audit_parser = worktree_subparsers.add_parser("audit", help="audit detached, prunable, misplaced, or stale worktrees")
+    worktree_audit_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(worktree_audit_parser)
+    worktree_audit_parser.set_defaults(func=worktree_audit_command)
+
+    worktree_sync_parser = worktree_subparsers.add_parser("sync", help="merge the primary branch into a clean worktree branch")
+    worktree_sync_parser.add_argument("path", nargs="?", type=Path)
+    sync_identity = worktree_sync_parser.add_mutually_exclusive_group(required=True)
+    sync_identity.add_argument("--workstream", type=validate_workstream_id)
+    sync_identity.add_argument("--target", type=Path)
+    worktree_sync_parser.add_argument("--apply", action="store_true")
+    add_json_argument(worktree_sync_parser)
+    worktree_sync_parser.set_defaults(func=worktree_sync_command)
+
+    worktree_merge_plan_parser = worktree_subparsers.add_parser("merge-plan", help="plan an integration-worktree merge and protected fast-forward promotion")
+    worktree_merge_plan_parser.add_argument("path", nargs="?", type=Path)
+    merge_plan_identity = worktree_merge_plan_parser.add_mutually_exclusive_group(required=True)
+    merge_plan_identity.add_argument("--workstream", type=validate_workstream_id)
+    merge_plan_identity.add_argument("--target", type=Path)
+    add_json_argument(worktree_merge_plan_parser)
+    worktree_merge_plan_parser.set_defaults(func=worktree_merge_plan_command)
+
+    worktree_merge_parser = worktree_subparsers.add_parser("merge", help="merge in a temporary integration worktree, validate, migrate artifacts, and promote")
+    worktree_merge_parser.add_argument("path", nargs="?", type=Path)
+    merge_identity = worktree_merge_parser.add_mutually_exclusive_group(required=True)
+    merge_identity.add_argument("--workstream", type=validate_workstream_id)
+    merge_identity.add_argument("--target", type=Path)
+    worktree_merge_parser.add_argument("--message", default=None)
+    worktree_merge_parser.add_argument("--operation-id", default=None, help="optional stable operation id")
+    worktree_merge_parser.add_argument("--pre-check-json", action="append", default=None, help="JSON argv array executed in the source worktree before merge")
+    worktree_merge_parser.add_argument("--post-check-json", action="append", default=None, help="JSON argv array executed in the temporary integration worktree")
+    worktree_merge_parser.add_argument("--max-replans", type=int, default=8)
+    worktree_merge_parser.add_argument("--conflict-replans", type=int, default=3)
+    worktree_merge_parser.add_argument("--lock-wait-timeout", type=int, default=300)
+    worktree_merge_parser.add_argument("--wait-timeout", type=int, default=600)
+    worktree_merge_parser.add_argument("--initial-delay", type=float, default=0.5)
+    worktree_merge_parser.add_argument("--max-delay", type=float, default=15.0)
+    worktree_merge_parser.add_argument("--jitter-ratio", type=float, default=0.20)
+    worktree_merge_parser.add_argument("--artifact-required", action="append", default=None, metavar="PATH=DEST")
+    worktree_merge_parser.add_argument("--artifact-reference", action="append", default=None, metavar="PATH=DEST")
+    worktree_merge_parser.add_argument("--artifact-cache", action="append", default=None, metavar="PATH")
+    worktree_merge_parser.add_argument("--artifact-discardable", action="append", default=None, metavar="PATH")
+    worktree_merge_parser.add_argument("--apply", action="store_true")
+    add_json_argument(worktree_merge_parser)
+    worktree_merge_parser.set_defaults(func=worktree_merge_command)
+
+    worktree_artifact_plan_parser = worktree_subparsers.add_parser("artifact-plan", help="classify ignored/untracked worktree artifacts before promotion or close")
+    worktree_artifact_plan_parser.add_argument("path", nargs="?", type=Path)
+    artifact_plan_identity = worktree_artifact_plan_parser.add_mutually_exclusive_group(required=True)
+    artifact_plan_identity.add_argument("--workstream", type=validate_workstream_id)
+    artifact_plan_identity.add_argument("--target", type=Path)
+    worktree_artifact_plan_parser.add_argument("--required", action="append", default=None, metavar="PATH=DEST")
+    worktree_artifact_plan_parser.add_argument("--reference", action="append", default=None, metavar="PATH=DEST")
+    worktree_artifact_plan_parser.add_argument("--cache", action="append", default=None, metavar="PATH")
+    worktree_artifact_plan_parser.add_argument("--discardable", action="append", default=None, metavar="PATH")
+    worktree_artifact_plan_parser.add_argument("--apply", action="store_true")
+    add_json_argument(worktree_artifact_plan_parser)
+    worktree_artifact_plan_parser.set_defaults(func=worktree_artifact_plan_command)
+
+    worktree_artifact_migrate_parser = worktree_subparsers.add_parser("artifact-migrate", help="copy/reference artifacts and verify their digests")
+    worktree_artifact_migrate_parser.add_argument("path", nargs="?", type=Path)
+    artifact_migrate_identity = worktree_artifact_migrate_parser.add_mutually_exclusive_group(required=True)
+    artifact_migrate_identity.add_argument("--workstream", type=validate_workstream_id)
+    artifact_migrate_identity.add_argument("--target", type=Path)
+    worktree_artifact_migrate_parser.add_argument("--apply", action="store_true")
+    add_json_argument(worktree_artifact_migrate_parser)
+    worktree_artifact_migrate_parser.set_defaults(func=worktree_artifact_migrate_command)
+
+    worktree_close_parser = worktree_subparsers.add_parser("close", help="remove an already-merged clean worktree after artifact handoff")
+    worktree_close_parser.add_argument("path", nargs="?", type=Path)
+    close_identity = worktree_close_parser.add_mutually_exclusive_group(required=True)
+    close_identity.add_argument("--workstream", type=validate_workstream_id)
+    close_identity.add_argument("--target", type=Path)
+    worktree_close_parser.add_argument("--wait-timeout", type=int, default=120)
+    worktree_close_parser.add_argument("--operation-id", default=None)
+    worktree_close_parser.add_argument("--apply", action="store_true")
+    add_json_argument(worktree_close_parser)
+    worktree_close_parser.set_defaults(func=worktree_close_command)
+
+    register_retire_parser(worktree_subparsers, add_json_argument)
+
+    worktree_resume_parser = worktree_subparsers.add_parser("resume", help="inspect or resume a journaled create/merge/close/retire operation")
+    worktree_resume_parser.add_argument("operation_id")
+    worktree_resume_parser.add_argument("path", nargs="?", type=Path)
+    worktree_resume_parser.add_argument("--apply", action="store_true")
+    add_json_argument(worktree_resume_parser)
+    worktree_resume_parser.set_defaults(func=worktree_resume_command)

@@ -9,6 +9,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, Callable
 
 from ai_context_framework.constants import JSON_SCHEMA_VERSION
 from ai_context_framework.json_contract import (
@@ -19,7 +20,13 @@ from ai_context_framework.json_contract import (
     print_json,
 )
 from ai_context_framework.models import ContextLocation
-from ai_context_framework.commands.log_issue import apply_issue_ledger, read_issue_ledger
+from ai_context_framework.commands.log_gc import register_gc_parser
+from ai_context_framework.commands.log_inventory import register_log_projects_parser
+from ai_context_framework.commands.log_issue import (
+    apply_issue_ledger,
+    read_issue_ledger,
+    register_log_issue_parser,
+)
 from ai_context_framework.observability import (
     acf_home,
     append_usage_event,
@@ -653,3 +660,77 @@ def log_prune_command(args: argparse.Namespace) -> int:
         print(f"removed events: {removed_count}")
         print(f"kept events: {len(kept_events)}")
     return 0
+
+
+def register_log_parsers(
+    subparsers: Any,
+    add_json_argument: Callable[..., None],
+    *,
+    enable_handler: Callable[..., int],
+    disable_handler: Callable[..., int],
+    status_handler: Callable[..., int],
+    tail_handler: Callable[..., int],
+    summarize_handler: Callable[..., int],
+    feedback_handler: Callable[..., int],
+    prune_handler: Callable[..., int],
+) -> None:
+    """Register the whole `log` parser tree (moved out of ``runtime.build_parser``).
+
+    Handlers are injected because the CLI binds the ``runtime_parts`` adapters that
+    supply each handler's dependencies. The pagination, GC, and issue lifecycle
+    sub-parsers are delegated to the modules that own them.
+    """
+
+    log_parser = subparsers.add_parser("log", help="manage global acf usage logs")
+    log_subparsers = log_parser.add_subparsers(dest="log_command", required=True)
+
+    log_enable_parser = log_subparsers.add_parser("enable", help="enable user-global usage logging for this project")
+    log_enable_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    add_json_argument(log_enable_parser)
+    log_enable_parser.set_defaults(func=enable_handler)
+
+    log_disable_parser = log_subparsers.add_parser("disable", help="disable user-global usage logging for this project")
+    log_disable_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    add_json_argument(log_disable_parser)
+    log_disable_parser.set_defaults(func=disable_handler)
+
+    log_status_parser = log_subparsers.add_parser("status", help="show usage log status")
+    log_status_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    add_json_argument(log_status_parser)
+    log_status_parser.set_defaults(func=status_handler)
+
+    log_tail_parser = log_subparsers.add_parser("tail", help="show recent usage events")
+    log_tail_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    log_tail_parser.add_argument("--limit", type=int, default=20, help="number of recent events to show")
+    add_json_argument(log_tail_parser)
+    log_tail_parser.set_defaults(func=tail_handler)
+
+    log_summarize_parser = log_subparsers.add_parser("summarize", help="summarize usage events")
+    log_summarize_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    log_summarize_parser.add_argument("--days", type=int, default=None, help="summarize events from this many recent days")
+    log_summarize_parser.add_argument("--since", default=None, help="summarize events since YYYY-MM-DD or ISO timestamp")
+    log_summarize_parser.add_argument("--command", dest="command_filter", action="append", default=None, help="only include an exact command label; can be repeated")
+    log_summarize_parser.add_argument("--errors-only", action="store_true", help="only include failed events")
+    add_json_argument(log_summarize_parser)
+    log_summarize_parser.set_defaults(func=summarize_handler)
+
+    log_feedback_parser = log_subparsers.add_parser("feedback", help="record explicit user feedback in the usage log")
+    log_feedback_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    log_feedback_parser.add_argument("--text", default=None, help="feedback text to record explicitly")
+    log_feedback_parser.add_argument("--input", type=Path, default=None, help="file containing feedback text")
+    log_feedback_parser.add_argument("--type", default="Feedback", help="feedback type, for example Problem, Request, or UX")
+    log_feedback_parser.add_argument("--source", default="manual", help="feedback source label")
+    log_feedback_parser.add_argument("--related-command", default=None, help="optional related command label")
+    add_json_argument(log_feedback_parser)
+    log_feedback_parser.set_defaults(func=feedback_handler)
+
+    log_prune_parser = log_subparsers.add_parser("prune", help="remove old usage events")
+    log_prune_parser.add_argument("path", nargs="?", type=Path, help="context path or a directory inside a project")
+    log_prune_parser.add_argument("--days", type=int, default=30, help="keep events from this many recent days")
+    add_json_argument(log_prune_parser)
+    log_prune_parser.set_defaults(func=prune_handler)
+
+    register_log_projects_parser(log_subparsers, add_json_argument)
+    register_log_issues_parser(log_subparsers, add_json_argument)
+    register_gc_parser(log_subparsers, add_json_argument)
+    register_log_issue_parser(log_subparsers, add_json_argument)

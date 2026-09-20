@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import re
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Callable, Sequence
 
 from ai_context_framework.constants import JSON_SCHEMA_VERSION
 from ai_context_framework.front_matter import parse_front_matter
@@ -161,3 +161,34 @@ def links_sync_backlinks_command(args: argparse.Namespace) -> int:
         "next_actions": ["Rerun with `--apply` after reviewing planned backlinks."] if dry_run_enabled(args) else [],
     }
     return emit_query(args, payload)
+
+
+def register_links_parser(subparsers: Any, add_json_argument: Callable[..., None]) -> None:
+    """Register the `links` parser group (moved out of ``runtime.build_parser``)."""
+
+    links_parser = subparsers.add_parser("links", help="manage structured link graph and generated backlinks")
+    links_subparsers = links_parser.add_subparsers(dest="links_command", required=True)
+
+    links_graph_parser = links_subparsers.add_parser("graph", help="print structured link graph")
+    links_graph_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(links_graph_parser)
+    links_graph_parser.set_defaults(func=links_graph_command)
+
+    links_check_parser = links_subparsers.add_parser("check", help="check structured link targets")
+    links_check_parser.add_argument("path", nargs="?", type=Path)
+    links_check_parser.add_argument("--strict", action="store_true", help="treat governance link breakage as errors")
+    add_json_argument(links_check_parser)
+    links_check_parser.set_defaults(func=links_check_command)
+
+    links_backlinks_parser = links_subparsers.add_parser("backlinks", help="show structured backlinks for a target")
+    links_backlinks_parser.add_argument("target", help="target path")
+    links_backlinks_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(links_backlinks_parser)
+    links_backlinks_parser.set_defaults(func=links_backlinks_command)
+
+    links_sync_parser = links_subparsers.add_parser("sync-backlinks", help="preview or sync generated backlink blocks")
+    links_sync_parser.add_argument("path", nargs="?", type=Path)
+    links_sync_parser.add_argument("--apply", action="store_true", help="write generated backlink blocks")
+    links_sync_parser.add_argument("--dry-run", action="store_true", help="report planned backlinks without writing")
+    add_json_argument(links_sync_parser)
+    links_sync_parser.set_defaults(func=links_sync_backlinks_command)

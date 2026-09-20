@@ -11,6 +11,12 @@ import inspect
 from ai_context_framework import runtime_context
 from ai_context_framework.commands import workstream as workstream_commands
 from ai_context_framework.commands import workstream_reserve as workstream_reserve_commands
+from ai_context_framework.constants import (
+    VALID_MERGE_RESOLUTIONS,
+    VALID_WORKSTREAM_ATTENTION,
+    VALID_WORKSTREAM_STATUSES,
+    VALID_WORKSTREAM_TYPES,
+)
 
 def archive_index_path(root: Path) -> Path:
     return root / "archive" / "Archive_Index.md"

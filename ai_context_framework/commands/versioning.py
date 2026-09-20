@@ -6,6 +6,7 @@ import argparse
 import importlib.metadata
 import re
 from pathlib import Path
+from typing import Any, Callable
 
 from ai_context_framework.json_contract import (
     dry_run_enabled,
@@ -188,3 +189,30 @@ def version_set_command(args: argparse.Namespace, *, source_root: Path | None = 
         changed,
         extra_payload={"version": cli_version, "package_version": package_version},
     )
+
+
+def register_version_parser(
+    subparsers: Any,
+    add_json_argument: Callable[..., None],
+    add_write_arguments: Callable[..., None],
+    *,
+    show_handler: Callable[..., int],
+    set_handler: Callable[..., int],
+) -> None:
+    """Register the `version` parser group (moved out of ``runtime.build_parser``).
+
+    Handlers are injected because the CLI binds the ``runtime_parts`` adapters that
+    supply each handler's dependencies.
+    """
+
+    version_parser = subparsers.add_parser("version", help="show or update project version metadata")
+    version_subparsers = version_parser.add_subparsers(dest="version_command", required=True)
+
+    version_show_parser = version_subparsers.add_parser("show", help="show version values from project files")
+    add_json_argument(version_show_parser)
+    version_show_parser.set_defaults(func=show_handler)
+
+    version_set_parser = version_subparsers.add_parser("set", help="update CLI and package version files")
+    version_set_parser.add_argument("value", help="version value, for example v0.0.3.6")
+    add_write_arguments(version_set_parser)
+    version_set_parser.set_defaults(func=set_handler)

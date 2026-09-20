@@ -10,6 +10,10 @@ import re
 from ai_context_framework.constants import (
     VALID_HUMAN_INDEX_STATUSES,
     VALID_KNOWLEDGE_STATUSES,
+    VALID_SOURCE_STATUSES,
+    VALID_SUBTASK_STATUSES,
+    VALID_TASK_STATUSES,
+    VALID_WORKSTREAM_STATUSES,
 )
 
 def iter_markdown_files(root: Path) -> Iterable[Path]:

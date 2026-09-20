@@ -12,6 +12,7 @@ from ai_context_framework.context_budget import context_budget_warnings
 from ai_context_framework.commands.status_check import workstream_entry_payload
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
 from ai_context_framework.paths import require_context_root, resolve_status_location
+from ai_context_framework.validators.checks import validate_workstream_id
 
 
 def emit_query(args: argparse.Namespace, payload: dict[str, object]) -> int:
@@ -109,3 +110,20 @@ def register_draft_parser(
     draft_status_parser.add_argument("path", nargs="?", type=Path)
     add_json_argument(draft_status_parser)
     draft_status_parser.set_defaults(func=handler)
+
+
+def register_next_parser(
+    subparsers: Any, add_json_argument: Callable[..., None], handler: Callable[..., int]
+) -> None:
+    """Register the `next` parser (moved out of ``runtime.build_parser``)."""
+
+    next_parser = subparsers.add_parser("next", help="show the next low-risk context entry")
+    next_parser.add_argument("path", nargs="?", type=Path)
+    next_parser.add_argument(
+        "--workstream",
+        type=validate_workstream_id,
+        default=None,
+        help="explicitly select one Workstream context; omitted means global-only",
+    )
+    add_json_argument(next_parser)
+    next_parser.set_defaults(func=handler)

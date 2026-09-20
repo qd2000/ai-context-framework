@@ -55,6 +55,7 @@ ai_context_framework/commands/continuation.py
 ai_context_framework/commands/continuation_coordination.py
 ai_context_framework/commands/continuation_directives.py
 ai_context_framework/commands/continuation_execution.py
+ai_context_framework/commands/continuation_group_parsers.py
 ai_context_framework/commands/continuation_issue.py
 ai_context_framework/commands/continuation_owner.py
 ai_context_framework/commands/continuation_parsers.py
@@ -85,6 +86,7 @@ ai_context_framework/commands/versioning.py
 ai_context_framework/commands/worklog.py
 ai_context_framework/commands/workstream.py
 ai_context_framework/commands/workstream_authorization.py
+ai_context_framework/commands/workstream_parsers.py
 ai_context_framework/commands/workstream_reserve.py
 ai_context_framework/commands/worktree.py
 ai_context_framework/domains/__init__.py
