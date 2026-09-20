@@ -51,7 +51,7 @@ WS016 Runtime 全局注入解耦
 
 ## 当前焦点
 
-T006
+T008
 
 ---
 
@@ -66,7 +66,7 @@ T006
 | T005 | Done | 分批 parser composition | T004 | 各命令模块 register_*_parser、runtime.build_parser 瘦身、命令树形状快照回归 | parser composition 全部完成：runtime.build_parser 内已无任何内联 subparsers.add_parser，改为 31 处 register_*_parser 组合调用；新增 ai_context_framework/cli_arguments.py（共享 add_json_argument/add_write_arguments）、commands/workstream_parsers.py（29 个 handler 显式映射 + 缺失校验）、commands/continuation_group_parsers.py。下移的命令组：review/audit/curate/doctor、linkify/link/edit、decisions、draft、feedback、human、writeback、task、archive、knowledge、plan、new、status/check/next/init/simplify/upgrade/links/log/version、workstream、worktree、continuation。常量迁到 constants.py 并由消费方直接导入：DEFAULT_STALE_DAYS、VALID_FEEDBACK_STATUSES、VALID_HUMAN_INDEX_STATUSES、VALID_KNOWLEDGE_STATUSES、VALID_MERGE_RESOLUTIONS、VALID_WORKSTREAM_{ATTENTION,STATUSES,TYPES}、VALID_SUBTASK_STATUSES、VALID_TASK_STATUSES、VALID_SOURCE_STATUSES、VALID_HUMAN_NOTE_STATUSES；runtime_parts/{check,doctor,knowledge_review,archive_workstream}.py 改为直接导入。关键语义：CLI 绑定的是 runtime_parts 的 deps 适配器而不是命令模块同名函数，因此 register_*_parser 必须显式注入 handler（命令树快照护栏首次运行即抓到 4 处漂移）。runtime.py 1988 -> 838 行（-57%）。顺带修复既有失败：README.md 缺失 ws003_acceptance 要求的 GlobalOnly 术语（自 c425410 起缺失）。证据：命令树快照 210 条路径零漂移，unittest 292(test_cli)+292(continuation/杂项)+100(worktree)+10(ws003)+8(package/契约) 全绿，check template、check --strict、minimal_smoke 8/8 通过。 | 进入 T006 收敛 acf.py shim：移除对 runtime 私有全局的写入与 re-sync。 |
 | T006 | Done | 收敛 acf.py shim | T005 | acf.py 移除私有全局写入与 re-sync、显式 root 传递、相关 shim 测试重写 | acf.py 收敛完成：新增 runtime.set_root(root) 作为唯一公开的 ROOT 重绑定入口（设 ROOT 并同步各 runtime part），acf.py 不再写 runtime.ROOT、不再调用私有 _sync_runtime_part_globals，且只在 acf.ROOT 与 runtime.ROOT 实际不同时才同步（去掉了每次属性访问都无条件 re-sync 的行为）；runtime.main() 中冗余的 _sync_runtime_part_globals 调用移除（import 时安装已完成同步）。test_package_skeleton 断言按有意契约更新：新增 test_top_level_shim_does_not_write_runtime_internals 直接断言 shim 源码含 set_root、不含私有同步调用与私有全局写入，并改用 runtime.set_root 恢复 ROOT；配套修正审计脚本的误报：dynamic_access_gaps 排除 dunder 协议属性（__file__ 由模块系统提供，不是注入面缺口）。证据：test_runtime_contracts 12 项、test_package_skeleton 9 项、test_entrypoint_smoke、test_cli_surface_snapshot 与 test_cli 的两个 shim ROOT 用例全绿；uv run python acf.py version show --json 正常。 | 进入 T007 全量门禁、证据矩阵与文档同步。 |
 | T007 | Done | 全量门禁、证据矩阵与文档同步 | T006 | 六域 Gap Matrix 第 3 域、Architecture、Context 与 worklog | 全量门禁、证据矩阵与文档同步完成：版本收敛 v0.0.3.96 + CHANGELOG；新增 ADR-0007 记录 runtime 组合契约并经 merge_targets + 合并请求（authority write gate）落盘，Decisions 索引同步生成；Architecture.md 新增「runtime 组合契约」章节并修正过期的单文件 acf.py 表述与架构风险；六域 Gap Matrix 第 3 域 runtime 全局注入行更新为已解耦并给出护栏引用。门禁：check template、check docs/ai --strict、py_compile、minimal_smoke 8/8、unittest 704 项（135 快速批 + 292 test_cli + 168 continuation + 109 worktree，3 项跳过）全绿；命令树快照 210 条路径零漂移。治理点：WS014 旧式 assigned: decisions/ 声明已不被 authority write gate 接受，本轮按 merge_targets + workstream merge-request 落盘权威文件。 | 进入 T008 授权收口与归档。 |
-| T008 | Pending | 授权收口与归档 | T007 | WS016 done、归档与 Context 收敛回 global-only | 无。 | 取得用户 closeout 授权后执行 |
+| T008 | Done | 授权收口与归档 | T007 | WS016 done、归档与 Context 收敛回 global-only | 授权收口与归档完成：按 WS012 先例以 current-user-instruction 记录 ready/done/archive 审批证据（status 迁移会变更 workstream 指纹，故每步迁移后按新指纹重记审批），WS016 Active -> ReadyToMerge -> Done -> archive；合并请求覆盖 ADR-0007 与 Decisions 索引两个 authority merge target；Current_Task 清空、Workstreams 索引同步为 Inactive、status 回到 Inactive/global-only；Context 收敛到归档态；3 条 open issue 与 WS016 无关、不处置。 | 取得用户 closeout 授权后执行 |
 
 ---
 

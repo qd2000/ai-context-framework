@@ -8,14 +8,14 @@
 
 ## 审阅标记
 
-- Last reviewed: 2026-09-18 19:52
-- Review scope: 文件级；WS015 启动后的当前事实。
+- Last reviewed: 2026-09-20 21:10
+- Review scope: 文件级；WS016 已收口归档、项目回到 global-only 的当前事实。
 
 ---
 
 ## 当前阶段
 
-WS016「Runtime 全局注入解耦」正在执行：把 `runtime.py` 与 8 个 `runtime_parts` 之间的 `__dict__` 双向合并收窄为显式 `__acf_exports__` allowlist 与同名冲突 fail-closed，用显式 RuntimeContext 取代 `commands/workstream.py` 的 per-call `_bind`，分批把 `build_parser` 内联命令组下移为 `register_*_parser`，并移除 `acf.py` 对 runtime 私有全局的写入。这是纯内部重构：对外 CLI 命令/参数/JSON 契约、退出码与 help 文本保持逐字不变，不新增命令、不新增运行依赖、不 bump 版本。
+项目回到 global-only：没有 Active / Blocked / ReadyToMerge / Merging Workstream。WS016「Runtime 全局注入解耦」已收口并归档（[archive/workstreams/WS016.md](../archive/workstreams/WS016.md)）：`runtime_parts/*` 用显式 `__acf_exports__` 导出并 fail-closed 安装，per-call `_bind` 由显式 RuntimeContext 取代，`build_parser` 变为 31 处 `register_*_parser` 组合，`acf.py` 只走公开 `runtime.set_root`；对外 CLI 契约零变化（命令树 210 条路径快照零漂移），`runtime.py` 1988 -> 838 行，决策固化为 [decisions/ADR-0007.md](../decisions/ADR-0007.md)，版本收敛 `v0.0.3.96`。下一轮优先级见「当前开放问题」。
 
 ---
 
@@ -74,17 +74,17 @@ WS016「Runtime 全局注入解耦」正在执行：把 `runtime.py` 与 8 个 `
 2. WS015「发布链收口与 worktree 退役窄路径」已完成并归档（[archive/workstreams/WS015.md](../archive/workstreams/WS015.md)）：交付 `acf worktree retire` 窄路径与 `v0.0.3.95` 发布闭合，全局安装经 `scripts/update_acf.ps1` 更新并验证 `acf v0.0.3.95`。
 3. 发布链失败的根因（WS014 引入的 `release.yml` verify 门禁在 Windows runner 上暴露的 3 处既有测试夹具缺陷：8.3 短路径别名让 overlap 竞态注入静默失效、install 脚本裸路径字符串比对、tearDown 临时目录被刚终止进程瞬时占用）已修复并随 `v0.0.3.95` 发布；`v0.0.3.93` 与 `v0.0.3.94` 保留为历史失败 tag，按不可变约定不改写。
 4. 跨项目 issue：open 3 条——owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认；worktree curated handoff 退休已由 `v0.0.3.95` 收口为 resolved。
-5. WS016「Runtime 全局注入解耦」进行中：`runtime.py` 与 `runtime_parts` 的 `__dict__` 双向合并将收窄为显式 allowlist，`commands/workstream.py` 的 28 处 per-call `_bind` 将由显式 RuntimeContext 取代，`build_parser` 内联命令组分批下移，`acf.py` 不再写 runtime 私有全局。目标是纯内部重构，对外契约零变化。
+5. WS016「Runtime 全局注入解耦」已完成实现、验收与归档（[archive/workstreams/WS016.md](../archive/workstreams/WS016.md)）：导出 allowlist fail-closed、显式 RuntimeContext、parser composition、`acf.py` 收敛与 ADR-0007 全部落地，全套门禁 704 项全绿，版本收敛 `v0.0.3.96`。
 6. owner-context 的 ACF 侧隔离验证已通过（`scripts/continuation_owner_fixture.py`）；真实网页工具链复测仍是待执行验收项，协议见 [reference/Continuation_Owner_Context_Verification.md](../reference/Continuation_Owner_Context_Verification.md)。
 7. [active/Feedback_Inbox.md](Feedback_Inbox.md)：F015/F017 已转为 rules 条目并 Done，F019 已转为 Planned 并指向 ADR-0006 与后续 UX 计划。
-8. 后续独立候选：System Manual 共享区块同步机制、分钟级时间字段的 CLI 自动生成能力。
+8. 后续独立候选：WS016 变更集的发布闭合（版本已收敛 `v0.0.3.96`，tag/PyPI 发布与全局安装验证属发布流程，待授权）、System Manual 共享区块同步机制、分钟级时间字段的 CLI 自动生成能力、owner-context 真实链路复测、child effect 委派设计。
 
 ### 默认索引
 
 1. 产品目标和阶段路线：[reference/Project_Brief.md](../reference/Project_Brief.md)、[reference/Product_Roadmap.md](../reference/Product_Roadmap.md)。
 2. 架构与边界：[reference/ACF_Top_Level_Design.md](../reference/ACF_Top_Level_Design.md)、[../Automation.md](../../Automation.md)、[reference/System_Manual.md](../reference/System_Manual.md)。
 3. 实现差距与下一步：[reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md)、[reference/Generated_Marker_Sync_Design.md](../reference/Generated_Marker_Sync_Design.md)、[reference/Doctor_Reconcile_Design.md](../reference/Doctor_Reconcile_Design.md)、[active/Task_Plan.md](Task_Plan.md)、[active/Feedback_Inbox.md](Feedback_Inbox.md)。
-4. 决策与规则：[reference/Decisions_Index.md](../reference/Decisions_Index.md)、[rules/Project_Rules.md](../rules/Project_Rules.md)、[decisions/ADR-0003.md](../decisions/ADR-0003.md)、[decisions/ADR-0004.md](../decisions/ADR-0004.md)、[decisions/ADR-0005.md](../decisions/ADR-0005.md)、[decisions/ADR-0006.md](../decisions/ADR-0006.md)。
+4. 决策与规则：[reference/Decisions_Index.md](../reference/Decisions_Index.md)、[rules/Project_Rules.md](../rules/Project_Rules.md)、[decisions/ADR-0003.md](../decisions/ADR-0003.md)、[decisions/ADR-0004.md](../decisions/ADR-0004.md)、[decisions/ADR-0005.md](../decisions/ADR-0005.md)、[decisions/ADR-0006.md](../decisions/ADR-0006.md)、[decisions/ADR-0007.md](../decisions/ADR-0007.md)。
 5. 可复用经验与历史证据：[reference/Knowledge_Index.md](../reference/Knowledge_Index.md)、[worklog/Worklog_Index.md](../worklog/Worklog_Index.md)、[archive/Archive_Index.md](../archive/Archive_Index.md)；archive 默认不读，只有追溯历史时按需进入。
 
 ---
@@ -110,8 +110,7 @@ WS016「Runtime 全局注入解耦」正在执行：把 `runtime.py` 与 8 个 `
 4. 是否需要继续新增 weekly/report 创建命令，或保持 human layer 只通过 `new human-note` 写 Inbox。
 5. 是否为分钟级时间字段提供 CLI 自动生成能力（格式规则已落地，见 [rules/Project_Rules.md](../rules/Project_Rules.md)）。
 6. ACF Core 与 Operations 控制面的边界如何在不拆包的前提下落地（ADR-0006 的设计结论）。
-7. WS015 的 closeout approval 何时给出；在给出前 WS015 保持 Active/Blocked，不归档、不写 Done。
-8. 下一阶段优先级：runtime 全局注入解耦，还是先处理剩余 3 条产品 issue（child effect 委派、owner-context 真实链路复测、历史 state-loss 复现确认）。
+7. 下一阶段优先级：WS016 变更集的发布闭合（tag/PyPI 发布与全局安装验证属发布流程，待授权），还是先处理剩余 3 条产品 issue（child effect 委派、owner-context 真实链路复测、历史 state-loss 复现确认）。
 
 ---
 
@@ -142,5 +141,5 @@ WS016「Runtime 全局注入解耦」正在执行：把 `runtime.py` 与 8 个 `
 
 ## 上次更新
 
-- 日期：2026-09-19 21:30
-- 更新原因：启动 WS016「Runtime 全局注入解耦」（独立 Workstream，纯内部重构）；同步 WS015 已归档与 `v0.0.3.95` 发布闭合的当前事实，并把跨项目 open issue 更新为 3 条。
+- 日期：2026-09-20 21:10
+- 更新原因：WS016「Runtime 全局注入解耦」经 closeout 授权收口并归档，项目回到 global-only；同步 `v0.0.3.96`、ADR-0007 与下一轮优先级。

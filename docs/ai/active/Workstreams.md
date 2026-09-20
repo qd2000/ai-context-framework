@@ -8,9 +8,9 @@ Workstream 是可选并行目标线协议。启用后采用强隔离协作约束
 
 ## Workstream 状态
 
-Active
+Inactive
 
-说明：存在 Active、Blocked、ReadyToMerge 或 Merging workstream。
+说明：当前没有 Active、Blocked、ReadyToMerge 或 Merging workstream。
 
 ---
 
@@ -18,7 +18,7 @@ Active
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS016 | Active | Runtime global-injection decoupling | ChatGPT | 详情(62 项) |  | WS016 详情与范围；__acf_exports__ + allowlist 合并与冲突检测；RuntimeContext 与 per-call _bind 移除；分批 parser composition；收敛后的 acf.py；scripts/runtime_export_audit.py；tests/test_runtime_contracts.py；更新后的 Gap Matrix 第 3 域与 Architecture。 | active/workstreams/WS016.md |
+| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |
 
 ---
 

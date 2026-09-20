@@ -67,6 +67,7 @@
 | 2026-09-18 | Plan | WS014 Post-v0.0.3.92 稳定化与产品健康治理 | 无。 | `archive/plans/2026-09-18-ws014-post-v0.0.3.92-稳定化与产品健康治理.md` | Archived | WS014 稳定化与产品健康治理已收口并归档；其子任务板与证据移入 archive/plans 保留追溯，Task_Plan 改由 WS015 计划承载。 |
 | 2026-09-19 | workstream | WS015 | active/workstreams/WS015.md | `archive/workstreams/WS015.md` | Done | WS015 发布链收口与 worktree 退役窄路径已完成并通过验收：v0.0.3.95 发布到 PyPI、全局安装更新并验证、Windows CI 发布门禁根因修复、curated handoff 产品 issue 收口；终态收口把详情移出 active 层。 |
 | 2026-09-19 | Plan | WS015 发布链收口与 worktree 退役窄路径 | 无。 | `archive/plans/2026-09-19-ws015-发布链收口与-worktree-退役窄路径.md` | Archived | WS015 大任务计划已完成（T001-T007 全部 Done）并收口归档，保留子任务板与验收证据供追溯。 |
+| 2026-09-20 | workstream | WS016 | active/workstreams/WS016.md | `archive/workstreams/WS016.md` | Done | WS016 Runtime 全局注入解耦已完成并通过验收：导出 allowlist fail-closed、显式 RuntimeContext、parser composition（runtime.py 1988->838 行、build_parser 零内联）、acf.py 收敛、全量门禁 704 项全绿与命令树快照零漂移、ADR-0007 与 v0.0.3.96；终态收口把详情移出 active 层。 |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
