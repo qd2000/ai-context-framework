@@ -2,6 +2,16 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.97 — 2026-09-20
+
+### Runtime debt closure and minute-level clock
+
+- 新增 `acf clock now`：以纯函数命令输出分钟级本地时间 `YYYY-MM-DD HH:MM`，供上下文里的「上次更新 / 上次修改」等时间字段引用，不再手写格式；不依赖上下文目录、不读写任何文件，支持 `--json`（含 `datetime` / `date` / `time` / `utc_offset` / `iso_local` / `utc` 与标准契约字段）。
+- 修复 `scripts/worktree_release_smoke.py` 的运行态污染缺口：该脚本此前完全继承调用者环境且结束即删除临时仓库，会在真实用户运行态留下指向已删除路径的孤儿 project namespace；现在每次运行都注入隔离 `ACF_HOME`，并新增「每个 `subprocess.run` 都必须转发隔离 env」与「子进程实际收到隔离 env」两项确定性回归。一次性全链路证据：脚本 `ok=true`、真实 `<ACF_HOME>/projects` 命名空间集合 created=[] / removed=[]。
+- 校准 `docs/ai/reference/Top_Level_Implementation_Gap.md` 六域矩阵中与代码、CHANGELOG、workflow 事实矛盾的行：第 4 域运行态隔离（已实现，v0.0.3.93 落地）与跨项目 open issue 计数（4 -> 3）、第 5 域 CI（已实现：checkout 与 setup-uv 固定不可变 SHA、双 OS 矩阵含 Windows package smoke、publish 前必需 CI 门禁）、版本收敛与发布闭合（v0.0.3.96 事实）、第 3 域命令树快照路径数（210 -> 212）。
+- 新增命令带来**有意**的命令树快照变更：新增 `acf clock` 与 `acf clock now` 两条路径，其余 210 条路径零漂移；对外 JSON 契约、退出码与既有命令行为不变。
+- 发布状态：本版本完成版本收敛与 CHANGELOG；tag 创建、PyPI 发布与全局安装验证由发布流程执行。
+
 ## v0.0.3.96 — 2026-09-19
 
 ### Runtime global-injection decoupling

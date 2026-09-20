@@ -4,7 +4,7 @@
 
 ## 当前推荐版本
 
-`v0.0.3.92` 是当前稳定版本，已完成 immutable tag、PyPI publish 和全局安装。`.92` 从 ACF 核心退役 Project Observer：移除 Observer runtime、Dashboard、Target Registry、semantic-review / presentation lifecycle、narrative 与对应自动化合同子树；`acf observer` 只保留无副作用 `observer_retired` 墓碑，升级不会自动删除用户级 Observer 数据。`.91` 的 binding-first owner-context 失败合同保持不变，`v0.0.3.90` 是不可移动的失败 release tag，`v0.0.3.89` 是历史 Agent-first Project Observer Beta。Windows 正式安装态应通过 `scripts/install_acf.ps1` 或 `scripts/update_acf.ps1` canonicalize 为 uv tool bin 下的 `acf.cmd`，同目录不保留 `acf.exe`。
+`v0.0.3.97` 是当前稳定版本，已完成 immutable tag、PyPI publish 和全局安装。`.97` 补齐缺陷与欠账：发布 smoke 脚本的运行态隔离、分钟级时间生成命令 `acf clock now`、六域 Gap Matrix 过期行校准。`.96` 是 runtime 全局注入解耦（内部重构，对外 CLI 契约零变化，以命令树形状快照为证）；`.95` 修复 Windows CI 发布门禁的三处测试夹具缺陷并重新闭合发布链；`.94` 起 `acf worktree retire` 提供 curated handoff 退役窄路径。`v0.0.3.93` 与 `v0.0.3.94` 保留为历史失败 release tag，不可改写。Windows 正式安装态应通过 `scripts/install_acf.ps1` 或 `scripts/update_acf.ps1` canonicalize 为 uv tool bin 下的 `acf.cmd`，同目录不保留 `acf.exe`。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)

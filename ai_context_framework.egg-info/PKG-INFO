@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.96
+Version: 0.0.3.97
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -328,6 +328,7 @@ acf log summarize --days 7 --errors-only --json
 acf log prune --days 30
 acf version show --json
 acf version set v0.0.3.34 --dry-run --json
+acf clock now --json
 acf status --json
 acf new task --title "预览任务" --goal "只预览。" --dry-run --json
 ```
@@ -428,6 +429,7 @@ acf workstream guard WS001 --files src/foo.py docs/ai/active/workstreams/WS001.m
 - `check`：检查目录结构、必需文件、乱码、空文件、内部引用、human index 路径、状态枚举、索引一致性、任务板、任务阶段注册、archive、Knowledge 和显式启用的 Workstream；Workstream 检查包含 optional `current_stage` 与 `## 阶段` 表一致性、strict 下 Done 阶段 evidence、Workstreams 索引与详情 front matter 一致性、Task authority 写入门禁、Active 类 Workstream 写入冲突、`shared:` merge owner/serial coordination 要求和 `merge_targets` 合并请求要求；没有 `active/Workstreams.md` 时不触发 Workstream 检查。
 - `log enable|disable|status|tail|summarize|projects|feedback|prune|gc|issues|issue`：管理本地使用状态日志，默认开启以便开发调试收集反馈，可用 `log disable` 按项目关闭；`log projects --scan-root <path> --json` 可只读盘点全局日志中的项目并匹配磁盘上的 context root；`log gc` 默认干跑报告孤儿日志 namespace，只有 `--apply` 才清理并写出 receipt；`log issues` 支持分页与 `--summary-only`，`log issue list|show|resolve|supersede|reject|reopen` 维护独立于 continuation 的跨项目 issue 生命周期；普通 usage event 不记录正文，显式 `log feedback --text/--input` 才记录人工反馈正文。
 - `version show|set`：查看或一键更新 CLI、包配置和本地元数据版本号。
+- `clock now`：输出分钟级本地时间 `YYYY-MM-DD HH:MM`，供上下文里的「上次更新 / 上次修改」等时间字段引用；不依赖上下文目录，也不写文件；支持 `--json`。
 
 `check`、`new ...` 和 `writeback draft` 可以省略上下文路径；省略时 CLI 会从当前目录向上查找 `docs/ai`、`docs-acf/ai` 或上下文根目录。显式传入路径时，以显式路径为准。
 

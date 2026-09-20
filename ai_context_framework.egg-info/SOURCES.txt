@@ -51,6 +51,7 @@ ai_context_framework.egg-info/entry_points.txt
 ai_context_framework.egg-info/top_level.txt
 ai_context_framework/commands/__init__.py
 ai_context_framework/commands/archive.py
+ai_context_framework/commands/clock.py
 ai_context_framework/commands/continuation.py
 ai_context_framework/commands/continuation_coordination.py
 ai_context_framework/commands/continuation_directives.py
@@ -151,6 +152,7 @@ tests/test_automation_contracts.py
 tests/test_cli.py
 tests/test_cli_owner_boundary.py
 tests/test_cli_surface_snapshot.py
+tests/test_clock.py
 tests/test_closeout_authorization.py
 tests/test_context_matrix.py
 tests/test_context_routing.py
