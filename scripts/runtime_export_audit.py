@@ -204,7 +204,10 @@ def _attribute_accesses() -> dict[str, list[str]]:
     """Attribute names read off runtime aliases in tests and scripts.
 
     ``module.__dict__`` injection means these names are resolved dynamically at
-    runtime, so static free-name analysis alone cannot see them.
+    runtime, so static free-name analysis alone cannot see them. Protocol
+    attributes (dunder names such as ``__file__``) are collected here but excluded
+    from the gap report: the module system provides them, and they are not part of
+    the injected surface.
     """
 
     found: dict[str, set[str]] = {}
@@ -356,6 +359,10 @@ def collect() -> dict[str, Any]:
         if name not in runtime_namespace_after_narrowing
         and name not in workstream_own
         and name not in set(dir(builtins))
+        # Protocol attributes (``__file__``, ``__name__``, ...) are provided by the
+        # module system, so reading them off ``acf``/``runtime`` is never an
+        # injection gap.
+        and not (name.startswith("__") and name.endswith("__"))
     )
 
     return {

@@ -546,6 +546,20 @@ def _sync_runtime_part_globals() -> None:
         module.ROOT = ROOT
 
 
+def set_root(root: Path) -> Path:
+    """Bind ROOT and propagate it to the installed runtime parts.
+
+    This is the supported entry point for relocating ROOT (the legacy top-level
+    ``acf`` shim uses it). Assigning ``runtime.ROOT`` directly leaves the injected
+    part modules pointing at the previous value, so callers must go through here.
+    """
+
+    global ROOT
+    ROOT = root
+    _sync_runtime_part_globals()
+    return ROOT
+
+
 _install_runtime_parts()
 
 
@@ -778,7 +792,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    _sync_runtime_part_globals()
     argv_list = list(sys.argv[1:] if argv is None else argv)
     argv_list, execution_child_argv = continuation_execution_commands.split_cli_child_argv(argv_list)
     refusal = refuse_retired_owner_arguments(argv_list)

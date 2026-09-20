@@ -197,7 +197,7 @@ class PackageSkeletonTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             getattr(acf_module, "definitely_missing_workstream_helper")
 
-    def test_top_level_shim_syncs_root_before_helper_forwarding(self):
+    def test_top_level_shim_syncs_root_through_the_public_entry_point(self):
         acf_module = importlib.import_module("acf")
         runtime = importlib.import_module("ai_context_framework.runtime")
         previous_acf_root = acf_module.ROOT
@@ -206,9 +206,20 @@ class PackageSkeletonTests(unittest.TestCase):
             acf_module.ROOT = ROOT / "missing-source-checkout"
             _ = acf_module.read_project_versions
             self.assertEqual(runtime.ROOT, acf_module.ROOT)
+            self.assertEqual(runtime.set_root(previous_runtime_root), previous_runtime_root)
         finally:
             acf_module.ROOT = previous_acf_root
-            runtime.ROOT = previous_runtime_root
+            runtime.set_root(previous_runtime_root)
+
+    def test_top_level_shim_does_not_write_runtime_internals(self):
+        acf_module = importlib.import_module("acf")
+        runtime = importlib.import_module("ai_context_framework.runtime")
+        shim_source = pathlib.Path(acf_module.__file__).read_text(encoding="utf-8")
+
+        self.assertTrue(callable(runtime.set_root))
+        self.assertIn("set_root", shim_source)
+        self.assertNotIn("_sync_runtime_part_globals", shim_source)
+        self.assertNotIn("_runtime.ROOT =", shim_source)
 
 
 if __name__ == "__main__":
