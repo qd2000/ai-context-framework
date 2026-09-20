@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.95
+Version: 0.0.3.96
 Summary: Model-independent AI context framework templates and CLI.
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -17,7 +17,7 @@ Description-Content-Type: text/markdown
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)
 - 详细 CLI 参数：`acf --help`、`acf workstream reserve --help`、`acf worktree --help`、`acf continuation --help`
 
-ACF 的默认 AI 入口采用 global-first progressive disclosure：无论项目有一个还是多个 Active / Blocked / ReadyToMerge / Merging Workstream，只要没有明确选择，agent 都只读取全局上下文和 Workstreams 摘要，不读取任何 WS detail、read_scope、reference、output 或专属 worklog。显式选择后，`acf status|next --workstream WSNNN` 仍只返回 pointer-only 入口；随后调用 `acf workstream context WSNNN` 才披露专属上下文和边界。`reference/` 是项目内中间材料层，Knowledge 是有来源、证据和适用边界的高可信精炼层，均按需读取。
+ACF 的默认 AI 入口采用 global-first progressive disclosure：无论项目有一个还是多个 Active / Blocked / ReadyToMerge / Merging Workstream，只要没有明确选择，agent 都只读取全局上下文和 Workstreams 摘要，不读取任何 WS detail、read_scope、reference、output 或专属 worklog；该选择状态在 `acf status --json` 的 `workstream_state` 中报告为 `GlobalOnly`。显式选择后，`acf status|next --workstream WSNNN` 仍只返回 pointer-only 入口；随后调用 `acf workstream context WSNNN` 才披露专属上下文和边界。`reference/` 是项目内中间材料层，Knowledge 是有来源、证据和适用边界的高可信精炼层，均按需读取。
 
 `acf check --strict` 只能证明结构、断链、状态和索引一致性；不能证明项目事实完全正确。升级后仍需人工或 AI 审查 `Context.md`、`Project_Brief.md`、`Tech_Context.md`、`AGENTS.md` 和项目特有规则是否准确。
 

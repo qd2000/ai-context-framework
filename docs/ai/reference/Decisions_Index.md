@@ -25,6 +25,7 @@
 | ADR-0004 | 将 acf 演进为可安装的 AI-facing 上下文维护 CLI | Active | 将 acf 从仓库内脚本逐步演进为可安装命令，支持自动发现上下文、机器可读输出、安全结构化编辑和写后检查；语义判断仍由人或 AI 完成，CLI 只负责确定性落盘和校验。 | `decisions/ADR-0004.md` |
 | ADR-0005 | 使用可选 Workstream 层管理并行目标线 | Active | 引入可选 Workstream 层，用于表达并行目标线。 | `decisions/ADR-0005.md` |
 | ADR-0006 | ACF Core 与 Operations Control Plane 的边界 | Active | 采用两层边界：ACF Core 只负责 Markdown-first 的上下文治理，continuation / worktree / closeout authorization / usage log / execution-effect-recovery 构成可选 ACF Operations 控制面。Core 不得依赖 Operations 状态，Operations 可独立关闭或独立打包，且不继续吸收项目业务策略。 | `decisions/ADR-0006.md` |
+| ADR-0007 | ACF runtime 组合契约（显式导出、RuntimeContext 与命令树组合） | Active | 采用显式组合契约取代隐式全局注入：每个 `runtime_parts/*` 模块用 `__acf_exports__` 显式声明导出并由安装期 fail-closed 校验；消费者改用显式 RuntimeContext；`build_parser()` 只做组合，命令组由所属模块的 `register_*_parser()` 注册且 handler 必须显式注入；`runtime.set_root(root)` 是唯一受支持的 ROOT 重绑定入口；命令树形状与导出面分别由快照护栏与审计脚本断言。 | `decisions/ADR-0007.md` |
 <!-- ACF:DECISIONS:INDEX-GENERATED:END -->
 
 ---

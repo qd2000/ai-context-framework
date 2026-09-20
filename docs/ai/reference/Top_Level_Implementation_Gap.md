@@ -6,7 +6,7 @@
 
 ## 状态
 
-Updated through WS015 release closure and worktree retire narrow path（六域 Gap Matrix）。上一轮 P2 逐能力矩阵保留在本文「历史 Gap Matrix（P2 阶段，历史记录）」小节。
+Updated through WS016 runtime global-injection decoupling（六域 Gap Matrix）。上一轮 P2 逐能力矩阵保留在本文「历史 Gap Matrix（P2 阶段，历史记录）」小节。
 
 ---
 
@@ -64,7 +64,7 @@ Updated through WS015 release closure and worktree retire narrow path（六域 G
 |---|---|---|---|---|
 | continuation 控制面 | 已实现 | owner lease、generation fencing、directive/effect journal、physical execution supervisor、challenge/reconcile/recover、workspace provenance | 复杂度已接近外部 agent 执行控制面，产品边界此前未正式定义 | 见 ADR-0006；分层实现后置 |
 | ACF Core 与 Operations 边界 | 设计已落盘 | `decisions/ADR-0006.md` | 逻辑分层未实现，也未拆包 | 后续独立 Workstream 落地 |
-| runtime 全局注入 | 未解耦（明确后置） | `ai_context_framework/runtime.py` 双向写入 globals；`ai_context_framework/runtime.py`、`ai_context_framework/commands/continuation.py`、`ai_context_framework/commands/continuation_workspace.py`、`ai_context_framework/commands/workstream.py` 均已贴 2000 行门禁 | 同名符号静默覆盖、静态分析失效、测试 monkeypatch 作用域不清、假模块化 | 独立 Workstream：export allowlist → 显式 RuntimeContext → parser composition → 移除 `acf.py` 私有全局修改 |
+| runtime 全局注入 | 已解耦（WS016） | `runtime_parts/*` 用模块级 `__acf_exports__` 显式声明导出并 fail-closed 安装；消费者改用显式 RuntimeContext；`build_parser()` 变为 31 处 `register_*_parser` 组合且不再内联命令组；`acf.py` 只走公开 `runtime.set_root` 且仅在 ROOT 真正变化时同步。护栏：`tests/test_cli_surface_snapshot.py`（210 条路径零漂移）+ `scripts/runtime_export_audit.py` | 命令组分散后定位成本上升（已记入 `reference/Architecture.md` 已知风险）；快照为文本级契约，help 文案变更需同步更新 | 新增 part 导出或命令组时按 ADR-0007 登记并跑两道护栏 |
 | owner-context 网页链路 | ACF 侧已隔离验证通过，真实链路待复测 | `scripts/continuation_owner_fixture.py` 与 `tests/test_continuation_owner_fixture.py`：`assert-owner`、`progress`、`release --handoff` 全部通过并判定 `acf_side_ok`；协议见 `reference/Continuation_Owner_Context_Verification.md` | 真实网页工具链无法在本仓库复现，需用同一 argv 形状复测并判定失败层 | 若失败落在 `pre_acf`，改 connector invocation contract 而不是 ACF credential 校验 |
 
 ### 4. Observability / issue lifecycle
@@ -355,17 +355,24 @@ acf plan reference list docs/ai --json
 
 ## Next Code PR Decision
 
-当前下一批代码 PR 不是新增 audit 规则，也不是继续扩 curation draft 语义能力，而是发布链收口与 worktree 退役窄路径（WS015）。
-
-推荐 PR 集（按依赖顺序）：
+当前下一批代码 PR 不是新增 audit 规则，也不是继续扩 curation draft 语义能力，而是 runtime 全局注入解耦（WS016）。该批次已完成，记录如下（按依赖顺序）：
 
 ```text
-1. release-chain diagnosis for the pushed but unpublished v0.0.3.93 tag
-2. acf worktree retire (curated_handoff) service + CLI + stable error codes
-3. tests/test_worktree_retire.py regression matrix (retire, all refusals, idempotence, close unchanged)
-4. user-facing docs sync (Worktree_Lifecycle, System Manual x2, Automation, README)
-5. version bump, full gate, immutable tag/PyPI publish, global install verification
-6. product issue closeout for d33a11a387320d21a862 and WS015 closeout
+1. __acf_exports__ allowlist merge with same-name fail-closed  [done]
+2. export-allowlist audit script plus contract regression  [done]
+3. RuntimeContext replacing per-call _bind  [done]
+4. batched parser composition with a command-tree snapshot guardrail  [done]
+5. acf.py shim convergence onto the public runtime.set_root entry point  [done]
+6. full gate, evidence matrix, and documentation sync (ADR-0007, Architecture, six-domain matrix)  [done]
+```
+
+WS016 落地后的下一批候选（未排序，均需独立 Workstream 与验收标准）：
+
+```text
+1. release closure for the WS016 change set (version bump, immutable tag, PyPI publish, global install verification)
+2. System Manual shared-block sync mechanism
+3. minute-level timestamp CLI generation helper
+4. owner-context real web chain re-verification; supervised child effect delegation design
 ```
 
 理由：

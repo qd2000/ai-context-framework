@@ -2,6 +2,19 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.96 — 2026-09-19
+
+### Runtime global-injection decoupling
+
+- 内部重构：把 ACF CLI 的 runtime 全局注入替换为显式组合契约，对 CLI 命令、参数、JSON、退出码与 help 文本**零影响**（命令树 210 条路径快照零漂移为证）。决策依据见 `docs/ai/decisions/ADR-0007.md`。
+- `runtime_parts/*` 改为用模块级 `__acf_exports__` 显式声明导出，安装期对「未声明导出、声明缺失、同名不同对象」一律 fail-closed；`commands/workstream.py` 的 per-call `_bind` 改为显式 RuntimeContext。
+- `runtime.build_parser()` 不再内联任何命令组，改为 31 处 `register_*_parser` 组合；命令组注册与其命令模块同置，超出可审阅规模的组使用独立 `*_parsers` 模块。`ai_context_framework/runtime.py` 从 1988 行降到 838 行。
+- 顶层 `acf.py` 不再写 runtime 私有全局或调用私有同步函数：新增公开入口 `runtime.set_root(root)`，shim 只在自身 `ROOT` 与 `runtime.ROOT` 实际不同时同步。
+- 新增两道契约护栏：`tests/test_cli_surface_snapshot.py`（命令树形状快照）与 `scripts/runtime_export_audit.py`（导出表/消费者注入/动态访问缺口审计，dunder 协议属性不计为缺口）。
+- 共享 argparse helper 与领域常量移到叶子模块 `ai_context_framework/cli_arguments.py` 与 `ai_context_framework/constants.py`，命令模块不再为取得 helper 而反向依赖 runtime。
+- 同步 `docs/ai/reference/Architecture.md`（新增「runtime 组合契约」章节）与六域 Gap Matrix；顺带修复 `README.md` 缺失的 `GlobalOnly` 术语（既有文档与验收断言漂移）。
+- 发布状态：本版本完成版本收敛与 CHANGELOG，tag 创建、PyPI 发布与全局安装验证由发布流程在取得授权后执行。
+
 ## v0.0.3.95 — 2026-09-19
 
 ### Windows CI release-gate fixes
