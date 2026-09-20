@@ -6,7 +6,7 @@
 
 ## 状态
 
-Updated through WS016 runtime global-injection decoupling（六域 Gap Matrix）。上一轮 P2 逐能力矩阵保留在本文「历史 Gap Matrix（P2 阶段，历史记录）」小节。
+Updated through WS017 runtime debt closure（六域 Gap Matrix：第 4 域运行态隔离与 open issue 计数、第 5 域 CI、版本收敛与发布链、第 3 域命令树快照路径数，已按代码、CHANGELOG 与 workflow 证据校准）。上一轮 P2 逐能力矩阵保留在本文「历史 Gap Matrix（P2 阶段，历史记录）」小节。
 
 ---
 
@@ -64,7 +64,7 @@ Updated through WS016 runtime global-injection decoupling（六域 Gap Matrix）
 |---|---|---|---|---|
 | continuation 控制面 | 已实现 | owner lease、generation fencing、directive/effect journal、physical execution supervisor、challenge/reconcile/recover、workspace provenance | 复杂度已接近外部 agent 执行控制面，产品边界此前未正式定义 | 见 ADR-0006；分层实现后置 |
 | ACF Core 与 Operations 边界 | 设计已落盘 | `decisions/ADR-0006.md` | 逻辑分层未实现，也未拆包 | 后续独立 Workstream 落地 |
-| runtime 全局注入 | 已解耦（WS016） | `runtime_parts/*` 用模块级 `__acf_exports__` 显式声明导出并 fail-closed 安装；消费者改用显式 RuntimeContext；`build_parser()` 变为 31 处 `register_*_parser` 组合且不再内联命令组；`acf.py` 只走公开 `runtime.set_root` 且仅在 ROOT 真正变化时同步。护栏：`tests/test_cli_surface_snapshot.py`（210 条路径零漂移）+ `scripts/runtime_export_audit.py` | 命令组分散后定位成本上升（已记入 `reference/Architecture.md` 已知风险）；快照为文本级契约，help 文案变更需同步更新 | 新增 part 导出或命令组时按 ADR-0007 登记并跑两道护栏 |
+| runtime 全局注入 | 已解耦（WS016） | `runtime_parts/*` 用模块级 `__acf_exports__` 显式声明导出并 fail-closed 安装；消费者改用显式 RuntimeContext；`build_parser()` 变为 31 处 `register_*_parser` 组合且不再内联命令组；`acf.py` 只走公开 `runtime.set_root` 且仅在 ROOT 真正变化时同步。护栏：`tests/test_cli_surface_snapshot.py`（212 条路径零漂移）+ `scripts/runtime_export_audit.py` | 命令组分散后定位成本上升（已记入 `reference/Architecture.md` 已知风险）；快照为文本级契约，help 文案变更需同步更新 | 新增 part 导出或命令组时按 ADR-0007 登记并跑两道护栏 |
 | owner-context 网页链路 | ACF 侧已隔离验证通过，真实链路待复测 | `scripts/continuation_owner_fixture.py` 与 `tests/test_continuation_owner_fixture.py`：`assert-owner`、`progress`、`release --handoff` 全部通过并判定 `acf_side_ok`；协议见 `reference/Continuation_Owner_Context_Verification.md` | 真实网页工具链无法在本仓库复现，需用同一 argv 形状复测并判定失败层 | 若失败落在 `pre_acf`，改 connector invocation contract 而不是 ACF credential 校验 |
 
 ### 4. Observability / issue lifecycle
@@ -72,23 +72,23 @@ Updated through WS016 runtime global-injection decoupling（六域 Gap Matrix）
 | 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
 |---|---|---|---|---|
 | usage log | 已实现，含孤儿命名空间治理 | `acf log enable/disable/status/tail/summarize/projects/prune` + `acf log gc --dry-run/--apply`（默认干跑、`--apply` 写 receipt） | 无默认后台消费者 | 保持显式 GC，不做自动清理 |
-| 跨项目 issue 生命周期 | 已实现独立生命周期并完成首轮收口 | `acf log issue list/show/resolve/supersede/reject/reopen` 与用户级台账 `ACF_HOME/issues/ledger.jsonl`；`acf log issues` 叠加台账处置；open 由 9 条降到 4 条 | 剩余 4 条 open：curated handoff 退休路径、owner-context 真实链路复测、child effect 委派设计、历史 state-loss 复现确认 | WS015 收口 curated handoff；其余在明确创建的后续 Workstream 中处理 |
-| test / smoke 运行态隔离 | 缺陷 | `scripts/minimal_smoke.py` 多数场景未覆盖 `ACF_HOME`，临时项目删除后留下无法解析的 project namespace | 缺少 no-pollution 回归 | 场景级隔离 + 运行前后真实运行态不变断言 |
+| 跨项目 issue 生命周期 | 已实现独立生命周期并完成两轮收口 | `acf log issue list/show/resolve/supersede/reject/reopen` 与用户级台账 `ACF_HOME/issues/ledger.jsonl`；`acf log issues` 叠加台账处置；open 由 9 条降到 4 条，curated handoff 退休路径（`d33a11a387320d21a862`）以 `git:17024d2` 与 `pypi:ai-context-framework:0.0.3.95` 证据 resolve 后再降到 3 条 | 剩余 3 条 open：owner-context 真实链路复测、child effect 委派设计、历史 state-loss 复现确认 | 3 条剩余项分别在明确创建的后续 Workstream 中处理，不并入当期重构范围 |
+| test / smoke 运行态隔离 | 已实现（v0.0.3.93 落地，WS017 补齐同类实例） | `scripts/minimal_smoke.py` 的 `isolated_acf_home_env()` 生成逐场景 `ACF_HOME`，`scenario()` 在场景临时根内 set/restore `_scenario_env`，`run_acf()` 的 `subprocess.run(..., env=env)` 无条件注入；`tests/test_smoke_isolation.py` 断言子进程观测到的 `ACF_HOME` 位于场景临时根且不等于真实 HOME，并断言全量跑前后真实 `<ACF_HOME>/projects` 命名空间集合 created / removed 均为 `[]`；WS017 把同类实例 `scripts/worktree_release_smoke.py`（此前 0 处 `ACF_HOME`、`run()` 继承调用者环境且结束即删除临时仓库）改为 `isolated_runtime_state()` 上下文管理器 | `scripts/release_check.py` 的仓库门禁段（`acf check template` / `acf check --strict`）仍在真实 `ACF_HOME` 上执行；该段针对真实仓库、命名空间可解析，不构成孤儿 namespace，暂不隔离 | 保持逐场景隔离；新增会创建临时项目的脚本时按同一协议注入隔离 env 并补无污染回归 |
 
 ### 5. Release / upgrade compatibility
 
 | 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
 |---|---|---|---|---|
-| 发布链 | 已实现 | immutable tag、PyPI 发布（GitHub Trusted Publishing）、全局安装与 installed-state 验证 | 无 | 保持 |
+| 发布链 | 已实现 | immutable tag、PyPI 发布（GitHub Trusted Publishing）、全局安装与 installed-state 验证；链路可用性由 v0.0.3.95 与 v0.0.3.96 连续证成，release workflow 以 CI（含 Windows package smoke）为必需门禁后进 publish | 无 | 保持；以同一授权流程发布 `v0.0.3.97` |
 | upgrade matrix | 已实现 | `scripts/upgrade_matrix.py` quick / full | 新对象层需随功能增量补 fixture | 新增结构时同步扩 fixture |
-| CI | 部分 | release workflow 只在 `ubuntu-latest` 发布；`actions/checkout` 仍使用可移动 major tag | Windows package smoke 与 publish 的依赖未在代码中固化 | 固定 immutable SHA；publish 依赖必需 CI |
-| 版本收敛与发布闭合 | 部分 | `ai_context_framework/version.py` = `v0.0.3.93`、CHANGELOG 已补、tag 已推送 origin（指向 `5873f0c`） | PyPI 上仍无 `0.0.3.93`；本机无法读取私有仓库 Actions 运行结论 | WS015 判定发布中断层级，并以新的不可变版本闭合发布与全局安装验证 |
+| CI | 已实现（v0.0.3.93 收口） | `ci.yml` 的 `tests`（Python 3.10 / 3.12）与 `package` 两个 job 的 os 矩阵均为 `[ubuntu-latest, windows-latest]`；`ci.yml` 与 `release.yml` 的 `actions/checkout` 固定到不可变 SHA `3d3c42e5aac5…`，`astral-sh/setup-uv` 固定到 `08807647e706…`；`ci.yml` 暴露 `workflow_call`，`release.yml` 以 `verify: uses: ./.github/workflows/ci.yml` + `publish: needs: verify` 作为 publish 前必需门禁 | 仓库外的 `pypi` environment 强制 CI 与 `v*` tag protection 无法在代码中固化，已在 `release.yml` 注释记录 | 保持 SHA 固定；新增或升级 action 时同步更新全部引用 |
+| 版本收敛与发布闭合 | 部分 | `ai_context_framework/version.py` = `v0.0.3.96`，`pyproject.toml`、`uv.lock` 与 `PKG-INFO` 同为 `0.0.3.96`；CHANGELOG 已有 v0.0.3.96 条目且「发布状态」注明 tag 创建、PyPI 发布与全局安装验证待授权执行。历史欠账已闭合：`v0.0.3.95` 修复 Windows 门禁三处测试夹具缺陷后成功发布（PyPI `latest=0.0.3.95`，`93f04fd` → `17024d2`） | 无 | WS017 已闭合 `v0.0.3.96`：不可变 tag 指向 `01f2dd8`、PyPI `latest=0.0.3.96`、全局安装 `acf v0.0.3.96`（canonical `acf.cmd`）；下一步以 `v0.0.3.97` 发布本轮债务修复（`active/Task_Plan.md` T005） |
 
 ### 6. Dogfooding / current defects
 
 | 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
 |---|---|---|---|---|
-| 跨项目 open issue 收口 | 首轮完成，curated handoff 已在 WS015 收口 | 9 条 open 处置为 3 resolved / 1 superseded / 2 rejected / 4 open；处置证据与理由写入用户级台账 `ACF_HOME/issues/ledger.jsonl`；`worktree curated handoff 退休路径`（`d33a11a387320d21a862`）由 WS015 的 `acf worktree retire` 落地并处置 | 剩余 3 条未关闭项：owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认 | 分别进入 owner-context 验证、后续设计决策与真实链路复测 |
+| 跨项目 open issue 收口 | 两轮完成，curated handoff 已 resolve | 9 条 open 处置为 3 resolved / 1 superseded / 2 rejected / 4 open；处置证据与理由写入用户级台账 `ACF_HOME/issues/ledger.jsonl`；`worktree curated handoff 退休路径`（`d33a11a387320d21a862`）由 WS015 的 `acf worktree retire` 落地，并于 v0.0.3.95 以 `git:17024d2` 与 `pypi:ai-context-framework:0.0.3.95` 证据 resolve（open 4 → 3） | 剩余 3 条未关闭项：owner-context 真实链路复测、child effect 委派设计、历史 state-loss 事故复现确认 | 分别进入 owner-context 验证、后续设计决策与真实链路复测 |
 | System Manual 双份同步 | 已知成本 | `reference/System_Manual.md` 与 `template/reference/System_Manual.md` 分别维护 | 共享 CLI 合同容易再次漂移 | 本期只修过期内容；marker 共享区块机制后置 |
 | 多 agent / 多 Workstream UX（F019） | 已收为设计输入 | `decisions/ADR-0006.md` | 具体 UX 改进未实现 | 后续独立的 continuation / Workstream UX 计划 |
 | 自检盲区 | 已确认 | 机械检查全绿时仍存在错误绝对路径、版本矛盾、退役命令引用与 issue 滞留 | 无综合只读入口 | 暂缓 `acf maintenance status`，先靠 WS014 收口 |
@@ -355,32 +355,31 @@ acf plan reference list docs/ai --json
 
 ## Next Code PR Decision
 
-当前下一批代码 PR 不是新增 audit 规则，也不是继续扩 curation draft 语义能力，而是 runtime 全局注入解耦（WS016）。该批次已完成，记录如下（按依赖顺序）：
+当前批次是缺陷与欠账修复（WS017），按依赖顺序：
 
 ```text
-1. __acf_exports__ allowlist merge with same-name fail-closed  [done]
-2. export-allowlist audit script plus contract regression  [done]
-3. RuntimeContext replacing per-call _bind  [done]
-4. batched parser composition with a command-tree snapshot guardrail  [done]
-5. acf.py shim convergence onto the public runtime.set_root entry point  [done]
-6. full gate, evidence matrix, and documentation sync (ADR-0007, Architecture, six-domain matrix)  [done]
+1. release closure for the v0.0.3.96 change set (immutable tag, PyPI publish, global install verification)  [done]
+2. worktree_release_smoke runtime-state isolation plus no-pollution regression  [done]
+3. minute-level timestamp CLI generation helper (acf clock now) plus contract and docs sync  [done]
+4. six-domain gap matrix calibration for domains 4 and 5  [done]
+5. v0.0.3.97 version convergence, full gate, workstream closeout, and release  [pending]
 ```
 
-WS016 落地后的下一批候选（未排序，均需独立 Workstream 与验收标准）：
+WS017 之后的下一批候选（未排序，均需独立 Workstream 与验收标准）：
 
 ```text
-1. release closure for the WS016 change set (version bump, immutable tag, PyPI publish, global install verification)
-2. System Manual shared-block sync mechanism
-3. minute-level timestamp CLI generation helper
-4. owner-context real web chain re-verification; supervised child effect delegation design
+1. System Manual shared-block sync mechanism
+2. owner-context real web chain re-verification; supervised child effect delegation design
+3. historical state-loss incident reproduction confirmation
+4. ACF Core / Operations layering implementation (ADR-0006)
 ```
 
 理由：
 
-1. 这两项都是已确认为真实的欠账：发布链在 tag 推送后中断且 PyPI 上仍无对应版本，以及 curated handoff 分支因 `branch_not_merged` 硬门无法正式退役，而不是缺少新能力。
-2. 它们可以在不触碰 runtime 全局注入与 continuation 语义的前提下完成，影响面可控。
-3. `retire` 必须在独立函数中实现，保持 `close` 的 merged-only 硬门与 fail-closed 语义完全不变，从而把回归面限制在新增路径内。
-4. runtime 全局注入解耦需要显式 RuntimeContext 与 parser composition 设计，应作为后续独立 Workstream。
+1. 这些都是已确认为真实的欠账或过期事实：`v0.0.3.96` 已完成版本收敛但尚未发布；`scripts/worktree_release_smoke.py` 会在真实运行态留下指向已删除临时目录的孤儿命名空间；分钟级时间字段只能手写（规则已要求 `YYYY-MM-DD HH:MM` 但没有生成入口）；第 4/5 域矩阵行与代码、CHANGELOG、workflow 事实矛盾。
+2. 它们都不触碰 runtime 组合契约、continuation 语义与对外 CLI 契约；唯一的新增能力是只输出时间的纯函数命令，回归面可控。
+3. 发布闭合必须先于代码变更：`v0.0.3.96` 的 CHANGELOG 发布状态说明已注明待授权发布，若被 `v0.0.3.97` 挤后再发会让该记录变成假事实。
+4. 矩阵只校准有硬证据的矛盾行，不顺势扩张新的分析结论；`scripts/release_check.py` 仍在真实 `ACF_HOME` 上跑仓库门禁，但针对的是可解析的真实仓库，已作为观测项留在第 4 域而不是本轮修复范围。
 
 拒绝的替代：
 

@@ -32,6 +32,7 @@ from ai_context_framework.constants import (
     TARGET_EXISTS_APPEND_REQUIRED,
 )
 from ai_context_framework.commands import versioning as versioning_commands
+from ai_context_framework.commands import clock as clock_commands
 from ai_context_framework.commands import edit_link as edit_link_commands
 from ai_context_framework.commands import worklog as worklog_commands
 from ai_context_framework.commands import status_check as status_check_commands
@@ -621,6 +622,12 @@ def build_parser() -> argparse.ArgumentParser:
         add_write_arguments,
         show_handler=version_show_command,
         set_handler=version_set_command,
+    )
+
+    clock_commands.register_clock_parser(
+        subparsers,
+        add_json_argument,
+        now_handler=clock_commands.clock_now_command,
     )
 
     workstream_parsers.register_workstream_parsers(

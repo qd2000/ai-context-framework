@@ -498,6 +498,7 @@ acf workstream guard WS001 --files src/foo.py docs/ai/active/workstreams/WS001.m
 - `acf writeback draft [target] --text "..."`：生成注意力治理式会话回写草案，供人工审阅后再决定是否写入权威上下文。
 - `acf version show --json`：查看 CLI、包配置和锁文件中的版本号。
 - `acf version set vX.Y.Z --dry-run --json`：预览一键更新版本号；正式执行时同步 CLI 常量、包配置和本地元数据。
+- `acf clock now --json`：输出分钟级本地时间 `YYYY-MM-DD HH:MM`，供上下文里的「上次更新 / 上次修改」等时间字段引用；不依赖上下文目录，也不写文件。
 - `acf edit section get <file> --heading "## 标题"`：读取上下文根目录内某个 Markdown section 的正文。
 - `acf edit section replace <file> --heading "## 标题" --text "..."`：替换指定 section 的正文。
 - `acf edit section append <file> --heading "## 标题" --text "..."`：向指定 section 追加正文。

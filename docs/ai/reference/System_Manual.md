@@ -68,6 +68,7 @@ Knowledge、ADR 和 Archive sync 的 generated marker 契约以 [reference/Gener
 - `uv run acf upgrade docs/ai --dry-run --json`
 - 通用升级形式：`acf upgrade [target]`
 - `uv run acf check --strict`
+- `uv run acf clock now --json`：输出分钟级本地时间 `YYYY-MM-DD HH:MM`，供上下文里的「上次更新 / 上次修改」等时间字段引用；不依赖上下文目录，也不写文件。
 - `uv run acf linkify docs/ai --format markdown --dry-run --json`
 - `uv run acf link add docs/ai active/Current_Task.md --heading "## 输入材料" --target reference/System_Manual.md --target-heading "Markdown 链接与人工导航" --json`
 - `uv run acf workstream status docs/ai --json`

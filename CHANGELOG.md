@@ -13,7 +13,7 @@
 - 新增两道契约护栏：`tests/test_cli_surface_snapshot.py`（命令树形状快照）与 `scripts/runtime_export_audit.py`（导出表/消费者注入/动态访问缺口审计，dunder 协议属性不计为缺口）。
 - 共享 argparse helper 与领域常量移到叶子模块 `ai_context_framework/cli_arguments.py` 与 `ai_context_framework/constants.py`，命令模块不再为取得 helper 而反向依赖 runtime。
 - 同步 `docs/ai/reference/Architecture.md`（新增「runtime 组合契约」章节）与六域 Gap Matrix；顺带修复 `README.md` 缺失的 `GlobalOnly` 术语（既有文档与验收断言漂移）。
-- 发布状态：本版本完成版本收敛与 CHANGELOG，tag 创建、PyPI 发布与全局安装验证由发布流程在取得授权后执行。
+- 发布状态：已取得授权并完成发布闭合。不可变 tag `v0.0.3.96` 指向 `01f2dd8`；release workflow 以 CI（含 Windows package smoke）为必需门禁后发布到 PyPI（`latest=0.0.3.96`）；全局安装经 `scripts/update_acf.ps1` 更新并验证 `acf v0.0.3.96`（canonical `acf.cmd`）。
 
 ## v0.0.3.95 — 2026-09-19
 

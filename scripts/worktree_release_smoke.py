@@ -10,17 +10,50 @@ It is intended for wheel and production ``uv tool`` smoke tests.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence
 
 
 class SmokeFailure(RuntimeError):
     pass
+
+
+def isolated_acf_home_env(root: Path) -> dict[str, str]:
+    """Return a copy of the current environment pointing at a throwaway ACF_HOME.
+
+    Without it the disposable repository is registered in the real user-level
+    runtime state and, once the temporary root is removed, leaves behind a
+    project namespace that no longer resolves.
+    """
+
+    env = os.environ.copy()
+    env.setdefault("PYTHONUTF8", "1")
+    env["ACF_HOME"] = str(root / "acf-home")
+    return env
+
+
+_RUN_ENV: dict[str, str] | None = None
+
+
+@contextlib.contextmanager
+def isolated_runtime_state(root: Path) -> Iterator[dict[str, str]]:
+    """Route every subprocess started during this run onto ``root``'s ACF_HOME."""
+
+    global _RUN_ENV
+    previous = _RUN_ENV
+    env = isolated_acf_home_env(root)
+    _RUN_ENV = env
+    try:
+        yield env
+    finally:
+        _RUN_ENV = previous
 
 
 def run(
@@ -33,6 +66,7 @@ def run(
     completed = subprocess.run(
         list(argv),
         cwd=str(cwd),
+        env=_RUN_ENV,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -304,7 +338,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     temp = Path(tempfile.mkdtemp(prefix="acf-worktree-release-smoke-"))
     try:
-        result = lifecycle(args.acf, temp)
+        with isolated_runtime_state(temp):
+            result = lifecycle(args.acf, temp)
         if args.keep_tmp:
             result["temp_root"] = str(temp)
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))

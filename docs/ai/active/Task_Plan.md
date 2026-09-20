@@ -14,26 +14,25 @@ Active
 
 ## 大任务名称
 
-WS016 Runtime 全局注入解耦
+WS017 Runtime 缺陷与欠账修复
 
 ---
 
 ## 大任务目标
 
-1. 把 runtime 与 8 个 runtime_parts 之间的 __dict__ 双向合并收窄为显式 __acf_exports__ allowlist 合并，并对同名不同对象 fail-closed。
-2. 用显式 RuntimeContext 取代 commands/workstream.py 的 28 处 per-call _bind，使命令模块与 runtime 之间只剩显式依赖。
-3. 把 runtime.build_parser() 中内联的命令组分批下移为各模块自己的 register_*_parser，让 runtime.py 成为薄聚合层。
-4. 移除 acf.py 对 runtime 私有全局的写入与手动 re-sync，改为显式 root 传递。
-5. 全程保持对外 CLI 命令/参数/JSON 契约、退出码、help 文本与 usage log 隐私边界不变，并且不再用横向搬运满足 2000 行门禁。
+1. 修复 worktree_release_smoke 的 ACF_HOME 运行态污染缺口并补无污染回归。
+2. 新增分钟级时间生成命令 acf clock now。
+3. 校准六域 Gap Matrix 第 4/5 域过期行。
+4. 闭合 v0.0.3.96 发布，并以 v0.0.3.97 发布本轮变更。
 
 ---
 
 ## 成功标准
 
-1. acf check template、acf check --strict、uv run python -m unittest（全量 680+ 项）、minimal_smoke、upgrade_matrix --mode full、release_check --mode package 全部通过。
-2. ai_context_framework 包内所有模块 ≤2000 行、acf.py ≤100 行、包内模块不导入顶层 acf。
-3. 新增导出名单快照回归与命令树形状快照回归：每个子命令的 dest/参数/默认值/help 文本被断言锁定；同名不同对象在合并期 fail-closed 且有专门回归。
-4. 对外契约零变化：既有 JSON contract、smoke 场景与 upgrade matrix 无需修改即通过；仅“绑定实现细节”类断言可有意重写并单独记录。
+1. check template、check docs/ai --strict、unittest、minimal_smoke、upgrade_matrix 全部通过。
+2. 真实运行态命名空间集合在隔离脚本运行前后完全一致。
+3. clock now 输出恰为分钟级本地时间且可在无上下文目录调用。
+4. PyPI 可见版本与已安装入口版本一致。
 
 ---
 
@@ -41,17 +40,15 @@ WS016 Runtime 全局注入解耦
 
 列出当前大任务必须对齐的 reference 设计、路线或差距文档；只放路径和一句话用途，不复制详细规划。
 
-- [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md)：六域真实差距与 runtime 条目的当前状态。
+- [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md)：六域真实差距与下一批候选。
 - [reference/ACF_Top_Level_Design.md](../reference/ACF_Top_Level_Design.md)：模块边界与 CLI 分层上位约束。
-- [reference/Architecture.md](../reference/Architecture.md)：当前模块依赖方向，重构后需同步。
-- [reference/Product_Roadmap.md](../reference/Product_Roadmap.md)：阶段路线，确认本轮属内部重构而非新能力。
-- [reference/System_Manual.md](../reference/System_Manual.md)：用户可见命令合同，重构不得改变。
+- [reference/System_Manual.md](../reference/System_Manual.md)：用户可见命令合同，新增命令需同步。
 
 ---
 
 ## 当前焦点
 
-T008
+T005
 
 ---
 
@@ -59,14 +56,11 @@ T008
 
 | ID | 状态 | 子任务 | 依赖 | 输出物 | 证据 | 下一步 |
 |---|---|---|---|---|---|---|
-| T001 | Done | 建立 WS016 与任务结构 | 无。 | WS016 详情、范围声明、Task_Plan 与 Current_Task | reservation commit 2c441e0；WS016 detail + scope-add（37 read / 30 write）+ Task_Plan T001-T008 + 5 条规划依据；Current_Task 与 Context 已同步到 WS016 阶段。 | 进入 T002 allowlist 合并 |
-| T002 | Done | __acf_exports__ allowlist 合并与同名冲突 fail-closed | T001 | runtime.py 合并逻辑收窄、8 个 runtime_parts 的显式导出声明 | runtime.py 的 _install_runtime_parts 改为委托 ai_context_framework/runtime_exports.py：只合并 RUNTIME_PART_EXPORTS 显式声明的 202 个名字；未声明 part 模块、声明名在模块中不存在、RUNTIME_PART_EXPORTS 声明了未接入模块、以及同名不同对象四种情况均 fail-closed（RuntimeExportError）。实测 runtime 公开名 769 -> 531、runtime.py 1988 -> 1979 行；PEP 562 的 archive_workstream.__getattr__ 惰性兼容转发按显式契约保留（acf.parse_workstream_archive_date 仍可解析）。 | 进入 T003 契约回归 |
-| T003 | Done | 导出名单审计脚本与契约回归 | T002 | scripts/runtime_export_audit.py、tests/test_runtime_contracts.py 导出名单快照 | 新增 scripts/runtime_export_audit.py（ast 计算各 part 自有名与自由名、跨模块同名冲突、最小必需导出集、part 闭包与消费注入闭包、tests/scripts 对 runtime/acf 的动态属性访问）与 tests/test_runtime_contracts.py 9 项。实测：8 个 part 自有名 447，同名冲突 2（annotations/re，均为同对象），消费名 82 + 13，最小必需导出 202，收窄后注入 534（< 332 + 447），part 闭包/消费注入闭包/动态访问缺口全部为空。 | 进入 T004 RuntimeContext |
-| T004 | Done | RuntimeContext 与移除 per-call _bind | T003 | ai_context_framework/runtime_context.py、workstream.py 与 workstream_reserve.py 去 per-call 绑定 | 新增 ai_context_framework/runtime_context.py：RuntimeContext（有界冻结上下文）+ WORKSTREAM_CONSUMER_NAMES(82) / WORKSTREAM_RESERVE_CONSUMER_NAMES(13) + build_runtime_context fail-closed。archive_workstream.workstream_deps 不再传 globals()（531 名）而是构建一次并缓存的有界 context；reserve 路径改用 13 名 + vars(workstream_commands) overlay。commands/workstream.py 的 28 处 per-call _bind 改为 _ensure_bound（首次绑定后冻结），_bind 的刷新语义与 _MODULE_OWNED_NAMES 遮蔽规则逐字保留。LSP 在本仓库无 Python documentSymbol provider，按 lsp-code-analysis 技能的回退规则改用既定 ast 静态分析作为等价证据（已核验所有对 workstream.py helper 的外部调用都先显式绑定，故冻结安全）。证据：unittest 692 项（292 CLI + 129 杂项 + 162 continuation + 109 worktree）、check template/strict 通过、minimal_smoke 8/8、upgrade_matrix full 28 fixtures 通过。 | 进入 T005 parser composition |
-| T005 | Done | 分批 parser composition | T004 | 各命令模块 register_*_parser、runtime.build_parser 瘦身、命令树形状快照回归 | parser composition 全部完成：runtime.build_parser 内已无任何内联 subparsers.add_parser，改为 31 处 register_*_parser 组合调用；新增 ai_context_framework/cli_arguments.py（共享 add_json_argument/add_write_arguments）、commands/workstream_parsers.py（29 个 handler 显式映射 + 缺失校验）、commands/continuation_group_parsers.py。下移的命令组：review/audit/curate/doctor、linkify/link/edit、decisions、draft、feedback、human、writeback、task、archive、knowledge、plan、new、status/check/next/init/simplify/upgrade/links/log/version、workstream、worktree、continuation。常量迁到 constants.py 并由消费方直接导入：DEFAULT_STALE_DAYS、VALID_FEEDBACK_STATUSES、VALID_HUMAN_INDEX_STATUSES、VALID_KNOWLEDGE_STATUSES、VALID_MERGE_RESOLUTIONS、VALID_WORKSTREAM_{ATTENTION,STATUSES,TYPES}、VALID_SUBTASK_STATUSES、VALID_TASK_STATUSES、VALID_SOURCE_STATUSES、VALID_HUMAN_NOTE_STATUSES；runtime_parts/{check,doctor,knowledge_review,archive_workstream}.py 改为直接导入。关键语义：CLI 绑定的是 runtime_parts 的 deps 适配器而不是命令模块同名函数，因此 register_*_parser 必须显式注入 handler（命令树快照护栏首次运行即抓到 4 处漂移）。runtime.py 1988 -> 838 行（-57%）。顺带修复既有失败：README.md 缺失 ws003_acceptance 要求的 GlobalOnly 术语（自 c425410 起缺失）。证据：命令树快照 210 条路径零漂移，unittest 292(test_cli)+292(continuation/杂项)+100(worktree)+10(ws003)+8(package/契约) 全绿，check template、check --strict、minimal_smoke 8/8 通过。 | 进入 T006 收敛 acf.py shim：移除对 runtime 私有全局的写入与 re-sync。 |
-| T006 | Done | 收敛 acf.py shim | T005 | acf.py 移除私有全局写入与 re-sync、显式 root 传递、相关 shim 测试重写 | acf.py 收敛完成：新增 runtime.set_root(root) 作为唯一公开的 ROOT 重绑定入口（设 ROOT 并同步各 runtime part），acf.py 不再写 runtime.ROOT、不再调用私有 _sync_runtime_part_globals，且只在 acf.ROOT 与 runtime.ROOT 实际不同时才同步（去掉了每次属性访问都无条件 re-sync 的行为）；runtime.main() 中冗余的 _sync_runtime_part_globals 调用移除（import 时安装已完成同步）。test_package_skeleton 断言按有意契约更新：新增 test_top_level_shim_does_not_write_runtime_internals 直接断言 shim 源码含 set_root、不含私有同步调用与私有全局写入，并改用 runtime.set_root 恢复 ROOT；配套修正审计脚本的误报：dynamic_access_gaps 排除 dunder 协议属性（__file__ 由模块系统提供，不是注入面缺口）。证据：test_runtime_contracts 12 项、test_package_skeleton 9 项、test_entrypoint_smoke、test_cli_surface_snapshot 与 test_cli 的两个 shim ROOT 用例全绿；uv run python acf.py version show --json 正常。 | 进入 T007 全量门禁、证据矩阵与文档同步。 |
-| T007 | Done | 全量门禁、证据矩阵与文档同步 | T006 | 六域 Gap Matrix 第 3 域、Architecture、Context 与 worklog | 全量门禁、证据矩阵与文档同步完成：版本收敛 v0.0.3.96 + CHANGELOG；新增 ADR-0007 记录 runtime 组合契约并经 merge_targets + 合并请求（authority write gate）落盘，Decisions 索引同步生成；Architecture.md 新增「runtime 组合契约」章节并修正过期的单文件 acf.py 表述与架构风险；六域 Gap Matrix 第 3 域 runtime 全局注入行更新为已解耦并给出护栏引用。门禁：check template、check docs/ai --strict、py_compile、minimal_smoke 8/8、unittest 704 项（135 快速批 + 292 test_cli + 168 continuation + 109 worktree，3 项跳过）全绿；命令树快照 210 条路径零漂移。治理点：WS014 旧式 assigned: decisions/ 声明已不被 authority write gate 接受，本轮按 merge_targets + workstream merge-request 落盘权威文件。 | 进入 T008 授权收口与归档。 |
-| T008 | Done | 授权收口与归档 | T007 | WS016 done、归档与 Context 收敛回 global-only | 授权收口与归档完成：按 WS012 先例以 current-user-instruction 记录 ready/done/archive 审批证据（status 迁移会变更 workstream 指纹，故每步迁移后按新指纹重记审批），WS016 Active -> ReadyToMerge -> Done -> archive；合并请求覆盖 ADR-0007 与 Decisions 索引两个 authority merge target；Current_Task 清空、Workstreams 索引同步为 Inactive、status 回到 Inactive/global-only；Context 收敛到归档态；3 条 open issue 与 WS016 无关、不处置。 | 取得用户 closeout 授权后执行 |
+| T001 | Done | 修复 worktree_release_smoke 运行态隔离并补无污染回归 | 无 | scripts/worktree_release_smoke.py 注入隔离 ACF_HOME、tests/test_smoke_isolation.py 增加隔离注入断言 | worktree_release_smoke.py 新增 isolated_acf_home_env 与 isolated_runtime_state context manager，run() 统一传入 env=_RUN_ENV，git 与 acf 子进程全部走隔离运行态，main() 用 with isolated_runtime_state(temp) 包裹生命周期；tests/test_smoke_isolation.py 新增 3 项确定性回归（隔离 env 指向运行根目录、AST 断言每个 subprocess.run 都传 env、子进程实际收到隔离 ACF_HOME），0.027s 通过；一次性全链路证据：脚本 exit=0、ok=true、worktree_closed=true，真实运行态 project namespace created=[] / removed=[]；guard WS017 显式文件集强验收 ok=true。 | 进入 T002 新增 acf clock now |
+| T002 | Done | 新增 acf clock now 命令与组合注册 | T001 | ai_context_framework/commands/clock.py 与 runtime.build_parser 组合注册 | 新增 ai_context_framework/commands/clock.py（纯函数叶子模块：local_now / utc_offset_value / clock_now_payload / clock_now_command / register_clock_parser），runtime.build_parser 用 clock_commands.register_clock_parser(..., now_handler=clock_commands.clock_now_command) 显式注入注册，符合 ADR-0007 组合契约；未新增 runtime_parts 导出面（runtime_export_audit 仍 narrowing closed，无新增缺口）。tests/test_clock.py 7 项通过：已知时刻的分钟级输出、负半小时偏移 +05 -> -05:30、真实当前时刻格式与偏移、人读输出为裸时间戳、JSON 满足 AI-facing 契约、runtime 绑定 handler 身份、以及无上下文目录的子进程调用。实测人读 2026-09-20 18:06，JSON 含 datetime/date/time/utc_offset/iso_local/utc 与标准契约字段。 | 进入 T003 快照、契约与双份文档同步 |
+| T003 | Done | 命令树快照、契约测试与双份文档同步 | T002 | tests/fixtures/cli_surface.json、tests/test_clock.py、tests/test_cli.py、两份 System_Manual、README、CHANGELOG | 命令树快照有意重生成（-write），210 -> 212 条路径，差异仅为新增 clock 与 clock now 两条；tests/test_cli.py 的 AI-facing 成功契约用例新增 clock now 并整体通过（16.7s OK）；双份 System Manual（docs/ai/reference 与 template/reference）、README 常用命令示例与说明、docs/Automation.md 均已同步；check template 与 check docs/ai --strict 全绿；WS017 写入边界用 scope-add 纳入 docs/Automation.md 后，guard 显式文件集强验收 ok=true、零违规。 | 进入 T004 六域 Gap Matrix 过期行校准 |
+| T004 | Done | 六域 Gap Matrix 域 4/5 过期行校准 | T003 | reference/Top_Level_Implementation_Gap.md 的第 4/5 域与下一批候选清单 | 用 code-explorer 逐条取证后校准六域矩阵：第 4 域「test / smoke 运行态隔离」由 缺陷 改为 已实现（v0.0.3.93 落地，WS017 补齐 worktree_release_smoke 同类实例），并把 release_check 仓库门禁段作为观测项保留而非本轮修复；「跨项目 issue 生命周期」与第 6 域「跨项目 open issue 收口」的 open 计数由 4 更正为 3（curated handoff 以 git:17024d2 + pypi:0.0.3.95 resolve）；第 5 域 CI 由 部分 改为 已实现（checkout 固定 3d3c42e5aac5…、setup-uv 08807647e706…、tests/package 双 job os 矩阵含 windows-latest、release 以 verify: uses ci.yml + needs verify 为必需门禁）；「版本收敛与发布闭合」更新为 v0.0.3.96 事实并在发布闭合后改写为 缺口 无；「发布链」缺口同步；第 3 域命令树快照路径数 210 -> 212；头部状态与 Next Code PR Decision 候选清单同步到 WS017。check docs/ai --strict 与 guard 文件集强验收全绿。 | 进入 T005 版本收敛、全量门禁与收口 |
+| T005 | Active | v0.0.3.97 版本收敛、全量门禁与收口 | T004 | 版本文件、CHANGELOG、发布与已安装验证、WS017 收口归档 | 无。 | 取得发布授权后执行 |
 
 ---
 

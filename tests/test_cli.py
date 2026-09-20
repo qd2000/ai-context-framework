@@ -6744,6 +6744,10 @@ This records a reusable write-safety pattern instead of a current task fact.
                         str(target),
                     ],
                 ),
+                (
+                    "clock now",
+                    ["clock", "now", "--json"],
+                ),
             ]
 
             for command, args in cases:

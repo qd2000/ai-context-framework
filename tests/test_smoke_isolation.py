@@ -1,15 +1,18 @@
 """Regression: the minimal smoke suite must never touch the real user-level runtime state."""
 
+import ast
 import importlib.util
 import json
 import os
 import pathlib
 import sys
+import tempfile
 import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SMOKE_SCRIPT = ROOT / "scripts" / "minimal_smoke.py"
+WORKTREE_SMOKE_SCRIPT = ROOT / "scripts" / "worktree_release_smoke.py"
 
 
 def load_smoke_module():
@@ -80,6 +83,83 @@ class SmokeIsolationTests(unittest.TestCase):
             ([], []),
             "minimal smoke must not create or remove real ACF_HOME project namespaces",
         )
+
+
+def load_worktree_smoke_module():
+    spec = importlib.util.spec_from_file_location(
+        "acf_worktree_release_smoke", WORKTREE_SMOKE_SCRIPT
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def subprocess_runs_without_env(source: str) -> list[int]:
+    """Return line numbers of ``subprocess.run(...)`` calls that omit ``env``."""
+
+    tree = ast.parse(source)
+    missing: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr != "run":
+            continue
+        if not isinstance(func.value, ast.Name) or func.value.id != "subprocess":
+            continue
+        if not any(keyword.arg == "env" for keyword in node.keywords):
+            missing.append(node.lineno)
+    return missing
+
+
+class WorktreeReleaseSmokeIsolationTests(unittest.TestCase):
+    def test_isolated_env_points_at_the_run_root(self):
+        smoke = load_worktree_smoke_module()
+        real_home = str(real_projects_root().parent)
+        with tempfile.TemporaryDirectory(prefix="acf-smoke-isolation-") as tmp:
+            root = pathlib.Path(tmp)
+            env = smoke.isolated_acf_home_env(root)
+            self.assertEqual(env["ACF_HOME"], str(root / "acf-home"))
+            self.assertTrue(env["ACF_HOME"].startswith(str(root)))
+            self.assertNotEqual(env["ACF_HOME"], real_home)
+
+    def test_every_subprocess_call_forwards_the_isolated_env(self):
+        missing = subprocess_runs_without_env(
+            WORKTREE_SMOKE_SCRIPT.read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            missing,
+            [],
+            "every subprocess.run in the release smoke must forward the isolated env",
+        )
+
+    def test_subprocess_calls_receive_isolated_acf_home(self):
+        smoke = load_worktree_smoke_module()
+        captured: dict[str, object] = {}
+        original_run = smoke.subprocess.run
+        expected_home = ""
+
+        class _FakeCompleted:
+            returncode = 0
+            stdout = "{}"
+            stderr = ""
+
+        def fake_run(argv, **kwargs):
+            captured.update(kwargs)
+            return _FakeCompleted()
+
+        smoke.subprocess.run = fake_run
+        try:
+            with tempfile.TemporaryDirectory(prefix="acf-smoke-isolation-") as tmp:
+                root = pathlib.Path(tmp)
+                with smoke.isolated_runtime_state(root) as active_env:
+                    expected_home = active_env["ACF_HOME"]
+                    smoke.run(["acf", "status", "--json"], cwd=root)
+        finally:
+            smoke.subprocess.run = original_run
+        self.assertIn("env", captured)
+        self.assertEqual(captured["env"]["ACF_HOME"], expected_home)
 
 
 if __name__ == "__main__":
