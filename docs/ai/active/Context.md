@@ -8,14 +8,14 @@
 
 ## 审阅标记
 
-- Last reviewed: 2026-09-20 21:10
-- Review scope: 文件级；WS016 已收口归档、项目回到 global-only 的当前事实。
+- Last reviewed: 2026-09-20 19:03
+- Review scope: 文件级；WS017「Runtime 缺陷与欠账修复」进入收口，`v0.0.3.96` 已发布、`v0.0.3.97` 已推送不可变 tag 待 release workflow 发布门禁的当前事实。
 
 ---
 
 ## 当前阶段
 
-项目回到 global-only：没有 Active / Blocked / ReadyToMerge / Merging Workstream。WS016「Runtime 全局注入解耦」已收口并归档（[archive/workstreams/WS016.md](../archive/workstreams/WS016.md)）：`runtime_parts/*` 用显式 `__acf_exports__` 导出并 fail-closed 安装，per-call `_bind` 由显式 RuntimeContext 取代，`build_parser` 变为 31 处 `register_*_parser` 组合，`acf.py` 只走公开 `runtime.set_root`；对外 CLI 契约零变化（命令树 210 条路径快照零漂移），`runtime.py` 1988 -> 838 行，决策固化为 [decisions/ADR-0007.md](../decisions/ADR-0007.md)，版本收敛 `v0.0.3.96`。下一轮优先级见「当前开放问题」。
+WS017「Runtime 缺陷与欠账修复」进入收口：修复 `scripts/worktree_release_smoke.py` 的运行态隔离缺口并补 3 项无污染回归（一次性全链路证据证明真实 `<ACF_HOME>/projects` 命名空间 created / removed 均为 `[]`）；新增 `acf clock now` 分钟级时间原语（纯函数命令模块 + runtime 组合注册，命令树快照 210 -> 212 且差异仅为 `clock` / `clock now` 两条路径）；校准 [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md) 六域矩阵中与代码、CHANGELOG、workflow 事实矛盾的行，并把「smoke 隔离」「CI 固定 SHA」两处过期缺陷更正为已实现。发布状态：`v0.0.3.96` 已完成 tag / PyPI / 全局安装三项验证；`v0.0.3.97` 已推送不可变 tag，正由 release workflow 复用 ci.yml 执行跨平台发布门禁。当前存在一个 Active Workstream（WS017），收口后回到 global-only。
 
 ---
 
@@ -67,6 +67,7 @@
 4. 计划与历史：`plan`、`task`、`archive`、`decisions`、`knowledge`、`feedback`、`workstream` 系列已覆盖任务板、归档、Feedback 生命周期、index sync 和可选并行 Workstream 层。
 5. 观测与评测：usage event log 默认开启并写入用户级目录；`acf log projects` 可只读盘点全局 usage log；`scripts/minimal_smoke.py` 与 `scripts/upgrade_matrix.py` 覆盖最小 smoke 与旧上下文升级兼容性。
 6. 注意力治理：`review stale`、`audit context`、`curate draft`、`doctor` 提供机械 stale signal、active 污染候选、可审阅整理草案和跨文件健康诊断；CLI 不裁决事实真假。
+7. 时间原语：`acf clock now` 以纯函数命令输出分钟级本地时间 `YYYY-MM-DD HH:MM`，供上下文「上次更新 / 上次修改」等字段引用；不依赖上下文目录、不读写文件，支持 `--json`。
 
 ### 当前进展与未完成项
 
@@ -77,7 +78,8 @@
 5. WS016「Runtime 全局注入解耦」已完成实现、验收与归档（[archive/workstreams/WS016.md](../archive/workstreams/WS016.md)）：导出 allowlist fail-closed、显式 RuntimeContext、parser composition、`acf.py` 收敛与 ADR-0007 全部落地，全套门禁 704 项全绿，版本收敛 `v0.0.3.96`。
 6. owner-context 的 ACF 侧隔离验证已通过（`scripts/continuation_owner_fixture.py`）；真实网页工具链复测仍是待执行验收项，协议见 [reference/Continuation_Owner_Context_Verification.md](../reference/Continuation_Owner_Context_Verification.md)。
 7. [active/Feedback_Inbox.md](Feedback_Inbox.md)：F015/F017 已转为 rules 条目并 Done，F019 已转为 Planned 并指向 ADR-0006 与后续 UX 计划。
-8. 后续独立候选：WS016 变更集的发布闭合（版本已收敛 `v0.0.3.96`，tag/PyPI 发布与全局安装验证属发布流程，待授权）、System Manual 共享区块同步机制、分钟级时间字段的 CLI 自动生成能力、owner-context 真实链路复测、child effect 委派设计。
+8. WS017「Runtime 缺陷与欠账修复」已完成实现与门禁：运行态隔离修复与无污染回归、`acf clock now`、六域矩阵校准；`v0.0.3.97` 已推送不可变 tag，发布闭合由 release workflow 完成。
+9. 后续独立候选：System Manual 共享区块同步机制、owner-context 真实网页链路复测、child effect 委派设计、历史 state-loss 事故复现确认、ADR-0006 的 ACF Core / Operations 分层落地。
 
 ### 默认索引
 
@@ -108,9 +110,9 @@
 2. 是否需要 writeback-curator subagent 生成更高质量的回写分类草案。
 3. 是否需要为 `docs/ai/` 外的仓库级维护文档设计安全的 project-root scoped edit 能力，还是继续保持常规补丁维护。
 4. 是否需要继续新增 weekly/report 创建命令，或保持 human layer 只通过 `new human-note` 写 Inbox。
-5. 是否为分钟级时间字段提供 CLI 自动生成能力（格式规则已落地，见 [rules/Project_Rules.md](../rules/Project_Rules.md)）。
+5. 已落地：分钟级时间字段由 `acf clock now` 生成（输出本地 `YYYY-MM-DD HH:MM`，不依赖上下文目录、不写文件），格式规则仍见 [rules/Project_Rules.md](../rules/Project_Rules.md)。
 6. ACF Core 与 Operations 控制面的边界如何在不拆包的前提下落地（ADR-0006 的设计结论）。
-7. 下一阶段优先级：WS016 变更集的发布闭合（tag/PyPI 发布与全局安装验证属发布流程，待授权），还是先处理剩余 3 条产品 issue（child effect 委派、owner-context 真实链路复测、历史 state-loss 复现确认）。
+7. 下一阶段优先级：`v0.0.3.97` 发布闭合完成后，在 System Manual 共享区块同步机制、owner-context 真实网页链路复测、child effect 委派设计、历史 state-loss 事故复现确认之间选择（均由 Gap Matrix 记为需独立 Workstream 的候选）。
 
 ---
 
@@ -141,5 +143,5 @@
 
 ## 上次更新
 
-- 日期：2026-09-20 21:10
-- 更新原因：WS016「Runtime 全局注入解耦」经 closeout 授权收口并归档，项目回到 global-only；同步 `v0.0.3.96`、ADR-0007 与下一轮优先级。
+- 日期：2026-09-20 19:03
+- 更新原因：WS017「Runtime 缺陷与欠账修复」进入收口——发布闭合 `v0.0.3.96`、`worktree_release_smoke` 运行态隔离修复与无污染回归、`acf clock now` 落地、六域矩阵过期行校准，版本收敛 `v0.0.3.97` 并推送不可变 tag。

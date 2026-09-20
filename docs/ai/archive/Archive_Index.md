@@ -69,6 +69,7 @@
 | 2026-09-19 | Plan | WS015 发布链收口与 worktree 退役窄路径 | 无。 | `archive/plans/2026-09-19-ws015-发布链收口与-worktree-退役窄路径.md` | Archived | WS015 大任务计划已完成（T001-T007 全部 Done）并收口归档，保留子任务板与验收证据供追溯。 |
 | 2026-09-20 | workstream | WS016 | active/workstreams/WS016.md | `archive/workstreams/WS016.md` | Done | WS016 Runtime 全局注入解耦已完成并通过验收：导出 allowlist fail-closed、显式 RuntimeContext、parser composition（runtime.py 1988->838 行、build_parser 零内联）、acf.py 收敛、全量门禁 704 项全绿与命令树快照零漂移、ADR-0007 与 v0.0.3.96；终态收口把详情移出 active 层。 |
 | 2026-09-20 | Plan | WS016 Runtime 全局注入解耦 | 无。 | `archive/plans/2026-09-20-ws016-runtime-全局注入解耦.md` | Archived | WS016 已收口归档，本轮切换到 WS017 缺陷与欠账修复 |
+| 2026-09-20 | workstream | WS017 | active/workstreams/WS017.md | `archive/workstreams/WS017.md` | Done | WS017 Runtime 缺陷与欠账修复已完成并通过验收：运行态隔离修复与无污染回归、acf clock now、六域矩阵校准、v0.0.3.96 发布闭合与 v0.0.3.97 版本收敛；终态收口把详情移出 active 层。 |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
