@@ -8,11 +8,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from ai_context_framework.constants import JSON_SCHEMA_VERSION
+from ai_context_framework.constants import JSON_SCHEMA_VERSION, VALID_FEEDBACK_STATUSES
 from ai_context_framework.json_contract import dry_run_enabled, emit_write_result, json_enabled, print_json, set_result_payload
 from ai_context_framework.models import CheckResult
 from ai_context_framework.paths import require_context_root
 from ai_context_framework.tables import parse_markdown_table_rows
+from ai_context_framework.validators.checks import validate_date, validate_feedback_id
 
 
 MaybeCheckAfter = Callable[[argparse.Namespace, Path, str | None], CheckResult | None]
@@ -204,3 +205,67 @@ def feedback_archive_command(args: argparse.Namespace, *, deps: FeedbackDependen
             "item": deps.feedback_row_to_payload(removed),
         },
     )
+
+
+def register_feedback_parsers(
+    subparsers: Any,
+    add_json_argument: Callable[..., None],
+    add_write_arguments: Callable[..., None],
+    *,
+    list_handler: Callable[..., int],
+    archive_candidates_handler: Callable[..., int],
+    triage_handler: Callable[..., int],
+    done_handler: Callable[..., int],
+    reject_handler: Callable[..., int],
+    archive_handler: Callable[..., int],
+) -> None:
+    """Register the `feedback` group (moved out of ``runtime.build_parser``).
+
+    Handlers are injected because the CLI binds the ``runtime_parts`` adapters that
+    supply each handler's dependencies.
+    """
+
+    feedback_parser = subparsers.add_parser("feedback", help="manage active/Feedback_Inbox.md lifecycle")
+    feedback_subparsers = feedback_parser.add_subparsers(dest="feedback_command", required=True)
+
+    feedback_list_parser = feedback_subparsers.add_parser("list", help="list feedback inbox rows")
+    feedback_list_parser.add_argument("path", nargs="?", type=Path)
+    feedback_list_parser.add_argument("--status", choices=tuple(sorted(VALID_FEEDBACK_STATUSES)), default=None)
+    add_json_argument(feedback_list_parser)
+    feedback_list_parser.set_defaults(func=list_handler)
+
+    feedback_candidates_parser = feedback_subparsers.add_parser("archive-candidates", help="list feedback rows ready for explicit archive")
+    feedback_candidates_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(feedback_candidates_parser)
+    feedback_candidates_parser.set_defaults(func=archive_candidates_handler)
+
+    feedback_triage_parser = feedback_subparsers.add_parser("triage", help="mark feedback Triaged and update next action")
+    feedback_triage_parser.add_argument("path", nargs="?", type=Path)
+    feedback_triage_parser.add_argument("id", type=validate_feedback_id)
+    feedback_triage_parser.add_argument("--next-action", required=True, help="deterministic next handling step")
+    feedback_triage_parser.add_argument("--evidence", default="", help="optional evidence or destination reference")
+    add_write_arguments(feedback_triage_parser)
+    feedback_triage_parser.set_defaults(func=triage_handler)
+
+    feedback_done_parser = feedback_subparsers.add_parser("done", help="mark feedback Done")
+    feedback_done_parser.add_argument("path", nargs="?", type=Path)
+    feedback_done_parser.add_argument("id", type=validate_feedback_id)
+    feedback_done_parser.add_argument("--result", required=True, help="handling result")
+    feedback_done_parser.add_argument("--evidence", required=True, help="evidence or destination reference")
+    add_write_arguments(feedback_done_parser)
+    feedback_done_parser.set_defaults(func=done_handler)
+
+    feedback_reject_parser = feedback_subparsers.add_parser("reject", help="mark feedback Rejected")
+    feedback_reject_parser.add_argument("path", nargs="?", type=Path)
+    feedback_reject_parser.add_argument("id", type=validate_feedback_id)
+    feedback_reject_parser.add_argument("--reason", required=True, help="rejection reason")
+    add_write_arguments(feedback_reject_parser)
+    feedback_reject_parser.set_defaults(func=reject_handler)
+
+    feedback_archive_parser = feedback_subparsers.add_parser("archive", help="archive one Done or Rejected feedback row")
+    feedback_archive_parser.add_argument("path", nargs="?", type=Path)
+    feedback_archive_parser.add_argument("id", type=validate_feedback_id)
+    feedback_archive_parser.add_argument("--reason", required=True, help="archive reason or destination evidence")
+    feedback_archive_parser.add_argument("--date", type=validate_date, default=None, help="archive date in YYYY-MM-DD; defaults to today")
+    add_write_arguments(feedback_archive_parser)
+    feedback_archive_parser.set_defaults(func=archive_handler)

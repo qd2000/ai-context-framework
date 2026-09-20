@@ -13,6 +13,7 @@ from ai_context_framework.json_contract import dry_run_enabled, emit_write_resul
 from ai_context_framework.markdown import replace_section_text
 from ai_context_framework.models import CheckResult, PlanReference
 from ai_context_framework.paths import require_context_root
+from ai_context_framework.validators.checks import validate_task_id
 
 
 MaybeCheckAfter = Callable[[argparse.Namespace, Path, str | None], CheckResult | None]
@@ -572,3 +573,49 @@ def task_clear_command(args: argparse.Namespace, *, deps: PlanTaskDependencies) 
     check_result = deps.maybe_check_after(args, root, None)
     action = "would clear" if dry_run else "cleared"
     return emit_write_result(args, "task clear", f"{action} current task {task_path}", [task_path], check_result)
+
+
+def register_task_parser(
+    subparsers: Any,
+    add_write_arguments: Callable[..., None],
+    *,
+    start_handler: Callable[..., int],
+    done_handler: Callable[..., int],
+    block_handler: Callable[..., int],
+    clear_handler: Callable[..., int],
+) -> None:
+    """Register the `task` group (moved out of ``runtime.build_parser``).
+
+    Handlers are injected because the CLI binds the ``runtime_parts`` adapters that
+    supply each handler's dependencies.
+    """
+
+    task_group_parser = subparsers.add_parser("task", help="start, finish, block, or clear the current task")
+    task_subparsers = task_group_parser.add_subparsers(dest="task_command", required=True)
+
+    task_start_parser = task_subparsers.add_parser("start", help="start a subtask from active/Task_Plan.md")
+    task_start_parser.add_argument("path", nargs="?", type=Path)
+    task_start_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
+    task_start_parser.add_argument("--force", action="store_true", help="replace an Active current task")
+    task_start_parser.add_argument("--workstream", action="append", default=None, help="override owning Workstream id; can be repeated")
+    add_write_arguments(task_start_parser)
+    task_start_parser.set_defaults(func=start_handler)
+
+    task_done_parser = task_subparsers.add_parser("done", help="mark a subtask done")
+    task_done_parser.add_argument("path", nargs="?", type=Path)
+    task_done_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
+    task_done_parser.add_argument("--evidence", required=True, help="completion evidence")
+    add_write_arguments(task_done_parser)
+    task_done_parser.set_defaults(func=done_handler)
+
+    task_block_parser = task_subparsers.add_parser("block", help="mark a subtask blocked")
+    task_block_parser.add_argument("path", nargs="?", type=Path)
+    task_block_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
+    task_block_parser.add_argument("--reason", required=True, help="blocker reason")
+    add_write_arguments(task_block_parser)
+    task_block_parser.set_defaults(func=block_handler)
+
+    task_clear_parser = task_subparsers.add_parser("clear", help="reset active/Current_Task.md to Empty")
+    task_clear_parser.add_argument("path", nargs="?", type=Path)
+    add_write_arguments(task_clear_parser)
+    task_clear_parser.set_defaults(func=clear_handler)

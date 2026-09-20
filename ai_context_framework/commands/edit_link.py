@@ -6,6 +6,7 @@ import argparse
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from ai_context_framework.json_contract import (
     dry_run_enabled,
@@ -296,3 +297,45 @@ def edit_table_upsert_command(args: argparse.Namespace, *, maybe_check_after: Ch
         [target],
         check_result,
     )
+
+
+def register_linkify_parser(
+    subparsers: Any, add_write_arguments: Callable[..., None], handler: Callable[..., int]
+) -> None:
+    """Register the `linkify` parser (moved out of ``runtime.build_parser``)."""
+
+    linkify_parser = subparsers.add_parser(
+        "linkify",
+        help="convert path references in context Markdown files to clickable Markdown links",
+    )
+    linkify_parser.add_argument("path", nargs="?", type=Path)
+    linkify_parser.add_argument("--format", choices=("markdown",), default="markdown")
+    linkify_parser.add_argument("--include-archive", action="store_true", help="also linkify archive detail files")
+    linkify_parser.add_argument(
+        "--include-worklog-daily",
+        action="store_true",
+        help="also linkify daily worklog files",
+    )
+    linkify_parser.add_argument("--allow-missing", action="store_true", help="linkify paths even when targets do not exist")
+    add_write_arguments(linkify_parser)
+    linkify_parser.set_defaults(func=handler)
+
+
+def register_link_parser(
+    subparsers: Any, add_write_arguments: Callable[..., None], handler: Callable[..., int]
+) -> None:
+    """Register the `link` group (moved out of ``runtime.build_parser``)."""
+
+    link_parser = subparsers.add_parser("link", help="manage explicit Markdown links")
+    link_subparsers = link_parser.add_subparsers(dest="link_command", required=True)
+
+    link_add_parser = link_subparsers.add_parser("add", help="append a Markdown link bullet to a section")
+    link_add_parser.add_argument("path", nargs="?", type=Path)
+    link_add_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
+    link_add_parser.add_argument("--heading", required=True, help="exact section heading to append to")
+    link_add_parser.add_argument("--target", type=Path, required=True, help="local target file inside the context root")
+    link_add_parser.add_argument("--target-heading", default=None, help="target Markdown heading to link to")
+    link_add_parser.add_argument("--text", default=None, help="link text; defaults to target path plus anchor")
+    link_add_parser.add_argument("--force", action="store_true", help="allow duplicate links")
+    add_write_arguments(link_add_parser)
+    link_add_parser.set_defaults(func=handler)

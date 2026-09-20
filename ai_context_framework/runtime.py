@@ -19,9 +19,11 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 from ai_context_framework import runtime_exports
+from ai_context_framework.cli_arguments import add_json_argument, add_write_arguments
 from ai_context_framework.constants import (
     ANCHOR_NOT_FOUND,
     APPEND_FORCE_CONFLICT,
+    DEFAULT_STALE_DAYS,
     EXIT_CHECK_FAILED,
     EXIT_INPUT_ERROR,
     EXIT_RUNTIME_ERROR,
@@ -29,6 +31,7 @@ from ai_context_framework.constants import (
     JSON_SCHEMA_VERSION,
     LOCK_FILE_REL,
     TARGET_EXISTS_APPEND_REQUIRED,
+    VALID_FEEDBACK_STATUSES,
 )
 from ai_context_framework.commands import versioning as versioning_commands
 from ai_context_framework.commands import edit_link as edit_link_commands
@@ -295,7 +298,6 @@ from ai_context_framework.validators.checks import (
     validate_adr_id,
     validate_date,
     validate_draft_name,
-    validate_feedback_id,
     validate_human_note_id,
     validate_knowledge_id,
     validate_task_id,
@@ -314,16 +316,13 @@ VALID_SUBTASK_STATUSES = {"Pending", "Active", "Done", "Blocked", "Skipped", "Su
 VALID_DECISION_STATUSES = {"Active", "Proposed", "Superseded", "Rejected", "Deprecated"}
 VALID_SOURCE_STATUSES = {"To Read", "Reading", "Read", "Useful", "Archived", "Rejected"}
 VALID_KNOWLEDGE_STATUSES = {"Draft", "Active", "Promoted", "Stale", "Rejected"}
-VALID_FEEDBACK_STATUSES = {"Open", "Triaged", "Planned", "Done", "Rejected"}
 VALID_HUMAN_NOTE_STATUSES = {"Open", "Triaged", "Done", "Rejected"}
-VALID_HUMAN_INDEX_STATUSES = {"Open", "Reviewed", "Extracted", "Archived"}
 VALID_WORKSTREAM_STATUSES = {"Proposed", "Open", "Active", "Blocked", "ReadyToMerge", "Merging", "Done", "Cancelled"}
 VALID_WORKSTREAM_TYPES = {"Task", "Merge", "Maintenance"}
 VALID_WORKSTREAM_ATTENTION = {"Now", "Next", "Waiting", "Retained"}
 VALID_WORKSTREAM_STAGE_STATUSES = {"Pending", "Active", "Blocked", "Done", "Skipped", "Cancelled"}
 VALID_MERGE_RESOLUTIONS = {"merged", "rejected", "no_merge_required", "archived"}
 ACTIVE_WORKSTREAM_STATUSES = {"Active", "Blocked", "ReadyToMerge", "Merging"}
-DEFAULT_STALE_DAYS = 14
 AUDIT_ACTIVE_SECTION_MAX_NONEMPTY_LINES = 80
 WORKSTREAM_NOTE_SECTIONS = {
     "当前发现": "## 当前发现",
@@ -571,16 +570,6 @@ def _sync_runtime_part_globals() -> None:
 
 _install_runtime_parts()
 
-def add_json_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="print machine-readable JSON")
-
-
-def add_write_arguments(parser: argparse.ArgumentParser) -> None:
-    add_json_argument(parser)
-    parser.add_argument("--dry-run", action="store_true", help="validate and report changed files without writing")
-    parser.add_argument("--check-after", action="store_true", help="run context check after writing")
-    parser.add_argument("--strict", action="store_true", help="use strict mode for --check-after")
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = SafeArgumentParser(
@@ -656,35 +645,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_argument(check_parser)
     check_parser.set_defaults(func=check_command)
 
-    linkify_parser = subparsers.add_parser(
-        "linkify",
-        help="convert path references in context Markdown files to clickable Markdown links",
+    edit_link_commands.register_linkify_parser(
+        subparsers, add_write_arguments, linkify_command
     )
-    linkify_parser.add_argument("path", nargs="?", type=Path)
-    linkify_parser.add_argument("--format", choices=("markdown",), default="markdown")
-    linkify_parser.add_argument("--include-archive", action="store_true", help="also linkify archive detail files")
-    linkify_parser.add_argument(
-        "--include-worklog-daily",
-        action="store_true",
-        help="also linkify daily worklog files",
+
+    edit_link_commands.register_link_parser(
+        subparsers, add_write_arguments, link_add_command
     )
-    linkify_parser.add_argument("--allow-missing", action="store_true", help="linkify paths even when targets do not exist")
-    add_write_arguments(linkify_parser)
-    linkify_parser.set_defaults(func=linkify_command)
-
-    link_parser = subparsers.add_parser("link", help="manage explicit Markdown links")
-    link_subparsers = link_parser.add_subparsers(dest="link_command", required=True)
-
-    link_add_parser = link_subparsers.add_parser("add", help="append a Markdown link bullet to a section")
-    link_add_parser.add_argument("path", nargs="?", type=Path)
-    link_add_parser.add_argument("file", type=Path, help="Markdown file inside the context root")
-    link_add_parser.add_argument("--heading", required=True, help="exact section heading to append to")
-    link_add_parser.add_argument("--target", type=Path, required=True, help="local target file inside the context root")
-    link_add_parser.add_argument("--target-heading", default=None, help="target Markdown heading to link to")
-    link_add_parser.add_argument("--text", default=None, help="link text; defaults to target path plus anchor")
-    link_add_parser.add_argument("--force", action="store_true", help="allow duplicate links")
-    add_write_arguments(link_add_parser)
-    link_add_parser.set_defaults(func=link_add_command)
 
     links_parser = subparsers.add_parser("links", help="manage structured link graph and generated backlinks")
     links_subparsers = links_parser.add_subparsers(dest="links_command", required=True)
@@ -1513,72 +1480,28 @@ def build_parser() -> argparse.ArgumentParser:
     add_write_arguments(plan_stage_done_parser)
     plan_stage_done_parser.set_defaults(func=plan_stage_done_command)
 
-    task_group_parser = subparsers.add_parser("task", help="start, finish, block, or clear the current task")
-    task_subparsers = task_group_parser.add_subparsers(dest="task_command", required=True)
+    plan_task_commands.register_task_parser(
+        subparsers,
+        add_write_arguments,
+        start_handler=task_start_command,
+        done_handler=task_done_command,
+        block_handler=task_block_command,
+        clear_handler=task_clear_command,
+    )
 
-    task_start_parser = task_subparsers.add_parser("start", help="start a subtask from active/Task_Plan.md")
-    task_start_parser.add_argument("path", nargs="?", type=Path)
-    task_start_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
-    task_start_parser.add_argument("--force", action="store_true", help="replace an Active current task")
-    task_start_parser.add_argument("--workstream", action="append", default=None, help="override owning Workstream id; can be repeated")
-    add_write_arguments(task_start_parser)
-    task_start_parser.set_defaults(func=task_start_command)
+    archive_commands.register_archive_parser(
+        subparsers,
+        add_json_argument,
+        add_write_arguments,
+        current_task_handler=archive_current_task_command,
+        task_plan_handler=archive_task_plan_command,
+        list_handler=archive_list_command,
+        sync_handler=archive_sync_command,
+    )
 
-    task_done_parser = task_subparsers.add_parser("done", help="mark a subtask done")
-    task_done_parser.add_argument("path", nargs="?", type=Path)
-    task_done_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
-    task_done_parser.add_argument("--evidence", required=True, help="completion evidence")
-    add_write_arguments(task_done_parser)
-    task_done_parser.set_defaults(func=task_done_command)
-
-    task_block_parser = task_subparsers.add_parser("block", help="mark a subtask blocked")
-    task_block_parser.add_argument("path", nargs="?", type=Path)
-    task_block_parser.add_argument("--id", type=validate_task_id, required=True, help="subtask id")
-    task_block_parser.add_argument("--reason", required=True, help="blocker reason")
-    add_write_arguments(task_block_parser)
-    task_block_parser.set_defaults(func=task_block_command)
-
-    task_clear_parser = task_subparsers.add_parser("clear", help="reset active/Current_Task.md to Empty")
-    task_clear_parser.add_argument("path", nargs="?", type=Path)
-    add_write_arguments(task_clear_parser)
-    task_clear_parser.set_defaults(func=task_clear_command)
-
-    archive_parser = subparsers.add_parser("archive", help="archive inactive task context")
-    archive_subparsers = archive_parser.add_subparsers(dest="archive_command", required=True)
-
-    archive_task_parser = archive_subparsers.add_parser("current-task", help="archive active/Current_Task.md")
-    archive_task_parser.add_argument("path", nargs="?", type=Path)
-    archive_task_parser.add_argument("--reason", required=True, help="archive reason")
-    archive_task_parser.add_argument("--force", action="store_true", help="archive even when Active")
-    add_write_arguments(archive_task_parser)
-    archive_task_parser.set_defaults(func=archive_current_task_command)
-
-    archive_plan_parser = archive_subparsers.add_parser("task-plan", help="archive active/Task_Plan.md")
-    archive_plan_parser.add_argument("path", nargs="?", type=Path)
-    archive_plan_parser.add_argument("--reason", required=True, help="archive reason")
-    archive_plan_parser.add_argument("--force", action="store_true", help="archive even when Active")
-    add_write_arguments(archive_plan_parser)
-    archive_plan_parser.set_defaults(func=archive_task_plan_command)
-
-    archive_list_parser = archive_subparsers.add_parser("list", help="list archive index entries")
-    archive_list_parser.add_argument("path", nargs="?", type=Path)
-    add_json_argument(archive_list_parser)
-    archive_list_parser.set_defaults(func=archive_list_command)
-
-    archive_sync_parser = archive_subparsers.add_parser("sync", help="sync the generated Archive index block")
-    archive_sync_parser.add_argument("path", nargs="?", type=Path)
-    archive_sync_parser.add_argument("--init-marker", action="store_true", help="insert generated markers when missing")
-    add_write_arguments(archive_sync_parser)
-    archive_sync_parser.set_defaults(func=archive_sync_command)
-
-    decisions_parser = subparsers.add_parser("decisions", help="manage decision index sync")
-    decisions_subparsers = decisions_parser.add_subparsers(dest="decisions_command", required=True)
-
-    decisions_sync_parser = decisions_subparsers.add_parser("sync", help="sync the generated Decisions index block")
-    decisions_sync_parser.add_argument("path", nargs="?", type=Path)
-    decisions_sync_parser.add_argument("--init-marker", action="store_true", help="insert generated markers when missing")
-    add_write_arguments(decisions_sync_parser)
-    decisions_sync_parser.set_defaults(func=decisions_sync_command)
+    decisions_commands.register_decisions_parser(
+        subparsers, add_write_arguments, decisions_sync_command
+    )
 
     knowledge_parser = subparsers.add_parser("knowledge", help="manage reusable knowledge drafts and entries")
     knowledge_subparsers = knowledge_parser.add_subparsers(dest="knowledge_command", required=True)
@@ -1631,124 +1554,46 @@ def build_parser() -> argparse.ArgumentParser:
     add_write_arguments(knowledge_sync_parser)
     knowledge_sync_parser.set_defaults(func=knowledge_sync_command)
 
-    draft_group_parser = subparsers.add_parser("draft", help="inspect reviewable drafts")
-    draft_subparsers = draft_group_parser.add_subparsers(dest="draft_command", required=True)
-    draft_status_parser = draft_subparsers.add_parser("status", help="list reviewable drafts without reading bodies")
-    draft_status_parser.add_argument("path", nargs="?", type=Path)
-    add_json_argument(draft_status_parser)
-    draft_status_parser.set_defaults(func=next_status_commands.draft_status_command)
+    next_status_commands.register_draft_parser(
+        subparsers, add_json_argument, next_status_commands.draft_status_command
+    )
 
-    feedback_parser = subparsers.add_parser("feedback", help="manage active/Feedback_Inbox.md lifecycle")
-    feedback_subparsers = feedback_parser.add_subparsers(dest="feedback_command", required=True)
+    feedback_commands.register_feedback_parsers(
+        subparsers,
+        add_json_argument,
+        add_write_arguments,
+        list_handler=feedback_list_command,
+        archive_candidates_handler=feedback_archive_candidates_command,
+        triage_handler=feedback_triage_command,
+        done_handler=feedback_done_command,
+        reject_handler=feedback_reject_command,
+        archive_handler=feedback_archive_command,
+    )
 
-    feedback_list_parser = feedback_subparsers.add_parser("list", help="list feedback inbox rows")
-    feedback_list_parser.add_argument("path", nargs="?", type=Path)
-    feedback_list_parser.add_argument("--status", choices=tuple(sorted(VALID_FEEDBACK_STATUSES)), default=None)
-    add_json_argument(feedback_list_parser)
-    feedback_list_parser.set_defaults(func=feedback_list_command)
+    human_commands.register_human_parsers(
+        subparsers,
+        add_json_argument,
+        add_write_arguments,
+        index_sync_handler=human_index_sync_command,
+        list_handler=human_list_command,
+        mark_handler=human_mark_command,
+    )
 
-    feedback_candidates_parser = feedback_subparsers.add_parser("archive-candidates", help="list feedback rows ready for explicit archive")
-    feedback_candidates_parser.add_argument("path", nargs="?", type=Path)
-    add_json_argument(feedback_candidates_parser)
-    feedback_candidates_parser.set_defaults(func=feedback_archive_candidates_command)
+    review_audit_curate_commands.register_review_parser(
+        subparsers, add_json_argument, review_stale_command
+    )
 
-    feedback_triage_parser = feedback_subparsers.add_parser("triage", help="mark feedback Triaged and update next action")
-    feedback_triage_parser.add_argument("path", nargs="?", type=Path)
-    feedback_triage_parser.add_argument("id", type=validate_feedback_id)
-    feedback_triage_parser.add_argument("--next-action", required=True, help="deterministic next handling step")
-    feedback_triage_parser.add_argument("--evidence", default="", help="optional evidence or destination reference")
-    add_write_arguments(feedback_triage_parser)
-    feedback_triage_parser.set_defaults(func=feedback_triage_command)
+    review_audit_curate_commands.register_audit_parser(
+        subparsers, add_json_argument, audit_context_command
+    )
 
-    feedback_done_parser = feedback_subparsers.add_parser("done", help="mark feedback Done")
-    feedback_done_parser.add_argument("path", nargs="?", type=Path)
-    feedback_done_parser.add_argument("id", type=validate_feedback_id)
-    feedback_done_parser.add_argument("--result", required=True, help="handling result")
-    feedback_done_parser.add_argument("--evidence", required=True, help="evidence or destination reference")
-    add_write_arguments(feedback_done_parser)
-    feedback_done_parser.set_defaults(func=feedback_done_command)
+    doctor_commands.register_doctor_parser(
+        subparsers, add_write_arguments, doctor_command
+    )
 
-    feedback_reject_parser = feedback_subparsers.add_parser("reject", help="mark feedback Rejected")
-    feedback_reject_parser.add_argument("path", nargs="?", type=Path)
-    feedback_reject_parser.add_argument("id", type=validate_feedback_id)
-    feedback_reject_parser.add_argument("--reason", required=True, help="rejection reason")
-    add_write_arguments(feedback_reject_parser)
-    feedback_reject_parser.set_defaults(func=feedback_reject_command)
-
-    feedback_archive_parser = feedback_subparsers.add_parser("archive", help="archive one Done or Rejected feedback row")
-    feedback_archive_parser.add_argument("path", nargs="?", type=Path)
-    feedback_archive_parser.add_argument("id", type=validate_feedback_id)
-    feedback_archive_parser.add_argument("--reason", required=True, help="archive reason or destination evidence")
-    feedback_archive_parser.add_argument("--date", type=validate_date, default=None, help="archive date in YYYY-MM-DD; defaults to today")
-    add_write_arguments(feedback_archive_parser)
-    feedback_archive_parser.set_defaults(func=feedback_archive_command)
-
-    human_parser = subparsers.add_parser("human", help="manage human layer index and materials")
-    human_subparsers = human_parser.add_subparsers(dest="human_command", required=True)
-
-    human_index_parser = human_subparsers.add_parser("index", help="manage human/Human_Index.md")
-    human_index_subparsers = human_index_parser.add_subparsers(dest="human_index_command", required=True)
-
-    human_index_sync_parser = human_index_subparsers.add_parser("sync", help="sync human/Human_Index.md from notes, weekly, and reports")
-    human_index_sync_parser.add_argument("path", nargs="?", type=Path)
-    add_write_arguments(human_index_sync_parser)
-    human_index_sync_parser.set_defaults(func=human_index_sync_command)
-
-    human_list_parser = human_subparsers.add_parser("list", help="list human index items")
-    human_list_parser.add_argument("path", nargs="?", type=Path)
-    human_list_parser.add_argument("--status", choices=tuple(sorted(VALID_HUMAN_INDEX_STATUSES)), default=None)
-    human_list_parser.add_argument("--type", default=None)
-    add_json_argument(human_list_parser)
-    human_list_parser.set_defaults(func=human_list_command)
-
-    human_mark_parser = human_subparsers.add_parser("mark", help="mark a human index item by ID or path")
-    human_mark_parser.add_argument("path", nargs="?", type=Path)
-    human_mark_parser.add_argument("target", help="human index ID or path, for example H001 or reports/example.md")
-    human_mark_parser.add_argument("--status", choices=tuple(sorted(VALID_HUMAN_INDEX_STATUSES)), required=True)
-    human_mark_parser.add_argument("--extracted-to", default="", help="path or note describing where the material was organized")
-    human_mark_parser.add_argument("--note", default="", help="status note")
-    add_write_arguments(human_mark_parser)
-    human_mark_parser.set_defaults(func=human_mark_command)
-
-    review_parser = subparsers.add_parser("review", help="run read-only context review checks")
-    review_subparsers = review_parser.add_subparsers(dest="review_command", required=True)
-
-    review_stale_parser = review_subparsers.add_parser("stale", help="report stale attention-entry candidates")
-    review_stale_parser.add_argument("path", nargs="?", type=Path)
-    review_stale_parser.add_argument("--days", type=int, default=DEFAULT_STALE_DAYS, help="age threshold in days")
-    review_stale_parser.add_argument("--today", type=validate_date, default=None, help="override today's date for deterministic checks")
-    add_json_argument(review_stale_parser)
-    review_stale_parser.set_defaults(func=review_stale_command)
-
-    audit_parser = subparsers.add_parser("audit", help="run read-only context audit checks")
-    audit_subparsers = audit_parser.add_subparsers(dest="audit_command", required=True)
-
-    audit_context_parser = audit_subparsers.add_parser("context", help="report context audit candidates")
-    audit_context_parser.add_argument("path", nargs="?", type=Path)
-    add_json_argument(audit_context_parser)
-    audit_context_parser.set_defaults(func=audit_context_command)
-
-    doctor_parser = subparsers.add_parser("doctor", help="diagnose and safely repair context health issues")
-    doctor_parser.add_argument("path", nargs="?", type=Path)
-    doctor_parser.add_argument("--projects", nargs="+", type=Path, default=None, help="diagnose multiple projects independently")
-    doctor_parser.add_argument("--fix", choices=("none", "safe", "evidence"), default="none", help="repair level to apply")
-    doctor_parser.add_argument("--report", action="store_true", help="write a human-readable doctor report")
-    doctor_parser.add_argument("--draft-semantic", action="store_true", help="write a reviewable semantic writeback draft")
-    doctor_parser.add_argument("--today", type=validate_date, default=None, help="override today's date for deterministic checks")
-    doctor_parser.add_argument("--force", action="store_true", help="replace an existing doctor report or semantic draft")
-    add_write_arguments(doctor_parser)
-    doctor_parser.set_defaults(func=doctor_command)
-
-    curate_parser = subparsers.add_parser("curate", help="create attention governance drafts")
-    curate_subparsers = curate_parser.add_subparsers(dest="curate_command", required=True)
-
-    curate_draft_parser = curate_subparsers.add_parser("draft", help="draft curation notes from review stale signals")
-    curate_draft_parser.add_argument("path", nargs="?", type=Path)
-    curate_draft_parser.add_argument("--days", type=int, default=DEFAULT_STALE_DAYS, help="age threshold in days")
-    curate_draft_parser.add_argument("--today", type=validate_date, default=None, help="override today's date for deterministic drafts")
-    curate_draft_parser.add_argument("--name", type=validate_draft_name, default=None, help="draft file name without .md")
-    add_write_arguments(curate_draft_parser)
-    curate_draft_parser.set_defaults(func=curate_draft_command)
+    review_audit_curate_commands.register_curate_parser(
+        subparsers, add_json_argument, add_write_arguments, curate_draft_command
+    )
 
     new_parser = subparsers.add_parser("new", help="create context entries")
     new_subparsers = new_parser.add_subparsers(dest="entry_type", required=True)
@@ -1859,17 +1704,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_write_arguments(human_note_parser)
     human_note_parser.set_defaults(func=new_human_note_command)
 
-    writeback_parser = subparsers.add_parser("writeback", help="create reviewable writeback drafts")
-    writeback_subparsers = writeback_parser.add_subparsers(dest="writeback_command", required=True)
-
-    draft_parser = writeback_subparsers.add_parser("draft", help="create a session writeback draft")
-    draft_parser.add_argument("path", nargs="?", type=Path)
-    draft_parser.add_argument("--name", type=validate_draft_name, default=None, help="draft file name without .md")
-    draft_parser.add_argument("--text", default="", help="writeback suggestion text")
-    draft_parser.add_argument("--input", type=Path, default=None, help="file containing writeback suggestion text")
-    draft_parser.add_argument("--force", action="store_true", help="replace an existing draft")
-    add_write_arguments(draft_parser)
-    draft_parser.set_defaults(func=writeback_draft_command)
+    new_context_commands.register_writeback_parser(
+        subparsers, add_write_arguments, writeback_draft_command
+    )
 
     edit_parser = subparsers.add_parser("edit", help="safely edit context Markdown files")
     edit_subparsers = edit_parser.add_subparsers(dest="edit_target", required=True)

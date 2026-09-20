@@ -136,3 +136,48 @@ def archive_list_command(args: argparse.Namespace, *, deps: ArchiveDependencies)
         for row in rows:
             print(f"{row.get('日期')} {row.get('类型')} {row.get('ID') or row.get('标题')} {row.get('归档路径') or row.get('详情')}")
     return 0
+
+
+def register_archive_parser(
+    subparsers: Any,
+    add_json_argument: Callable[..., None],
+    add_write_arguments: Callable[..., None],
+    *,
+    current_task_handler: Callable[..., int],
+    task_plan_handler: Callable[..., int],
+    list_handler: Callable[..., int],
+    sync_handler: Callable[..., int],
+) -> None:
+    """Register the `archive` group (moved out of ``runtime.build_parser``).
+
+    Handlers are injected because the CLI binds the ``runtime_parts`` adapters that
+    supply each handler's dependencies.
+    """
+
+    archive_parser = subparsers.add_parser("archive", help="archive inactive task context")
+    archive_subparsers = archive_parser.add_subparsers(dest="archive_command", required=True)
+
+    archive_task_parser = archive_subparsers.add_parser("current-task", help="archive active/Current_Task.md")
+    archive_task_parser.add_argument("path", nargs="?", type=Path)
+    archive_task_parser.add_argument("--reason", required=True, help="archive reason")
+    archive_task_parser.add_argument("--force", action="store_true", help="archive even when Active")
+    add_write_arguments(archive_task_parser)
+    archive_task_parser.set_defaults(func=current_task_handler)
+
+    archive_plan_parser = archive_subparsers.add_parser("task-plan", help="archive active/Task_Plan.md")
+    archive_plan_parser.add_argument("path", nargs="?", type=Path)
+    archive_plan_parser.add_argument("--reason", required=True, help="archive reason")
+    archive_plan_parser.add_argument("--force", action="store_true", help="archive even when Active")
+    add_write_arguments(archive_plan_parser)
+    archive_plan_parser.set_defaults(func=task_plan_handler)
+
+    archive_list_parser = archive_subparsers.add_parser("list", help="list archive index entries")
+    archive_list_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(archive_list_parser)
+    archive_list_parser.set_defaults(func=list_handler)
+
+    archive_sync_parser = archive_subparsers.add_parser("sync", help="sync the generated Archive index block")
+    archive_sync_parser.add_argument("path", nargs="?", type=Path)
+    archive_sync_parser.add_argument("--init-marker", action="store_true", help="insert generated markers when missing")
+    add_write_arguments(archive_sync_parser)
+    archive_sync_parser.set_defaults(func=sync_handler)

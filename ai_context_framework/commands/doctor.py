@@ -10,6 +10,7 @@ from typing import Any, Callable
 from ai_context_framework.constants import JSON_SCHEMA_VERSION
 from ai_context_framework.json_contract import json_enabled, print_json, set_result_payload
 from ai_context_framework.paths import require_context_root
+from ai_context_framework.validators.checks import validate_date
 
 
 @dataclass(frozen=True)
@@ -73,3 +74,26 @@ def doctor_command(args: argparse.Namespace, *, deps: DoctorDependencies) -> int
                 if isinstance(finding, dict):
                     print(f"{finding.get('severity')}: {finding.get('code')} - {finding.get('message')}")
     return 0 if payload.get("ok") else 1
+
+
+def register_doctor_parser(
+    subparsers: Any,
+    add_write_arguments: Callable[..., None],
+    handler: Callable[..., int],
+) -> None:
+    """Register the `doctor` parser (moved out of ``runtime.build_parser``).
+
+    The handler is injected because the CLI binds the ``runtime_parts`` adapter
+    that supplies this handler's dependencies.
+    """
+
+    doctor_parser = subparsers.add_parser("doctor", help="diagnose and safely repair context health issues")
+    doctor_parser.add_argument("path", nargs="?", type=Path)
+    doctor_parser.add_argument("--projects", nargs="+", type=Path, default=None, help="diagnose multiple projects independently")
+    doctor_parser.add_argument("--fix", choices=("none", "safe", "evidence"), default="none", help="repair level to apply")
+    doctor_parser.add_argument("--report", action="store_true", help="write a human-readable doctor report")
+    doctor_parser.add_argument("--draft-semantic", action="store_true", help="write a reviewable semantic writeback draft")
+    doctor_parser.add_argument("--today", type=validate_date, default=None, help="override today's date for deterministic checks")
+    doctor_parser.add_argument("--force", action="store_true", help="replace an existing doctor report or semantic draft")
+    add_write_arguments(doctor_parser)
+    doctor_parser.set_defaults(func=handler)

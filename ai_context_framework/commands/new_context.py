@@ -14,6 +14,7 @@ from ai_context_framework.json_contract import dry_run_enabled, emit_write_resul
 from ai_context_framework.models import CheckResult
 from ai_context_framework.paths import require_context_root
 from ai_context_framework.tables import find_table, parse_markdown_table_rows
+from ai_context_framework.validators.checks import validate_draft_name
 
 
 MaybeCheckAfter = Callable[[argparse.Namespace, Path, str | None], CheckResult | None]
@@ -430,3 +431,23 @@ def writeback_draft_command(args: argparse.Namespace, *, deps: NewContextDepende
     check_result = deps.maybe_check_after(args, root, None)
     action = "would create" if dry_run else "created"
     return emit_write_result(args, "writeback draft", f"{action} writeback draft {draft_path}", [draft_path], check_result)
+
+
+def register_writeback_parser(
+    subparsers: Any,
+    add_write_arguments: Callable[..., None],
+    handler: Callable[..., int],
+) -> None:
+    """Register the `writeback` group (moved out of ``runtime.build_parser``)."""
+
+    writeback_parser = subparsers.add_parser("writeback", help="create reviewable writeback drafts")
+    writeback_subparsers = writeback_parser.add_subparsers(dest="writeback_command", required=True)
+
+    draft_parser = writeback_subparsers.add_parser("draft", help="create a session writeback draft")
+    draft_parser.add_argument("path", nargs="?", type=Path)
+    draft_parser.add_argument("--name", type=validate_draft_name, default=None, help="draft file name without .md")
+    draft_parser.add_argument("--text", default="", help="writeback suggestion text")
+    draft_parser.add_argument("--input", type=Path, default=None, help="file containing writeback suggestion text")
+    draft_parser.add_argument("--force", action="store_true", help="replace an existing draft")
+    add_write_arguments(draft_parser)
+    draft_parser.set_defaults(func=handler)

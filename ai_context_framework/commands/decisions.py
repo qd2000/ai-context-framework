@@ -83,3 +83,18 @@ def decisions_sync_command(args: argparse.Namespace, *, deps: DecisionsDependenc
         extra_payload=extra_payload,
         warnings=warnings,
     )
+
+
+def register_decisions_parser(
+    subparsers: Any, add_write_arguments: Callable[..., None], handler: Callable[..., int]
+) -> None:
+    """Register the `decisions` group (moved out of ``runtime.build_parser``)."""
+
+    decisions_parser = subparsers.add_parser("decisions", help="manage decision index sync")
+    decisions_subparsers = decisions_parser.add_subparsers(dest="decisions_command", required=True)
+
+    decisions_sync_parser = decisions_subparsers.add_parser("sync", help="sync the generated Decisions index block")
+    decisions_sync_parser.add_argument("path", nargs="?", type=Path)
+    decisions_sync_parser.add_argument("--init-marker", action="store_true", help="insert generated markers when missing")
+    add_write_arguments(decisions_sync_parser)
+    decisions_sync_parser.set_defaults(func=handler)

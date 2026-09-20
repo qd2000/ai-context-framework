@@ -7,6 +7,8 @@ migration can stay mechanical while behavior remains unchanged.
 from __future__ import annotations
 import re
 
+from ai_context_framework.constants import DEFAULT_STALE_DAYS
+
 def doctor_finding(
     code: str,
     severity: str,

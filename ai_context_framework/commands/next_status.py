@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from ai_context_framework.constants import EXIT_INPUT_ERROR, JSON_SCHEMA_VERSION
 from ai_context_framework.context_budget import context_budget_warnings
@@ -94,3 +96,16 @@ def draft_status_command(args: argparse.Namespace) -> int:
         "next_actions": [],
     }
     return emit_query(args, payload)
+
+
+def register_draft_parser(
+    subparsers: Any, add_json_argument: Callable[..., None], handler: Callable[..., int]
+) -> None:
+    """Register the read-only `draft` parser group (moved out of ``runtime.build_parser``)."""
+
+    draft_group_parser = subparsers.add_parser("draft", help="inspect reviewable drafts")
+    draft_subparsers = draft_group_parser.add_subparsers(dest="draft_command", required=True)
+    draft_status_parser = draft_subparsers.add_parser("status", help="list reviewable drafts without reading bodies")
+    draft_status_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(draft_status_parser)
+    draft_status_parser.set_defaults(func=handler)

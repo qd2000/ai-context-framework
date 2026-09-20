@@ -17,3 +17,8 @@ ACF_HOME_ENV = "ACF_HOME"
 USAGE_LOG_CONFIG_NAME = "config.json"
 USAGE_LOG_FILE_REL = "logs/usage.jsonl"
 USAGE_LOCK_FILE_NAME = "usage.lock"
+
+DEFAULT_STALE_DAYS = 14
+
+VALID_FEEDBACK_STATUSES = {"Open", "Triaged", "Planned", "Done", "Rejected"}
+VALID_HUMAN_INDEX_STATUSES = {"Open", "Reviewed", "Extracted", "Archived"}

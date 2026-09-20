@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ai_context_framework.constants import JSON_SCHEMA_VERSION
+from ai_context_framework.constants import JSON_SCHEMA_VERSION, VALID_HUMAN_INDEX_STATUSES
 from ai_context_framework.json_contract import dry_run_enabled, emit_write_result, json_enabled, print_json, set_result_payload
 from ai_context_framework.models import CheckResult
 from ai_context_framework.paths import require_context_root
@@ -112,3 +112,46 @@ def human_mark_command(args: argparse.Namespace, *, deps: HumanDependencies) -> 
         check_result,
         extra_payload={"item": deps.human_index_row_to_payload(target)},
     )
+
+
+def register_human_parsers(
+    subparsers: Any,
+    add_json_argument: Callable[..., None],
+    add_write_arguments: Callable[..., None],
+    *,
+    index_sync_handler: Callable[..., int],
+    list_handler: Callable[..., int],
+    mark_handler: Callable[..., int],
+) -> None:
+    """Register the `human` group (moved out of ``runtime.build_parser``).
+
+    Handlers are injected because the CLI binds the ``runtime_parts`` adapters that
+    supply each handler's dependencies.
+    """
+
+    human_parser = subparsers.add_parser("human", help="manage human layer index and materials")
+    human_subparsers = human_parser.add_subparsers(dest="human_command", required=True)
+
+    human_index_parser = human_subparsers.add_parser("index", help="manage human/Human_Index.md")
+    human_index_subparsers = human_index_parser.add_subparsers(dest="human_index_command", required=True)
+
+    human_index_sync_parser = human_index_subparsers.add_parser("sync", help="sync human/Human_Index.md from notes, weekly, and reports")
+    human_index_sync_parser.add_argument("path", nargs="?", type=Path)
+    add_write_arguments(human_index_sync_parser)
+    human_index_sync_parser.set_defaults(func=index_sync_handler)
+
+    human_list_parser = human_subparsers.add_parser("list", help="list human index items")
+    human_list_parser.add_argument("path", nargs="?", type=Path)
+    human_list_parser.add_argument("--status", choices=tuple(sorted(VALID_HUMAN_INDEX_STATUSES)), default=None)
+    human_list_parser.add_argument("--type", default=None)
+    add_json_argument(human_list_parser)
+    human_list_parser.set_defaults(func=list_handler)
+
+    human_mark_parser = human_subparsers.add_parser("mark", help="mark a human index item by ID or path")
+    human_mark_parser.add_argument("path", nargs="?", type=Path)
+    human_mark_parser.add_argument("target", help="human index ID or path, for example H001 or reports/example.md")
+    human_mark_parser.add_argument("--status", choices=tuple(sorted(VALID_HUMAN_INDEX_STATUSES)), required=True)
+    human_mark_parser.add_argument("--extracted-to", default="", help="path or note describing where the material was organized")
+    human_mark_parser.add_argument("--note", default="", help="status note")
+    add_write_arguments(human_mark_parser)
+    human_mark_parser.set_defaults(func=mark_handler)

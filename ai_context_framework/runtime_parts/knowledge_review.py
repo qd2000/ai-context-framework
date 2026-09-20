@@ -7,6 +7,8 @@ migration can stay mechanical while behavior remains unchanged.
 from __future__ import annotations
 import re
 
+from ai_context_framework.constants import DEFAULT_STALE_DAYS
+
 def resolve_context_existing_path(root: Path, value: str) -> Path:
     candidate = Path(strip_code_ticks(value))
     resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()

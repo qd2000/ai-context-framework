@@ -6,6 +6,7 @@ pyproject.toml
 ai_context_framework/__init__.py
 ai_context_framework/automation_contracts.py
 ai_context_framework/cli.py
+ai_context_framework/cli_arguments.py
 ai_context_framework/closeout_authorization.py
 ai_context_framework/constants.py
 ai_context_framework/context_budget.py
@@ -147,6 +148,7 @@ template/worklog/knowledge-drafts/.gitkeep
 tests/test_automation_contracts.py
 tests/test_cli.py
 tests/test_cli_owner_boundary.py
+tests/test_cli_surface_snapshot.py
 tests/test_closeout_authorization.py
 tests/test_context_matrix.py
 tests/test_context_routing.py

@@ -9,7 +9,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 
-from ai_context_framework.constants import EXIT_SAFETY_REFUSED, JSON_SCHEMA_VERSION
+from ai_context_framework.constants import (
+    DEFAULT_STALE_DAYS,
+    EXIT_SAFETY_REFUSED,
+    JSON_SCHEMA_VERSION,
+)
+from ai_context_framework.validators.checks import validate_date, validate_draft_name
 from ai_context_framework.json_contract import (
     check_error_code,
     check_payload,
@@ -196,3 +201,59 @@ def curate_draft_command(args: argparse.Namespace, *, deps: ReviewAuditCurateDep
         for action in payload["next_actions"]:
             print(f"next: {action}")
     return 0 if check_result is None or check_result.ok else 1
+
+
+def register_review_parser(
+    subparsers: Any, add_json_argument: Callable[..., None], handler: Callable[..., int]
+) -> None:
+    """Register the read-only `review` parser group.
+
+    Moved out of ``runtime.build_parser`` so the CLI aggregator stays thin. Both
+    the argument helper and the handler are injected: the CLI binds the
+    ``runtime_parts`` adapter that supplies the handler's dependencies, not the
+    raw command function defined in this module.
+    """
+
+    review_parser = subparsers.add_parser("review", help="run read-only context review checks")
+    review_subparsers = review_parser.add_subparsers(dest="review_command", required=True)
+
+    review_stale_parser = review_subparsers.add_parser("stale", help="report stale attention-entry candidates")
+    review_stale_parser.add_argument("path", nargs="?", type=Path)
+    review_stale_parser.add_argument("--days", type=int, default=DEFAULT_STALE_DAYS, help="age threshold in days")
+    review_stale_parser.add_argument("--today", type=validate_date, default=None, help="override today's date for deterministic checks")
+    add_json_argument(review_stale_parser)
+    review_stale_parser.set_defaults(func=handler)
+
+
+def register_audit_parser(
+    subparsers: Any, add_json_argument: Callable[..., None], handler: Callable[..., int]
+) -> None:
+    """Register the read-only `audit` parser group (moved out of ``build_parser``)."""
+
+    audit_parser = subparsers.add_parser("audit", help="run read-only context audit checks")
+    audit_subparsers = audit_parser.add_subparsers(dest="audit_command", required=True)
+
+    audit_context_parser = audit_subparsers.add_parser("context", help="report context audit candidates")
+    audit_context_parser.add_argument("path", nargs="?", type=Path)
+    add_json_argument(audit_context_parser)
+    audit_context_parser.set_defaults(func=handler)
+
+
+def register_curate_parser(
+    subparsers: Any,
+    add_json_argument: Callable[..., None],
+    add_write_arguments: Callable[..., None],
+    handler: Callable[..., int],
+) -> None:
+    """Register the `curate` parser group (moved out of ``build_parser``)."""
+
+    curate_parser = subparsers.add_parser("curate", help="create attention governance drafts")
+    curate_subparsers = curate_parser.add_subparsers(dest="curate_command", required=True)
+
+    curate_draft_parser = curate_subparsers.add_parser("draft", help="draft curation notes from review stale signals")
+    curate_draft_parser.add_argument("path", nargs="?", type=Path)
+    curate_draft_parser.add_argument("--days", type=int, default=DEFAULT_STALE_DAYS, help="age threshold in days")
+    curate_draft_parser.add_argument("--today", type=validate_date, default=None, help="override today's date for deterministic drafts")
+    curate_draft_parser.add_argument("--name", type=validate_draft_name, default=None, help="draft file name without .md")
+    add_write_arguments(curate_draft_parser)
+    curate_draft_parser.set_defaults(func=handler)
