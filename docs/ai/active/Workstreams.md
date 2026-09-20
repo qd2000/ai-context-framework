@@ -18,7 +18,7 @@ Inactive
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |
+| WS017 | Open | Runtime smoke isolation and minute-level clock helper | ChatGPT | 详情(21 项) | 无。 | 隔离的 worktree_release_smoke 与无污染回归；acf clock now 命令、命令树快照与契约测试；校准后的六域矩阵；v0.0.3.97 版本与已安装入口验证。 | active/workstreams/WS017.md |
 
 ---
 
