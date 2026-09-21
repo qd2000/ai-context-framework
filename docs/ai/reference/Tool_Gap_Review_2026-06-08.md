@@ -89,7 +89,7 @@ ACF 的强项在 2、3、4；当前主要缺口在 1、5、6、7。
 ### 已验证问题
 
 1. **默认 Context 里还有旧本机路径。**
-   - 证据：[active/Context.md](../active/Context.md) 的“当前相关路径”仍写 `E:\Codes\Tools\ai-context-framework`，但 `acf status` 识别当前项目根为 `D:\qiudong\Projects\ai-context-framework`。
+   - 证据：[active/Context.md](../active/Context.md) 的“当前相关路径”仍写 `E:\Codes\Tools\ai-context-framework`，但 `acf status` 识别当前项目根为 `%USERPROFILE%\Projects\ai-context-framework`。
    - 为什么重要：AI 或用户可能照旧路径执行命令，直接跑错目录。
    - 建议：active 当前事实尽量不用个人绝对路径；必须记录时由工具生成或让 doctor 检查路径是否与 `acf status` 一致。
 

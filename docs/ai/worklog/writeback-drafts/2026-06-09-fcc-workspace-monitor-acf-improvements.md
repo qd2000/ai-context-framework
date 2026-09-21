@@ -19,7 +19,7 @@
 
 ## 现象
 
-1. 在 `/mnt/e/Codes/fcc_workspace` 中，裸 `uv run acf ...` 和项目规则推荐的 `wuv run acf ...` 都调用到 `/home/qiudong/.local/bin/acf`，并在导入 `/mnt/e/Codes/Tools/ai-context-framework/acf.py` 时失败：`ModuleNotFoundError: No module named 'ai_context_framework'`。通过 `PYTHONPATH=/mnt/e/Codes/Tools/ai-context-framework wuv run python /mnt/e/Codes/Tools/ai-context-framework/acf.py ...` 可绕过并执行检查。
+1. 在 `/mnt/e/Codes/fcc_workspace` 中，裸 `uv run acf ...` 和项目规则推荐的 `wuv run acf ...` 都调用到 `$HOME/.local/bin/acf`，并在导入 `/mnt/e/Codes/Tools/ai-context-framework/acf.py` 时失败：`ModuleNotFoundError: No module named 'ai_context_framework'`。通过 `PYTHONPATH=/mnt/e/Codes/Tools/ai-context-framework wuv run python /mnt/e/Codes/Tools/ai-context-framework/acf.py ...` 可绕过并执行检查。
 2. `acf check docs/ai --strict --json` 报 fcc_workspace 的 `active/workstreams/WS030 dot md` 中 `blocking_depends_on` / `consumer_context` front matter 字段不被 schema 允许，同时拒绝 `WS030.1b`、`WS030.2a`、`WS030.2b` 这类字母后缀 stage id，并认为 `current_stage: WS030.1b` 无效。实际项目用这些字段和 stage id 表达跨 workstream 阻塞依赖、下游消费语境和细分阶段，属于自然的复杂 workstream 命名/元数据需求；需要决定是扩展 schema，还是在文档/错误提示中明确允许字段和推荐替代写法。
 
 ## 建议
