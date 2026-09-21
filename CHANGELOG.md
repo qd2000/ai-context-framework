@@ -10,7 +10,7 @@
 - 修复 `scripts/worktree_release_smoke.py` 的运行态污染缺口：该脚本此前完全继承调用者环境且结束即删除临时仓库，会在真实用户运行态留下指向已删除路径的孤儿 project namespace；现在每次运行都注入隔离 `ACF_HOME`，并新增「每个 `subprocess.run` 都必须转发隔离 env」与「子进程实际收到隔离 env」两项确定性回归。一次性全链路证据：脚本 `ok=true`、真实 `<ACF_HOME>/projects` 命名空间集合 created=[] / removed=[]。
 - 校准 `docs/ai/reference/Top_Level_Implementation_Gap.md` 六域矩阵中与代码、CHANGELOG、workflow 事实矛盾的行：第 4 域运行态隔离（已实现，v0.0.3.93 落地）与跨项目 open issue 计数（4 -> 3）、第 5 域 CI（已实现：checkout 与 setup-uv 固定不可变 SHA、双 OS 矩阵含 Windows package smoke、publish 前必需 CI 门禁）、版本收敛与发布闭合（v0.0.3.96 事实）、第 3 域命令树快照路径数（210 -> 212）。
 - 新增命令带来**有意**的命令树快照变更：新增 `acf clock` 与 `acf clock now` 两条路径，其余 210 条路径零漂移；对外 JSON 契约、退出码与既有命令行为不变。
-- 发布状态：版本收敛与 CHANGELOG 已完成；不可变 tag `v0.0.3.97` 已推送并触发 release workflow（verify 复用 `ci.yml`，含 Windows package smoke）。本机无法读取私有仓库 Actions 运行结论，发布与全局安装验证以 PyPI 与已安装入口为准；若仓库 `pypi` environment 配置了人工批准保护规则，publish 作业会等待批准。截至 tag 推送后约 4 小时，PyPI 仍无 `0.0.3.97`；本地已补跑剩余重批次（continuation 155 项、worktree 109 项）排除代码根因，仅出现一次 `tests.test_worktree_resilient_merge` 的 `worktree_close_timeout`，单独复跑 19 项全绿，判定为 Windows 上临时目录被刚终止进程瞬时占用的偶发噪声（与 v0.0.3.95 修复过的同类现象一致），因此不据此 bump 版本。
+- 发布状态：版本收敛与 CHANGELOG 已完成；不可变 tag `v0.0.3.97` 已推送并触发 release workflow。经账户所有者在 Actions 页面确认，verify 门禁全部 6 个作业（tests：ubuntu/windows × Python 3.10/3.12；package smoke：ubuntu/windows）全部通过；publish 作业未启动的唯一原因是 GitHub 账户计费问题（"recent account payments have failed or your spending limit needs to be increased"），不是代码、制品或打包问题（发行包已本地实证包含新模块 `commands/clock.py`）。由账户所有者在 Billing & plans 处置后 Re-run failed jobs 即可发布，无需 bump 版本。诊断过程中本地补跑 continuation 155 项、worktree 109 项，仅出现一次可自愈的 `worktree_close_timeout` 偶发噪声。
 
 ## v0.0.3.96 — 2026-09-19
 
