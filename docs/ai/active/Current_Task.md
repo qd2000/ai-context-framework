@@ -10,7 +10,7 @@
 
 ## 当前任务状态
 
-Active
+Empty
 
 说明：
 
@@ -23,45 +23,43 @@ Active
 
 ## 任务名称
 
-WS019 Ownerless dirty WIP agent-first takeover 收口：文档同步、版本条目与全量门禁
+无。
 
 ---
 
 ## 所属大任务
 
-WS019 Ownerless dirty WIP agent-first takeover
+无。
 
 ---
 
 ## 子任务 ID
 
-T003
+无。
 
 ---
 
 ## 所属 Workstream
 
-WS019
+无。
 
 ---
 
 ## 当前执行线
 
-文档同步与发布闭合（T003）
+无。
 
 ---
 
 ## 本次任务目标
 
-1. 同步 WS019 的 Workstream 索引、设计文档、两份 System Manual、Automation.md、README 与 CHANGELOG。
-2. 版本号收敛到 v0.0.3.100（version.py / pyproject.toml / uv.lock / PKG-INFO）；`v0.0.3.99` 内容相同但 publish 前 CI 门禁失败、PyPI 从未产生该版本，保留为失败 tag。
-3. 重建命令树快照并跑全量门禁（check template、check docs/ai --strict、unittest、upgrade_matrix、隔离安装）。
+1. 无。
 
 ---
 
 ## 任务背景
 
-ownerless handoff 漂移后，Agent 此前只能通过 commit / stash / revert / 删除现场才能继续，等于用工作区动作偿还控制面缺口。WS019 新增 `acf continuation workspace review-handoff` 审查包与 `claim --handoff-review-file` 原子接管，让同一个 Agent 保留现场、批量审查、一次性接管后继续处理；ACF 始终只验证确定性事实，不判断代码语义。
+暂无当前任务。
 
 ---
 
@@ -69,48 +67,37 @@ ownerless handoff 漂移后，Agent 此前只能通过 commit / stash / revert /
 
 当前任务应列出必要 active 文件和相关 reference 规划依据；不要只写 `active/Context.md`。
 
-- `active/Workstreams.md` 与 `active/workstreams/WS019.md`：WS019 的 active 事实源。
-- `active/Task_Plan.md`：子任务板与规划依据。
-- `reference/Continuation_Control_Design.md`：continuation 命令面与 handoff 语义上位约束。
-- `reference/System_Manual.md`：用户可见命令合同，新增命令需同步。
-- `CHANGELOG.md`：版本条目事实。
+- 无。
 
 ---
 
 ## 输出要求
 
-- `docs/ai/reference/Continuation_Control_Design.md`、`docs/ai/reference/System_Manual.md`、`template/reference/System_Manual.md`、`docs/Automation.md`、`README.md`、`CHANGELOG.md` 与 WS019 实现一致。
-- `ai_context_framework/version.py` 等四处版本一致为 v0.0.3.100。
-- `tests/fixtures/cli_surface.json` 重建且其余命令零漂移。
+- 无。
 
 ---
 
 ## 成功标准
 
-1. check template、check docs/ai --strict、unittest、upgrade_matrix 与隔离安装门禁全绿。
-2. 文档中所有新增命令与错误码与实现一致，无过期描述。
-3. 版本四处一致且 CHANGELOG 有 v0.0.3.100 条目（并如实记录 v0.0.3.99 未上线）。
+1. 无。
 
 ---
 
 ## 失败信号
 
-1. 任一门禁失败或命令树快照出现预期外漂移。
-2. 文档仍描述"只能先清理现场才能继续"的旧语义。
+1. 无。
 
 ---
 
 ## 约束条件
 
 1. 遵守当前项目规则。
-2. 只改 WS019 write_scope 内声明的文件；authority 文件仅通过 merge request 说明同步。
 
 ---
 
 ## 不允许做的事
 
-- 不新增宽泛 `--force` 或放宽未知漂移的默认阻塞。
-- 不在 review/接管过程中修改、提交、stash 或删除工作区文件。
+- 无。
 
 ---
 

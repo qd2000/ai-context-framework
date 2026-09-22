@@ -71,6 +71,9 @@
 | 2026-09-20 | Plan | WS016 Runtime 全局注入解耦 | 无。 | `archive/plans/2026-09-20-ws016-runtime-全局注入解耦.md` | Archived | WS016 已收口归档，本轮切换到 WS017 缺陷与欠账修复 |
 | 2026-09-20 | workstream | WS017 | active/workstreams/WS017.md | `archive/workstreams/WS017.md` | Done | WS017 Runtime 缺陷与欠账修复已完成并通过验收：运行态隔离修复与无污染回归、acf clock now、六域矩阵校准、v0.0.3.96 发布闭合与 v0.0.3.97 版本收敛；终态收口把详情移出 active 层。 |
 | 2026-09-22 | workstream | WS018 | active/workstreams/WS018.md | `archive/workstreams/WS018.md` | Done | WS018 phase B closed: v0.0.3.97 evidence backfilled, PEP 639 license metadata landed, v0.0.3.98 released and installed |
+| 2026-09-23 | workstream | WS019 | active/workstreams/WS019.md | `archive/workstreams/WS019.md` | Done | 已发布 v0.0.3.100 且 done 完成；见 worklog/archive-drafts/2026-09-23.md |
+| 2026-09-23 | Task | WS019 Ownerless dirty WIP agent-first takeover 收口：文档同步、版本条目与全量门禁 | 无。 | `archive/tasks/2026-09-23-ws019-ownerless-dirty-wip-agent-first-takeover-收口-文档同步-版本条目与全量门禁.md` | Archived | WS019-T003 已完成并发布 v0.0.3.100，WS019 已 Done 并归档；当前任务移入 archive/tasks 保留追溯 |
+| 2026-09-23 | Plan | WS019 Ownerless dirty WIP agent-first takeover | 无。 | `archive/plans/2026-09-23-ws019-ownerless-dirty-wip-agent-first-takeover.md` | Archived | WS019 已 Done 并归档；T001-T003 全部 Done 且 v0.0.3.100 已发布到 PyPI，terminal plan 归档以移出 active 上下文 |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
