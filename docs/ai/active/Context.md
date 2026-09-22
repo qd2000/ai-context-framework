@@ -8,14 +8,14 @@
 
 ## 审阅标记
 
-- Last reviewed: 2026-09-20 19:03
-- Review scope: 文件级；WS017「Runtime 缺陷与欠账修复」进入收口，`v0.0.3.96` 已发布、`v0.0.3.97` 已推送不可变 tag 待 release workflow 发布门禁的当前事实。
+- Last reviewed: 2026-09-22 17:24
+- Review scope: 文件级；WS018「公开仓库与 MIT 许可发布闭合」阶段 B 完成后的当前事实——`v0.0.3.97` 发布与 installed-state 证据已回填，`v0.0.3.98` 以 PEP 639 许可元数据发布并完成 tag / PyPI / 全局安装三项验证。
 
 ---
 
 ## 当前阶段
 
-WS017「Runtime 缺陷与欠账修复」进入收口：修复 `scripts/worktree_release_smoke.py` 的运行态隔离缺口并补 3 项无污染回归（一次性全链路证据证明真实 `<ACF_HOME>/projects` 命名空间 created / removed 均为 `[]`）；新增 `acf clock now` 分钟级时间原语（纯函数命令模块 + runtime 组合注册，命令树快照 210 -> 212 且差异仅为 `clock` / `clock now` 两条路径）；校准 [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md) 六域矩阵中与代码、CHANGELOG、workflow 事实矛盾的行，并把「smoke 隔离」「CI 固定 SHA」两处过期缺陷更正为已实现。发布状态：`v0.0.3.96` 已完成 tag / PyPI / 全局安装三项验证；`v0.0.3.97` 已推送不可变 tag，正由 release workflow 复用 ci.yml 执行跨平台发布门禁。当前存在一个 Active Workstream（WS017），收口后回到 global-only。
+WS017「Runtime 缺陷与欠账修复」进入收口：修复 `scripts/worktree_release_smoke.py` 的运行态隔离缺口并补 3 项无污染回归（一次性全链路证据证明真实 `<ACF_HOME>/projects` 命名空间 created / removed 均为 `[]`）；新增 `acf clock now` 分钟级时间原语（纯函数命令模块 + runtime 组合注册，命令树快照 210 -> 212 且差异仅为 `clock` / `clock now` 两条路径）；校准 [reference/Top_Level_Implementation_Gap.md](../reference/Top_Level_Implementation_Gap.md) 六域矩阵中与代码、CHANGELOG、workflow 事实矛盾的行，并把「smoke 隔离」「CI 固定 SHA」两处过期缺陷更正为已实现。WS018「公开仓库与 MIT 许可发布闭合」已完成：仓库转为 public，master 与 `v*` tag 受 rulesets 保护，`pypi` environment 与 Trusted Publisher 绑定就位，`v0.0.3.97` 的发布与 installed-state 证据回填，`v0.0.3.98` 落地 PEP 639 许可元数据并完成发布与全局安装闭合。发布状态：`v0.0.3.97` 已闭合（release workflow #39，attempt 2 / success，tag 仍指向 `33163fc8`）；`v0.0.3.98` 已完成 tag（`1b115ed`）/ PyPI（`latest=0.0.3.98`）/ 全局安装（`acf v0.0.3.98`）三项验证，是当前稳定版本，并首次让 wheel/sdist 确定地携带 MIT 许可（`License-Expression: MIT`、wheel 的 `dist-info/licenses/LICENSE`、sdist 顶层 `LICENSE`）。当前存在一个 Active Workstream（WS018），收口后回到 global-only。
 
 ---
 
@@ -78,8 +78,9 @@ WS017「Runtime 缺陷与欠账修复」进入收口：修复 `scripts/worktree_
 5. WS016「Runtime 全局注入解耦」已完成实现、验收与归档（[archive/workstreams/WS016.md](../archive/workstreams/WS016.md)）：导出 allowlist fail-closed、显式 RuntimeContext、parser composition、`acf.py` 收敛与 ADR-0007 全部落地，全套门禁 704 项全绿，版本收敛 `v0.0.3.96`。
 6. owner-context 的 ACF 侧隔离验证已通过（`scripts/continuation_owner_fixture.py`）；真实网页工具链复测仍是待执行验收项，协议见 [reference/Continuation_Owner_Context_Verification.md](../reference/Continuation_Owner_Context_Verification.md)。
 7. [active/Feedback_Inbox.md](Feedback_Inbox.md)：F015/F017 已转为 rules 条目并 Done，F019 已转为 Planned 并指向 ADR-0006 与后续 UX 计划。
-8. WS017「Runtime 缺陷与欠账修复」已完成实现与门禁：运行态隔离修复与无污染回归、`acf clock now`、六域矩阵校准；`v0.0.3.97` 已推送不可变 tag，发布闭合由 release workflow 完成。
-9. 后续独立候选：System Manual 共享区块同步机制、owner-context 真实网页链路复测、child effect 委派设计、历史 state-loss 事故复现确认、ADR-0006 的 ACF Core / Operations 分层落地。
+8. WS017「Runtime 缺陷与欠账修复」已完成实现与门禁：运行态隔离修复与无污染回归、`acf clock now`、六域矩阵校准；`v0.0.3.97` 的 publish 作业曾因 GitHub 账户计费问题未启动，处置后 Re-run 成功（release workflow #39，attempt 2 / success），tag 未被移动，PyPI `0.0.3.97` 与全局安装均已验证。`.97` 的 wheel/sdist 不含 LICENSE、METADATA 无 License 字段（tag 早于 LICENSE 落地），因此不是许可完整版本。
+9. WS018「公开仓库与 MIT 许可发布闭合」已完成：仓库 public、rulesets 与 `pypi` environment 就位；新增 PEP 639 `license = "MIT"` 与 `license-files = ["LICENSE"]`、setuptools 下限 `>=77.0.3`、`MANIFEST.in` 显式收录 LICENSE、`tests/test_release_license_metadata.py` 四项确定性回归；版本收敛 `v0.0.3.98` 并完成 tag / PyPI / 全局安装三项验证。
+10. 后续独立候选：System Manual 共享区块同步机制、owner-context 真实网页链路复测、child effect 委派设计、历史 state-loss 事故复现确认、ADR-0006 的 ACF Core / Operations 分层落地。
 
 ### 默认索引
 
@@ -112,7 +113,7 @@ WS017「Runtime 缺陷与欠账修复」进入收口：修复 `scripts/worktree_
 4. 是否需要继续新增 weekly/report 创建命令，或保持 human layer 只通过 `new human-note` 写 Inbox。
 5. 已落地：分钟级时间字段由 `acf clock now` 生成（输出本地 `YYYY-MM-DD HH:MM`，不依赖上下文目录、不写文件），格式规则仍见 [rules/Project_Rules.md](../rules/Project_Rules.md)。
 6. ACF Core 与 Operations 控制面的边界如何在不拆包的前提下落地（ADR-0006 的设计结论）。
-7. 下一阶段优先级：`v0.0.3.97` 发布闭合完成后，在 System Manual 共享区块同步机制、owner-context 真实网页链路复测、child effect 委派设计、历史 state-loss 事故复现确认之间选择（均由 Gap Matrix 记为需独立 Workstream 的候选）。
+7. 下一阶段优先级：WS018 收口后，在 System Manual 共享区块同步机制、owner-context 真实网页链路复测、child effect 委派设计、历史 state-loss 事故复现确认之间选择（均由 Gap Matrix 记为需独立 Workstream 的候选）。
 
 ---
 
@@ -143,5 +144,5 @@ WS017「Runtime 缺陷与欠账修复」进入收口：修复 `scripts/worktree_
 
 ## 上次更新
 
-- 日期：2026-09-20 19:03
-- 更新原因：WS017「Runtime 缺陷与欠账修复」进入收口——发布闭合 `v0.0.3.96`、`worktree_release_smoke` 运行态隔离修复与无污染回归、`acf clock now` 落地、六域矩阵过期行校准，版本收敛 `v0.0.3.97` 并推送不可变 tag。
+- 日期：2026-09-22 17:24
+- 更新原因：WS018「公开仓库与 MIT 许可发布闭合」阶段 B 完成——回填 `v0.0.3.97` 发布与 installed-state 证据，落地 PEP 639 `license = "MIT"` / `license-files = ["LICENSE"]` 与 setuptools 下限 `>=77.0.3`，新增 wheel/sdist 的 LICENSE 与 METADATA 确定性回归，版本收敛 `v0.0.3.98` 并完成 tag / PyPI / 全局安装三项验证。

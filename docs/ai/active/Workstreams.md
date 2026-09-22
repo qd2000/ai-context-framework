@@ -18,7 +18,7 @@ Active
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS018 | Active | 公开仓库准备、MIT 许可与发布闭合 | codex | 详情(21 项) |  | 公开仓库、MIT LICENSE、当前树匿名化结果、v0.0.3.97 与 v0.0.3.98 的 PyPI/全局安装证据及最终收口记录。 | active/workstreams/WS018.md |
+| WS018 | Active | 公开仓库准备、MIT 许可与发布闭合 | codex | 详情(22 项) |  | 公开仓库、MIT LICENSE、当前树匿名化结果、v0.0.3.97 与 v0.0.3.98 的 PyPI/全局安装证据及最终收口记录。 | active/workstreams/WS018.md |
 
 ---
 

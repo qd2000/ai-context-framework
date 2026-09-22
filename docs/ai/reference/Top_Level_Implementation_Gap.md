@@ -79,10 +79,10 @@ Updated through WS017 runtime debt closure（六域 Gap Matrix：第 4 域运行
 
 | 条目 | 当前状态 | 证据 | 缺口 | 下一步 |
 |---|---|---|---|---|
-| 发布链 | 已实现 | immutable tag、PyPI 发布（GitHub Trusted Publishing）、全局安装与 installed-state 验证；链路可用性由 v0.0.3.95 与 v0.0.3.96 连续证成，release workflow 以 CI（含 Windows package smoke）为必需门禁后进 publish | 无 | 保持；以同一授权流程发布 `v0.0.3.97` |
+| 发布链 | 已实现 | immutable tag、PyPI 发布（GitHub Trusted Publishing）、全局安装与 installed-state 验证；链路可用性由 v0.0.3.95 / v0.0.3.96 / v0.0.3.97 / v0.0.3.98 连续证成；release workflow 以 CI（含 Windows package smoke）为必需门禁后进 publish；`.98` 由 release workflow #40 发布（`verify` 复用 `ci.yml` 六项作业全绿后 `uv publish`），PyPI `latest=0.0.3.98` | 无 | 保持；后续版本沿用同一授权流程与门禁 |
 | upgrade matrix | 已实现 | `scripts/upgrade_matrix.py` quick / full | 新对象层需随功能增量补 fixture | 新增结构时同步扩 fixture |
 | CI | 已实现（v0.0.3.93 收口） | `ci.yml` 的 `tests`（Python 3.10 / 3.12）与 `package` 两个 job 的 os 矩阵均为 `[ubuntu-latest, windows-latest]`；`ci.yml` 与 `release.yml` 的 `actions/checkout` 固定到不可变 SHA `3d3c42e5aac5…`，`astral-sh/setup-uv` 固定到 `08807647e706…`；`ci.yml` 暴露 `workflow_call`，`release.yml` 以 `verify: uses: ./.github/workflows/ci.yml` + `publish: needs: verify` 作为 publish 前必需门禁 | 仓库外的 `pypi` environment 强制 CI 与 `v*` tag protection 无法在代码中固化，已在 `release.yml` 注释记录 | 保持 SHA 固定；新增或升级 action 时同步更新全部引用。注意 `ubuntu-latest` 将于 2026-10-19 迁移到 Ubuntu 26（actions/runner-images#14748），迁移后需复验 Python 3.10 矩阵 |
-| 版本收敛与发布闭合 | 部分 | `ai_context_framework/version.py` = `v0.0.3.97`（`pyproject.toml`、`uv.lock`、`PKG-INFO` 一致）；`v0.0.3.96` 已完成 tag / PyPI / 全局安装三项验证（tag 指向 `01f2dd8`、PyPI `latest=0.0.3.96`、全局安装 `acf v0.0.3.96`） | `v0.0.3.97` 的 verify 门禁全部 6 个作业（tests：ubuntu/windows × Python 3.10/3.12；package smoke：ubuntu/windows）已通过，publish 作业因 GitHub 账户计费问题未启动（"recent account payments have failed or your spending limit needs to be increased"）；待账户所有者处置计费后 Re-run failed jobs | 发布与全局安装验证完成后，本行缺口回到 无 |
+| 版本收敛与发布闭合 | 已实现 | `ai_context_framework/version.py` = `v0.0.3.98`（`pyproject.toml`、`uv.lock`、`PKG-INFO` 一致）；`v0.0.3.97` 的 publish 作业曾因 GitHub 账户计费问题未启动，已由账户所有者处置计费后 Re-run 成功（release workflow #39，attempt 2 / success），tag 仍指向 `33163fc8`（未移动、未删除、未重建），PyPI `0.0.3.97` 与全局安装 `acf v0.0.3.97` 均已验证；`v0.0.3.98` 已完成 tag（`1b115ed`）/ PyPI（`latest=0.0.3.98`）/ 全局安装（`acf v0.0.3.98`）三项验证 | 无 | 保持；`v0.0.3.93` 与 `v0.0.3.94` 继续保留为历史失败 tag，不改写 |
 
 ### 6. Dogfooding / current defects
 
@@ -362,7 +362,8 @@ acf plan reference list docs/ai --json
 2. worktree_release_smoke runtime-state isolation plus no-pollution regression  [done]
 3. minute-level timestamp CLI generation helper (acf clock now) plus contract and docs sync  [done]
 4. six-domain gap matrix calibration for domains 4 and 5  [done]
-5. v0.0.3.97 version convergence, full gate, workstream closeout, and release  [closeout done; release pending CI publish]
+5. v0.0.3.97 version convergence, full gate, workstream closeout, and release  [done: release workflow #39 attempt 2 / success; PyPI 0.0.3.97 and global install verified]
+6. PEP 639 license metadata (license / license-files, setuptools >= 77.0.3) plus wheel and sdist license regression, converging to v0.0.3.98 and releasing it  [done: CI #70 green, release #40 published, global install acf v0.0.3.98]
 ```
 
 WS017 之后的下一批候选（未排序，均需独立 Workstream 与验收标准）：

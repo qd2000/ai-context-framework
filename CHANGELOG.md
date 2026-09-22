@@ -11,6 +11,7 @@
 - `MANIFEST.in` 显式 `include LICENSE`，sdist 收录确定化。
 - 新增 `tests/test_release_license_metadata.py`：四项确定性回归——pyproject 的 PEP 639 字段与 setuptools 下限、egg-info 的 `License-Expression` / `License-File` / SOURCES 行、实际构建的 wheel METADATA、wheel 与 sdist 的 LICENSE 收录。
 - 修正 v0.0.3.97 的发布事实陈述：`.97` 已完成 PyPI 发布（release workflow #39，attempt 2 / success）与全局安装闭合，但其 wheel/sdist 均不含 LICENSE、METADATA 也没有任何 License 字段，因为 tag `33163fc8` 早于 LICENSE 落地提交 `155480b`。`.98` 是许可完整的发布版本。
+- 发布状态：不可变 tag `v0.0.3.98` 指向 `1b115ed`（CI #70 六项作业全绿）；release workflow #40 先复用 `ci.yml` 作为 publish 前必需门禁（6 项作业全绿），再经 Trusted Publishing 发布，PyPI `latest=0.0.3.98`（wheel `8272a986…05c7`、sdist `85743329…ead6`，摘要与 PyPI `digests.sha256` 一致，wheel 含 `dist-info/licenses/LICENSE`、sdist 含顶层 `LICENSE`、METADATA 含 `License-Expression: MIT`）；全局安装经 `scripts/update_acf.ps1` 更新并验证 `acf v0.0.3.98`、`acf clock now` 与 `acf clock now --json` 正常。
 
 ## v0.0.3.97 — 2026-09-20
 
