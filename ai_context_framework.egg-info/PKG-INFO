@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.99
+Version: 0.0.3.100
 Summary: Model-independent AI context framework templates and CLI.
 License-Expression: MIT
 Requires-Python: >=3.10

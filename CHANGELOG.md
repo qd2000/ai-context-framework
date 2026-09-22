@@ -2,6 +2,14 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.100 — 2026-09-23
+
+### Agent-first takeover of ownerless dirty WIP（v0.0.3.99 的不可变重发）
+
+- 本版本的全部功能内容与 `v0.0.3.99`（commit `5a24ce3`）完全一致：`acf continuation workspace review-handoff` 审查包、`claim --handoff-review-file` 原子接管、`continuation doctor` 的 `workspace_handoff_review_required` 原因码与 `handoff_reviewable` 审查摘要、generated prompt 的继承 WIP 高显著提示，以及新增 `ai_context_framework/continuation_handoff_review.py` 模型层与 `commands/continuation_handoff_review.py`、`commands/continuation_journal.py`、`commands/continuation_setup.py` 三个命令适配器的模块拆分。对外 CLI 契约仍只新增上述两条路径（命令树快照重生成可证）。
+- 为什么需要 `.100`：`v0.0.3.99` 的 release workflow #41 在 publish 前必需门禁 `Tests (windows-latest, Python 3.12)` 的 Unit tests 步骤失败（22m33s），`Build, verify, and publish` 未运行，**PyPI 从未产生 0.0.3.99**。同一 commit 在同一分钟触发的 master push CI（run 35773751779）中，同一 Windows 3.12 作业成功（24m15s），ubuntu 两个 Python 版本与 windows 3.10 也全部成功；本机 Windows + Python 3.12 复跑新增的 29 项接管测试（73s）全绿，并以两个并发实例压测 `tests/test_worktree_resilient_merge.py`（各 19 项、各约 490s）也全绿。据此判定为 Windows 上 worktree 关闭时临时目录被刚终止进程瞬时占用的既有偶发噪声，不是本次改动引入的回归。
+- tag 不可变：`v0.0.3.99` 保留为历史失败 release tag（与 `v0.0.3.93`、`v0.0.3.94` 同类），不删除、不改写，也不通过重建同名 tag 重新发布；本版本以新的不可变 tag `v0.0.3.100` 发布。
+
 ## v0.0.3.99 — 2026-09-23
 
 ### Agent-first takeover of ownerless dirty WIP

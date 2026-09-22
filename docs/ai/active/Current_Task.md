@@ -54,7 +54,7 @@ WS019
 ## 本次任务目标
 
 1. 同步 WS019 的 Workstream 索引、设计文档、两份 System Manual、Automation.md、README 与 CHANGELOG。
-2. 版本号收敛到 v0.0.3.99（version.py / pyproject.toml / uv.lock / PKG-INFO）。
+2. 版本号收敛到 v0.0.3.100（version.py / pyproject.toml / uv.lock / PKG-INFO）；`v0.0.3.99` 内容相同但 publish 前 CI 门禁失败、PyPI 从未产生该版本，保留为失败 tag。
 3. 重建命令树快照并跑全量门禁（check template、check docs/ai --strict、unittest、upgrade_matrix、隔离安装）。
 
 ---
@@ -80,7 +80,7 @@ ownerless handoff 漂移后，Agent 此前只能通过 commit / stash / revert /
 ## 输出要求
 
 - `docs/ai/reference/Continuation_Control_Design.md`、`docs/ai/reference/System_Manual.md`、`template/reference/System_Manual.md`、`docs/Automation.md`、`README.md`、`CHANGELOG.md` 与 WS019 实现一致。
-- `ai_context_framework/version.py` 等四处版本一致为 v0.0.3.99。
+- `ai_context_framework/version.py` 等四处版本一致为 v0.0.3.100。
 - `tests/fixtures/cli_surface.json` 重建且其余命令零漂移。
 
 ---
@@ -89,7 +89,7 @@ ownerless handoff 漂移后，Agent 此前只能通过 commit / stash / revert /
 
 1. check template、check docs/ai --strict、unittest、upgrade_matrix 与隔离安装门禁全绿。
 2. 文档中所有新增命令与错误码与实现一致，无过期描述。
-3. 版本四处一致且 CHANGELOG 有 v0.0.3.99 条目。
+3. 版本四处一致且 CHANGELOG 有 v0.0.3.100 条目（并如实记录 v0.0.3.99 未上线）。
 
 ---
 
