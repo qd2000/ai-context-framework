@@ -4,9 +4,10 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
+
+from tests.windows_teardown import cleanup_temporary_directory, temporary_root
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,7 +73,7 @@ class InstallScriptTests(unittest.TestCase):
         )
 
     def test_update_uses_unpinned_force_upgrade_install(self) -> None:
-        with tempfile.TemporaryDirectory() as raw:
+        with temporary_root(prefix="acf-update-") as raw:
             env, log_path, _tool_dir = self._fake_uv_environment(Path(raw))
             result = self._run_script(UPDATE_SCRIPT, env)
             self.assertEqual(result.returncode, 0, result.stdout)
@@ -82,7 +83,7 @@ class InstallScriptTests(unittest.TestCase):
             self.assertIn("tool update-shell", log)
 
     def test_update_reinstall_preserves_latest_discovery(self) -> None:
-        with tempfile.TemporaryDirectory() as raw:
+        with temporary_root(prefix="acf-update-reinstall-") as raw:
             env, log_path, _tool_dir = self._fake_uv_environment(Path(raw))
             result = self._run_script(UPDATE_SCRIPT, env, "-Reinstall")
             self.assertEqual(result.returncode, 0, result.stdout)
@@ -91,7 +92,7 @@ class InstallScriptTests(unittest.TestCase):
 
     def test_install_and_update_replace_uv_exe_with_canonical_cmd(self) -> None:
         for script in (INSTALL_SCRIPT, UPDATE_SCRIPT):
-            with self.subTest(script=script.name), tempfile.TemporaryDirectory() as raw:
+            with self.subTest(script=script.name), temporary_root(prefix="acf-canonical-cmd-") as raw:
                 root = Path(raw)
                 env, _log_path, tool_dir = self._fake_uv_environment(root)
                 tool_bin = Path(env["FAKE_UV_TOOL_BIN"])
@@ -143,18 +144,20 @@ class InstallScriptTests(unittest.TestCase):
         self.assertTrue(source_exe.exists(), source_exe)
 
         for script in (INSTALL_SCRIPT, UPDATE_SCRIPT):
-            with self.subTest(script=script.name), tempfile.TemporaryDirectory() as raw:
-                env, log_path, tool_dir = self._fake_uv_environment(Path(raw))
-                scripts_dir = tool_dir / "ai-context-framework" / "Scripts"
-                scripts_dir.mkdir(parents=True, exist_ok=True)
-                fake_tool_process = scripts_dir / "python.exe"
-                shutil.copy2(source_exe, fake_tool_process)
-                process = subprocess.Popen(
-                    [str(fake_tool_process), "127.0.0.1", "-n", "20"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+            with self.subTest(script=script.name):
+                temporary = temporary_root(prefix="acf-live-process-")
+                process = None
                 try:
+                    env, log_path, tool_dir = self._fake_uv_environment(Path(temporary.name))
+                    scripts_dir = tool_dir / "ai-context-framework" / "Scripts"
+                    scripts_dir.mkdir(parents=True, exist_ok=True)
+                    fake_tool_process = scripts_dir / "python.exe"
+                    shutil.copy2(source_exe, fake_tool_process)
+                    process = subprocess.Popen(
+                        [str(fake_tool_process), "127.0.0.1", "-n", "20"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                     result = self._run_script(script, env)
                     self.assertNotEqual(result.returncode, 0, result.stdout)
                     self.assertIn("Refusing to mutate the global uv tool", result.stdout)
@@ -163,12 +166,12 @@ class InstallScriptTests(unittest.TestCase):
                         self.assertNotIn("tool install", mutation_log)
                         self.assertNotIn("tool upgrade", mutation_log)
                 finally:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=5)
+                    # The launched image lives inside the temporary root, so the process
+                    # must be confirmed gone before the tree is removed.
+                    cleanup_temporary_directory(
+                        temporary,
+                        processes=() if process is None else (process,),
+                    )
 
 
 if __name__ == "__main__":

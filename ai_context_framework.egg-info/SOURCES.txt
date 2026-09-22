@@ -179,6 +179,7 @@ tests/test_sensitive_data.py
 tests/test_smoke_isolation.py
 tests/test_upgrade_audit.py
 tests/test_upgrade_matrix.py
+tests/test_windows_teardown.py
 tests/test_worktree_artifacts.py
 tests/test_worktree_cli.py
 tests/test_worktree_collision.py

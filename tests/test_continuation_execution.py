@@ -20,6 +20,7 @@ from ai_context_framework import continuation_execution
 from ai_context_framework.commands import continuation
 from ai_context_framework.commands import continuation_execution as continuation_execution_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
+from tests.windows_teardown import cleanup_temporary_directory, terminate_and_wait
 
 
 class ContinuationExecutionTests(unittest.TestCase):
@@ -41,28 +42,8 @@ class ContinuationExecutionTests(unittest.TestCase):
             os.environ.pop("ACF_HOME", None)
         else:
             os.environ["ACF_HOME"] = self.previous_home
-        self._cleanup_tempdir(self._repo)
-        self._cleanup_tempdir(self._home)
-
-    @staticmethod
-    def _cleanup_tempdir(directory: tempfile.TemporaryDirectory[str]) -> None:
-        """Retry bounded Windows handle release so cleanup cannot fail a passing test.
-
-        Supervised children are terminated inside the test, but Windows releases the last
-        directory handles asynchronously. A bounded retry absorbs that transient lag while a
-        real leak still fails once the retry budget is exhausted.
-        """
-
-        deadline = time.monotonic() + 15.0
-        while True:
-            try:
-                directory.cleanup()
-            except PermissionError:
-                if time.monotonic() >= deadline:
-                    raise
-                time.sleep(0.25)
-            else:
-                return
+        cleanup_temporary_directory(self._repo)
+        cleanup_temporary_directory(self._home)
 
     def _git(self, *args: str) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(
@@ -318,6 +299,7 @@ class ContinuationExecutionTests(unittest.TestCase):
         finally:
             if parent.poll() is None:
                 continuation_execution.terminate_process_tree(parent)
+            terminate_and_wait(parent)
             if grandchild_pid is not None:
                 status = continuation_execution.process_start_marker(grandchild_pid)[0]
                 if status == "live":

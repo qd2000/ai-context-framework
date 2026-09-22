@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 from typing import Iterable
 
+from tests.windows_teardown import cleanup_temporary_directory
+
 
 def run_git(
     cwd: Path,
@@ -59,7 +61,9 @@ class TemporaryWorktreeScenario:
         if self._closed:
             return
         self._closed = True
-        self._temporary.cleanup()
+        # Windows releases the handles of the `git` processes used to build the
+        # scenario asynchronously, so removal needs a bounded retry budget.
+        cleanup_temporary_directory(self._temporary)
 
     @staticmethod
     def write(root: Path, relative_path: str, content: str | bytes) -> Path:

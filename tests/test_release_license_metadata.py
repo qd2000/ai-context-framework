@@ -13,9 +13,10 @@ import re
 import shutil
 import subprocess
 import tarfile
-import tempfile
 import unittest
 import zipfile
+
+from tests.windows_teardown import cleanup_temporary_directory, temporary_root
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -54,8 +55,9 @@ class ReleaseLicenseMetadataTests(unittest.TestCase):
         if os.environ.get("ACF_SKIP_ARTIFACT_BUILD"):
             self.skipTest("ACF_SKIP_ARTIFACT_BUILD is set; artifact build skipped")
 
-        with tempfile.TemporaryDirectory(prefix="acf-license-build-") as temporary:
-            output_dir = pathlib.Path(temporary)
+        temporary = temporary_root(prefix="acf-license-build-")
+        try:
+            output_dir = pathlib.Path(temporary.name)
             subprocess.run(
                 ["uv", "build", "--no-sources", "--out-dir", str(output_dir)],
                 cwd=str(ROOT),
@@ -70,6 +72,8 @@ class ReleaseLicenseMetadataTests(unittest.TestCase):
             self.assertEqual(len(sdists), 1, "expected exactly one built sdist")
             self._assert_wheel_license(wheels[0])
             self._assert_sdist_license(sdists[0])
+        finally:
+            cleanup_temporary_directory(temporary)
 
     def _assert_wheel_license(self, wheel_path: pathlib.Path) -> None:
         with zipfile.ZipFile(wheel_path) as wheel:
