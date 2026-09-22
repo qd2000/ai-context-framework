@@ -1,4 +1,5 @@
 CHANGELOG.md
+LICENSE
 MANIFEST.in
 README.md
 acf.py
@@ -167,6 +168,7 @@ tests/test_log_gc.py
 tests/test_log_inventory.py
 tests/test_log_issue.py
 tests/test_package_skeleton.py
+tests/test_release_license_metadata.py
 tests/test_runtime_contracts.py
 tests/test_sensitive_data.py
 tests/test_smoke_isolation.py

@@ -1,9 +1,12 @@
 Metadata-Version: 2.4
 Name: ai-context-framework
-Version: 0.0.3.97
+Version: 0.0.3.98
 Summary: Model-independent AI context framework templates and CLI.
+License-Expression: MIT
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
+License-File: LICENSE
+Dynamic: license-file
 
 # ai-context-framework
 
@@ -11,7 +14,7 @@ Description-Content-Type: text/markdown
 
 ## 当前推荐版本
 
-`v0.0.3.97` 已完成 immutable tag 并推送到远端，但 PyPI 发布与全局安装尚未闭合，因此它还不是可安装的稳定版本；当前 PyPI 与全局安装的稳定版本仍是 `v0.0.3.96`。`.97` 补齐缺陷与欠账：发布 smoke 脚本的运行态隔离、分钟级时间生成命令 `acf clock now`、六域 Gap Matrix 过期行校准。`.96` 是 runtime 全局注入解耦（内部重构，对外 CLI 契约零变化，以命令树形状快照为证）；`.95` 修复 Windows CI 发布门禁的三处测试夹具缺陷并重新闭合发布链；`.94` 起 `acf worktree retire` 提供 curated handoff 退役窄路径。`v0.0.3.93` 与 `v0.0.3.94` 保留为历史失败 release tag，不可改写。Windows 正式安装态应通过 `scripts/install_acf.ps1` 或 `scripts/update_acf.ps1` canonicalize 为 uv tool bin 下的 `acf.cmd`，同目录不保留 `acf.exe`。
+`v0.0.3.97` 已完成 immutable tag、PyPI 发布（release workflow #39，attempt 2 / success）与全局安装闭合，但它不是许可完整的版本：其 wheel/sdist 均不含 LICENSE、METADATA 也没有任何 License 字段，因为该 tag 早于 LICENSE 落地提交。`.97` 补齐缺陷与欠账：发布 smoke 脚本的运行态隔离、分钟级时间生成命令 `acf clock now`、六域 Gap Matrix 过期行校准。`v0.0.3.98` 是正在闭合的许可完整版本：新增 PEP 639 `license = "MIT"` 与 `license-files = ["LICENSE"]`、把 setuptools 构建下限提到 `>=77.0.3`、新增 wheel/sdist 的 LICENSE 与 METADATA 确定性回归。`.96` 是 runtime 全局注入解耦（内部重构，对外 CLI 契约零变化，以命令树形状快照为证）；`.95` 修复 Windows CI 发布门禁的三处测试夹具缺陷并重新闭合发布链；`.94` 起 `acf worktree retire` 提供 curated handoff 退役窄路径。`v0.0.3.93` 与 `v0.0.3.94` 保留为历史失败 release tag，不可改写。Windows 正式安装态应通过 `scripts/install_acf.ps1` 或 `scripts/update_acf.ps1` canonicalize 为 uv tool bin 下的 `acf.cmd`，同目录不保留 `acf.exe`。
 
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 - Workstream/Worktree 教程：[docs/Worktree_Lifecycle.md](docs/Worktree_Lifecycle.md)

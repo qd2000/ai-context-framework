@@ -2,6 +2,16 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.98 — 2026-09-22
+
+### MIT / PEP 639 license metadata and release closure
+
+- 新增 PEP 639 许可元数据：`license = "MIT"` 与 `license-files = ["LICENSE"]`。构建产物现在确定地携带许可：wheel METADATA 输出 `License-Expression: MIT`，wheel 内含 `*.dist-info/licenses/LICENSE`，sdist 顶层含 `LICENSE`。
+- `[build-system] requires` 从 `setuptools>=61` 抬到 `setuptools>=77.0.3`（首个实现 PEP 639 的下限）。构建不再依赖 setuptools 对 license 的自动探测，`uv build` 就地改写 egg-info 的非确定性被消除。
+- `MANIFEST.in` 显式 `include LICENSE`，sdist 收录确定化。
+- 新增 `tests/test_release_license_metadata.py`：四项确定性回归——pyproject 的 PEP 639 字段与 setuptools 下限、egg-info 的 `License-Expression` / `License-File` / SOURCES 行、实际构建的 wheel METADATA、wheel 与 sdist 的 LICENSE 收录。
+- 修正 v0.0.3.97 的发布事实陈述：`.97` 已完成 PyPI 发布（release workflow #39，attempt 2 / success）与全局安装闭合，但其 wheel/sdist 均不含 LICENSE、METADATA 也没有任何 License 字段，因为 tag `33163fc8` 早于 LICENSE 落地提交 `155480b`。`.98` 是许可完整的发布版本。
+
 ## v0.0.3.97 — 2026-09-20
 
 ### Runtime debt closure and minute-level clock
