@@ -104,6 +104,10 @@ def continuation_schema_contract() -> dict[str, dict[str, Any]]:
             "current": [continuation_workspace.HANDOFF_RECONCILE_SCHEMA],
             "required": False,
         },
+        "last_handoff_takeover.json": {
+            "current": [continuation_workspace.HANDOFF_TAKEOVER_SCHEMA],
+            "required": False,
+        },
         "reconcile.json": {
             "current": [continuation_recovery.RECONCILE_SCHEMA],
             "required": False,
@@ -524,208 +528,6 @@ def workspace_intent_candidates(
     return sorted(dict.fromkeys(candidates))
 
 
-def continuation_init_command(args: argparse.Namespace) -> int:
-    core = _continuation()
-
-    def operation() -> dict[str, Any]:
-        root = core._workspace_root(args.path)
-        task_id = str(args.task_id or args.workstream or "").strip()
-        if not task_id:
-            raise core.ContinuationError("--task-id or --workstream is required", code="task_id_required")
-        title = core._validate_public_input_text(args.title, field="title")
-        objective = core._validate_public_input_text(args.objective, field="objective")
-        stage = core._validate_public_input_text(args.stage or "bootstrap", field="stage")
-        next_action = core._validate_public_input_text(
-            args.next_action or "Refresh local authority and execute the current default plan.",
-            field="next_action",
-        )
-        plan_refs = [
-            core._validate_public_input_text(value, field="plan_ref")
-            for value in (args.plan_ref or [])
-        ]
-        git = core._git_identity(root)
-        if git["detached"] or not git["branch"]:
-            raise core.ContinuationError("continuation init refuses detached HEAD", code="detached_head")
-        expected_branch = str(args.expected_branch or git["branch"])
-        if expected_branch != git["branch"]:
-            raise core.ContinuationError("current branch does not match --expected-branch", code="branch_mismatch")
-        workstream = core._workstream_verification(root, args.workstream)
-        if args.workstream and not workstream.get("ok"):
-            raise core.ContinuationError(
-                "ACF worktree verification failed",
-                code="workstream_verification_failed",
-                details={"workstream": workstream},
-            )
-        timing_profile, timing = timing_values(
-            profile=args.profile,
-            interval_minutes=args.interval_minutes,
-            lease_ttl_minutes=args.lease_ttl_minutes,
-            renew_interval_minutes=args.renew_interval_minutes,
-            heartbeat_interval_minutes=args.heartbeat_interval_minutes,
-            stale_after_minutes=args.stale_after_minutes,
-        )
-        directory = core._task_parent(root) / core._safe_key(task_id)
-        paths = {
-            "directory": directory,
-            "lock": directory / "state.lock",
-            "control": directory / "control.json",
-            "state": directory / "state.json",
-            "lease": directory / "lease.json",
-            "pause": directory / "pause.json",
-            "receipt": directory / "last_run.json",
-            "rounds": directory / "rounds.json",
-            "effects": directory / "effects.json",
-            "coordination": directory / "coordination.json",
-            "workspace": directory / "workspace.json",
-            "workspace_reconcile": directory / "last_workspace_reconcile.json",
-            "reconcile": directory / "reconcile.json",
-            "recovery": directory / "last_recovery.json",
-        }
-        if paths["control"].exists() and not args.force:
-            raise core.ContinuationError(
-                "continuation task is already initialized",
-                code="continuation_exists",
-                next_actions=["Use `acf continuation doctor` or rerun init with --force after review."],
-            )
-        now = core._iso()
-        snapshot = workspace_current_snapshot(root)
-        try:
-            manifest = continuation_workspace.new_manifest(
-                task_id=task_id,
-                snapshot=snapshot,
-                now=now,
-            )
-        except continuation_workspace.ContinuationWorkspaceError as exc:
-            raise workspace_error(exc) from exc
-        control = {
-            "schema_version": core.CONTROL_SCHEMA,
-            "task_id": task_id,
-            "title": title,
-            "objective": objective,
-            "workspace_root": str(root),
-            "expected_branch": expected_branch,
-            "bootstrap_head": git["head"],
-            "workstream_id": args.workstream,
-            "timing_profile": timing_profile,
-            **timing,
-            "history_policy": "local_first",
-            "created_at": now,
-            "updated_at": now,
-        }
-        state = {
-            "schema_version": core.STATE_SCHEMA,
-            "task_id": task_id,
-            "objective": objective,
-            "status": "ready",
-            "stage": stage,
-            "next_action": next_action,
-            "updated_at": now,
-            "completed": ["Initialized ACF bounded continuation control."],
-            "constraints": [
-                "Use the configured fixed Git worktree and branch.",
-                "Treat local project state as authoritative; do not reconstruct state from chat history by default.",
-                "Do not repeat an uncertain non-idempotent operation.",
-                "Finish runner-owned writes with the project-required checkpoint; preserve unrelated external dirty state.",
-            ],
-            "evidence_refs": [],
-            "open_questions": [],
-            "plan_refs": plan_refs,
-            "verification": ["Continuation control initialized with a bounded Git workspace baseline."],
-        }
-        directory.mkdir(parents=True, exist_ok=True)
-        if not paths["lock"].exists():
-            paths["lock"].write_bytes(b"0")
-        core._write_json(paths["control"], control)
-        core._write_state(paths["state"], state)
-        core._write_json(paths["workspace"], manifest)
-        if args.force:
-            for stale in (
-                paths["lease"],
-                paths["pause"],
-                paths["receipt"],
-                paths["rounds"],
-                paths["effects"],
-                paths["coordination"],
-                paths["workspace"],
-                paths["workspace_reconcile"],
-                paths["reconcile"],
-                paths["recovery"],
-            ):
-                stale.unlink(missing_ok=True)
-            core._write_json(paths["workspace"], manifest)
-        return {
-            "status": "initialized",
-            "task_id": task_id,
-            "workspace_root": str(root),
-            "branch": expected_branch,
-            "state_dir": str(directory),
-            "workstream": workstream,
-            "workspace": continuation_workspace.summary(manifest, task_id=task_id),
-            "next_action": state["next_action"],
-        }
-
-    return core._guarded(args, "continuation init", operation)
-
-
-def continuation_configure_command(args: argparse.Namespace) -> int:
-    core = _continuation()
-
-    def operation() -> dict[str, Any]:
-        root = core._workspace_root(args.path)
-        paths = core._paths(root, args.task_id)
-        with core._state_lock(paths["lock"]):
-            control = core._load_control(paths, root)
-            lease = core._lease_snapshot(paths, control)
-            if lease["state"] == "active":
-                raise core.ContinuationBusy(
-                    "cannot reconfigure continuation timing while an active round owns the lease"
-                )
-            if not any(
-                value is not None
-                for value in (
-                    args.profile,
-                    args.interval_minutes,
-                    args.lease_ttl_minutes,
-                    args.renew_interval_minutes,
-                    args.heartbeat_interval_minutes,
-                    args.stale_after_minutes,
-                )
-            ):
-                raise core.ContinuationError(
-                    "configure requires --profile or at least one timing override",
-                    code="timing_config_empty",
-                )
-            previous = {
-                field: control[field]
-                for field in (
-                    "timing_profile",
-                    "interval_minutes",
-                    "lease_ttl_minutes",
-                    "renew_interval_minutes",
-                    "heartbeat_interval_minutes",
-                    "stale_after_minutes",
-                )
-            }
-            profile, timing = timing_values(
-                profile=args.profile,
-                interval_minutes=args.interval_minutes,
-                lease_ttl_minutes=args.lease_ttl_minutes,
-                renew_interval_minutes=args.renew_interval_minutes,
-                heartbeat_interval_minutes=args.heartbeat_interval_minutes,
-                stale_after_minutes=args.stale_after_minutes,
-                base=control,
-            )
-            control.update({"timing_profile": profile, **timing, "updated_at": core._iso()})
-            core._write_json(paths["control"], control)
-            return {
-                "status": "configured",
-                "task_id": control["task_id"],
-                "previous": previous,
-                "control": {"timing_profile": profile, **timing},
-            }
-
-    return core._guarded(args, "continuation configure", operation)
-
 
 def continuation_prompt_command(args: argparse.Namespace) -> int:
     core = _continuation()
@@ -1139,6 +941,17 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
             )
 
         workspace_snapshot = status_snapshot.get("workspace")
+        if isinstance(workspace_snapshot, Mapping) and workspace_snapshot.get("handoff_reviewable"):
+            task_flag = f" --task-id {json.dumps(str(control['task_id']))}"
+            conditional_sections.append(
+                "Ownerless handoff WIP drift is reviewable by this agent:\n"
+                f"- {workspace_snapshot.get('review_path_count')} task-owned path(s) changed during the ownerless window; ACF still blocks a normal claim.\n"
+                "- Generate the review package with `acf continuation workspace review-handoff "
+                f"{json.dumps(str(root))}{task_flag} --runner-id <runner> --draft-file <local-review.json> --json`.\n"
+                "- Fill every drift path with exactly one decision (`inherit_for_triage`, `preserve_external`, `semantic_clean`, or `block`), then claim with `--handoff-review-file <local-review.json>` and the same runner id.\n"
+                "- Do not modify, format, stash, commit, revert, or delete the WIP while reviewing; any change invalidates the review fingerprints and forces a new review.\n"
+                "- `inherit_for_triage` only says the content deserves to be preserved and continued; it does not claim the content is correct."
+            )
         if isinstance(workspace_snapshot, Mapping) and (
             workspace_snapshot.get("state") == "invalid"
             or workspace_snapshot.get("has_conflicts")
@@ -1148,6 +961,39 @@ def continuation_prompt_command(args: argparse.Namespace) -> int:
                 "Workspace provenance is currently relevant:\n"
                 "- Inspect `acf continuation workspace status ... --json`. Preserve baseline/external dirty state; do not stash, reset, clean, or absorb uncertain files.\n"
                 "- Reclassify unexpected output only after provenance is proven with durable evidence; uncertainty remains fail-closed."
+            )
+
+        handoff_takeover: dict[str, Any] | None = None
+        takeover_path = paths.get("handoff_takeover")
+        if takeover_path is not None and takeover_path.exists():
+            try:
+                candidate = core._read_json(takeover_path, label="handoff_takeover_receipt")
+            except core.ContinuationError:
+                candidate = None
+            if isinstance(candidate, Mapping) and candidate.get(
+                "schema_version"
+            ) == continuation_workspace.HANDOFF_TAKEOVER_SCHEMA:
+                handoff_takeover = dict(candidate)
+        inherited_wip_active = bool(
+            isinstance(handoff_takeover, Mapping)
+            and owner_generation is not None
+            and handoff_takeover.get("new_generation") == owner_generation
+            and lease_snapshot.get("state") == "active"
+            and latest_round.get("phase") == "claimed"
+            and not latest_round.get("evidence_refs")
+        )
+        if inherited_wip_active:
+            assert handoff_takeover is not None
+            inherited_paths = [str(value) for value in (handoff_takeover.get("inherited_dirty_wip_paths") or [])]
+            conditional_sections.append(
+                "Inherited uncommitted WIP requires triage (accepted for preservation, not proven correct):\n"
+                f"- Generation {owner_generation} inherited {len(inherited_paths)} uncommitted task-owned path(s) from "
+                f"generation {handoff_takeover.get('source_generation')} via takeover receipt {handoff_takeover.get('receipt_id')}.\n"
+                "- These changes were accepted because they are worth preserving and continuing. They have NOT been proven correct, complete, or tested.\n"
+                "- First action: inspect, run tests, then decide to continue, modify, split, revert, or delete each inherited path.\n"
+                "- You hold normal ownership now: you may keep, fix, rewrite, revert, delete, add tests, run verification, and commit at a natural checkpoint.\n"
+                "- This notice drops to audit history once this generation records its first evidence-backed progress/checkpoint."
+                + ("\n" + "\n".join(f"- {value}" for value in inherited_paths) if inherited_paths else "")
             )
 
         if resume_context["effect_journal"]["unresolved_count"]:
@@ -1262,6 +1108,29 @@ Reusable product issues:
             },
             "owner_context": owner_context,
             "directive_context": directive_context,
+            "handoff_takeover": (
+                {
+                    "status": "accepted_for_triage" if inherited_wip_active else "audit_history",
+                    "receipt_id": handoff_takeover.get("receipt_id"),
+                    "source_generation": handoff_takeover.get("source_generation"),
+                    "new_generation": handoff_takeover.get("new_generation"),
+                    "inherited_dirty_wip_count": len(
+                        handoff_takeover.get("inherited_dirty_wip_paths") or []
+                    ),
+                    "inherited_dirty_wip_paths": list(
+                        handoff_takeover.get("inherited_dirty_wip_paths") or []
+                    ),
+                    "preserved_external_paths": list(
+                        handoff_takeover.get("preserved_external_paths") or []
+                    ),
+                    "cleaned_paths": list(handoff_takeover.get("cleaned_paths") or []),
+                    "required_initial_action": (
+                        "triage_inherited_wip" if inherited_wip_active else None
+                    ),
+                }
+                if isinstance(handoff_takeover, Mapping)
+                else None
+            ),
             "resume_context": resume_context,
             "execution_policy": execution_policy,
             "execution_observability": execution_observability,
@@ -1925,7 +1794,6 @@ __all__ = [
     "continuation_list_command",
     "continuation_migrate_command",
     "continuation_schema_contract",
-    "continuation_init_command",
     "continuation_workspace_adopt_command",
     "continuation_workspace_intent_command",
     "continuation_workspace_reconcile_handoff_command",

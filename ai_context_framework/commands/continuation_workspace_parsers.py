@@ -18,6 +18,21 @@ def _commands():
     return continuation_workspace
 
 
+def _setup_commands():
+    # init/configure moved to their own adapter so the workspace adapter stays
+    # inside the agent-friendly size budget.
+    from ai_context_framework.commands import continuation_setup
+
+    return continuation_setup
+
+
+def _handoff_review_commands():
+    # Ownerless WIP takeover commands live beside their own model module.
+    from ai_context_framework.commands import continuation_handoff_review
+
+    return continuation_handoff_review
+
+
 def register_workspace_parsers(subparsers, add_json_argument) -> None:
     commands = _commands()
     list_parser = subparsers.add_parser(
@@ -127,6 +142,35 @@ def register_workspace_parsers(subparsers, add_json_argument) -> None:
     add_json_argument(reconcile_handoff)
     reconcile_handoff.set_defaults(func=commands.continuation_workspace_reconcile_handoff_command)
 
+    review_handoff = workspace_subparsers.add_parser(
+        "review-handoff",
+        help="generate a fingerprint-bound review package for drifted task-owned WIP after an ownerless handoff",
+    )
+    review_handoff.add_argument("path", nargs="?", type=Path)
+    review_handoff.add_argument("--task-id", default=None)
+    review_handoff.add_argument("--runner-id", required=True)
+    review_handoff.add_argument(
+        "--draft-file",
+        required=True,
+        help="local path for the generated decision draft; the same file is passed to claim --handoff-review-file",
+    )
+    review_handoff.add_argument(
+        "--page",
+        type=int,
+        default=None,
+        help="page of stdout entries to render; the draft file always contains every drift path",
+    )
+    review_handoff.add_argument(
+        "--page-size",
+        type=int,
+        default=None,
+        help="entries per stdout page; the draft file always contains every drift path",
+    )
+    add_json_argument(review_handoff)
+    review_handoff.set_defaults(
+        func=_handoff_review_commands().continuation_workspace_review_handoff_command
+    )
+
     adopt = workspace_subparsers.add_parser(
         "adopt",
         help="explicitly classify every reviewed dirty path for a legacy task missing a workspace manifest",
@@ -178,7 +222,7 @@ def register_configure_parser(subparsers, add_json_argument) -> None:
     configure.add_argument("--heartbeat-interval-minutes", type=int, default=None)
     configure.add_argument("--stale-after-minutes", type=int, default=None)
     add_json_argument(configure)
-    configure.set_defaults(func=commands.continuation_configure_command)
+    configure.set_defaults(func=_setup_commands().continuation_configure_command)
 
 
 __all__ = ["register_configure_parser", "register_workspace_parsers"]

@@ -16,6 +16,7 @@ ai_context_framework/continuation_directive_archive.py
 ai_context_framework/continuation_directives.py
 ai_context_framework/continuation_effect_archive.py
 ai_context_framework/continuation_execution.py
+ai_context_framework/continuation_handoff_review.py
 ai_context_framework/continuation_inventory.py
 ai_context_framework/continuation_owner_context.py
 ai_context_framework/continuation_recovery.py
@@ -58,12 +59,15 @@ ai_context_framework/commands/continuation_coordination.py
 ai_context_framework/commands/continuation_directives.py
 ai_context_framework/commands/continuation_execution.py
 ai_context_framework/commands/continuation_group_parsers.py
+ai_context_framework/commands/continuation_handoff_review.py
 ai_context_framework/commands/continuation_issue.py
+ai_context_framework/commands/continuation_journal.py
 ai_context_framework/commands/continuation_owner.py
 ai_context_framework/commands/continuation_parsers.py
 ai_context_framework/commands/continuation_pause.py
 ai_context_framework/commands/continuation_recovery.py
 ai_context_framework/commands/continuation_release.py
+ai_context_framework/commands/continuation_setup.py
 ai_context_framework/commands/continuation_workspace.py
 ai_context_framework/commands/continuation_workspace_parsers.py
 ai_context_framework/commands/decisions.py
@@ -159,6 +163,7 @@ tests/test_context_matrix.py
 tests/test_context_routing.py
 tests/test_continuation_cli.py
 tests/test_continuation_execution.py
+tests/test_continuation_handoff_takeover.py
 tests/test_continuation_owner_context.py
 tests/test_continuation_owner_fixture.py
 tests/test_docs_retired_references.py

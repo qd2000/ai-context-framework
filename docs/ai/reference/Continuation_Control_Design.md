@@ -58,6 +58,7 @@ acf continuation effect update
 acf continuation effect list
 acf continuation workspace status
 acf continuation workspace intent
+acf continuation workspace review-handoff
 acf continuation workspace refresh
 acf continuation reconcile
 acf continuation recover
@@ -97,6 +98,16 @@ Workspace ownership 保存在用户级 `workspace.json`，只记录 bounded path
 `doctor` 不使用 worktree-level `clean/dirty` 参与 liveness、并发或 claim 判断。Git 只提供具体 path/status/content digest 观测；manifest valid 且无真实 conflict 时，即使存在 task/external 修改也允许继续。没有 workspace manifest 的 legacy task 如果存在 changed paths，不报告笼统 `worktree_dirty`，而报告 `workspace_provenance_missing`；没有 changed paths 的 legacy task 可在下一次 claim 时惰性建立 manifest。
 
 正常 release 使用 workspace handoff，而不是强制 Git clean：当前 write intent 下仍存在的修改固化为 `task_owned`，本轮非重叠 external 变成下一轮受保护 external baseline，lease 可以正常删除且 state 转为 `ready`。下一 generation claim 会验证 ownerless window 内 `task_owned` 的 path/status/digest 未漂移并继承对应 WIP/write intent；如果这段 ownerless window 中 task-owned path 被未知方改变，则报告 `task_owned_handoff_drift` / `workspace_conflict`。因此 continuation checkpoint 与 Git commit 完全解耦：前者负责恢复/换轮，后者只在功能或阶段形成自然语义 checkpoint 时创建。
+
+漂移本身是一个已收口的观测分类，不是失败状态：ACF 只证明"现场与 handoff 时记录的事实不再一致"，不判断这些字节是否正确。因此漂移的解法分成三条互不替代的路径：
+
+- **仍是 dirty 且 Agent 认为不该保留**：沿用原有工作区动作（提交、stash、revert、删除），或先 `workspace reclassify` / `workspace reconcile-handoff --cleanup` 让现场变成 semantic-clean 后再 claim；
+- **仍是 dirty 但 Agent 认为值得保留继续处理**：`workspace review-handoff` 只读生成按当前 HEAD 与逐路径 status/digest 绑定的审查包和决策草稿，同一个 runner 对每条 drift path 给出 `inherit_for_triage` / `preserve_external` / `semantic_clean` / `block` 四种决策之一，再用 `claim --handoff-review-file` 在既有 state lock 内一次性完成机械验证、应用决策、写 `last_handoff_takeover.json` 审计 receipt、推进 generation 与创建 lease；
+- **无法判断**：保留 `block` 决策，任务继续阻塞并请求人工处理。
+
+`review-handoff` 与接管全程只做 `git rev-parse` / `git status` 和读文件字节，不修改、提交、stash、checkout 或删除任何工作区文件，也不取得 ownership。审查包写入 `observation_digest`；claim 端在锁内重读 Git snapshot 并重算同一 digest，只要审查后任一相关文件发生变化就必然失配并 fail-closed 为 `workspace_handoff_review_stale`，强制重新审查。继承路径必须仍在 Workstream direct write scope 内且被 retained intent 覆盖，`preserve_external` 路径不得与 scope 或 retained intent 重叠，`semantic_clean` 路径必须当前真的不再 dirty，全部 drift path 必须被决策恰好解释一次，且 unresolved effect 仍然阻塞。任一机械验证失败都不创建 lease、不部分更新 workspace，并随事务回滚 receipt 文件。
+
+接管成功只表示"Agent 已确认这些 WIP 值得保留并继续处理"，不代表内容正确、完整或已测试。claim 结果返回 `handoff_takeover`（`accepted_for_triage`、`required_initial_action=triage_inherited_wip` 与 inherited/preserved/cleaned 路径），generated prompt 在新 generation 第一次有效 checkpoint 前保持高显著提示"本轮继承了上一 generation 的未提交 WIP，已确认值得保留但尚未证明正确或完成，请先检查、测试并决定继续、修改、拆分、撤销或删除"，之后只保留审计历史。
 
 外部/non-idempotent work 使用 write-ahead effect contract。`effect prepare --key <logical-key> --kind <generic-kind>` 在动作之前写入 deterministic effect id；同一 task + logical key + kind 得到稳定 identity。只有返回 `created=true` 的首次 prepare 才允许执行外部动作；`created=false` 表示 effect 已经存在，必须复用、查询外部 authority 或进入 reconciliation，不能再次 submit。`effect update` 只记录 generic `prepared / active / completed / failed / unknown` status、可选 external id、milestone 与 evidence refs；terminal status 不允许重新回到 active。current `effects.json` 仍有固定记录/字节边界且 schema 不接受 raw output/transcript；达到边界时只允许把完整 `completed|failed` records rollover 到 bounded `effects.archive.NNNNNN.json` segments，`prepared|active|unknown` 永不归档。所有 archive 仍参与 logical-key duplicate detection，所以 rollover 不删除 durable replay identity；若 unresolved records 自身耗尽容量则继续 fail-closed。
 

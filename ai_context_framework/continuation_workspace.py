@@ -29,10 +29,13 @@ RECLASSIFICATION_SCHEMA = "acf.continuation.workspace-reclassification.v1"
 RECLASSIFICATION_ENTRY_SCHEMA = "acf.continuation.workspace-reclassification-entry.v1"
 HANDOFF_RECONCILE_SCHEMA = "acf.continuation.workspace-handoff-reconcile.v1"
 HANDOFF_RECONCILE_ENTRY_SCHEMA = "acf.continuation.workspace-handoff-reconcile-entry.v1"
+HANDOFF_TAKEOVER_SCHEMA = "acf.continuation.workspace-handoff-takeover.v1"
+HANDOFF_TAKEOVER_ENTRY_SCHEMA = "acf.continuation.workspace-handoff-takeover-entry.v1"
 
 MAX_ENTRIES = 256
 MAX_PATH_BYTES = 1024
 MAX_MANIFEST_BYTES = 128 * 1024
+MAX_TAKEOVER_RECEIPT_BYTES = 512 * 1024
 
 
 class ContinuationWorkspaceError(ValueError):
@@ -866,6 +869,38 @@ def classify(
     return validate_manifest(payload, task_id=task_id)
 
 
+def _drift_pairs(
+    expected_task_owned: Mapping[str, Mapping[str, Any]],
+    observed: Mapping[str, Mapping[str, Any]],
+    legacy_aliases: Any = None,
+) -> dict[str, tuple[dict[str, Any], dict[str, Any] | None]]:
+    """Return every task-owned path whose recorded status/digest no longer matches Git.
+
+    The single source of truth for ownerless handoff drift.  ``observe_handoff``
+    uses it to raise conflicts and the agent-first review/takeover path uses it
+    to build the reviewable entry set, so both can never disagree.
+    """
+
+    aliases_map = legacy_aliases if isinstance(legacy_aliases, Mapping) else {}
+    drift: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
+    for path_value, expected in expected_task_owned.items():
+        live = observed.get(path_value)
+        aliases = aliases_map.get(path_value, [])
+        legacy_digest_equivalent = bool(
+            live is not None
+            and live["status"] == expected["status"]
+            and isinstance(aliases, list)
+            and expected["digest"] in aliases
+        )
+        if (
+            live is None
+            or live["status"] != expected["status"]
+            or (live["digest"] != expected["digest"] and not legacy_digest_equivalent)
+        ):
+            drift[path_value] = (dict(expected), dict(live) if live is not None else None)
+    return drift
+
+
 def observe_handoff(
     manifest: Mapping[str, Any],
     *,
@@ -887,28 +922,16 @@ def observe_handoff(
     raw_legacy_aliases = snapshot.get("legacy_digest_aliases", {})
     legacy_aliases = raw_legacy_aliases if isinstance(raw_legacy_aliases, Mapping) else {}
     classified = classify(current, task_id=task_id, snapshot=snapshot, now=now)
-    drift_conflicts: list[dict[str, str]] = []
-    for path_value, expected in expected_task_owned.items():
-        live = observed.get(path_value)
-        aliases = legacy_aliases.get(path_value, [])
-        legacy_digest_equivalent = bool(
-            live is not None
-            and live["status"] == expected["status"]
-            and isinstance(aliases, list)
-            and expected["digest"] in aliases
+    drift_conflicts = [
+        {
+            "schema_version": CONFLICT_SCHEMA,
+            "path": path_value,
+            "reason": "task_owned_handoff_drift",
+        }
+        for path_value in sorted(
+            _drift_pairs(expected_task_owned, observed, legacy_aliases)
         )
-        if (
-            live is None
-            or live["status"] != expected["status"]
-            or (live["digest"] != expected["digest"] and not legacy_digest_equivalent)
-        ):
-            drift_conflicts.append(
-                {
-                    "schema_version": CONFLICT_SCHEMA,
-                    "path": path_value,
-                    "reason": "task_owned_handoff_drift",
-                }
-            )
+    ]
     if not drift_conflicts:
         return classified
     payload = {

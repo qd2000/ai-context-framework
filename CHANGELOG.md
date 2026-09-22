@@ -2,6 +2,17 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.99 — 2026-09-23
+
+### Agent-first takeover of ownerless dirty WIP
+
+- 新增 `acf continuation workspace review-handoff`：ownerless graceful handoff 后，当已记录的 task-owned WIP 在无人持锁期间发生漂移且仍值得保留时，只读生成按当前 Git HEAD 与逐路径 status/digest 绑定的审查包，并把可编辑决策草稿写到 `--draft-file`（必须在项目工作区之外）。审查包按目录、原 write intent、文件状态与变更类型分组，支持 `--page` / `--page-size` 分页；每个 drift path 需要四种决策之一：`inherit_for_triage`、`preserve_external`、`semantic_clean`、`block`，且所有 drift path 必须恰好出现一次。该命令不修改、提交、stash、revert 或删除任何工作区文件，也不取得 ownership。
+- 新增 `acf continuation claim --handoff-review-file`：在同一 state lock 内重读 Git snapshot 并重算 observation digest，通过后一次性应用决策、写入 `last_handoff_takeover.json` 审计 receipt、推进 generation 并创建 lease/owner context；中间不留被抢先 claim 的窗口。digest 失配、runner 不一致、继承路径越出 Workstream direct write scope、external 路径与 scope/intent 重叠、clean 路径仍 dirty、决策未精确解释全部 conflict、HEAD 漂移未显式接受或存在 unresolved effect 都 fail-closed（`workspace_handoff_review_stale` / `_runner_mismatch` / `_scope_conflict` / `_conflict_mismatch` / `_head_unaccepted` / `_effects_unresolved` 等），不建 lease、不部分更新 workspace，并随事务回滚 receipt 文件。
+- `continuation doctor` 在漂移全部可解释为 `task_owned_handoff_drift` 时追加稳定原因码 `workspace_handoff_review_required`，并在 `workspace` 段落暴露 `handoff_reviewable`、`review_path_count`、`review_paths`、`source_generation` 与 `observation_digest`，配合指向审查与接管命令的 `next_actions`。默认阻塞语义不变，未新增宽泛 `--force`。
+- 接管结果返回 `handoff_takeover`（`accepted_for_triage`、`required_initial_action=triage_inherited_wip` 与 inherited/preserved/cleaned 路径），generated prompt 在新 generation 第一次有效 checkpoint 前保持高显著提示：本轮继承了上一 generation 的未提交 WIP，已确认值得保留但尚未证明正确或完成，请先检查、测试并决定继续、修改、拆分、撤销或删除。接管只表示"值得保留"，不表示内容正确。
+- 模块拆分以遵守 agent-friendly 体积上限：新增 `ai_context_framework/continuation_handoff_review.py` 模型层与 `commands/continuation_handoff_review.py`、`commands/continuation_journal.py`、`commands/continuation_setup.py` 三个命令适配器；对外 CLI 契约仅新增上述命令，其余命令零漂移（命令树快照重生成可证）。
+- 回归：新增 `tests/test_continuation_handoff_takeover.py` 29 项（成功路径、11 类 fail-closed 与 4 项既有路径回归），continuation CLI 135 项与其余批次全绿；`check template`、`check docs/ai --strict`、升级矩阵与隔离安装门禁通过。
+
 ## v0.0.3.98 — 2026-09-22
 
 ### MIT / PEP 639 license metadata and release closure

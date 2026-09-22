@@ -93,6 +93,19 @@ def register_continuation_parser(
     continuation_claim_parser.add_argument("--task-id", default=None)
     continuation_claim_parser.add_argument("--runner-id", required=True)
     continuation_claim_parser.add_argument("--ttl-minutes", type=int, default=None)
+    continuation_claim_parser.add_argument(
+        "--handoff-review-file",
+        default=None,
+        help=(
+            "claim by taking over reviewed ownerless handoff WIP; requires the decision file "
+            "filled from `acf continuation workspace review-handoff` by the same runner"
+        ),
+    )
+    continuation_claim_parser.add_argument(
+        "--accept-head",
+        default=None,
+        help="explicitly accept the exact current Git HEAD when --handoff-review-file also records HEAD drift",
+    )
     add_json_argument(continuation_claim_parser)
     continuation_claim_parser.set_defaults(func=continuation_commands.continuation_claim_command)
 

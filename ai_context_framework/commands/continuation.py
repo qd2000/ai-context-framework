@@ -43,6 +43,7 @@ from ai_context_framework import (
     continuation_recovery,
     continuation_rounds,
     continuation_transaction,
+    continuation_handoff_review,
     continuation_workspace,
 )
 from ai_context_framework.commands import continuation_parsers
@@ -50,7 +51,10 @@ from ai_context_framework.commands import continuation_coordination as continuat
 from ai_context_framework.commands import continuation_directives as continuation_directive_commands
 from ai_context_framework.commands import continuation_issue as continuation_issue_commands
 from ai_context_framework.commands import continuation_execution as continuation_execution_commands
+from ai_context_framework.commands import continuation_handoff_review as continuation_handoff_review_commands
+from ai_context_framework.commands import continuation_journal as continuation_journal_commands
 from ai_context_framework.commands import continuation_owner as continuation_owner_commands
+from ai_context_framework.commands import continuation_setup as continuation_setup_commands
 from ai_context_framework.commands import continuation_pause as continuation_pause_commands
 from ai_context_framework.commands import continuation_recovery as continuation_recovery_commands
 from ai_context_framework.commands import continuation_workspace as continuation_workspace_commands
@@ -325,6 +329,7 @@ def _paths(root: Path, task_id: str | None) -> dict[str, Path]:
         "coordination": directory / "coordination.json",
         "workspace": directory / "workspace.json",
         "workspace_reconcile": directory / "last_workspace_reconcile.json",
+        "handoff_takeover": directory / "last_handoff_takeover.json",
         "reconcile": directory / "reconcile.json",
         "recovery": directory / "last_recovery.json",
         "directives": directory / "directives.json",
@@ -959,6 +964,35 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         and not expired_round_head_changed
         and not effect_reconciliation_required
     )
+    workspace_payload = dict(workspace)
+    handoff_reviewable = False
+    if (
+        workspace.get("state") == "valid"
+        and workspace.get("has_conflicts")
+        and ownerless_running_handoff
+        and not effect_reconciliation_required
+        and not expired_round_head_changed
+    ):
+        conflicts = list(workspace.get("conflicts") or [])
+        if conflicts and all(
+            str(item.get("reason")) == "task_owned_handoff_drift" for item in conflicts
+        ):
+            observation = continuation_handoff_review.handoff_review_observation(
+                continuation_workspace_commands.load_workspace_manifest(paths, control) or {},
+                task_id=str(control["task_id"]),
+                snapshot=continuation_workspace_commands.workspace_current_snapshot(root),
+            )
+            if observation is not None:
+                handoff_reviewable = True
+                workspace_payload.update(
+                    {
+                        "handoff_reviewable": True,
+                        "review_path_count": len(observation["paths"]),
+                        "review_paths": list(observation["paths"]),
+                        "source_generation": observation["source_generation"],
+                        "observation_digest": observation["observation_digest"],
+                    }
+                )
     workspace_has_conflicts = bool(workspace.get("has_conflicts"))
     workspace_unclassified_paths = list(workspace.get("unclassified_paths") or [])
     workspace_claimable = (
@@ -977,6 +1011,8 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         blocked.append("workspace_provenance_missing")
     if workspace_has_conflicts:
         blocked.append("workspace_conflict")
+        if handoff_reviewable:
+            blocked.append("workspace_handoff_review_required")
     if pause is not None:
         blocked.append("paused")
     if lease["state"] == "active":
@@ -1003,7 +1039,7 @@ def _status(root: Path, task_id: str | None) -> dict[str, Any]:
         "owner_context_transport": owner_context_transport,
         "round_journal": round_journal,
         "effect_journal": effect_journal,
-        "workspace": workspace,
+        "workspace": workspace_payload,
         "pause": pause,
         "workstream": workstream,
         "state_dir": str(paths["directory"]),
@@ -1146,6 +1182,18 @@ def continuation_doctor_command(args: argparse.Namespace) -> int:
             next_actions.append(
                 "Review directive_hygiene mechanically; do not auto-resolve, withdraw, supersede, or infer semantic completion from age/pressure alone."
             )
+        workspace_payload = result.get("workspace")
+        if isinstance(workspace_payload, Mapping) and workspace_payload.get("handoff_reviewable"):
+            task_flag = f" --task-id {json.dumps(str(result['control']['task_id']))}"
+            next_actions.extend(
+                [
+                    "Run `acf continuation workspace review-handoff "
+                    f"{json.dumps(str(result['control']['workspace_root']))}{task_flag} "
+                    "--runner-id <runner> --draft-file <local-review.json> --json` to generate the fingerprint-bound review package.",
+                    "Review the generated decision draft, then claim in the same activation with "
+                    "`acf continuation claim ... --runner-id <same-runner> --handoff-review-file <local-review.json> --json`.",
+                ]
+            )
         result["next_actions"] = next_actions
         return result
 
@@ -1203,13 +1251,39 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 raise ContinuationError(
                     f"state is not runnable: {state['status']}", code="continuation_not_runnable", exit_code=3
                 )
-            if not status["can_claim"]:
-                raise ContinuationError(
-                    "continuation round cannot be claimed from the current workspace state",
-                    code="continuation_not_claimable",
-                    exit_code=3,
-                    details={"blocked_reasons": status["blocked_reasons"]},
-                )
+            review_file = getattr(args, "handoff_review_file", None)
+            takeover_review = (
+                continuation_handoff_review_commands.load_handoff_review_file(review_file)
+                if review_file
+                else None
+            )
+            if takeover_review is None:
+                if not status["can_claim"]:
+                    raise ContinuationError(
+                        "continuation round cannot be claimed from the current workspace state",
+                        code="continuation_not_claimable",
+                        exit_code=3,
+                        details={"blocked_reasons": status["blocked_reasons"]},
+                    )
+            else:
+                # The reviewed takeover path is the only way past task-owned
+                # handoff drift.  Every other blocker still fails closed, so
+                # this never becomes a broad force-claim.
+                remaining_blockers = [
+                    reason
+                    for reason in status["blocked_reasons"]
+                    if reason not in {"workspace_conflict", "workspace_handoff_review_required"}
+                ]
+                if remaining_blockers:
+                    raise ContinuationError(
+                        "continuation round cannot be claimed with a handoff review file",
+                        code="continuation_not_claimable",
+                        exit_code=3,
+                        details={"blocked_reasons": remaining_blockers},
+                        next_actions=[
+                            "Resolve the reported blockers first; --handoff-review-file only resolves task-owned handoff drift."
+                        ],
+                    )
             control = _load_control(paths, root)
             ttl = int(args.ttl_minutes or control["lease_ttl_minutes"])
             if ttl < 1 or ttl > MAX_LEASE_TTL_MINUTES:
@@ -1258,25 +1332,74 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                     )
                 except continuation_workspace.ContinuationWorkspaceError as exc:
                     raise continuation_workspace_commands.workspace_error(exc) from exc
+            takeover_receipt: dict[str, Any] | None = None
             try:
-                workspace_manifest = continuation_workspace.begin_generation(
-                    workspace_manifest,
-                    task_id=str(control["task_id"]),
-                    generation=generation,
-                    snapshot=workspace_snapshot,
-                    now=_iso(now),
-                )
+                if takeover_review is None:
+                    workspace_manifest = continuation_workspace.begin_generation(
+                        workspace_manifest,
+                        task_id=str(control["task_id"]),
+                        generation=generation,
+                        snapshot=workspace_snapshot,
+                        now=_iso(now),
+                    )
+                else:
+                    assert workspace_manifest is not None
+                    handoff_context = continuation_handoff_review_commands.ownerless_handoff_review_context(
+                        paths,
+                        control,
+                    )
+                    allowed_scopes, context_root = (
+                        continuation_workspace_commands.workstream_direct_write_scopes(
+                            root,
+                            str(control.get("workstream_id")) if control.get("workstream_id") else None,
+                        )
+                    )
+                    if control.get("workstream_id") and not allowed_scopes:
+                        raise ContinuationError(
+                            "bound Workstream has no direct write scope for ownerless handoff takeover",
+                            code="workspace_handoff_review_scope_conflict",
+                            exit_code=3,
+                        )
+                    candidate_paths: dict[str, list[str]] = {}
+                    for entry in [*workspace_snapshot["entries"], *workspace_manifest["task_owned"]]:
+                        path_value = str(entry["path"])
+                        candidate_paths.setdefault(
+                            path_value,
+                            continuation_workspace_commands.workspace_intent_candidates(
+                                root, context_root, path_value
+                            ),
+                        )
+                    workspace_manifest, takeover_receipt = continuation_handoff_review.apply_handoff_review(
+                        workspace_manifest,
+                        task_id=str(control["task_id"]),
+                        runner_id=runner_id,
+                        snapshot=workspace_snapshot,
+                        review=takeover_review,
+                        allowed_scopes=allowed_scopes,
+                        candidate_paths=candidate_paths,
+                        accepted_head=getattr(args, "accept_head", None),
+                        handoff_round=handoff_context["latest_round"],
+                        receipt_id=str(uuid.uuid4()),
+                        now=_iso(now),
+                        new_generation=generation,
+                    )
             except continuation_workspace.ContinuationWorkspaceError as exc:
-                raise continuation_workspace_commands.workspace_error(exc) from exc
-            transaction_snapshot = continuation_transaction.snapshot_paths(
-                [
-                    paths["control"],
-                    paths["lease"],
-                    paths["rounds"],
-                    paths["workspace"],
-                    paths["state"],
-                ]
-            )
+                error = continuation_workspace_commands.workspace_error(exc)
+                error.exit_code = 3
+                error.next_actions = continuation_handoff_review_commands.handoff_review_next_actions(
+                    exc.code, root, control
+                )
+                raise error from exc
+            transaction_paths = [
+                paths["control"],
+                paths["lease"],
+                paths["rounds"],
+                paths["workspace"],
+                paths["state"],
+            ]
+            if takeover_receipt is not None:
+                transaction_paths.append(paths["handoff_takeover"])
+            transaction_snapshot = continuation_transaction.snapshot_paths(transaction_paths)
             owner_context = continuation_workspace_commands.deliver_owner_context(
                 args,
                 paths,
@@ -1292,9 +1415,18 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 _write_json(paths["lease"], lease)
                 _write_json(paths["rounds"], round_journal)
                 _write_json(paths["workspace"], workspace_manifest)
+                if takeover_receipt is not None:
+                    _write_json(paths["handoff_takeover"], takeover_receipt)
                 state["status"] = "running"
                 state["updated_at"] = _iso()
-                if recoverable:
+                if takeover_receipt is not None:
+                    state["verification"] = _append_unique(
+                        state["verification"],
+                        [
+                            "Accepted reviewed ownerless handoff WIP for triage; inherited dirty WIP is preserved but not yet proven correct."
+                        ],
+                    )
+                elif recoverable:
                     state["verification"] = _append_unique(
                         state["verification"], ["Recovered an expired lease after identity/workspace ownership checks."]
                     )
@@ -1338,7 +1470,7 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 # fully committed.  Cleanup failure must never turn a successful
                 # owner transition into an ambiguous caller-visible failure.
                 pass
-            return {
+            payload = {
                 "status": "claimed",
                 "task_id": control["task_id"],
                 "lease": _public_lease(lease),
@@ -1357,197 +1489,23 @@ def continuation_claim_command(args: argparse.Namespace) -> int:
                 "renew_interval_minutes": control["renew_interval_minutes"],
                 "directive_context": directive_context,
             }
+            if takeover_receipt is not None:
+                payload["handoff_takeover"] = {
+                    "status": "accepted_for_triage",
+                    "receipt_id": takeover_receipt["receipt_id"],
+                    "source_generation": takeover_receipt["source_generation"],
+                    "new_generation": takeover_receipt["new_generation"],
+                    "inherited_dirty_wip_count": len(takeover_receipt["inherited_dirty_wip_paths"]),
+                    "inherited_dirty_wip_paths": list(takeover_receipt["inherited_dirty_wip_paths"]),
+                    "preserved_external_paths": list(takeover_receipt["preserved_external_paths"]),
+                    "cleaned_paths": list(takeover_receipt["cleaned_paths"]),
+                    "required_initial_action": "triage_inherited_wip",
+                }
+            return payload
 
     return _guarded(args, "continuation claim", operation)
 
 
-def continuation_progress_command(args: argparse.Namespace) -> int:
-    def operation() -> dict[str, Any]:
-        if args.phase is None and args.milestone is None and not (args.evidence_ref or []):
-            raise ContinuationError(
-                "progress requires --phase, --milestone, or --evidence-ref",
-                code="progress_empty",
-            )
-        root = _workspace_root(args.path)
-        paths = _paths(root, args.task_id)
-        with _state_lock(paths["lock"]):
-            control = _load_control(paths, root)
-            snapshot = _lease_snapshot(paths, control)
-            lease, _owner_context = continuation_workspace_commands.assert_owner_context(
-                args,
-                paths,
-                root=root,
-                control=control,
-                snapshot=snapshot,
-            )
-            generation = _require_fenced_generation(lease)
-            journal = _load_round_journal(paths, control, require_existing=True)
-            milestone = (
-                _validate_public_input_text(args.milestone, field="milestone")
-                if args.milestone is not None
-                else None
-            )
-            evidence_refs = [
-                _validate_public_input_text(value, field="evidence_ref")
-                for value in (args.evidence_ref or [])
-            ]
-            try:
-                journal, record = continuation_rounds.update_round(
-                    journal,
-                    task_id=str(control["task_id"]),
-                    generation=generation,
-                    lease_id=str(lease["lease_id"]),
-                    phase=args.phase,
-                    milestone=milestone,
-                    evidence_refs=evidence_refs,
-                    now=_iso(),
-                )
-            except continuation_rounds.ContinuationRoundError as exc:
-                raise _round_error(exc) from exc
-            _write_json(paths["rounds"], journal)
-            return {
-                "status": "progress_recorded",
-                "round": record,
-                "generation": generation,
-            }
-
-    return _guarded(args, "continuation progress", operation)
-
-
-def continuation_effect_prepare_command(args: argparse.Namespace) -> int:
-    def operation() -> dict[str, Any]:
-        root = _workspace_root(args.path)
-        paths = _paths(root, args.task_id)
-        with _state_lock(paths["lock"]):
-            control = _load_control(paths, root)
-            snapshot = _lease_snapshot(paths, control)
-            lease, _owner_context = continuation_workspace_commands.assert_owner_context(
-                args,
-                paths,
-                root=root,
-                control=control,
-                snapshot=snapshot,
-            )
-            generation = _require_fenced_generation(lease)
-            journal = _load_effect_journal(paths, control)
-            logical_key = _validate_public_input_text(args.key, field="logical_key")
-            kind = _validate_public_input_text(args.kind, field="effect_kind")
-            external_id = (
-                _validate_public_input_text(args.external_id, field="external_id")
-                if args.external_id is not None
-                else None
-            )
-            milestone = (
-                _validate_public_input_text(args.milestone, field="milestone")
-                if args.milestone is not None
-                else None
-            )
-            evidence_refs = [
-                _validate_public_input_text(value, field="evidence_ref")
-                for value in (args.evidence_ref or [])
-            ]
-            try:
-                journal, effect, created, summary, rollover = continuation_effect_archive.prepare_with_rollover(
-                    paths["effects"], journal,
-                    task_id=str(control["task_id"]), generation=generation,
-                    logical_key=logical_key, kind=kind, external_id=external_id,
-                    milestone=milestone, evidence_refs=evidence_refs, now=_iso(),
-                )
-            except continuation_rounds.ContinuationRoundError as exc:
-                raise _round_error(exc) from exc
-            return {
-                "status": "effect_prepared" if created else "effect_exists",
-                "created": created,
-                "effect": effect,
-                "summary": summary,
-                "rollover": rollover,
-            }
-
-    return _guarded(args, "continuation effect prepare", operation)
-
-def continuation_effect_update_command(args: argparse.Namespace) -> int:
-    def operation() -> dict[str, Any]:
-        if (
-            args.status is None
-            and args.external_id is None
-            and args.milestone is None
-            and not (args.evidence_ref or [])
-        ):
-            raise ContinuationError(
-                "effect update requires a status, external id, milestone, or evidence reference",
-                code="effect_update_empty",
-            )
-        root = _workspace_root(args.path)
-        paths = _paths(root, args.task_id)
-        with _state_lock(paths["lock"]):
-            control = _load_control(paths, root)
-            snapshot = _lease_snapshot(paths, control)
-            lease, _owner_context = continuation_workspace_commands.assert_owner_context(
-                args,
-                paths,
-                root=root,
-                control=control,
-                snapshot=snapshot,
-            )
-            generation = _require_fenced_generation(lease)
-            journal = _load_effect_journal(paths, control, require_existing=True)
-            logical_key = _validate_public_input_text(args.key, field="logical_key")
-            external_id = (
-                _validate_public_input_text(args.external_id, field="external_id")
-                if args.external_id is not None
-                else None
-            )
-            milestone = (
-                _validate_public_input_text(args.milestone, field="milestone")
-                if args.milestone is not None
-                else None
-            )
-            evidence_refs = [
-                _validate_public_input_text(value, field="evidence_ref")
-                for value in (args.evidence_ref or [])
-            ]
-            try:
-                journal, effect, summary = continuation_effect_archive.update_across_history(
-                    paths["effects"],
-                    journal,
-                    task_id=str(control["task_id"]),
-                    generation=generation,
-                    logical_key=logical_key,
-                    status=args.status,
-                    external_id=external_id,
-                    milestone=milestone,
-                    evidence_refs=evidence_refs,
-                    now=_iso(),
-                )
-            except continuation_rounds.ContinuationRoundError as exc:
-                raise _round_error(exc) from exc
-            return {
-                "status": "effect_updated",
-                "effect": effect,
-                "summary": summary,
-            }
-
-    return _guarded(args, "continuation effect update", operation)
-def continuation_effect_list_command(args: argparse.Namespace) -> int:
-    def operation() -> dict[str, Any]:
-        root = _workspace_root(args.path)
-        paths = _paths(root, args.task_id)
-        with _state_lock(paths["lock"]):
-            control = _load_control(paths, root)
-            journal = _load_effect_journal(paths, control)
-            try:
-                effects, summary, archive_paths = continuation_effect_archive.list_history(paths["effects"], journal, task_id=str(control["task_id"]))
-            except continuation_rounds.ContinuationRoundError as exc:
-                raise _round_error(exc) from exc
-            return {
-                "status": "listed",
-                "effects": effects,
-                "summary": summary,
-                "path": str(paths["effects"]),
-                "archive_paths": archive_paths,
-            }
-
-    return _guarded(args, "continuation effect list", operation)
 def continuation_recover_command(args: argparse.Namespace) -> int:
     def operation() -> dict[str, Any]:
         root = _workspace_root(args.path)
@@ -1925,16 +1883,16 @@ def register_round_effect_parsers(subparsers, add_json_argument) -> None:
         add_json_argument,
         round_phases=ROUND_PHASES,
         effect_statuses=EFFECT_STATUSES,
-        progress_command=continuation_progress_command,
-        effect_prepare_command=continuation_effect_prepare_command,
-        effect_update_command=continuation_effect_update_command,
-        effect_list_command=continuation_effect_list_command,
+        progress_command=continuation_journal_commands.continuation_progress_command,
+        effect_prepare_command=continuation_journal_commands.continuation_effect_prepare_command,
+        effect_update_command=continuation_journal_commands.continuation_effect_update_command,
+        effect_list_command=continuation_journal_commands.continuation_effect_list_command,
         register_recovery_parsers=continuation_recovery_commands.register_recovery_parsers,
     )
 
 
-continuation_init_command = continuation_workspace_commands.continuation_init_command
-continuation_configure_command = continuation_workspace_commands.continuation_configure_command
+continuation_init_command = continuation_setup_commands.continuation_init_command
+continuation_configure_command = continuation_setup_commands.continuation_configure_command
 continuation_prompt_command = continuation_workspace_commands.continuation_prompt_command
 continuation_workspace_adopt_command = continuation_workspace_commands.continuation_workspace_adopt_command
 continuation_workspace_status_command = continuation_workspace_commands.continuation_workspace_status_command
@@ -1948,6 +1906,13 @@ continuation_issue_command = continuation_issue_commands.continuation_issue_comm
 continuation_assert_owner_command = continuation_owner_commands.continuation_assert_owner_command
 continuation_heartbeat_command = continuation_owner_commands.continuation_heartbeat_command
 continuation_migrate_legacy_token_file_command = continuation_owner_commands.continuation_migrate_legacy_token_file_command
+continuation_effect_prepare_command = continuation_journal_commands.continuation_effect_prepare_command
+continuation_effect_update_command = continuation_journal_commands.continuation_effect_update_command
+continuation_effect_list_command = continuation_journal_commands.continuation_effect_list_command
+continuation_progress_command = continuation_journal_commands.continuation_progress_command
+continuation_workspace_review_handoff_command = (
+    continuation_handoff_review_commands.continuation_workspace_review_handoff_command
+)
 continuation_renew_command = continuation_owner_commands.continuation_renew_command
 continuation_pause_command = continuation_pause_commands.continuation_pause_command
 continuation_resume_command = continuation_pause_commands.continuation_resume_command
