@@ -18,7 +18,7 @@ Inactive
 
 | ID | 状态 | 标题 | Owner | 写入范围 | 依赖 | 输出物 | 详情 |
 |---|---|---|---|---|---|---|---|
-| WS022 | Open | Archive index source path and doctor evidence fix | codex | 详情(16 项) | 无。 | 待补充。 | active/workstreams/WS022.md |
+| 暂无 | Empty | 无。 | 无。 | 无。 | 无。 | 无。 | 无。 |
 
 ---
 
