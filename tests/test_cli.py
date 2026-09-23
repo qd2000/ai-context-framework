@@ -5854,6 +5854,133 @@ class CliTests(unittest.TestCase):
             self.assertNotIn("| 2026-01-01 | Task | Stale |", index_text)
             self.assertIn("Manual archive note outside generated block.", index_text)
 
+    def test_archive_task_plan_index_row_records_source_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Archive source path", "--goal", "Goal"])
+
+            self.assertEqual(
+                self.run_cli(["archive", "task-plan", str(target), "--reason", "done", "--force"]),
+                0,
+            )
+
+            index_text = (target / "archive" / "Archive_Index.md").read_text(encoding="utf-8")
+            self.assertIn("| Plan | Archive source path | active/Task_Plan.md |", index_text)
+            self.assertNotIn("| Plan | Archive source path | 无。 |", index_text)
+
+    def test_archive_current_task_index_row_records_source_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.run_cli(["plan", "init", str(target), "--title", "Large task", "--goal", "Goal"])
+            self.run_cli(["plan", "add-task", str(target), "--title", "First slice"])
+            self.run_cli(["task", "start", str(target), "--id", "T001"])
+            self.run_cli(["task", "done", str(target), "--id", "T001", "--evidence", "done"])
+
+            self.assertEqual(
+                self.run_cli(["archive", "current-task", str(target), "--reason", "completed"]),
+                0,
+            )
+
+            index_text = (target / "archive" / "Archive_Index.md").read_text(encoding="utf-8")
+            self.assertIn("active/Current_Task.md |", index_text)
+            self.assertNotIn("| 无。 |", index_text)
+
+    def test_doctor_archive_evidence_lists_only_missing_task_plan_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.write_archive_sync_details(target)
+            self.run_cli(["archive", "sync", str(target)])
+            extra = target / "archive" / "plans" / "2026-05-04-extra-plan.md"
+            extra.write_text(
+                "## 大任务名称\n\nExtra Plan\n\n"
+                f"{acf.ARCHIVE_RECORD_MARKER_START}\n"
+                "- archived_at: 2026-05-04\n"
+                "- item_type: Plan\n"
+                "- item_id: Extra Plan\n"
+                "- source_path: active/Task_Plan.md\n"
+                "- archive_path: `archive/plans/2026-05-04-extra-plan.md`\n"
+                "- status: Archived\n"
+                "- archive_reason: extra plan\n"
+                f"{acf.ARCHIVE_RECORD_MARKER_END}\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            codes = {finding["code"] for finding in payload["findings"]}
+            self.assertIn("archive_index_generated_block_out_of_sync", codes)
+            self.assertNotIn("archive_index_missing_workstream", codes)
+            finding = next(
+                item for item in payload["findings"] if item["code"] == "archive_index_generated_block_out_of_sync"
+            )
+            self.assertEqual(len(finding["evidence"]), 1)
+            self.assertIn("Extra Plan", finding["evidence"][0]["detail"])
+
+    def test_doctor_archive_evidence_lists_only_missing_workstream_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.write_archive_sync_details(target)
+            self.run_cli(["archive", "sync", str(target)])
+            extra = target / "archive" / "workstreams" / "WS002.md"
+            extra.write_text(
+                "---\n"
+                "id: WS002\n"
+                "status: Done\n"
+                "---\n\n"
+                "# WS002\n\n"
+                f"{acf.WORKSTREAM_ARCHIVE_MARKER_START}\n"
+                "## 归档记录\n\n"
+                "- archived_at: 2026-05-05\n"
+                "- source_path: active/workstreams/WS002.md\n"
+                "- archive_path: `archive/workstreams/WS002.md`\n"
+                "- archive_reason: merged\n"
+                f"{acf.WORKSTREAM_ARCHIVE_MARKER_END}\n",
+                encoding="utf-8",
+            )
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            codes = {finding["code"] for finding in payload["findings"]}
+            self.assertIn("archive_index_missing_workstream", codes)
+            self.assertNotIn("archive_index_generated_block_out_of_sync", codes)
+            finding = next(
+                item for item in payload["findings"] if item["code"] == "archive_index_missing_workstream"
+            )
+            self.assertEqual(len(finding["evidence"]), 1)
+            self.assertIn("WS002", finding["evidence"][0]["detail"])
+
+    def test_doctor_archive_evidence_falls_back_for_ordering_only_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ctx"
+            self.run_cli(["init", str(target), "--profile", "minimal"])
+            self.write_archive_sync_details(target)
+            self.run_cli(["archive", "sync", str(target)])
+            index_path = target / "archive" / "Archive_Index.md"
+            text = index_path.read_text(encoding="utf-8")
+            lines = text.splitlines()
+            dated = [index for index, line in enumerate(lines) if line.startswith("| 2026-")]
+            self.assertGreaterEqual(len(dated), 2)
+            lines[dated[0]], lines[dated[1]] = lines[dated[1]], lines[dated[0]]
+            index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            exit_code, stdout, stderr = self.run_cli_output(["doctor", str(target), "--json"])
+
+            self.assertEqual(exit_code, 0, stderr)
+            payload = self.json_payload(stdout)
+            finding = next(
+                item for item in payload["findings"] if item["code"] == "archive_index_generated_block_out_of_sync"
+            )
+            self.assertEqual(len(finding["evidence"]), 1)
+            self.assertIn("differs from archive files", finding["evidence"][0]["detail"])
+
     def test_knowledge_draft_and_apply(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "ctx"

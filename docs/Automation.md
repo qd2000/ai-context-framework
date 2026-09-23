@@ -55,7 +55,7 @@ WS012 曾使用安装态 directive channel 对上述两个真实需求完成 add
 - `check`：检查目录、必需文件、UTF-8、乱码、空文件、内部 Markdown 引用、任务状态、决策状态、资料状态、ADR 状态一致性和 worklog 日期路径；`--strict` 会将占位符残留视为错误。
 - `plan init|add-task|set-task|focus|status`、`plan reference list|add|remove` 与 `plan stage list|add|set|done`：维护当前大任务计划、轻量子任务板、`## 规划依据` 和 `## 任务阶段` 表；`plan reference` 只写 reference 路径和一句话用途，可用 `--sync-current-task` 显式同步到 Active `active/Current_Task.md`；Task Stage CLI 不创建 task object 单文件，也不自动修改 `active/Current_Task.md`。
 - `task start|done|block|clear`：从任务板启动、完成、阻塞或清空当前小任务。
-- `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并维护 `archive/Archive_Index.md`。
+- `archive current-task|task-plan|list`：归档旧当前任务或旧大任务计划，并维护 `archive/Archive_Index.md`。写入生成块的「原路径」列必须与 `acf archive sync` 渲染所依赖的来源同源（Task → `active/Current_Task.md`、Plan → `active/Task_Plan.md`，均取自归档文件的 ARCHIVE RECORD 标记），不得写占位值，否则归档命令本身就会让生成块与归档文件不一致。
 - `knowledge draft|apply|list|show|mark`：生成可审阅 Knowledge 草案，审阅后写入可复用经验索引，并维护状态。
 - `new task`：生成或重置 `active/Current_Task.md`，默认拒绝覆盖 Active 任务，除非传入 `--force`。
 - `new source`：向 `reference/Sources_Index.md` 添加或更新资料索引行，默认拒绝重复资料标题，除非传入 `--force`。

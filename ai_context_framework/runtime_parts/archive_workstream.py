@@ -69,8 +69,22 @@ def append_archive_index_entry(
     index_path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
 
 
-def update_archive_index(index_path: Path, archive_date: str, item_type: str, title: str, reason: str, detail: str) -> None:
-    append_archive_index_entry(index_path, archive_date, item_type, title, "无。", detail, "Archived", reason)
+def update_archive_index(
+    index_path: Path,
+    archive_date: str,
+    item_type: str,
+    title: str,
+    source_path: str,
+    reason: str,
+    detail: str,
+) -> None:
+    """Append one generated-block row using the same source path the sync renderer derives.
+
+    The renderer recovers `source_path` from the ARCHIVE RECORD marker
+    (`collect_task_plan_archive_rows`), so writing anything else here would make
+    the generated block drift from the archived files immediately after archiving.
+    """
+    append_archive_index_entry(index_path, archive_date, item_type, title, source_path, detail, "Archived", reason)
 
 
 ARCHIVE_FILENAME_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)$")
@@ -275,6 +289,7 @@ def archive_file(root: Path, source: Path, kind: str, reason: str, force: bool, 
         archive_date,
         kind,
         title,
+        source_rel,
         reason.strip() or "归档旧内容。",
         archive_rel,
     )

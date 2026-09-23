@@ -2,6 +2,15 @@
 
 本文件记录 ACF 稳定版本的用户可见变化。完整实现证据、测试矩阵和 Workstream 归档仍保存在 `docs/ai/archive/workstreams/` 与 `docs/ai/worklog/`；本文件只保留发布级摘要。
 
+## v0.0.3.101 — 2026-09-23
+
+### Archive index source path is now written from the same source the sync renderer reads
+
+- 修复「每次归档必然漂移」：`archive current-task` / `archive task-plan` 写入 `archive/Archive_Index.md` 的「原路径」列过去写死为 `无。`，而 `acf archive sync` 的渲染器从归档文件的 ARCHIVE RECORD 标记恢复真实原路径（`active/Current_Task.md` / `active/Task_Plan.md`）。两侧不同源，导致**每执行一次归档，生成块立刻与归档文件不一致**，`acf doctor` 随即报两条 archive drift。现在归档写入传入真实原路径，与渲染同源；Workstream 归档本来就传真实路径，行为不变。
+- `doctor` 的 archive 告警证据精准化：`archive_index_missing_workstream` 与 `archive_index_generated_block_out_of_sync` 的 evidence 过去把所有索引行（本仓库 Workstream 20 条、Task/Plan 44 条）逐条列成“should include”，与实际只差几行的事实不符，容易误导是否可安全 repair 的判断。现在只列「应然行集合 − 实然行集合」的真实差集，并区分「缺失/变更」与「索引行已无归档文件支撑」；纯排序或格式差异退化为一条通用 evidence。判定条件、`repair_mode=safe_fix`、`safe_to_apply` 与建议动作均不变。
+- 兼容性：生成块之外的内容，以及历史上写入的 5 列旧行，仍保留 `无。` 兜底语义，不被本次修复改写。
+- 回归：新增 5 项测试（Task/Plan 归档后索引行记录真实原路径；doctor evidence 只列缺失的 Task/Plan 行、只列缺失的 Workstream 行、排序漂移退化为通用 evidence）；既有 `archive` 14 项与 `doctor` 49 项全绿，命令树快照零漂移（未改 CLI 参数面）。
+
 ## v0.0.3.100 — 2026-09-23
 
 ### Agent-first takeover of ownerless dirty WIP（v0.0.3.99 的不可变重发）

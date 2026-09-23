@@ -347,7 +347,7 @@ PowerShell 中反引号是转义字符。写入包含 Markdown 反引号或多�
 4. `acf check` 会校验本地 Markdown 链接和图片链接的目标文件是否存在；对 `.md#anchor` 会校验目标标题 anchor。`http://`、`https://` 和其他 URI scheme 不做本地校验。
 5. `acf linkify [target] --format markdown` 可把安全识别到的本地路径引用转换为 Markdown 链接；默认只处理 active、reference、rules、decisions、Worklog_Index 和 Archive_Index。
 6. `acf link add [target] <file> --heading "## 输入材料" --target reference/X.md` 可向指定小节追加确定性链接 bullet，不做语义判断、不自动猜 section。
-7. `acf archive current-task|task-plan` 归档移动当前任务或计划时，会按归档文件的新位置重写已有本地 Markdown 相对链接，并追加 `ACF:ARCHIVE:RECORD` marker 供 `archive sync` 恢复归档原因；URL、URI、缺失目标和代码块内链接保持原样。
+7. `acf archive current-task|task-plan` 归档移动当前任务或计划时，会按归档文件的新位置重写已有本地 Markdown 相对链接，并追加 `ACF:ARCHIVE:RECORD` marker 供 `archive sync` 恢复归档原因；写入 `archive/Archive_Index.md` 的索引行「原路径」列与 `archive sync` 渲染同源（Task 为 `active/Current_Task.md`、Plan 为 `active/Task_Plan.md`），不使用占位值，避免归档命令自身让生成块与归档文件不一致；URL、URI、缺失目标和代码块内链接保持原样。
 
 ## 注意力治理
 

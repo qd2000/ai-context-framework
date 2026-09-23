@@ -511,6 +511,80 @@ def planned_archive_index_sync(root: Path) -> tuple[Path, str, str, list[dict[st
     return index_path, original, updated, rows
 
 
+def _archive_row_key(cells: Sequence[str]) -> tuple[str, ...]:
+    """Normalized comparison key for one 7-column archive index row.
+
+    Backticks are stripped because the renderer wraps `archive_path` in them
+    while hand-written rows may omit them; both forms mean the same target.
+    """
+    return tuple(cell.strip().strip("`").strip() for cell in cells[:7])
+
+
+def _generated_archive_block_rows(text: str) -> list[list[str]]:
+    start = text.find(ARCHIVE_INDEX_MARKER_START)
+    end = text.find(ARCHIVE_INDEX_MARKER_END)
+    if start < 0 or end <= start:
+        return []
+    block = text[start + len(ARCHIVE_INDEX_MARKER_START) : end]
+    rows: list[list[str]] = []
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if len(cells) < 7 or cells[0] in {"日期", "暂无"}:
+            continue
+        if all(set(cell) <= {"-", ":"} for cell in cells):
+            continue
+        rows.append(cells[:7])
+    return rows
+
+
+def archive_index_row_diff(
+    rows: Sequence[dict[str, str]], original: str
+) -> tuple[list[list[str]], list[list[str]]]:
+    """Return `(missing_or_changed, stale)` rows for the archive generated block.
+
+    `missing_or_changed` are rows the archived files imply but the current block
+    does not render identically; `stale` are rows the current block renders but
+    no archived file backs. A pure ordering or formatting difference yields two
+    empty lists, so callers must keep a generic fallback finding.
+    """
+    planned: dict[tuple[str, ...], list[str]] = {}
+    for row in rows:
+        cells = [
+            row.get("date", ""),
+            row.get("type", ""),
+            row.get("id", ""),
+            row.get("source_path", ""),
+            row.get("archive_path", ""),
+            row.get("status", ""),
+            row.get("reason", ""),
+        ]
+        planned[_archive_row_key(cells)] = cells
+    current: dict[tuple[str, ...], list[str]] = {}
+    for cells in _generated_archive_block_rows(original):
+        current.setdefault(_archive_row_key(cells), cells)
+    missing = [planned[key] for key in planned if key not in current]
+    stale = [current[key] for key in current if key not in planned]
+    return missing, stale
+
+
+def _archive_diff_evidence(
+    items: Sequence[tuple[str, list[str]]], fallback_path: str
+) -> list[dict[str, str]]:
+    evidence: list[dict[str, str]] = []
+    for kind, cells in items:
+        item_id = cells[2] if len(cells) > 2 else ""
+        path = cells[4] if len(cells) > 4 and cells[4] else fallback_path
+        if kind == "stale":
+            detail = f"archive index row is not backed by an archived file: {item_id}"
+        else:
+            detail = f"archive index should include {item_id}"
+        evidence.append({"path": path.strip(), "detail": detail.strip()})
+    return evidence
+
+
 def collect_generated_index_doctor_findings(root: Path) -> list[dict[str, object]]:
     findings: list[dict[str, object]] = []
     workstream_plan = planned_workstream_index_sync(root)
@@ -538,9 +612,12 @@ def collect_generated_index_doctor_findings(root: Path) -> list[dict[str, object
         index_path, original, updated, rows = archive_plan
         if updated != original:
             rel_index = index_path.relative_to(root).as_posix()
-            workstream_rows = [row for row in rows if row.get("type") == "workstream" and row.get("id")]
-            non_workstream_rows = [row for row in rows if row.get("type") != "workstream"]
-            if workstream_rows:
+            missing, stale = archive_index_row_diff(rows, original)
+            diffs: list[tuple[str, list[str]]] = [("missing", cells) for cells in missing]
+            diffs.extend(("stale", cells) for cells in stale)
+            workstream_diffs = [item for item in diffs if len(item[1]) > 1 and item[1][1] == "workstream"]
+            other_diffs = [item for item in diffs if len(item[1]) <= 1 or item[1][1] != "workstream"]
+            if workstream_diffs:
                 findings.append(
                     doctor_finding(
                         "archive_index_missing_workstream",
@@ -549,19 +626,13 @@ def collect_generated_index_doctor_findings(root: Path) -> list[dict[str, object
                         "archive/Archive_Index.md generated block is out of sync with archived Workstream files.",
                         rel_index,
                         [rel_index],
-                        [
-                            {
-                                "path": row.get("archive_path", rel_index),
-                                "detail": f"archive index should include {row.get('id')}",
-                            }
-                            for row in workstream_rows
-                        ],
+                        _archive_diff_evidence(workstream_diffs, rel_index),
                         "safe_fix",
                         True,
                         ["Run `acf doctor --fix safe` or `acf archive sync` to refresh the Archive index generated block."],
                     )
                 )
-            if non_workstream_rows or not workstream_rows:
+            if other_diffs or not diffs:
                 findings.append(
                     doctor_finding(
                         "archive_index_generated_block_out_of_sync",
@@ -570,13 +641,7 @@ def collect_generated_index_doctor_findings(root: Path) -> list[dict[str, object
                         "archive/Archive_Index.md generated block is out of sync with archived Task/Plan files.",
                         rel_index,
                         [rel_index],
-                        [
-                            {
-                                "path": row.get("archive_path", rel_index),
-                                "detail": f"archive index should include {row.get('type')} {row.get('id')}",
-                            }
-                            for row in non_workstream_rows
-                        ]
+                        _archive_diff_evidence(other_diffs, rel_index)
                         or [{"path": rel_index, "detail": "archive generated block differs from archive files"}],
                         "safe_fix",
                         True,
