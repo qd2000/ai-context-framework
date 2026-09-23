@@ -76,6 +76,7 @@
 | 2026-09-23 | Task | WS019 Ownerless dirty WIP agent-first takeover 收口：文档同步、版本条目与全量门禁 | active/Current_Task.md | `archive/tasks/2026-09-23-ws019-ownerless-dirty-wip-agent-first-takeover-收口-文档同步-版本条目与全量门禁.md` | Archived | WS019-T003 已完成并发布 v0.0.3.100，WS019 已 Done 并归档；当前任务移入 archive/tasks 保留追溯 |
 | 2026-09-23 | workstream | WS019 | active/workstreams/WS019.md | `archive/workstreams/WS019.md` | Done | 已发布 v0.0.3.100 且 done 完成；见 worklog/archive-drafts/2026-09-23.md |
 | 2026-09-23 | workstream | WS020 | active/workstreams/WS020.md | `archive/workstreams/WS020.md` | Done | WS020 已 Done 且 CI run #77 全绿；测试层改动不影响发行包，终态收口把详情移出 active 层 |
+| 2026-09-23 | workstream | WS021 | active/workstreams/WS021.md | `archive/workstreams/WS021.md` | Done | WS021 归档索引生成块对齐已 Done 且 CI run #79 全绿；docs-only 改动不影响发行包，终态收口把详情移出 active 层 |
 <!-- ACF:ARCHIVE:INDEX-GENERATED:END -->
 
 | 日期 | 类型 | ID | 原路径 | 归档路径 | 状态 | 原因 |
